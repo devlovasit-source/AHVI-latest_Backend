@@ -1,0 +1,22 @@
+# Environments and Cache
+.venv/
+__pycache__/
+*/__pycache__/
+*.pyc
+.env
+
+# Ignore AI model weights and heavy folders
+*.safetensors
+*.bin
+*.onnx
+RMBG_2_0/
+local-minilm/
+
+# Ignore Executables and Installers
+*.exe
+
+# Ignore Logs and Temporary Files
+*.log
+*.err
+server_tmp.*
+_tmp_test.png

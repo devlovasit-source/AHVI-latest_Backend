@@ -1,0 +1,21 @@
+# Ignore Heavy Local Models (if hosting them elsewhere)
+/RMBG_2_0
+/local-minilm
+
+# Ignore Python installers and large binaries
+*.exe
+python-3.12.8-amd64.exe
+
+# Ignore Logs and Temp Files
+.env
+.env.*
+!.env.runpod.example
+*.log
+*.err
+server_tmp.*
+_tmp_test.png
+
+# Ignore Cache
+__pycache__/
+*.pyc
+.vscode/
