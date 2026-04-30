@@ -96,7 +96,9 @@ reddit_router = _load_optional_router("routers.reddit")
 # Feature-based
 bg_router = None
 if os.getenv("ENABLE_BG_REMOVER", "false").lower() in ("1", "true", "yes"):
-    if all(_has_module(m) for m in ["transformers", "torch", "PIL"]):
+    # bg_service uses HuggingFace's hosted Inference API (httpx + redis only).
+    # torch/transformers are only needed for the local-model path on RunPod.
+    if _has_module("httpx"):
         bg_router = _load_optional_router("routers.bg_router")
     else:
         _mark_router_skipped("routers.bg_router", "missing_dependency")
