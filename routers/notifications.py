@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import logging
 import os
@@ -31,6 +31,7 @@ def _is_production() -> bool:
 class RegisterDeviceRequest(BaseModel):
     platform: str = Field(..., min_length=2)  # android/ios/web
     token: str = Field(..., min_length=20)
+    user_id: str = Field(default="")
 
 
 class UnregisterDeviceRequest(BaseModel):
@@ -72,8 +73,11 @@ def notifications_health():
 
 
 @router.post("/devices/register")
-def register_device(req: RegisterDeviceRequest, user=Depends(get_current_user)):
-    user_id = str((user or {}).get("user_id") or "")
+def register_device(req: RegisterDeviceRequest, request: Request):
+    state_user = getattr(request.state, "user", None)
+    user_id = str((state_user or {}).get("user_id") or req.user_id or "")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="missing user_id")
     doc_id = notification_store.upsert_device(user_id=user_id, platform=req.platform, token=req.token)
     if not doc_id:
         raise HTTPException(status_code=500, detail="device registration failed")
@@ -81,8 +85,7 @@ def register_device(req: RegisterDeviceRequest, user=Depends(get_current_user)):
 
 
 @router.post("/devices/unregister")
-def unregister_device(req: UnregisterDeviceRequest, user=Depends(get_current_user)):
-    _ = user  # auth gate
+def unregister_device(req: UnregisterDeviceRequest):
     ok = notification_store.delete_device(token=req.token)
     return {"success": True, "deleted": bool(ok)}
 
@@ -113,7 +116,7 @@ def dispatch_due(request: Request, window_seconds: int = 60):
             processed += 1
             doc_id = str(rem.get("$id") or rem.get("id") or "")
             user_id = str(rem.get("userId") or "")
-            message = str(rem.get("message") or "")
+            message = str(rem.get("body") or rem.get("messageText") or rem.get("lastError") or rem.get("message") or "")
             title = "AHVI"
 
             devices = notification_store.list_devices(user_id=user_id)
@@ -152,4 +155,6 @@ def dispatch_due_async(http_request: Request, window_seconds: int = 60):
         request_id=str(getattr(http_request.state, "request_id", "") or ""),
     )
     return {"success": True, "status": "queued", "task_id": task_id}
+
+
 

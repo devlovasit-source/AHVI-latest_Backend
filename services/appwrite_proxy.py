@@ -88,6 +88,18 @@ class AppwriteProxy:
             "chat_messages": os.getenv("APPWRITE_COLLECTION_CHAT_MESSAGES", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CHAT_MESSAGES", ""),
             "memories": os.getenv("APPWRITE_COLLECTION_MEMORIES", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_MEMORIES", ""),
             "jobs": os.getenv("APPWRITE_COLLECTION_JOBS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_JOBS", ""),
+            "notification_devices": (
+                os.getenv("APPWRITE_COLLECTION_NOTIFICATION_DEVICES", "")
+                or os.getenv("APPWRITE_RESOURCE_NOTIFICATION_DEVICES", "")
+                or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_NOTIFICATION_DEVICES", "")
+                or "notification_devices"
+            ),
+            "notification_reminders": (
+                os.getenv("APPWRITE_COLLECTION_NOTIFICATION_REMINDERS", "")
+                or os.getenv("APPWRITE_RESOURCE_NOTIFICATION_REMINDERS", "")
+                or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_NOTIFICATION_REMINDERS", "")
+                or "notification_reminders"
+            ),
         }
         self.resource_aliases = {
             "meal_planner": "meal_plans",
@@ -104,6 +116,10 @@ class AppwriteProxy:
             "lifeboard": "life_boards",
             "contacts": "users",
             "memory": "memories",
+            "notification_device": "notification_devices",
+            "notification_reminder": "notification_reminders",
+            "devices": "notification_devices",
+            "reminders": "notification_reminders",
         }
 
         self.user_field_map = {
@@ -126,6 +142,8 @@ class AppwriteProxy:
             "chat_messages": "userId",
             "memories": "userId",
             "jobs": "userId",
+            "notification_devices": "userId",
+            "notification_reminders": "userId",
         }
 
         self.order_query_map = {
@@ -147,6 +165,8 @@ class AppwriteProxy:
             "chat_messages": {"method": "orderDesc", "attribute": "$createdAt"},
             "memories": {"method": "orderDesc", "attribute": "$updatedAt"},
             "jobs": {"method": "orderDesc", "attribute": "$createdAt"},
+            "notification_devices": {"method": "orderDesc", "attribute": "updatedAtISO"},
+            "notification_reminders": {"method": "orderAsc", "attribute": "sendAtISO"},
         }
 
     def _normalize_resource(self, resource: str) -> str:

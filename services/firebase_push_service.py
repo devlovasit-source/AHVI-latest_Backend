@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 import json
@@ -111,7 +111,11 @@ class FirebasePushService:
             data=safe_data or None,
         )
         try:
-            resp = messaging.send_multicast(message, app=self._app)
+            send_each = getattr(messaging, "send_each_for_multicast", None)
+            if callable(send_each):
+                resp = send_each(message, app=self._app)
+            else:
+                resp = messaging.send_multicast(message, app=self._app)
             return {
                 "success": True,
                 "sent": int(resp.success_count),
@@ -126,4 +130,6 @@ class FirebasePushService:
 
 
 firebase_push_service = FirebasePushService()
+
+
 

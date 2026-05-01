@@ -7,7 +7,7 @@ import requests
 from PIL import Image, ImageFilter, ImageDraw, ImageFont
 
 # NEW ✅
-from services.bg_service import remove_bg_external as remove_background_sync
+from services.bg_service import remove_bg_external_sync as remove_background_sync
 
 class StyleBoardRenderer:
     """
@@ -48,8 +48,8 @@ class StyleBoardRenderer:
             for item in layers.get(layer_name, []):
                 self._place_item(canvas, item, placements.get(item.get("id"), {}))
 
-        # 🔥 TYPOGRAPHY
-        canvas = self._add_text(canvas, board)
+        if str(os.getenv("STYLE_BOARD_INCLUDE_TEXT", "false")).lower() in {"1", "true", "yes"}:
+            canvas = self._add_text(canvas, board)
 
         buffer = io.BytesIO()
         canvas.save(buffer, format="PNG")
@@ -170,7 +170,7 @@ class StyleBoardRenderer:
         scale = placement.get("scale", 1.0)
         rotation = placement.get("rotation", 0)
 
-        base_width = int(400 * scale)
+        base_width = int(self._base_width_for_item(item) * scale)
 
         w, h = img.size
         ratio = base_width / max(w, 1)
@@ -179,6 +179,27 @@ class StyleBoardRenderer:
         img = img.rotate(rotation, expand=True)
 
         return img
+
+    def _base_width_for_item(self, item):
+        text = " ".join(
+            [
+                str(item.get("type") or ""),
+                str(item.get("category") or ""),
+                str(item.get("sub_category") or ""),
+                str(item.get("name") or ""),
+            ]
+        ).lower()
+        if any(x in text for x in ["dress", "saree", "lehenga", "gown", "jumpsuit"]):
+            return 420
+        if any(x in text for x in ["bottom", "jean", "trouser", "pant", "skirt"]):
+            return 360
+        if any(x in text for x in ["top", "shirt", "kurta", "blouse", "tee", "jacket", "blazer", "coat"]):
+            return 380
+        if any(x in text for x in ["shoe", "sneaker", "heel", "boot", "sandal", "bag"]):
+            return 300
+        if any(x in text for x in ["watch", "necklace", "earring", "bracelet", "belt", "scarf", "sunglass"]):
+            return 220
+        return 320
 
     # =========================
     # IMAGE LOADING
@@ -219,14 +240,8 @@ class StyleBoardRenderer:
             if str(os.getenv("STYLE_BOARD_APPLY_BG_REMOVAL", "false")).lower() not in {"1", "true", "yes"}:
                 return base
 
-            b64 = base64.b64encode(res.content).decode()
-            result = remove_background_sync(b64)
-            clean = (
-                str(result.get("image_base64") or "").split(",")[-1]
-                if result.get("success") and result.get("bg_removed")
-                else b64
-            )
-            return Image.open(io.BytesIO(base64.b64decode(clean))).convert("RGBA")
+            result = remove_background_sync(res.content)
+            return Image.open(io.BytesIO(result or res.content)).convert("RGBA")
 
         except Exception:
             return None

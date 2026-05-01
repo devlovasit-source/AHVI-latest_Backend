@@ -160,6 +160,7 @@ def persist_selected_items(
                 "status": "active",
 
                 # ✅ NEW FIELDS
+                "image_url": raw_url,
                 "masked_url": masked_url,
                 "raw_url": raw_url,  # optional
 

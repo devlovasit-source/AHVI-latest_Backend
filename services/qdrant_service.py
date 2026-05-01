@@ -105,6 +105,17 @@ class QdrantService:
 
         return [v / norm for v in vector]
 
+    def _fit_vector(self, vector, size=None):
+        if not vector:
+            return []
+        size = int(size or self.vector_size)
+        fitted = [float(v) for v in vector]
+        if len(fitted) == size:
+            return fitted
+        if len(fitted) < size:
+            return fitted + [0.0] * (size - len(fitted))
+        return fitted[:size]
+
     # =========================
     # UPSERT (MAIN)
     # =========================
@@ -112,7 +123,8 @@ class QdrantService:
         if not self._ensure():
             return
 
-        if not vector or len(vector) != self.vector_size:
+        vector = self._fit_vector(vector)
+        if len(vector) != self.vector_size:
             logger.warning("Qdrant vector size mismatch: got %s, expected %s", len(vector) if vector else 0, self.vector_size)
             return
 
@@ -144,7 +156,7 @@ class QdrantService:
         points = []
 
         for item in items:
-            vec = item.get("vector")
+            vec = self._fit_vector(item.get("vector"))
             if not vec or len(vec) != self.vector_size:
                 continue
 
@@ -216,6 +228,7 @@ class QdrantService:
         if not self._ensure() or not vector:
             return []
 
+        vector = self._fit_vector(vector)
         if len(vector) != self.vector_size:
             logger.warning("Qdrant vector size mismatch: got %s, expected %s", len(vector), self.vector_size)
             return []
@@ -290,6 +303,7 @@ class QdrantService:
         if not self._ensure():
             return
 
+        vector = self._fit_vector(vector)
         if not vector or len(vector) != self.vector_size:
             logger.warning("Qdrant image vector size mismatch: got %s, expected %s", len(vector) if vector else 0, self.vector_size)
             return
@@ -311,6 +325,24 @@ class QdrantService:
             )
         except Exception:
             logger.exception("Qdrant image upsert failed")
+
+    def upsert_wardrobe_item(self, item):
+        item = dict(item or {})
+        item_id = str(item.get("id") or "").strip()
+        vector = item.get("embedding") or item.get("vector") or []
+        vector = self._fit_vector(vector)
+        if not item_id or not vector or len(vector) != self.vector_size:
+            return
+
+        payload = {
+            "userId": item.get("userId"),
+            "type": item.get("type"),
+            "category": item.get("category"),
+            "color": item.get("color"),
+            "image_url": item.get("image_url"),
+        }
+        payload = {k: v for k, v in payload.items() if v is not None}
+        self.upsert_item(item_id, vector, payload)
 
     def delete_item(self, item_id):
         if not self._ensure() or not item_id:

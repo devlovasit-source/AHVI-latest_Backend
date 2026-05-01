@@ -2,6 +2,7 @@ import io
 import uuid
 import asyncio
 import os
+import base64
 from typing import List, Dict
 
 import numpy as np
@@ -9,7 +10,7 @@ from PIL import Image
 import httpx
 
 from services.bg_service import remove_bg_bytes
-from services.r2_storage import R2Storage
+from services.r2_storage import R2Storage, R2StorageError
 
 
 # =========================
@@ -21,7 +22,11 @@ RESIZE_LIMIT = 640
 HF_TOKEN = os.getenv("HF_TOKEN")
 HF_URL = "https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny"
 
-TEXT_PROMPT = "shirt . pants . dress . saree . kurta . watch . shoes . bag"
+TEXT_PROMPT = (
+    "shirt . t-shirt . blouse . crop top . pants . trousers . jeans . skirt . shorts . "
+    "dress . gown . saree . kurta . blazer . jacket . coat . sneakers . heels . boots . "
+    "sandals . handbag . backpack . belt . watch . necklace . earrings . bracelet . scarf . sunglasses"
+)
 
 # 🔥 FEATURE FLAGS
 ENABLE_DETECTION = os.getenv("ENABLE_DETECTION", "true") == "true"
@@ -277,25 +282,46 @@ async def run_hybrid_detection(image: Image.Image):
     # -------------------------
     # UPLOAD
     # -------------------------
-    async def upload_one(raw, masked, label):
+    async def upload_one(raw, masked, meta_row):
         file_id = str(uuid.uuid4())
+        label = str(meta_row.get("label") or "item")
+        fallback = {
+            "item_id": file_id,
+            "label": label,
+            "score": float(meta_row.get("score") or 0.0),
+            "bbox": meta_row.get("bbox") or [],
+            "raw_url": None,
+            "masked_url": None,
+            "raw_image_base64": "data:image/jpeg;base64," + base64.b64encode(raw).decode("ascii"),
+            "masked_image_base64": "data:image/png;base64," + base64.b64encode(masked).decode("ascii"),
+            "upload_error": "",
+        }
 
-        upload = r2.upload_wardrobe_images(
-            file_id=file_id,
-            raw_image_bytes=raw,
-            masked_image_bytes=masked
-        )
+        try:
+            upload = r2.upload_wardrobe_images(
+                file_id=file_id,
+                raw_image_bytes=raw,
+                masked_image_bytes=masked
+            )
+        except (R2StorageError, Exception) as exc:
+            fallback["upload_error"] = str(exc)
+            return fallback
 
         return {
             "item_id": file_id,
             "label": label,
+            "score": float(meta_row.get("score") or 0.0),
+            "bbox": meta_row.get("bbox") or [],
             "raw_url": upload["raw_image_url"],
-            "masked_url": upload["masked_image_url"]
+            "masked_url": upload["masked_image_url"],
+            "raw_image_base64": fallback["raw_image_base64"],
+            "masked_image_base64": fallback["masked_image_base64"],
+            "upload_error": "",
         }
 
     results = await asyncio.gather(
         *[
-            upload_one(crops[i], masked_list[i], meta[i]["label"])
+            upload_one(crops[i], masked_list[i], meta[i])
             for i in range(len(crops))
         ]
     )

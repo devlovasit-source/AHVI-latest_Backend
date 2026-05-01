@@ -173,6 +173,118 @@ class DemoHardeningTests(unittest.TestCase):
 
         self.assertEqual(proxy.api_key, "")
 
+    def test_wardrobe_label_fallback_requires_manual_entry(self):
+        from routers import wardrobe_capture
+
+        label = wardrobe_capture._vision_extract_attributes("", "blue shirt")
+
+        self.assertEqual(label["name"], "Blue Shirt")
+        self.assertEqual(label["label_source"], "heuristic")
+        self.assertTrue(label["requires_manual_entry"])
+
+    def test_wardrobe_label_vision_contract(self):
+        from routers import wardrobe_capture
+
+        class FakeResponse:
+            content = b"image-bytes"
+
+            def raise_for_status(self):
+                return None
+
+        with patch.object(wardrobe_capture.requests, "get", return_value=FakeResponse()), patch.object(
+            wardrobe_capture.ai_gateway,
+            "ollama_vision_json",
+            return_value=(
+                {
+                    "name": "Blue checked shirt",
+                    "category": "Tops",
+                    "sub_category": "Shirt",
+                    "pattern": "checked",
+                    "color_name": "blue",
+                    "occasions": ["casual", "work", "unknown"],
+                },
+                {},
+            ),
+        ):
+            label = wardrobe_capture._vision_extract_attributes("https://example.test/item.png", "item")
+
+        self.assertEqual(label["name"], "Blue checked shirt")
+        self.assertEqual(label["category"], "Tops")
+        self.assertEqual(label["sub_category"], "Shirt")
+        self.assertEqual(label["pattern"], "checked")
+        self.assertEqual(label["color_name"], "blue")
+        self.assertEqual(label["occasions"], ["casual", "work"])
+        self.assertEqual(label["label_source"], "vision")
+        self.assertFalse(label["requires_manual_entry"])
+
+    def test_wardrobe_persistence_saves_raw_and_masked_urls(self):
+        import services.wardrobe_persistence_service as persistence
+
+        captured = {}
+
+        def fake_create_document(document_id, data):
+            captured["document_id"] = document_id
+            captured["data"] = data
+            return {"$id": document_id, **data}
+
+        def fake_qdrant_upsert(payload):
+            captured["qdrant"] = payload
+
+        item = {
+            "item_id": "item_1",
+            "name": "Blue Shirt",
+            "category": "Tops",
+            "sub_category": "Shirt",
+            "color_code": "#336699",
+            "pattern": "plain",
+            "occasions": ["casual"],
+            "raw_url": "https://raw.example/item.png",
+            "masked_url": "https://masked.example/item.png",
+        }
+
+        with patch.object(persistence, "_appwrite_ready", return_value=True), patch.object(
+            persistence, "_create_document", side_effect=fake_create_document
+        ), patch.object(persistence.embedding_service, "encode_text", return_value=[0.1, 0.2]), patch.object(
+            persistence.qdrant_service, "upsert_wardrobe_item", side_effect=fake_qdrant_upsert
+        ):
+            result = persistence.persist_selected_items("user_auth", ["item_1"], [item])
+
+        self.assertTrue(result["success"])
+        self.assertEqual(captured["data"]["image_url"], "https://raw.example/item.png")
+        self.assertEqual(captured["data"]["raw_url"], "https://raw.example/item.png")
+        self.assertEqual(captured["data"]["masked_url"], "https://masked.example/item.png")
+        self.assertEqual(captured["data"]["userId"], "user_auth")
+        self.assertEqual(captured["qdrant"]["image_url"], "https://masked.example/item.png")
+
+    def test_qdrant_wardrobe_upsert_accepts_minilm_vector(self):
+        from services.qdrant_service import QdrantService
+
+        service = QdrantService()
+        service.vector_size = 512
+        captured = {}
+
+        def fake_upsert_item(item_id, vector, payload):
+            captured["item_id"] = item_id
+            captured["vector"] = vector
+            captured["payload"] = payload
+
+        with patch.object(service, "upsert_item", side_effect=fake_upsert_item):
+            service.upsert_wardrobe_item(
+                {
+                    "id": "item_1",
+                    "userId": "user_auth",
+                    "category": "Tops",
+                    "embedding": [0.01] * 384,
+                    "image_url": "https://masked.example/item.png",
+                }
+            )
+
+        self.assertEqual(captured["item_id"], "item_1")
+        self.assertEqual(len(captured["vector"]), 512)
+        self.assertEqual(captured["vector"][383], 0.01)
+        self.assertEqual(captured["vector"][384], 0.0)
+        self.assertEqual(captured["payload"]["image_url"], "https://masked.example/item.png")
+
 
 if __name__ == "__main__":
     unittest.main()

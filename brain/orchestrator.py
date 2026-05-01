@@ -3,9 +3,13 @@ from __future__ import annotations
 import json
 import logging
 import re
+import base64
+import uuid
 from typing import Any, Dict, List
 
 from brain.daily_dependency_engine import build_daily_dependency_response
+from brain.engines.style_board_engine import style_board_engine
+from brain.engines.style_board_renderer import style_board_renderer
 from brain.engines.fitness.fitness_engine import fitness_engine
 from brain.engines.proactive_engine import proactive_engine
 from brain.intelligence.bank_snippets import (
@@ -42,6 +46,59 @@ def _first_dict(value: Any) -> Dict[str, Any]:
         if isinstance(first, dict):
             return dict(first)
     return {}
+
+
+def _render_style_boards_for_chat(
+    cards: List[Dict[str, Any]],
+    context: Dict[str, Any],
+    *,
+    include_base64: bool,
+) -> List[Dict[str, Any]]:
+    if not include_base64 or not cards:
+        return []
+
+    rendered: List[Dict[str, Any]] = []
+    style_dna = _dict(context.get("style_dna"))
+    for idx, card in enumerate(cards[:3]):
+        if not isinstance(card, dict):
+            continue
+        items = card.get("items") if isinstance(card.get("items"), list) else []
+        if not items:
+            continue
+        try:
+            board = style_board_engine.build_board(
+                {"items": items, "score": card.get("score")},
+                context,
+            )
+            image_bytes = style_board_renderer.render(board)
+            image_base64 = base64.b64encode(image_bytes).decode("ascii") if image_bytes else None
+        except Exception as exc:
+            logger.warning("style board render failed: %s", exc)
+            board = {}
+            image_base64 = None
+
+        rendered.append(
+            {
+                "board_id": str(uuid.uuid4()),
+                "type": "style",
+                "label": card.get("title") or "AHVI Style Board",
+                "score": card.get("score"),
+                "aesthetic": board.get("aesthetic"),
+                "vibe": board.get("vibe"),
+                "items": items,
+                "image_base64": image_base64,
+                "image_url": None,
+                "board_payload": {
+                    "items": items,
+                    "aesthetic": board.get("aesthetic"),
+                    "vibe": board.get("vibe"),
+                    "score": card.get("score"),
+                    "style_dna": style_dna,
+                    "card_id": card.get("id") or f"outfit_card_{idx + 1}",
+                },
+            }
+        )
+    return rendered
 
 
 def _coerce_wardrobe_payload(value: Any) -> list[dict]:
@@ -499,6 +556,16 @@ class AhviOrchestrator:
             board_item_ids = outfit_result.get("board_item_ids") if isinstance(outfit_result.get("board_item_ids"), list) else []
             board_item_ids = [str(x).strip() for x in board_item_ids if str(x).strip()]
             primary_board_id = board_item_ids[0] if board_item_ids else ""
+            cards = outfit_result.get("cards") if isinstance(outfit_result.get("cards"), list) else []
+            rendered_boards = _render_style_boards_for_chat(
+                cards,
+                {
+                    **ctx,
+                    "query": query,
+                    "occasion": occasion or _safe_text(ctx.get("occasion")),
+                },
+                include_base64=bool(ctx.get("include_base64")),
+            )
 
             try:
                 logger.info(
@@ -507,7 +574,7 @@ class AhviOrchestrator:
                     uid,
                     wardrobe_source,
                     len(wardrobe),
-                    len(outfit_result.get("cards") or []) if isinstance(outfit_result.get("cards"), list) else 0,
+                    len(cards),
                     primary_board_id,
                 )
             except Exception:
@@ -518,13 +585,14 @@ class AhviOrchestrator:
                 "message": toned,
                 "board": "style",
                 "type": "cards",
-                "cards": outfit_result.get("cards") if isinstance(outfit_result.get("cards"), list) else [],
+                "cards": cards,
                 # Flutter currently consumes board_ids as a single id string.
                 "board_ids": primary_board_id,
                 "data": {
                     "outfits": outfits,
                     "visual_intelligence": visual_intel,
                     "pipeline": _dict(outfit_result.get("pipeline")),
+                    "rendered_boards": rendered_boards,
                     "board_item_ids": board_item_ids,
                 },
                 "meta": {

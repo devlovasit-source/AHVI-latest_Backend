@@ -4,6 +4,7 @@ __pycache__/
 */__pycache__/
 *.pyc
 .env
+.env.*.bak
 
 # Ignore AI model weights and heavy folders
 *.safetensors

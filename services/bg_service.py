@@ -5,15 +5,20 @@ from typing import Optional
 
 import httpx
 from redis.asyncio import Redis
+from dotenv import load_dotenv
 
 
 # =========================
 # CONFIG
 # =========================
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
 HF_TOKEN = os.getenv("HF_TOKEN")
 HF_BG_URL = "https://api-inference.huggingface.co/models/briaai/RMBG-2.0"
+RUNPOD_BG_SINGLE_URL = os.getenv("RUNPOD_BG_SINGLE_URL", "").strip()
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+REDIS_URL = str(os.getenv("REDIS_URL", "") or "").strip()
 CACHE_TTL = 60 * 60  # 1 hour
 LOCK_TTL = 30  # seconds
 
@@ -21,10 +26,12 @@ LOCK_TTL = 30  # seconds
 # =========================
 # REDIS CLIENT (GLOBAL)
 # =========================
-redis_client = Redis.from_url(
-    REDIS_URL,
-    decode_responses=False  # IMPORTANT: we store raw bytes
-)
+redis_client = None
+if REDIS_URL and "${{" not in REDIS_URL:
+    redis_client = Redis.from_url(
+        REDIS_URL,
+        decode_responses=False  # IMPORTANT: we store raw bytes
+    )
 
 
 # =========================
@@ -35,6 +42,8 @@ def _hash_bytes(data: bytes) -> str:
 
 
 async def _get_cached(cache_key: str) -> Optional[bytes]:
+    if redis_client is None:
+        return None
     try:
         return await redis_client.get(cache_key)
     except Exception as e:
@@ -43,6 +52,8 @@ async def _get_cached(cache_key: str) -> Optional[bytes]:
 
 
 async def _set_cached(cache_key: str, value: bytes):
+    if redis_client is None:
+        return
     try:
         await redis_client.set(cache_key, value, ex=CACHE_TTL)
     except Exception as e:
@@ -50,6 +61,8 @@ async def _set_cached(cache_key: str, value: bytes):
 
 
 async def _acquire_lock(lock_key: str) -> bool:
+    if redis_client is None:
+        return True
     try:
         return await redis_client.set(lock_key, b"1", ex=LOCK_TTL, nx=True)
     except Exception as e:
@@ -58,6 +71,8 @@ async def _acquire_lock(lock_key: str) -> bool:
 
 
 async def _release_lock(lock_key: str):
+    if redis_client is None:
+        return
     try:
         await redis_client.delete(lock_key)
     except Exception:
@@ -101,8 +116,41 @@ async def remove_bg_bytes(image_bytes: bytes) -> bytes:
     # =========================
     # ❌ NO TOKEN
     # =========================
+    if RUNPOD_BG_SINGLE_URL:
+        try:
+            async with httpx.AsyncClient(timeout=45) as client:
+                res = await client.post(
+                    RUNPOD_BG_SINGLE_URL,
+                    headers={"Content-Type": "application/octet-stream"},
+                    content=image_bytes,
+                )
+            print(f"[RUNPOD BG STATUS] {res.status_code}")
+            if res.status_code == 200 and res.content:
+                content_type = str(res.headers.get("content-type") or "").lower()
+                result = res.content
+                if "application/json" in content_type:
+                    import base64
+
+                    payload = res.json()
+                    encoded = str(
+                        payload.get("image_base64")
+                        or payload.get("base64")
+                        or payload.get("image")
+                        or ""
+                    ).strip()
+                    if "," in encoded:
+                        encoded = encoded.split(",", 1)[1]
+                    result = base64.b64decode(encoded) if encoded else b""
+                if result:
+                    await _set_cached(cache_key, result)
+                    return result
+            else:
+                print("[RUNPOD BG ERROR]", res.text[:300])
+        except Exception as e:
+            print("[RUNPOD BG EXCEPTION]", e)
+
     if not HF_TOKEN:
-        print("[BG] HF token missing ❌")
+        print("[BG] HF token missing")
         return image_bytes
 
     headers = {

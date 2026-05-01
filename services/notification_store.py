@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import os
@@ -32,8 +32,8 @@ class NotificationStore:
 
     def __init__(self) -> None:
         self._appwrite = AppwriteProxy()
-        self.devices_resource = os.getenv("APPWRITE_RESOURCE_NOTIFICATION_DEVICES", "notification_devices")
-        self.reminders_resource = os.getenv("APPWRITE_RESOURCE_NOTIFICATION_REMINDERS", "notification_reminders")
+        self.devices_resource = (os.getenv("APPWRITE_COLLECTION_NOTIFICATION_DEVICES", "") or os.getenv("APPWRITE_RESOURCE_NOTIFICATION_DEVICES", "") or "notification_devices")
+        self.reminders_resource = (os.getenv("APPWRITE_COLLECTION_NOTIFICATION_REMINDERS", "") or os.getenv("APPWRITE_RESOURCE_NOTIFICATION_REMINDERS", "") or "notification_reminders")
         self.max_scan = max(50, int(os.getenv("NOTIFICATION_REMINDER_SCAN_LIMIT", "500")))
 
     # -------------------------
@@ -108,7 +108,7 @@ class NotificationStore:
             if not send_at or not message:
                 continue
 
-            doc_id = _hash_id("rem", f"{uid}|{eid}|{send_at}|{message}", length=36)
+            doc_id = _hash_id("rem", f"{uid}|{eid}|{send_at}|{message}", length=32)
             data = {
                 "userId": uid,
                 "eventId": eid,
@@ -116,9 +116,10 @@ class NotificationStore:
                 "priority": _safe_text(r.get("priority") or "light"),
                 "toneProfile": _safe_text(r.get("toneProfile") or ""),
                 "offsetMinutes": int(r.get("offsetMinutes") or 0),
-                "message": message,
+                "message": int(r.get("messageCode") or 0),
                 "sendAtISO": send_at,
                 "source": _safe_text(source),
+                "lastError": _safe_text(r.get("lastError") or message),
                 "updatedAtISO": _utcnow().isoformat(),
             }
             try:
@@ -173,4 +174,8 @@ class NotificationStore:
 
 
 notification_store = NotificationStore()
+
+
+
+
 

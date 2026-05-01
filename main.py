@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Callable
@@ -470,7 +470,7 @@ async def auth_guard_middleware(request: Request, call_next):
     if str(request.method or "").upper() == "OPTIONS":
         return await call_next(request)
     path = str(request.url.path or "")
-    if path == "/" or path.startswith("/health") or path.startswith("/docs") or path.startswith("/openapi"):
+    if path == "/" or path.startswith("/health") or path == "/api/notifications/health" or path.startswith("/api/notifications/devices/") or path.startswith("/api/notifications/dispatch-due") or path.startswith("/docs") or path.startswith("/openapi"):
         return await call_next(request)
     if path.startswith("/api/tasks/"):
         return await call_next(request)
@@ -525,6 +525,9 @@ async def rate_limit_middleware(request: Request, call_next):
         and not isinstance(getattr(request.state, "user", None), dict)
         and path != "/"
         and not path.startswith("/health")
+        and path != "/api/notifications/health"
+        and not path.startswith("/api/notifications/devices/")
+        and not path.startswith("/api/notifications/dispatch-due")
         and not path.startswith("/docs")
         and not path.startswith("/openapi")
         and not path.startswith("/api/tasks/")
@@ -940,3 +943,5 @@ def list_recent_jobs(limit: int = 25, user_id: str | None = None, request_id: st
         "success": True,
         "jobs": job_tracker.list_recent(limit=limit, user_id=user_id, request_id=request_id),
     }
+
+

@@ -136,14 +136,22 @@ class StyleBoardEngine:
 
         for item in items:
             score = 0
-            t = str(item.get("type", "")).lower()
+            t = str(item.get("type") or item.get("category") or item.get("sub_category") or "").lower()
+            name = str(item.get("name", "")).lower()
+            text = f"{t} {name}"
             color = color_normalizer.normalize(item.get("color"))
 
             # type priority
-            if any(k in t for k in ["outerwear", "dress", "blazer"]):
+            if any(k in text for k in ["dress", "saree", "lehenga", "suit", "blazer", "jacket", "coat"]):
+                score += 3.0
+            elif any(k in text for k in ["top", "shirt", "kurta", "blouse", "tee"]):
+                score += 2.4
+            elif any(k in text for k in ["bottom", "jean", "trouser", "pant", "skirt"]):
                 score += 2.0
-            elif "top" in t:
+            elif any(k in text for k in ["shoe", "sneaker", "heel", "boot", "sandal", "bag"]):
                 score += 1.5
+            elif any(k in text for k in ["watch", "necklace", "earring", "bracelet", "belt", "scarf"]):
+                score += 0.8
 
             # contrast colors
             if color in ["red", "black", "white"]:
@@ -192,14 +200,14 @@ class StyleBoardEngine:
         placements = {}
 
         placements[hero.get("id")] = {
-            "x": 0.5,
-            "y": 0.4,
-            "scale": 1.25,
+            "x": 0.46,
+            "y": 0.44,
+            "scale": 1.35,
             "rotation": 0,
             "z": 3
         }
 
-        positions = [(0.2, 0.75), (0.8, 0.75), (0.3, 0.2), (0.7, 0.2)]
+        positions = [(0.76, 0.72), (0.78, 0.35), (0.23, 0.76), (0.24, 0.23), (0.84, 0.18)]
 
         for i, item in enumerate(supporting):
             item_id = str(item.get("id") or "")

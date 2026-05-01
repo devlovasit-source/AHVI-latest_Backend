@@ -290,6 +290,8 @@ class TextChatRequest(BaseModel):
     user_id: str | None = None
     userID: str | None = None
     module_context: str | None = None
+    include_base64: bool = False
+    wardrobe: Any = None
 
 
 class OutfitFeedbackRequest(BaseModel):
@@ -370,7 +372,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # CACHE
     # -------------------------
     cache_key = _cache_key(user_input, user_id)
-    cached = _CHAT_CACHE.get(cache_key)
+    visual_context = str(request.module_context or "").lower() in {"style", "wardrobe"}
+    cache_visual_boards = bool(request.include_base64 and visual_context)
+    cached = None if cache_visual_boards else _CHAT_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
@@ -456,6 +460,8 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 "memory": request.current_memory,
                 "user_profile": request.user_profile,
                 "module_context": request.module_context,
+                "include_base64": bool(request.include_base64),
+                "wardrobe": request.wardrobe,
                 "history": merged_history[-20:],
                 "weather": weather_data.get("condition"),
                 "time_of_day": weather_data.get("time_of_day"),
@@ -561,6 +567,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # -------------------------
     # CACHE SAVE
     # -------------------------
-    _CHAT_CACHE.set(cache_key, response)
+    if not cache_visual_boards:
+        _CHAT_CACHE.set(cache_key, response)
 
     return response
