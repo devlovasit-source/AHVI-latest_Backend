@@ -28,6 +28,16 @@ from middleware.auth_middleware import get_current_user
 from services.job_tracker import job_tracker
 from services.request_context import set_request_id
 
+_LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=_LOG_LEVEL,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    force=True,
+)
+# Make our app loggers actually emit alongside uvicorn's access log.
+for _ln in ("ahvi", "ahvi.main", "ahvi.routers.chat"):
+    logging.getLogger(_ln).setLevel(_LOG_LEVEL)
+
 logger = logging.getLogger("ahvi.main")
 ROUTER_LOAD_STATUS: dict[str, dict[str, Any]] = {}
 REQUIRED_ROUTERS = set(settings.required_routers or [])
@@ -469,6 +479,11 @@ async def auth_guard_middleware(request: Request, call_next):
     except HTTPException as exc:
         request_id = str(getattr(request.state, "request_id", "") or "")
         code = _HTTP_ERROR_CODES.get(exc.status_code, "HTTP_ERROR")
+        has_auth_header = bool(request.headers.get("authorization"))
+        logger.warning(
+            "auth_guard_reject path=%s status=%s reason=%r has_auth_header=%s request_id=%s",
+            path, exc.status_code, str(exc.detail), has_auth_header, request_id,
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content={
