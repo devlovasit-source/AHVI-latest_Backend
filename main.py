@@ -455,6 +455,10 @@ async def request_tracing_middleware(request: Request, call_next):
 async def auth_guard_middleware(request: Request, call_next):
     if not settings.auth_required:
         return await call_next(request)
+    # CORS preflights never carry an Authorization header. Let the CORS
+    # middleware below answer them.
+    if str(request.method or "").upper() == "OPTIONS":
+        return await call_next(request)
     path = str(request.url.path or "")
     if path == "/" or path.startswith("/health") or path.startswith("/docs") or path.startswith("/openapi"):
         return await call_next(request)
