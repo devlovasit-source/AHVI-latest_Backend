@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 
 
@@ -88,8 +88,22 @@ class ToneEngine:
 
         return text
 
+
+    def build_prompt_tone(self, user_profile: dict = None, signals: dict = None):
+        """Compatibility shim for older services that ask for prompt-level tone."""
+        user_profile = user_profile or {}
+        signals = signals or {}
+        generation = self._detect_generation(user_profile)
+        context_mode = signals.get("context_mode", "general")
+        rules = self.config.get("context_modes", {}).get(context_mode, {}) if isinstance(self.config, dict) else {}
+        return {
+            "generation": generation,
+            "context_mode": context_mode,
+            "tone_instruction": rules.get("instruction") or "Warm, concise, practical AHVI styling tone.",
+        }
+
     # =========================
-    # 🔥 FEEDBACK LEARNING
+    # ðŸ”¥ FEEDBACK LEARNING
     # =========================
     def _update_learning(self, memory, signals, aesthetic):
 
@@ -131,7 +145,7 @@ class ToneEngine:
         return memory
 
     # =========================
-    # 👤 USER STYLE APPLY
+    # ðŸ‘¤ USER STYLE APPLY
     # =========================
     def _apply_user_preference(self, text, prefs, limits: dict = None):
         limits = limits or {}
@@ -154,7 +168,7 @@ class ToneEngine:
         return text
 
     # =========================
-    # 🎨 OUTFIT AWARENESS
+    # ðŸŽ¨ OUTFIT AWARENESS
     # =========================
     def _extract_outfit_aesthetic(self, context):
 
@@ -337,3 +351,4 @@ class ToneEngine:
 
 # Singleton
 tone_engine = ToneEngine()
+

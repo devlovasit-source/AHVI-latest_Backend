@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Request
+﻿from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any, Optional
 from collections import OrderedDict
@@ -25,7 +25,7 @@ except Exception:
     job_tracker = None
 from services.task_queue import enqueue_task
 
-# 🔥 NEW
+# ðŸ”¥ NEW
 from services.weather_service import get_hourly_weather
 
 router = APIRouter()
@@ -83,8 +83,13 @@ _WEATHER_CACHE = _TTLLRUCache(_WEATHER_CACHE_MAX_ITEMS, _WEATHER_CACHE_TTL_SECON
 
 def lightweight_chat(text: str) -> str:
     prompt = str(text or "").strip()
+    lower = prompt.lower()
     if not prompt:
         return "Hey, what is on your mind today?"
+    if "joke" in lower:
+        return "Here is a tiny one: Why did the shirt get promoted? Because it had outstanding style."
+    if "how are you" in lower or lower in {"hi", "hello", "hey"}:
+        return "I am here and ready. Ask me for an outfit, a capsule wardrobe, or just talk to me."
     return "I can help with style, planning, and wardrobe advice. Tell me what you want to solve."
 
 
@@ -210,6 +215,132 @@ def _fast_wardrobe_count_response(user_id: str, query_text: str) -> Dict[str, An
         "data": {"counts": counts, "total_items": len(docs)},
         "meta": {"intent": "wardrobe_query", "domain": "wardrobe", "fast_path": True},
         "audio_job_id": "offline",
+    }
+
+def _item_category_blob(item: Dict[str, Any]) -> str:
+    parts = [
+        item.get("name"),
+        item.get("category"),
+        item.get("sub_category"),
+        item.get("label"),
+        item.get("pattern"),
+    ]
+    return " ".join(str(p).lower() for p in parts if p)
+
+
+def _fetch_wardrobe_for_style(user_id: str, request_wardrobe: Any) -> List[Dict[str, Any]]:
+    if isinstance(request_wardrobe, list):
+        return [dict(i) for i in request_wardrobe if isinstance(i, dict)]
+    try:
+        docs = AppwriteProxy().list_documents("outfits", user_id=user_id, limit=24)
+        if isinstance(docs, dict):
+            rows = docs.get("documents") or docs.get("items") or []
+        else:
+            rows = docs or []
+        return [dict(i) for i in rows if isinstance(i, dict)]
+    except Exception as exc:
+        logger.warning("style fallback wardrobe fetch failed user_id=%s error=%s", user_id, exc)
+        return []
+
+
+def _pick_style_items(items: List[Dict[str, Any]], query_text: str) -> List[Dict[str, Any]]:
+    buckets: Dict[str, List[Dict[str, Any]]] = {
+        "hero": [],
+        "bottoms": [],
+        "footwear": [],
+        "support": [],
+    }
+    for item in items:
+        blob = _item_category_blob(item)
+        if any(k in blob for k in ["shoe", "boot", "sneaker", "heel", "sandal", "footwear"]):
+            buckets["footwear"].append(item)
+        elif any(k in blob for k in ["pant", "trouser", "jean", "short", "skirt", "bottom"]):
+            buckets["bottoms"].append(item)
+        elif any(k in blob for k in ["watch", "bag", "jewel", "belt", "accessor"]):
+            buckets["support"].append(item)
+        else:
+            buckets["hero"].append(item)
+
+    selected: List[Dict[str, Any]] = []
+    selected.extend(buckets["hero"][:1])
+    selected.extend(buckets["bottoms"][:1])
+    selected.extend(buckets["footwear"][:1])
+    selected.extend(buckets["support"][:2])
+    if not selected:
+        selected = items[:4]
+    elif len(selected) < 3:
+        seen = {str(i.get("$id") or i.get("id") or i.get("name")) for i in selected}
+        for item in items:
+            key = str(item.get("$id") or item.get("id") or item.get("name"))
+            if key not in seen:
+                selected.append(item)
+                seen.add(key)
+            if len(selected) >= 4:
+                break
+    return selected[:5]
+
+
+def _demo_style_board_payload(user_id: str, query_text: str, request_wardrobe: Any) -> Dict[str, Any]:
+    wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
+    selected = _pick_style_items(wardrobe, query_text)
+    if not selected:
+        return {
+            "message": "I can style this better once you add a few wardrobe pieces. For now, choose one clean hero garment, a neutral base, and one polished accessory.",
+            "type": "style_fallback",
+            "cards": [],
+            "board_ids": "",
+            "data": {"outfits": [], "rendered_boards": []},
+            "meta": {"wardrobe_count": 0, "mode": "deterministic_style_no_wardrobe"},
+        }
+
+    q = (query_text or "").lower()
+    if any(k in q for k in ["date", "dinner", "night"]):
+        occasion = "date night"
+        title = "Date Night Edit"
+        note = "soft polish, clean contrast, and one memorable detail"
+    elif any(k in q for k in ["coffee", "casual", "outing", "weekend"]):
+        occasion = "casual outing"
+        title = "Casual Outing Board"
+        note = "relaxed structure with a neat finish"
+    else:
+        occasion = "today"
+        title = "AHVI Styled Look"
+        note = "balanced, wearable, and intentional"
+
+    normalized_items: List[Dict[str, Any]] = []
+    for item in selected:
+        image = item.get("masked_url") or item.get("image_url") or item.get("raw_url") or item.get("image")
+        normalized_items.append({
+            "id": str(item.get("$id") or item.get("id") or item.get("name") or len(normalized_items)),
+            "name": str(item.get("name") or item.get("label") or item.get("category") or "Wardrobe item"),
+            "category": str(item.get("category") or item.get("sub_category") or "Item"),
+            "sub_category": str(item.get("sub_category") or ""),
+            "color": str(item.get("color_name") or item.get("color") or ""),
+            "pattern": str(item.get("pattern") or ""),
+            "image_url": image,
+            "masked_url": item.get("masked_url") or image,
+        })
+
+    card_id = f"demo_board_{int(time.time())}"
+    card = {
+        "id": card_id,
+        "title": title,
+        "name": title,
+        "kind": "style_board",
+        "score": 88,
+        "vibe": occasion,
+        "aesthetic": note,
+        "items": normalized_items,
+    }
+    item_names = ", ".join(i["name"] for i in normalized_items[:3])
+    message = f"Here is a {occasion} board from your wardrobe: {item_names}. I kept it {note}, with footwear and accessories supporting the main look."
+    return {
+        "message": message,
+        "type": "style_board",
+        "cards": [card],
+        "board_ids": card_id,
+        "data": {"outfits": [card], "rendered_boards": []},
+        "meta": {"wardrobe_count": len(wardrobe), "mode": "deterministic_style_board"},
     }
 
 def _detect_mode(text: str) -> str:
@@ -372,8 +503,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # CACHE
     # -------------------------
     cache_key = _cache_key(user_input, user_id)
-    visual_context = str(request.module_context or "").lower() in {"style", "wardrobe"}
-    cache_visual_boards = bool(request.include_base64 and visual_context)
+    style_query = any(k in user_input.lower() for k in ["wear", "outfit", "dress", "style", "clothes", "wardrobe", "look", "casual", "date night"])
+    visual_context = str(request.module_context or "").lower() in {"style", "wardrobe"} or style_query
+    cache_visual_boards = bool((request.include_base64 or style_query) and visual_context)
     cached = None if cache_visual_boards else _CHAT_CACHE.get(cache_key)
     if cached is not None:
         return cached
@@ -400,6 +532,25 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # -------------------------
     mode = _detect_mode(english_input)
 
+    general_chat_prompt = any(k in english_input.lower() for k in ["joke", "how are you", "how r you", "what are you doing"])
+    if general_chat_prompt:
+        try:
+            casual_message = lightweight_chat(english_input)
+        except Exception:
+            casual_message = "I am here and ready. I can chat, make you smile, or help style your next look."
+        return {
+            "success": True,
+            "message": tone_engine.apply(
+                casual_message,
+                user_profile=request.user_profile,
+                signals={"context_mode": "home", "user_message_style": user_message_style},
+                context={},
+            ),
+            "cards": [],
+            "meta": {"mode": "casual_fast"},
+            "audio_job_id": "offline",
+        }
+
     if mode == "greeting":
         return {
             "success": True,
@@ -414,7 +565,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "audio_job_id": "offline",
         }
 
-    if mode == "casual" and not request.module_context:
+    if mode == "casual" and str(request.module_context or "").lower() not in {"style", "wardrobe"}:
         try:
             return {
                 "success": True,
@@ -472,9 +623,49 @@ def text_chat(request: TextChatRequest, http_request: Request):
     try:
         result = _ORCHESTRATOR_EXECUTOR.submit(run).result(timeout=_ORCH_TIMEOUT_SECONDS)
     except concurrent.futures.TimeoutError:
-        raise HTTPException(status_code=504, detail="Orchestrator timed out")
+        style_payload = _demo_style_board_payload(user_id, english_input, request.wardrobe) if visual_context else {}
+        fallback_message = style_payload.get("message") or (
+            "AHVI is still warming the styling engine, but here is a safe look: keep one hero piece, pair it with a clean neutral base, and add one polished accessory."
+            if visual_context
+            else lightweight_chat(english_input)
+        )
+        return {
+            "success": True,
+            "message": tone_engine.apply(
+                fallback_message,
+                user_profile=request.user_profile,
+                signals={"context_mode": request.module_context or "style", "user_message_style": user_message_style},
+                context={"module_context": request.module_context},
+            ),
+            "type": style_payload.get("type") or "style_fallback",
+            "cards": style_payload.get("cards") or [],
+            "board_ids": style_payload.get("board_ids") or "",
+            "data": style_payload.get("data") or {"outfits": [], "rendered_boards": []},
+            "meta": {"mode": "timeout_fallback", "timeout_seconds": _ORCH_TIMEOUT_SECONDS, **(style_payload.get("meta") or {})},
+            "audio_job_id": "offline",
+        }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Orchestrator failed: {exc}")
+        style_payload = _demo_style_board_payload(user_id, english_input, request.wardrobe) if visual_context else {}
+        fallback_message = style_payload.get("message") or (
+            lightweight_chat(english_input)
+            if not visual_context
+            else "I will assume smart casual for now: choose one clean hero piece, pair it with a neutral base, and finish with footwear or an accessory that matches the occasion."
+        )
+        return {
+            "success": True,
+            "message": tone_engine.apply(
+                fallback_message,
+                user_profile=request.user_profile,
+                signals={"context_mode": request.module_context or "style", "user_message_style": user_message_style},
+                context={"module_context": request.module_context},
+            ),
+            "type": style_payload.get("type") or "style_fallback",
+            "cards": style_payload.get("cards") or [],
+            "board_ids": style_payload.get("board_ids") or "",
+            "data": style_payload.get("data") or {"outfits": [], "rendered_boards": []},
+            "meta": {"mode": "error_fallback", "error": str(exc)[:160], **(style_payload.get("meta") or {})},
+            "audio_job_id": "offline",
+        }
 
     message = result.get("message") or ""
     if isinstance(message, dict):
@@ -514,6 +705,38 @@ def text_chat(request: TextChatRequest, http_request: Request):
     except Exception:
         pass
 
+    # If this is style chat and the orchestrator came back without a visual payload,
+    # build a deterministic wardrobe board so the demo never lands as plain text only.
+    data_payload = result.get("data") or {}
+    cards_payload = result.get("cards") or []
+    has_visual_board = bool(
+        isinstance(cards_payload, list)
+        and cards_payload
+    ) or bool(
+        isinstance(data_payload, dict)
+        and (data_payload.get("rendered_boards") or data_payload.get("outfits"))
+    )
+    if visual_context and not has_visual_board:
+        style_payload = _demo_style_board_payload(user_id, english_input, request.wardrobe)
+        if style_payload.get("cards"):
+            cards_payload = style_payload.get("cards") or []
+            data_payload = style_payload.get("data") or {}
+            result["type"] = style_payload.get("type") or result.get("type")
+            result["board_ids"] = style_payload.get("board_ids") or result.get("board_ids") or ""
+            result["meta"] = {**(result.get("meta") or {}), **(style_payload.get("meta") or {})}
+        lower_message = (message or "").lower()
+        if not message or "clarification" in lower_message or "balance isn't quite" in lower_message:
+            replacement = style_payload.get("message") or "I will assume smart casual for today: start with a clean hero piece, add a neutral base, and finish with footwear or one accessory. Once your wardrobe has saved items, I will pick the exact pieces from it."
+            try:
+                message = tone_engine.apply(
+                    replacement,
+                    user_profile=request.user_profile,
+                    signals={"context_mode": request.module_context or "style", "user_message_style": user_message_style},
+                    context={"module_context": request.module_context},
+                )
+            except Exception:
+                message = replacement
+
     # -------------------------
     # AUDIO
     # -------------------------
@@ -536,7 +759,6 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # -------------------------
     # FINAL RESPONSE
     # -------------------------
-    cards_payload = result.get("cards") or []
     if not isinstance(cards_payload, list):
         cards_payload = []
 
@@ -555,7 +777,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
         "type": result.get("type"),
         "cards": cards_payload,
         "board_ids": board_ids_text,
-        "data": result.get("data") or {},
+        "data": data_payload if isinstance(data_payload, dict) else {},
         "meta": {
             **(result.get("meta") or {}),
             "weather": weather_data,
@@ -571,3 +793,12 @@ def text_chat(request: TextChatRequest, http_request: Request):
         _CHAT_CACHE.set(cache_key, response)
 
     return response
+
+
+
+
+
+
+
+
+

@@ -1,4 +1,4 @@
-import base64
+﻿import base64
 import os
 import re
 import uuid
@@ -95,11 +95,29 @@ CATEGORY_MAP = {
     "accessories": "Accessories",
     "jewelry": "Jewelry",
     "indian wear": "Indian Wear",
+    "item": "Item",
 }
 
 
-def normalize_category(cat: str) -> str:
-    return CATEGORY_MAP.get(str(cat).lower(), "Tops")
+def normalize_category(cat: str, name: str = "", sub_category: str = "") -> str:
+    text = " ".join([str(cat or ""), str(name or ""), str(sub_category or "")]).lower()
+    if any(k in text for k in ["boot", "shoe", "sneaker", "heel", "sandal", "loafer", "slipper"]):
+        return "Footwear"
+    if any(k in text for k in ["pant", "trouser", "jean", "chino", "short", "skirt", "legging"]):
+        return "Bottoms"
+    if any(k in text for k in ["shirt", "t-shirt", "tshirt", "tee", "blouse", "top", "hoodie", "polo", "sweater"]):
+        return "Tops"
+    if any(k in text for k in ["dress", "gown", "jumpsuit"]):
+        return "Dresses"
+    if any(k in text for k in ["jacket", "coat", "blazer", "cardigan"]):
+        return "Outerwear"
+    if any(k in text for k in ["saree", "kurta", "lehenga", "dupatta", "sherwani"]):
+        return "Indian Wear"
+    if any(k in text for k in ["watch", "belt", "scarf", "hat", "cap", "sunglass"]):
+        return "Accessories"
+    if any(k in text for k in ["bracelet", "ring", "earring", "necklace"]):
+        return "Jewelry"
+    return CATEGORY_MAP.get(str(cat or "").strip().lower(), "Item")
 
 
 # =========================
@@ -128,7 +146,7 @@ def persist_selected_items(
             file_id = str(item.get("item_id") or uuid.uuid4())
 
             # -------------------------
-            # 🔥 NEW: URL-FIRST PIPELINE
+            # ðŸ”¥ NEW: URL-FIRST PIPELINE
             # -------------------------
             raw_url = item.get("raw_url") or item.get("image_url")
             masked_url = item.get("masked_url")
@@ -140,8 +158,8 @@ def persist_selected_items(
             # -------------------------
             # METADATA
             # -------------------------
-            category = normalize_category(item.get("category"))
             sub_category = str(item.get("sub_category") or "Item")
+            category = normalize_category(item.get("category"), item.get("name"), sub_category)
             item_type = sub_category.lower()
 
             color = _normalize_hex_color(item.get("color_code"))
@@ -153,13 +171,13 @@ def persist_selected_items(
             )
 
             # -------------------------
-            # 🔥 UPDATED SCHEMA
+            # ðŸ”¥ UPDATED SCHEMA
             # -------------------------
             doc = {
                 "userId": user_id,
                 "status": "active",
 
-                # ✅ NEW FIELDS
+                # âœ… NEW FIELDS
                 "image_url": raw_url,
                 "masked_url": masked_url,
                 "raw_url": raw_url,  # optional
@@ -213,3 +231,4 @@ def persist_selected_items(
         "items": saved_items,
         "skipped": skipped,
     }
+

@@ -457,6 +457,14 @@ class AhviOrchestrator:
             out["meta"] = {**_dict(out.get("meta")), "intent": intent, "module": module_key, "confidence": float(intent_row.get("confidence", 0.0))}
             return out
 
+        # If the user mentioned a clothing-relevant occasion (date night,
+        # office, party, vacation, brunch, etc.) we treat the request as an
+        # outfit query even when the intent classifier didn't tag it as one.
+        # Without this, "I have a date tonight — what should I wear?" falls
+        # through to the generic fallback and the chat returns no cards.
+        if intent not in {"daily_outfit", "occasion_outfit", "explore_styles"} and occasion:
+            intent = "occasion_outfit"
+
         if intent in {"daily_outfit", "occasion_outfit", "explore_styles"}:
             wardrobe_ctx = ctx.get("wardrobe")
             wardrobe = _coerce_wardrobe_payload(wardrobe_ctx)

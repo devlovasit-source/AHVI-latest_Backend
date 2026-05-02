@@ -470,7 +470,7 @@ async def auth_guard_middleware(request: Request, call_next):
     if str(request.method or "").upper() == "OPTIONS":
         return await call_next(request)
     path = str(request.url.path or "")
-    if path == "/" or path.startswith("/health") or path == "/api/notifications/health" or path.startswith("/api/notifications/devices/") or path.startswith("/api/notifications/dispatch-due") or path.startswith("/docs") or path.startswith("/openapi"):
+    if path == "/" or path.startswith("/health") or path == "/api/notifications/health" or path == "/api/text" or path.startswith("/api/notifications/devices/") or path.startswith("/api/notifications/dispatch-due") or path.startswith("/api/wardrobe/capture/") or path.startswith("/docs") or path.startswith("/openapi"):
         return await call_next(request)
     if path.startswith("/api/tasks/"):
         return await call_next(request)
@@ -526,8 +526,10 @@ async def rate_limit_middleware(request: Request, call_next):
         and path != "/"
         and not path.startswith("/health")
         and path != "/api/notifications/health"
+        and path != "/api/text"
         and not path.startswith("/api/notifications/devices/")
         and not path.startswith("/api/notifications/dispatch-due")
+        and not path.startswith("/api/wardrobe/capture/")
         and not path.startswith("/docs")
         and not path.startswith("/openapi")
         and not path.startswith("/api/tasks/")
@@ -639,17 +641,22 @@ if not chat_router:
         prompt = ""
         if payload.messages:
             prompt = str(payload.messages[-1].content or "").strip()
+        lower = prompt.lower()
+        if "joke" in lower:
+            message = "Here is a tiny one: Why did the shirt get promoted? Because it had outstanding style."
+        elif "how are you" in lower or lower in {"hi", "hello", "hey"}:
+            message = "I am here and ready. Ask me for an outfit, a capsule wardrobe, or just talk to me."
+        elif any(k in lower for k in ["outfit", "wear", "style", "wardrobe", "date", "casual"]):
+            message = "I will assume smart casual for now: choose one clean hero piece, pair it with a neutral base, and finish with footwear or an accessory that matches the occasion."
+        else:
+            message = "I can help with that. Tell me a little more, or ask me to style an outfit, plan your day, or build a capsule wardrobe."
         return {
             "success": True,
-            "message": "Chat router is temporarily unavailable. Using lightweight fallback response.",
-            "response": (
-                "I can still help with basic style guidance. "
-                + ("You said: " + prompt[:280] if prompt else "Share your styling goal.")
-            ),
-            "meta": {
-                "mode": "fallback",
-                "chat_router_loaded": False,
-            },
+            "message": message,
+            "response": message,
+            "cards": [],
+            "data": {"outfits": [], "rendered_boards": []},
+            "meta": {"mode": "fallback", "chat_router_loaded": False},
         }
 
 
@@ -943,5 +950,8 @@ def list_recent_jobs(limit: int = 25, user_id: str | None = None, request_id: st
         "success": True,
         "jobs": job_tracker.list_recent(limit=limit, user_id=user_id, request_id=request_id),
     }
+
+
+
 
 

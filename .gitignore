@@ -1,23 +1,12 @@
-# Environments and Cache
-.venv/
-__pycache__/
-*/__pycache__/
-*.pyc
+﻿node_modules/
 .env
-.env.*.bak
-
-# Ignore AI model weights and heavy folders
-*.safetensors
-*.bin
-*.onnx
-RMBG_2_0/
-local-minilm/
-
-# Ignore Executables and Installers
-*.exe
-
-# Ignore Logs and Temporary Files
+.env.*
+*.pem
+*serviceAccount*.json
+firebase-adminsdk*.json
+logs/
 *.log
-*.err
-server_tmp.*
-_tmp_test.png
+dist/
+build/
+.DS_Store
+Thumbs.db

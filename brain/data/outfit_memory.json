@@ -777,6 +777,5308 @@
       ],
       "liked_outfits": [],
       "disliked_outfits": []
+    },
+    "demo-user": {
+      "recent_outfits": [
+        {
+          "combo_id": "1|2|3",
+          "master_type": "top",
+          "master_piece": {
+            "id": "1",
+            "name": "Pink Shirt",
+            "type": "tops",
+            "color": "pink",
+            "image_url": "",
+            "masked_url": "https://example.com/shirt.png",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "1",
+            "name": "Pink Shirt",
+            "type": "tops",
+            "color": "pink",
+            "image_url": "",
+            "masked_url": "https://example.com/shirt.png",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "2",
+            "name": "Tan Pants",
+            "type": "bottoms",
+            "color": "tan",
+            "image_url": "",
+            "masked_url": "https://example.com/pants.png",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "3",
+            "name": "Brown Boots",
+            "type": "footwear",
+            "color": "",
+            "image_url": "",
+            "masked_url": "https://example.com/boots.png",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "4",
+              "name": "Titan Watch",
+              "type": "jewelry",
+              "color": "",
+              "image_url": "",
+              "masked_url": "https://example.com/watch.png",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 3.7,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 1.5,
+            "memory": 2.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 1.5,
+            "memory": 2.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "1",
+              "name": "Pink Shirt",
+              "type": "tops",
+              "color": "pink",
+              "image_url": "",
+              "masked_url": "https://example.com/shirt.png",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "1",
+              "name": "Pink Shirt",
+              "type": "tops",
+              "color": "pink",
+              "image_url": "",
+              "masked_url": "https://example.com/shirt.png",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "2",
+              "name": "Tan Pants",
+              "type": "bottoms",
+              "color": "tan",
+              "image_url": "",
+              "masked_url": "https://example.com/pants.png",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "3",
+              "name": "Brown Boots",
+              "type": "footwear",
+              "color": "",
+              "image_url": "",
+              "masked_url": "https://example.com/boots.png",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "4",
+              "name": "Titan Watch",
+              "type": "jewelry",
+              "color": "",
+              "image_url": "",
+              "masked_url": "https://example.com/watch.png",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 3.7,
+            "label": "Good",
+            "reasons": [
+              "items pair well together"
+            ]
+          },
+          "score_meta": {
+            "score": 3.7,
+            "label": "Good",
+            "reasons": [
+              "items pair well together"
+            ]
+          },
+          "style_score": 3.7,
+          "pipeline_score": 4.2,
+          "ml_score": 0.9601,
+          "rank_score": 99.707
+        }
+      ],
+      "liked_outfits": [],
+      "disliked_outfits": []
+    },
+    "69e6096616923db26940": {
+      "recent_outfits": [
+        {
+          "combo_id": "69f5bd1e32c09234dd80|69f5bcb63301b634c133|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bcb63301b634c133",
+            "name": "Blue Jeans",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "airport transit",
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bcb63301b634c133",
+              "name": "Blue Jeans",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "airport transit",
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bd1e32c09234dd80|69f5bc8e14ce976c742d|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bc8e14ce976c742d",
+            "name": "Tan Trousers",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "work",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc8e14ce976c742d",
+              "name": "Tan Trousers",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "work",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bbffbaed9404db77|69f5bcb63301b634c133|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bbffbaed9404db77",
+            "name": "Pink Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bcb63301b634c133",
+            "name": "Blue Jeans",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "airport transit",
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bbffbaed9404db77",
+              "name": "Pink Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bcb63301b634c133",
+              "name": "Blue Jeans",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "airport transit",
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bd1e32c09234dd80|69f5bcb63301b634c133|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bcb63301b634c133",
+            "name": "Blue Jeans",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "airport transit",
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bcb63301b634c133",
+              "name": "Blue Jeans",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "airport transit",
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bd1e32c09234dd80|69f5bc8e14ce976c742d|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bc8e14ce976c742d",
+            "name": "Tan Trousers",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "work",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc8e14ce976c742d",
+              "name": "Tan Trousers",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "work",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bbffbaed9404db77|69f5bcb63301b634c133|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bbffbaed9404db77",
+            "name": "Pink Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bcb63301b634c133",
+            "name": "Blue Jeans",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "airport transit",
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bbffbaed9404db77",
+              "name": "Pink Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bcb63301b634c133",
+              "name": "Blue Jeans",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "airport transit",
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bd1e32c09234dd80|69f5bcb63301b634c133|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bcb63301b634c133",
+            "name": "Blue Jeans",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "airport transit",
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bcb63301b634c133",
+              "name": "Blue Jeans",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "airport transit",
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bd1e32c09234dd80|69f5bc8e14ce976c742d|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bc8e14ce976c742d",
+            "name": "Tan Trousers",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "work",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc8e14ce976c742d",
+              "name": "Tan Trousers",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "work",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bbffbaed9404db77|69f5bcb63301b634c133|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bbffbaed9404db77",
+            "name": "Pink Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bcb63301b634c133",
+            "name": "Blue Jeans",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "airport transit",
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bbffbaed9404db77",
+              "name": "Pink Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bcb63301b634c133",
+              "name": "Blue Jeans",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "airport transit",
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bd1e32c09234dd80|69f5bcb63301b634c133|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bcb63301b634c133",
+            "name": "Blue Jeans",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "airport transit",
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bcb63301b634c133",
+              "name": "Blue Jeans",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "airport transit",
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bbffbaed9404db77|69f5bc8e14ce976c742d|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bbffbaed9404db77",
+            "name": "Pink Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bc8e14ce976c742d",
+            "name": "Tan Trousers",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "work",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bbffbaed9404db77",
+              "name": "Pink Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc8e14ce976c742d",
+              "name": "Tan Trousers",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "work",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bd1e32c09234dd80|69f5bc8e14ce976c742d|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bc8e14ce976c742d",
+            "name": "Tan Trousers",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "work",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc8e14ce976c742d",
+              "name": "Tan Trousers",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "work",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bd1e32c09234dd80|69f5bcb63301b634c133|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bcb63301b634c133",
+            "name": "Blue Jeans",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "airport transit",
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bcb63301b634c133",
+              "name": "Blue Jeans",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "airport transit",
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bd1e32c09234dd80|69f5bc8e14ce976c742d|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bc8e14ce976c742d",
+            "name": "Tan Trousers",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "work",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc8e14ce976c742d",
+              "name": "Tan Trousers",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "work",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bbffbaed9404db77|69f5bcb63301b634c133|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bf4b310a0f436927",
+            "name": "White Short-Sleeved Button-Up Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run",
+              "dinner date",
+              "casual",
+              "work",
+              "dinner",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bbffbaed9404db77",
+            "name": "Pink Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bcb63301b634c133",
+            "name": "Blue Jeans",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "airport transit",
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 0.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bf4b310a0f436927",
+              "name": "White Short-Sleeved Button-Up Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run",
+                "dinner date",
+                "casual",
+                "work",
+                "dinner",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bbffbaed9404db77",
+              "name": "Pink Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bcb63301b634c133",
+              "name": "Blue Jeans",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "airport transit",
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 3.1,
+          "ml_score": 0.9011,
+          "rank_score": 99.514
+        },
+        {
+          "combo_id": "69f5bbffbaed9404db77|69f5bcb63301b634c133|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bbffbaed9404db77",
+            "name": "Pink Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bcb63301b634c133",
+            "name": "Blue Jeans",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "airport transit",
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 2.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 2.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bbffbaed9404db77",
+              "name": "Pink Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bcb63301b634c133",
+              "name": "Blue Jeans",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "airport transit",
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 5.1,
+          "ml_score": 0.9783,
+          "rank_score": 107.233
+        },
+        {
+          "combo_id": "69f5bbffbaed9404db77|69f5bc8e14ce976c742d|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bbffbaed9404db77",
+            "name": "Pink Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bc8e14ce976c742d",
+            "name": "Tan Trousers",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "work",
+              "travel"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 9.4,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 2.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 2.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bbffbaed9404db77",
+              "name": "Pink Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc8e14ce976c742d",
+              "name": "Tan Trousers",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "work",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 9.4,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 9.4,
+          "pipeline_score": 5.1,
+          "ml_score": 0.9783,
+          "rank_score": 107.233
+        },
+        {
+          "combo_id": "69f5bd1e32c09234dd80|69f5bcb63301b634c133|69f5be22ba47e60c9a54",
+          "master_type": "top",
+          "master_piece": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "top": {
+            "id": "69f5bd1e32c09234dd80",
+            "name": "Green Button-Down Shirt",
+            "type": "tops",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk",
+              "casual",
+              "travel",
+              "work",
+              "dinner"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "bottom": {
+            "id": "69f5bcb63301b634c133",
+            "name": "Blue Jeans",
+            "type": "bottoms",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "airport transit",
+              "client presentation",
+              "weekend coffee run",
+              "dinner date",
+              "vacation city walk"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "shoes": {
+            "id": "69f5be22ba47e60c9a54",
+            "name": "White Sneakers",
+            "type": "footwear",
+            "color": "#000000",
+            "image_url": "",
+            "masked_url": "",
+            "fabric": "",
+            "style": "",
+            "occasion_tags": [
+              "weekend coffee run"
+            ],
+            "weather_tags": [],
+            "layerable": false
+          },
+          "dress": {},
+          "outerwear": {},
+          "accessories": [
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "score": 8.8,
+          "ml_features": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 2.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "score_breakdown": {
+            "occasion_rules": 0.0,
+            "color_intelligence": 0.4,
+            "layering": 0.3,
+            "style_graph": 2.4,
+            "memory": 2.0,
+            "feedback": 0.0,
+            "semantic_relevance": 0.0
+          },
+          "pipeline_tags": [
+            "occasion_filtered",
+            "master_piece",
+            "llm_color",
+            "llm_pattern",
+            "accessories"
+          ],
+          "items": [
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd1e32c09234dd80",
+              "name": "Green Button-Down Shirt",
+              "type": "tops",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk",
+                "casual",
+                "travel",
+                "work",
+                "dinner"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bcb63301b634c133",
+              "name": "Blue Jeans",
+              "type": "bottoms",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "airport transit",
+                "client presentation",
+                "weekend coffee run",
+                "dinner date",
+                "vacation city walk"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5be22ba47e60c9a54",
+              "name": "White Sneakers",
+              "type": "footwear",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "weekend coffee run"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bd717a720a463d5a",
+              "name": "GREY CAP",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "casual",
+                "work",
+                "outdoor",
+                "sport",
+                "casual",
+                "dinner",
+                "sport",
+                "travel"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            },
+            {
+              "id": "69f5bc3defb937a791b2",
+              "name": "Gold Watch",
+              "type": "accessories",
+              "color": "#000000",
+              "image_url": "",
+              "masked_url": "",
+              "fabric": "",
+              "style": "",
+              "occasion_tags": [
+                "formal event",
+                "casual outing",
+                "casual",
+                "travel",
+                "work"
+              ],
+              "weather_tags": [],
+              "layerable": false
+            }
+          ],
+          "unified_style": {
+            "score": 8.8,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "score_meta": {
+            "score": 8.8,
+            "label": "Excellent",
+            "reasons": [
+              "items pair well together",
+              "clean aesthetic balance"
+            ]
+          },
+          "style_score": 8.8,
+          "pipeline_score": 5.1,
+          "ml_score": 0.9783,
+          "rank_score": 106.633
+        }
+      ],
+      "liked_outfits": [],
+      "disliked_outfits": []
     }
   }
 }
