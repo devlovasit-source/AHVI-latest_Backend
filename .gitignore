@@ -10,3 +10,13 @@ dist/
 build/
 .DS_Store
 Thumbs.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Temp search files
+backend-files.txt
+backend-python-search.txt
