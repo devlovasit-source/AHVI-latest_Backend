@@ -28,6 +28,42 @@ from services.appwrite_proxy import AppwriteProxy
 logger = logging.getLogger("ahvi.orchestrator")
 
 
+
+def _ahvi_orchestrator_merge_card_accessories(cards):
+    if not isinstance(cards, list):
+        return cards
+
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+
+        items = card.get("items")
+        if not isinstance(items, list):
+            items = []
+
+        accessories = card.get("accessories")
+        if not isinstance(accessories, list):
+            accessories = []
+
+        seen = {
+            str(x.get("id") or x.get("$id") or x.get("item_id") or x.get("name") or x.get("label") or "").lower()
+            for x in items
+            if isinstance(x, dict)
+        }
+
+        for acc in accessories:
+            if not isinstance(acc, dict):
+                continue
+            key = str(acc.get("id") or acc.get("$id") or acc.get("item_id") or acc.get("name") or acc.get("label") or "").lower()
+            if key and key not in seen:
+                items.append(acc)
+                seen.add(key)
+
+        card["items"] = items
+
+    return cards
+
+
 def _safe_text(value: Any) -> str:
     return str(value or "").strip()
 
@@ -565,6 +601,30 @@ class AhviOrchestrator:
             board_item_ids = [str(x).strip() for x in board_item_ids if str(x).strip()]
             primary_board_id = board_item_ids[0] if board_item_ids else ""
             cards = outfit_result.get("cards") if isinstance(outfit_result.get("cards"), list) else []
+        cards = _ahvi_orchestrator_merge_card_accessories(cards)
+
+        try:
+            logger.info(
+                "style card detail uid=%s card_item_counts=%s accessory_counts=%s first_card_items=%s",
+                uid,
+                [
+                    len(c.get("items") or [])
+                    for c in cards
+                    if isinstance(c, dict)
+                ],
+                [
+                    len(c.get("accessories") or [])
+                    for c in cards
+                    if isinstance(c, dict)
+                ],
+                [
+                    str((i or {}).get("name") or (i or {}).get("label") or "")
+                    for i in ((cards[0].get("items") if cards and isinstance(cards[0], dict) else []) or [])
+                    if isinstance(i, dict)
+                ][:8],
+            )
+        except Exception:
+            pass
             rendered_boards = _render_style_boards_for_chat(
                 cards,
                 {

@@ -1619,18 +1619,9 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
 
     cards = _build_cards(ranked, merged_context)
     cards = _ahvi_demo_force_accessories_into_cards(cards, ranked, occasion_filtered, limit=2)
+    cards = _ahvi_finalize_style_cards(cards, ranked, occasion_filtered, limit=2)
 
-    board_item_ids: List[str] = []
-    if ranked:
-        best = ranked[0]
-        for part in ("top", "bottom", "dress", "shoes", "outerwear"):
-            item_id = str((best.get(part) or {}).get("id", "")).strip()
-            if item_id:
-                board_item_ids.append(item_id)
-        for item in (best.get("accessories") or []):
-            item_id = str((item or {}).get("id", "")).strip()
-            if item_id:
-                board_item_ids.append(item_id)
+    board_item_ids: List[str] = _ahvi_board_item_ids_from_cards(cards, ranked)
 
     return {
         "intent": "daily_outfit",
@@ -1860,4 +1851,198 @@ def _ahvi_demo_force_accessories_into_cards(
 
     return cards
 # ---- end AHVI demo accessory fix ----
+
+
+
+# ---- AHVI style board contract fix: accessories must live inside card["items"] ----
+def _ahvi_card_item_key(item):
+    if not isinstance(item, dict):
+        return ""
+    return str(
+        item.get("id")
+        or item.get("$id")
+        or item.get("item_id")
+        or item.get("name")
+        or item.get("label")
+        or ""
+    ).strip().lower()
+
+
+def _ahvi_is_accessory_item(item):
+    if not isinstance(item, dict):
+        return False
+
+    blob = " ".join(str(item.get(k, "") or "") for k in (
+        "slot", "type", "category", "cat", "category_group",
+        "sub_category", "subcategory", "subCategory",
+        "name", "label", "description"
+    )).lower()
+
+    tokens = set(re.sub(r"[^a-z0-9]+", " ", blob).split())
+    return bool(tokens.intersection({
+        "accessory", "accessories",
+        "watch", "watches",
+        "belt", "belts",
+        "cap", "caps",
+        "hat", "hats",
+        "sunglass", "sunglasses",
+        "eyewear", "glasses",
+        "bag", "bags",
+        "jewelry", "jewellery",
+        "ring", "rings",
+        "necklace", "necklaces",
+        "bracelet", "bracelets",
+        "earring", "earrings",
+        "scarf", "scarves",
+    }))
+
+
+def _ahvi_accessory_candidates(wardrobe, combo, limit=2):
+    candidates = []
+
+    if isinstance(combo, dict) and isinstance(combo.get("accessories"), list):
+        candidates.extend([x for x in combo.get("accessories") if isinstance(x, dict)])
+
+    if isinstance(wardrobe, dict):
+        for key in (
+            "accessories", "accessory",
+            "jewelry", "jewellery",
+            "bags", "bag",
+            "watches", "belts", "caps", "hats",
+            "sunglasses", "eyewear",
+        ):
+            values = wardrobe.get(key, [])
+            if isinstance(values, list):
+                candidates.extend([x for x in values if isinstance(x, dict)])
+
+        for values in wardrobe.values():
+            if isinstance(values, list):
+                for item in values:
+                    if isinstance(item, dict) and _ahvi_is_accessory_item(item):
+                        candidates.append(item)
+
+    seen = set()
+    unique = []
+    for item in candidates:
+        key = _ahvi_card_item_key(item) or str(id(item))
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+
+    core_ids = {
+        _ahvi_card_item_key(x)
+        for x in [
+            combo.get("top") if isinstance(combo, dict) else None,
+            combo.get("bottom") if isinstance(combo, dict) else None,
+            combo.get("footwear") if isinstance(combo, dict) else None,
+            combo.get("shoe") if isinstance(combo, dict) else None,
+            combo.get("shoes") if isinstance(combo, dict) else None,
+            combo.get("dress") if isinstance(combo, dict) else None,
+            combo.get("outerwear") if isinstance(combo, dict) else None,
+        ]
+        if isinstance(x, dict)
+    }
+
+    unique = [x for x in unique if _ahvi_card_item_key(x) not in core_ids] or unique
+
+    priority = {
+        "watch": 0, "watches": 0,
+        "belt": 1, "belts": 1,
+        "sunglass": 2, "sunglasses": 2, "eyewear": 2, "glasses": 2,
+        "cap": 3, "caps": 3, "hat": 3, "hats": 3,
+        "bag": 4, "bags": 4,
+        "jewelry": 5, "jewellery": 5,
+        "bracelet": 5, "necklace": 5, "ring": 5,
+    }
+
+    def score(item):
+        blob = " ".join(str(item.get(k, "") or "") for k in (
+            "category", "sub_category", "subcategory", "name", "label"
+        )).lower()
+        tokens = re.sub(r"[^a-z0-9]+", " ", blob).split()
+        best = min([priority.get(t, 99) for t in tokens] or [99])
+        has_image = bool(
+            item.get("masked_url")
+            or item.get("maskedUrl")
+            or item.get("image_url")
+            or item.get("imageUrl")
+            or item.get("url")
+        )
+        return (best, 0 if has_image else 1, str(item.get("name") or item.get("label") or ""))
+
+    unique.sort(key=score)
+    return unique[:limit]
+
+
+def _ahvi_finalize_style_cards(cards, outfits, wardrobe, limit=2):
+    if not isinstance(cards, list):
+        return cards
+
+    for index, card in enumerate(cards):
+        if not isinstance(card, dict):
+            continue
+
+        outfit = outfits[index] if isinstance(outfits, list) and index < len(outfits) and isinstance(outfits[index], dict) else {}
+
+        items = card.get("items")
+        if not isinstance(items, list):
+            items = []
+
+        accessories = card.get("accessories")
+        if not isinstance(accessories, list) or not accessories:
+            accessories = _ahvi_accessory_candidates(wardrobe, outfit, limit=limit)
+
+        accessories = [x for x in accessories if isinstance(x, dict)][:limit]
+
+        seen = {
+            _ahvi_card_item_key(x)
+            for x in items
+            if isinstance(x, dict)
+        }
+
+        for acc in accessories:
+            key = _ahvi_card_item_key(acc)
+            if key and key not in seen:
+                items.append(acc)
+                seen.add(key)
+
+        card["items"] = items
+        card["accessories"] = accessories
+
+    return cards
+
+
+def _ahvi_board_item_ids_from_cards(cards, fallback_ranked):
+    ids = []
+
+    if isinstance(cards, list) and cards and isinstance(cards[0], dict):
+        source_items = cards[0].get("items") or []
+        for item in source_items:
+            if isinstance(item, dict):
+                item_id = str(item.get("id") or item.get("$id") or item.get("item_id") or "").strip()
+                if item_id:
+                    ids.append(item_id)
+
+    if not ids and isinstance(fallback_ranked, list) and fallback_ranked:
+        best = fallback_ranked[0] if isinstance(fallback_ranked[0], dict) else {}
+        for part in ("top", "bottom", "dress", "footwear", "shoe", "shoes", "outerwear"):
+            value = best.get(part)
+            if isinstance(value, dict):
+                item_id = str(value.get("id") or value.get("$id") or value.get("item_id") or "").strip()
+                if item_id:
+                    ids.append(item_id)
+        for item in (best.get("accessories") or []):
+            if isinstance(item, dict):
+                item_id = str(item.get("id") or item.get("$id") or item.get("item_id") or "").strip()
+                if item_id:
+                    ids.append(item_id)
+
+    deduped = []
+    seen = set()
+    for item_id in ids:
+        if item_id not in seen:
+            seen.add(item_id)
+            deduped.append(item_id)
+    return deduped
+# ---- end AHVI style board contract fix ----
 
