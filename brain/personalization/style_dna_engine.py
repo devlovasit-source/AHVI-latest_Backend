@@ -219,3 +219,95 @@ class StyleDNAEngine:
 
 # Singleton
 style_dna_engine = StyleDNAEngine()
+
+# ================= AHVI STYLE DNA PATCH V2 BEGIN =================
+
+def _ahvi_dna_coerce_dict(value):
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            import json as _json
+            parsed = _json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _ahvi_dna_normalize_gender(value):
+    raw = str(value or "").strip().lower()
+    if raw in {"m", "male", "man", "men", "mens", "boy"}:
+        return "male"
+    if raw in {"f", "female", "woman", "women", "womens", "girl", "ladies"}:
+        return "female"
+    if raw in {"unisex", "neutral", "genderless", "any"}:
+        return "unisex"
+    return ""
+
+
+def _ahvi_gender_from_profile(profile, previous_dna=None):
+    profile = profile or {}
+    previous_dna = previous_dna or {}
+
+    prefs = _ahvi_dna_coerce_dict(profile.get("preferences"))
+    style_prefs = _ahvi_dna_coerce_dict(
+        profile.get("style_preferences")
+        or profile.get("stylePreference")
+    )
+
+    candidates = [
+        profile.get("style_gender"),
+        profile.get("gender"),
+        profile.get("preferred_gender"),
+        profile.get("target_gender"),
+        prefs.get("style_gender"),
+        prefs.get("gender"),
+        prefs.get("preferred_gender"),
+        prefs.get("target_gender"),
+        style_prefs.get("style_gender"),
+        style_prefs.get("gender"),
+        style_prefs.get("preferred_gender"),
+        style_prefs.get("target_gender"),
+        previous_dna.get("style_gender"),
+        previous_dna.get("gender"),
+    ]
+
+    for value in candidates:
+        gender = _ahvi_dna_normalize_gender(value)
+        if gender:
+            return gender
+
+    return "unisex"
+
+
+try:
+    _AHVI_ORIGINAL_STYLE_DNA_ENRICH_CONTEXT = StyleDNAEngine.enrich_context
+except Exception:
+    _AHVI_ORIGINAL_STYLE_DNA_ENRICH_CONTEXT = None
+
+
+if _AHVI_ORIGINAL_STYLE_DNA_ENRICH_CONTEXT and not getattr(StyleDNAEngine.enrich_context, "_ahvi_gender_patch_v2", False):
+
+    def _ahvi_style_dna_enrich_context(self, context):
+        ctx = _AHVI_ORIGINAL_STYLE_DNA_ENRICH_CONTEXT(self, context) or context or {}
+
+        if not isinstance(ctx, dict):
+            ctx = {}
+
+        profile = ctx.get("user_profile") if isinstance(ctx.get("user_profile"), dict) else {}
+        style_dna = ctx.get("style_dna") if isinstance(ctx.get("style_dna"), dict) else {}
+
+        gender = _ahvi_gender_from_profile(profile, style_dna)
+
+        style_dna = dict(style_dna)
+        style_dna.setdefault("gender", gender)
+        style_dna.setdefault("style_gender", gender)
+
+        ctx["style_dna"] = style_dna
+        return ctx
+
+    _ahvi_style_dna_enrich_context._ahvi_gender_patch_v2 = True
+    StyleDNAEngine.enrich_context = _ahvi_style_dna_enrich_context
+
+# ================= AHVI STYLE DNA PATCH V2 END =================

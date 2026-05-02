@@ -2221,3 +2221,199 @@ def _ahvi_finalize_style_cards(cards, outfits, wardrobe, limit=3):
     return cards
 # ---- end AHVI final strict accessory override ----
 
+# ================= AHVI OUTFIT PIPELINE GENDER PATCH V2 BEGIN =================
+
+_AHVI_PIPE_MALE_GENDERS = {"m", "male", "man", "men", "mens", "boy"}
+_AHVI_PIPE_FEMALE_GENDERS = {"f", "female", "woman", "women", "womens", "girl", "ladies"}
+_AHVI_PIPE_FEMININE_ONLY = {"saree", "sari", "lehenga", "gown", "skirt", "skirts", "blouse", "kurti"}
+_AHVI_PIPE_MALE_TRADITIONAL = {"sherwani", "achkan"}
+_AHVI_PIPE_EXPLICIT_FEMININE = {
+    "saree", "sari", "lehenga", "gown", "skirt", "skirts",
+    "female", "women", "woman", "ladies", "feminine",
+}
+
+
+def _ahvi_pipe_tokens(value):
+    import re as _re
+    return _re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip().split()
+
+
+def _ahvi_pipe_gender(value):
+    raw = str(value or "").strip().lower()
+
+    if raw in _AHVI_PIPE_MALE_GENDERS:
+        return "male"
+
+    if raw in _AHVI_PIPE_FEMALE_GENDERS:
+        return "female"
+
+    if raw in {"unisex", "neutral", "genderless", "any"}:
+        return "unisex"
+
+    return ""
+
+
+def _ahvi_pipe_context_gender(context):
+    context = context or {}
+
+    style_dna = context.get("style_dna") if isinstance(context.get("style_dna"), dict) else {}
+    profile = context.get("user_profile") if isinstance(context.get("user_profile"), dict) else {}
+
+    for value in (
+        style_dna.get("style_gender"),
+        style_dna.get("gender"),
+        profile.get("style_gender"),
+        profile.get("gender"),
+        profile.get("preferred_gender"),
+        profile.get("target_gender"),
+    ):
+        gender = _ahvi_pipe_gender(value)
+        if gender:
+            return gender
+
+    return "unisex"
+
+
+def _ahvi_pipe_query_allows_feminine(context):
+    tokens = set(_ahvi_pipe_tokens((context or {}).get("query") or ""))
+    return bool(tokens.intersection(_AHVI_PIPE_EXPLICIT_FEMININE))
+
+
+def _ahvi_pipe_item_tokens(item):
+    blob = " ".join(
+        str(item.get(k, "") or "")
+        for k in (
+            "slot", "type", "category", "cat", "category_group",
+            "sub_category", "subcategory", "subCategory",
+            "name", "label", "description", "gender",
+            "style_gender", "target_gender", "audience",
+            "department", "intended_for", "wearer",
+        )
+    )
+    return set(_ahvi_pipe_tokens(blob))
+
+
+def _ahvi_pipe_item_allowed(item, context):
+    if not isinstance(item, dict):
+        return False
+
+    if _ahvi_pipe_context_gender(context) != "male":
+        return True
+
+    if _ahvi_pipe_query_allows_feminine(context):
+        return True
+
+    tokens = _ahvi_pipe_item_tokens(item)
+
+    audience = set(_ahvi_pipe_tokens(" ".join(
+        str(item.get(k, "") or "")
+        for k in (
+            "gender", "style_gender", "target_gender",
+            "audience", "department", "intended_for", "wearer",
+        )
+    )))
+
+    if audience.intersection(_AHVI_PIPE_FEMALE_GENDERS):
+        return False
+
+    if tokens.intersection(_AHVI_PIPE_FEMININE_ONLY):
+        return False
+
+    if tokens.intersection({"dress", "dresses"}) and not tokens.intersection(_AHVI_PIPE_MALE_TRADITIONAL):
+        return False
+
+    return True
+
+
+def _ahvi_pipe_items_from_outfit(outfit):
+    items = []
+
+    if not isinstance(outfit, dict):
+        return items
+
+    for key in ("top", "bottom", "dress", "shoes", "footwear", "outerwear"):
+        value = outfit.get(key)
+        if isinstance(value, dict):
+            items.append(value)
+
+    for key in ("items", "refined_items", "accessories"):
+        value = outfit.get(key)
+        if isinstance(value, list):
+            items.extend([x for x in value if isinstance(x, dict)])
+
+    return items
+
+
+def _ahvi_pipe_outfit_allowed(outfit, context):
+    return all(
+        _ahvi_pipe_item_allowed(item, context)
+        for item in _ahvi_pipe_items_from_outfit(outfit)
+    )
+
+
+def _ahvi_pipe_card_allowed(card, context):
+    if not isinstance(card, dict):
+        return False
+
+    items = []
+
+    for key in ("items", "accessories"):
+        value = card.get(key)
+        if isinstance(value, list):
+            items.extend([x for x in value if isinstance(x, dict)])
+
+    return all(_ahvi_pipe_item_allowed(item, context) for item in items)
+
+
+try:
+    _AHVI_ORIGINAL_GET_DAILY_OUTFITS = get_daily_outfits
+except Exception:
+    _AHVI_ORIGINAL_GET_DAILY_OUTFITS = None
+
+
+if _AHVI_ORIGINAL_GET_DAILY_OUTFITS and not getattr(get_daily_outfits, "_ahvi_gender_guard_v2", False):
+
+    def get_daily_outfits(user):
+        user = dict(user or {})
+        context = user.get("context") if isinstance(user.get("context"), dict) else {}
+
+        wardrobe = user.get("wardrobe")
+        if isinstance(wardrobe, list):
+            user["wardrobe"] = [
+                item for item in wardrobe
+                if _ahvi_pipe_item_allowed(item, context)
+            ]
+
+        result = _AHVI_ORIGINAL_GET_DAILY_OUTFITS(user)
+
+        if not isinstance(result, dict):
+            return result
+
+        if isinstance(result.get("outfits"), list):
+            result["outfits"] = [
+                outfit for outfit in result["outfits"]
+                if _ahvi_pipe_outfit_allowed(outfit, context)
+            ]
+
+        if isinstance(result.get("cards"), list):
+            result["cards"] = [
+                card for card in result["cards"]
+                if _ahvi_pipe_card_allowed(card, context)
+            ]
+
+        data = result.get("data")
+        if isinstance(data, dict) and isinstance(data.get("outfits"), list):
+            data["outfits"] = [
+                outfit for outfit in data["outfits"]
+                if _ahvi_pipe_outfit_allowed(outfit, context)
+            ]
+
+        result.setdefault("meta", {})
+        if isinstance(result.get("meta"), dict):
+            result["meta"]["style_gender_guard"] = _ahvi_pipe_context_gender(context)
+
+        return result
+
+    get_daily_outfits._ahvi_gender_guard_v2 = True
+
+# ================= AHVI OUTFIT PIPELINE GENDER PATCH V2 END =================

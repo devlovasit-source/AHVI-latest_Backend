@@ -691,3 +691,53 @@ class AhviOrchestrator:
 
 ahvi_orchestrator = AhviOrchestrator()
 orchestrator = ahvi_orchestrator
+
+# ================= AHVI ORCHESTRATOR STYLE DNA PATCH V2 BEGIN =================
+
+try:
+    _AHVI_ORIGINAL_ORCHESTRATOR_RUN = AhviOrchestrator.run
+except Exception:
+    _AHVI_ORIGINAL_ORCHESTRATOR_RUN = None
+
+
+if _AHVI_ORIGINAL_ORCHESTRATOR_RUN and not getattr(AhviOrchestrator.run, "_ahvi_style_dna_preflight_v2", False):
+
+    def _ahvi_orchestrator_run_with_style_dna(self, text, user_id=None, context=None):
+        ctx = dict(context or {})
+
+        if user_id and not ctx.get("user_id"):
+            ctx["user_id"] = user_id
+
+        try:
+            from services.data_access_service import get_user_profile, merge_user_profiles
+            stored_profile = get_user_profile(user_id=str(user_id or ctx.get("user_id") or "").strip())
+            request_profile = ctx.get("user_profile") if isinstance(ctx.get("user_profile"), dict) else {}
+            ctx["user_profile"] = merge_user_profiles(stored_profile, request_profile)
+        except Exception as exc:
+            try:
+                logger.warning("user profile merge failed uid=%s error=%s", user_id, str(exc))
+            except Exception:
+                pass
+
+        try:
+            from brain.personalization.style_dna_engine import style_dna_engine
+            enriched = style_dna_engine.enrich_context(ctx)
+            if isinstance(enriched, dict):
+                ctx = enriched
+        except Exception as exc:
+            try:
+                logger.warning("style_dna preflight failed uid=%s error=%s", user_id, str(exc))
+            except Exception:
+                pass
+
+        return _AHVI_ORIGINAL_ORCHESTRATOR_RUN(
+            self,
+            text=text,
+            user_id=user_id,
+            context=ctx,
+        )
+
+    _ahvi_orchestrator_run_with_style_dna._ahvi_style_dna_preflight_v2 = True
+    AhviOrchestrator.run = _ahvi_orchestrator_run_with_style_dna
+
+# ================= AHVI ORCHESTRATOR STYLE DNA PATCH V2 END =================
