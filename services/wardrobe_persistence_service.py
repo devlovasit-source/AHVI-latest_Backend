@@ -1,8 +1,7 @@
-﻿import base64
-import os
+﻿import os
 import re
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import requests
 
@@ -24,8 +23,8 @@ APPWRITE_COLLECTION_ID = (
 )
 
 HEADERS = {
-    "X-Appwrite-Project": APPWRITE_PROJECT_ID,
-    "X-Appwrite-Key": APPWRITE_API_KEY,
+    "X-Appwrite-Project": APPWRITE_PROJECT_ID or "",
+    "X-Appwrite-Key": APPWRITE_API_KEY or "",
     "Content-Type": "application/json",
 }
 
@@ -34,6 +33,7 @@ HEADERS = {
 # HELPERS
 # =========================
 _HEX6_RE = re.compile(r"^[0-9a-fA-F]{6}$")
+_SAFE_DOC_ID_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 
 
 def _appwrite_ready() -> bool:
@@ -46,17 +46,89 @@ def _appwrite_ready() -> bool:
     )
 
 
-def _normalize_hex_color(value: str, default: str = "#000000") -> str:
-    text = (value or "").strip()
+def _tokens(value: str) -> List[str]:
+    return (
+        re.sub(r"[^a-z0-9]+", " ", str(value or "").lower())
+        .strip()
+        .split()
+    )
+
+
+def _has_any(tokens: List[str], words: List[str]) -> bool:
+    return any(word in tokens for word in words)
+
+
+def _safe_text(value: Any, fallback: str = "") -> str:
+    text = str(value or "").strip()
+    return text if text else fallback
+
+
+def _safe_document_id(value: Any) -> str:
+    raw = _safe_text(value)
+    if not raw:
+        raw = str(uuid.uuid4())
+
+    safe = _SAFE_DOC_ID_RE.sub("_", raw).strip("._-")
+    if not safe:
+        safe = str(uuid.uuid4())
+
+    # Appwrite custom document IDs have length restrictions.
+    return safe[:36]
+
+
+def _normalize_hex_color(value: Any, default: str = "#000000") -> str:
+    text = str(value or "").strip()
     if not text:
         return default
+
+    # Common named-color fallback for AI outputs.
+    named = {
+        "black": "#000000",
+        "white": "#FFFFFF",
+        "red": "#FF0000",
+        "blue": "#0000FF",
+        "green": "#008000",
+        "yellow": "#FFFF00",
+        "brown": "#8B4513",
+        "tan": "#D2B48C",
+        "beige": "#F5F5DC",
+        "grey": "#808080",
+        "gray": "#808080",
+        "navy": "#000080",
+        "pink": "#FFC0CB",
+        "purple": "#800080",
+        "orange": "#FFA500",
+    }
+
+    lowered = text.lower()
+    if lowered in named:
+        return named[lowered]
+
     if text.startswith("#"):
         text = text[1:]
+
     if len(text) == 3:
-        text = "".join([c * 2 for c in text])
+        text = "".join(c * 2 for c in text)
+
     if not _HEX6_RE.match(text):
         return default
+
     return f"#{text.upper()}"
+
+
+def _normalize_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x or "").strip()]
+
+    if isinstance(value, str):
+        if not value.strip():
+            return []
+        return [x.strip() for x in value.split(",") if x.strip()]
+
+    return []
 
 
 def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -67,17 +139,23 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
             "APPWRITE_DATABASE_ID, and APPWRITE_COLLECTION_OUTFITS."
         )
 
-    url = f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}/collections/{APPWRITE_COLLECTION_ID}/documents"
+    url = (
+        f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
+        f"/collections/{APPWRITE_COLLECTION_ID}/documents"
+    )
 
     res = requests.post(
         url,
-        json={"documentId": document_id, "data": data},
+        json={
+            "documentId": document_id,
+            "data": data,
+        },
         headers=HEADERS,
         timeout=20,
     )
 
     if res.status_code not in (200, 201):
-        raise Exception(f"Appwrite error: {res.text}")
+        raise RuntimeError(f"Appwrite error: {res.status_code} {res.text}")
 
     return res.json()
 
@@ -85,43 +163,211 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
 # =========================
 # CATEGORY NORMALIZATION
 # =========================
-CATEGORY_MAP = {
-    "tops": "Tops",
-    "bottoms": "Bottoms",
-    "outerwear": "Outerwear",
-    "dresses": "Dresses",
-    "footwear": "Footwear",
-    "bags": "Bags",
-    "accessories": "Accessories",
-    "jewelry": "Jewelry",
-    "indian wear": "Indian Wear",
-    "item": "Item",
-}
+def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
+    """
+    Token-aware category inference.
 
+    Critical demo fix:
+    - "Short-Sleeved Shirt" => Tops
+    - "Khaki Shorts" => Bottoms
+    - "Brown Boots" => Footwear
+    - "Watch" => Accessories
+    """
 
-def normalize_category(cat: str, name: str = "", sub_category: str = "") -> str:
-    text = " ".join([str(cat or ""), str(name or ""), str(sub_category or "")]).lower()
-    if any(k in text for k in ["boot", "shoe", "sneaker", "heel", "sandal", "loafer", "slipper"]):
-        return "Footwear"
-    if any(k in text for k in ["pant", "trouser", "jean", "chino", "short", "skirt", "legging"]):
-        return "Bottoms"
-    if any(k in text for k in ["shirt", "t-shirt", "tshirt", "tee", "blouse", "top", "hoodie", "polo", "sweater"]):
+    explicit = str(cat or "").strip().lower()
+
+    explicit_map = {
+        "tops": "Tops",
+        "top": "Tops",
+        "bottoms": "Bottoms",
+        "bottom": "Bottoms",
+        "footwear": "Footwear",
+        "shoe": "Footwear",
+        "shoes": "Footwear",
+        "accessories": "Accessories",
+        "accessory": "Accessories",
+        "bags": "Accessories",
+        "bag": "Accessories",
+        "jewelry": "Accessories",
+        "jewellery": "Accessories",
+        "outerwear": "Outerwear",
+        "dresses": "Dresses",
+        "dress": "Dresses",
+        "indian wear": "Dresses",
+    }
+
+    if explicit in explicit_map:
+        return explicit_map[explicit]
+
+    text = " ".join(
+        [
+            str(cat or ""),
+            str(name or ""),
+            str(sub_category or ""),
+        ]
+    )
+    t = _tokens(text)
+
+    # Tops first so "Short-Sleeved Shirt" never becomes Bottoms.
+    if _has_any(
+        t,
+        [
+            "shirt",
+            "shirts",
+            "tee",
+            "tshirt",
+            "tshirts",
+            "top",
+            "tops",
+            "blouse",
+            "blouses",
+            "hoodie",
+            "hoodies",
+            "sweater",
+            "sweaters",
+            "kurta",
+            "kurtas",
+            "polo",
+            "polos",
+        ],
+    ):
         return "Tops"
-    if any(k in text for k in ["dress", "gown", "jumpsuit"]):
-        return "Dresses"
-    if any(k in text for k in ["jacket", "coat", "blazer", "cardigan"]):
-        return "Outerwear"
-    if any(k in text for k in ["saree", "kurta", "lehenga", "dupatta", "sherwani"]):
-        return "Indian Wear"
-    if any(k in text for k in ["watch", "belt", "scarf", "hat", "cap", "sunglass"]):
+
+    # Only "shorts", not "short".
+    if _has_any(
+        t,
+        [
+            "pants",
+            "pant",
+            "trousers",
+            "trouser",
+            "jeans",
+            "jean",
+            "shorts",
+            "skirt",
+            "skirts",
+            "legging",
+            "leggings",
+            "chino",
+            "chinos",
+        ],
+    ):
+        return "Bottoms"
+
+    if _has_any(
+        t,
+        [
+            "shoe",
+            "shoes",
+            "boot",
+            "boots",
+            "sneaker",
+            "sneakers",
+            "heel",
+            "heels",
+            "sandal",
+            "sandals",
+            "loafer",
+            "loafers",
+            "slipper",
+            "slippers",
+        ],
+    ):
+        return "Footwear"
+
+    if _has_any(
+        t,
+        [
+            "watch",
+            "watches",
+            "bag",
+            "bags",
+            "belt",
+            "belts",
+            "scarf",
+            "scarves",
+            "jewelry",
+            "jewellery",
+            "ring",
+            "rings",
+            "necklace",
+            "bracelet",
+            "earring",
+            "earrings",
+            "accessory",
+            "accessories",
+            "hat",
+            "cap",
+            "sunglass",
+            "sunglasses",
+        ],
+    ):
         return "Accessories"
-    if any(k in text for k in ["bracelet", "ring", "earring", "necklace"]):
-        return "Jewelry"
-    return CATEGORY_MAP.get(str(cat or "").strip().lower(), "Item")
+
+    if _has_any(t, ["jacket", "coat", "blazer", "outerwear", "cardigan", "overshirt"]):
+        return "Outerwear"
+
+    if _has_any(t, ["dress", "dresses", "gown", "jumpsuit", "saree", "lehenga", "sherwani"]):
+        return "Dresses"
+
+    return "Accessories"
+
+
+def _build_appwrite_doc(
+    *,
+    user_id: str,
+    file_id: str,
+    item: Dict[str, Any],
+    raw_url: str,
+    masked_url: str,
+) -> Dict[str, Any]:
+    sub_category = _safe_text(
+        item.get("sub_category")
+        or item.get("subcategory")
+        or item.get("type")
+        or item.get("label"),
+        "Item",
+    )
+
+    name = _safe_text(
+        item.get("name")
+        or item.get("label")
+        or sub_category,
+        "Item",
+    )
+
+    category = normalize_category(item.get("category"), name, sub_category)
+    color = _normalize_hex_color(
+        item.get("color_code")
+        or item.get("color")
+        or item.get("hex")
+    )
+    pattern = _safe_text(item.get("pattern"), "plain").lower()
+    occasions = _normalize_list(item.get("occasions") or item.get("occasion_tags"))
+
+    # Must match Appwrite outfits collection schema exactly.
+    # Do not add raw_url, notes, user_id, etc.
+    return {
+        "image_url": raw_url,
+        "category": category,
+        "userId": user_id,
+        "status": "active",
+        "masked_url": masked_url,
+        "image_id": file_id,
+        "masked_id": file_id,
+        "name": name,
+        "sub_category": sub_category,
+        "color_code": color,
+        "occasions": occasions,
+        "pattern": pattern,
+        "worn": int(item.get("worn") or 0),
+        "liked": bool(item.get("liked") or False),
+        "qdrant_point_id": file_id,
+    }
 
 
 # =========================
-# MAIN FUNCTION (UPGRADED)
+# MAIN FUNCTION
 # =========================
 def persist_selected_items(
     user_id: str,
@@ -133,102 +379,114 @@ def persist_selected_items(
             "Appwrite wardrobe persistence is not configured; refusing to report a fake save."
         )
 
-    saved_items = []
+    user_id = _safe_text(user_id)
+    if not user_id:
+        raise ValueError("user_id is required")
+
+    selected_ids = {str(x).strip() for x in (selected_item_ids or []) if str(x or "").strip()}
+
+    saved_items: List[Dict[str, Any]] = []
+    errors: List[str] = []
     skipped = 0
 
-    selected_ids = set(map(str, selected_item_ids or []))
-
     for item in detected_items or []:
-        if str(item.get("item_id")) not in selected_ids:
+        if not isinstance(item, dict):
+            skipped += 1
+            continue
+
+        item_id = (
+            item.get("item_id")
+            or item.get("id")
+            or item.get("image_id")
+            or item.get("masked_id")
+        )
+
+        if selected_ids and str(item_id) not in selected_ids:
             continue
 
         try:
-            file_id = str(item.get("item_id") or uuid.uuid4())
+            file_id = _safe_document_id(item_id or uuid.uuid4())
 
-            # -------------------------
-            # ðŸ”¥ NEW: URL-FIRST PIPELINE
-            # -------------------------
-            raw_url = item.get("raw_url") or item.get("image_url")
-            masked_url = item.get("masked_url")
-
-            if not masked_url:
-                skipped += 1
-                continue
-
-            # -------------------------
-            # METADATA
-            # -------------------------
-            sub_category = str(item.get("sub_category") or "Item")
-            category = normalize_category(item.get("category"), item.get("name"), sub_category)
-            item_type = sub_category.lower()
-
-            color = _normalize_hex_color(item.get("color_code"))
-            pattern = str(item.get("pattern") or "plain").lower()
-            occasions = item.get("occasions") or []
-
-            embedding = embedding_service.encode_text(
-                f"{color} {item_type} {category} {pattern}"
+            raw_url = _safe_text(
+                item.get("raw_url")
+                or item.get("image_url")
+                or item.get("imageUrl")
             )
 
-            # -------------------------
-            # ðŸ”¥ UPDATED SCHEMA
-            # -------------------------
-            doc = {
-                "userId": user_id,
-                "status": "active",
+            masked_url = _safe_text(
+                item.get("masked_url")
+                or item.get("maskedUrl")
+                or raw_url
+            )
 
-                # âœ… NEW FIELDS
-                "image_url": raw_url,
-                "masked_url": masked_url,
-                "raw_url": raw_url,  # optional
+            if not raw_url and not masked_url:
+                skipped += 1
+                errors.append(f"{file_id}: missing image_url/masked_url")
+                continue
 
-                "image_id": file_id,
-                "masked_id": file_id,
-                "qdrant_point_id": file_id,
+            if not raw_url:
+                raw_url = masked_url
 
-                "name": item.get("name", "Item"),
-                "category": category,
-                "sub_category": sub_category,
-                "color_code": color,
-                "pattern": pattern,
-                "occasions": occasions,
+            if not masked_url:
+                masked_url = raw_url
 
-                "worn": 0,
-                "liked": False,
-            }
+            doc = _build_appwrite_doc(
+                user_id=user_id,
+                file_id=file_id,
+                item=item,
+                raw_url=raw_url,
+                masked_url=masked_url,
+            )
 
-            # -------------------------
-            # SAVE
-            # -------------------------
             created = _create_document(file_id, doc)
 
-            # -------------------------
-            # QDRANT
-            # -------------------------
             try:
+                embedding = embedding_service.encode_text(
+                    " ".join(
+                        [
+                            doc["name"],
+                            doc["category"],
+                            doc["sub_category"],
+                            doc["color_code"],
+                            doc["pattern"],
+                            " ".join(doc["occasions"]),
+                        ]
+                    )
+                )
+
                 qdrant_service.upsert_wardrobe_item(
                     {
                         "id": file_id,
                         "userId": user_id,
-                        "type": item_type,
-                        "category": category,
-                        "color": color,
+                        "type": str(doc["sub_category"]).lower(),
+                        "category": doc["category"],
+                        "color": doc["color_code"],
                         "image_url": masked_url,
                         "embedding": embedding,
                     }
                 )
-            except Exception as e:
-                print("[qdrant error]", e)
+            except Exception as exc:
+                # Do not fail wardrobe save because Qdrant failed.
+                print("[qdrant error]", exc)
 
             saved_items.append(created)
 
-        except Exception as e:
-            print("[persist error]", e)
+        except Exception as exc:
+            skipped += 1
+            error_msg = f"{item.get('item_id') or item.get('id') or 'unknown'}: {exc}"
+            errors.append(error_msg)
+            print("[persist error]", error_msg)
 
     return {
         "success": bool(saved_items),
         "saved_count": len(saved_items),
         "items": saved_items,
         "skipped": skipped,
+        "errors": errors[:10],
     }
 
+
+__all__ = [
+    "persist_selected_items",
+    "normalize_category",
+]
