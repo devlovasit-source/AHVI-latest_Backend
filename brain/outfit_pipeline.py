@@ -20,6 +20,98 @@ from services.appwrite_proxy import AppwriteProxy
 from services.embedding_service import get_model
 from services.qdrant_service import qdrant_service
 
+
+# ---- AHVI demo fix: normalize Appwrite wardrobe records into outfit slots ----
+def _ahvi_tokens(value):
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip().split()
+
+
+def _ahvi_slot_for_item(item):
+    if not isinstance(item, dict):
+        return "accessory"
+
+    raw = " ".join(str(item.get(k, "") or "") for k in (
+        "slot", "type", "category", "cat", "category_group",
+        "sub_category", "subcategory", "subCategory",
+        "name", "label", "description"
+    ))
+    tokens = _ahvi_tokens(raw)
+
+    # Top first so "Short-Sleeved Shirt" never becomes shorts/bottom.
+    if any(t in tokens for t in [
+        "top", "tops", "shirt", "shirts", "tee", "tshirt", "tshirts",
+        "blouse", "hoodie", "sweater", "kurta", "polo"
+    ]):
+        return "top"
+
+    # Only shorts, never short.
+    if any(t in tokens for t in [
+        "bottom", "bottoms", "pant", "pants", "trouser", "trousers",
+        "jean", "jeans", "shorts", "skirt", "skirts", "chino", "chinos"
+    ]):
+        return "bottom"
+
+    if any(t in tokens for t in [
+        "footwear", "shoe", "shoes", "sneaker", "sneakers", "boot", "boots",
+        "heel", "heels", "sandal", "sandals", "loafer", "loafers"
+    ]):
+        return "footwear"
+
+    if any(t in tokens for t in [
+        "accessory", "accessories", "watch", "bag", "belt", "jewelry",
+        "jewellery", "ring", "necklace", "bracelet", "earring", "hat", "cap"
+    ]):
+        return "accessory"
+
+    if any(t in tokens for t in ["jacket", "coat", "blazer", "outerwear", "cardigan"]):
+        return "outerwear"
+
+    if any(t in tokens for t in ["dress", "dresses", "gown", "jumpsuit", "saree", "lehenga"]):
+        return "dress"
+
+    return "accessory"
+
+
+def _ahvi_image_for_item(item):
+    if not isinstance(item, dict):
+        return ""
+    return (
+        item.get("masked_url")
+        or item.get("maskedUrl")
+        or item.get("image_url")
+        or item.get("imageUrl")
+        or item.get("url")
+        or item.get("image")
+        or ""
+    )
+
+
+def _ahvi_normalize_wardrobe_items(items):
+    normalized = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+
+        slot = _ahvi_slot_for_item(item)
+        image_url = _ahvi_image_for_item(item)
+
+        patched = dict(item)
+        patched.setdefault("slot", slot)
+        patched.setdefault("type", slot)
+        patched.setdefault("category_group", slot)
+        patched.setdefault("imageUrl", image_url)
+        patched.setdefault("image_url", image_url)
+        patched.setdefault("maskedUrl", item.get("masked_url") or image_url)
+        patched.setdefault("masked_url", item.get("maskedUrl") or image_url)
+        patched.setdefault("label", item.get("name") or item.get("label") or item.get("category") or slot)
+
+        normalized.append(patched)
+
+    return normalized
+# ---- end AHVI demo fix ----
+
+
+
 _MEMORY_LOCK = Lock()
 _MEMORY_FILE = os.path.join(os.path.dirname(__file__), "data", "outfit_memory.json")
 
@@ -54,7 +146,7 @@ def _infer_category(item: Dict[str, Any]) -> str:
     if not isinstance(item, dict):
         return "Accessories"
 
-    explicit = str(item.get("category") or item.get("cat") or item.get("type") or "").strip().lower()
+    explicit = str(item.get("category") or item.get("cat") or _ahvi_slot_for_item(item) or "").strip().lower()
     explicit_map = {
         "top": "Tops",
         "tops": "Tops",
