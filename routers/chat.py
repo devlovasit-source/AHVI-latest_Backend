@@ -425,40 +425,212 @@ def _demo_style_board_payload(user_id: str, query_text: str, request_wardrobe: A
         title = "AHVI Styled Look"
         note = "balanced, wearable, and intentional"
 
-    normalized_items: List[Dict[str, Any]] = []
-    for item in selected:
-        image = item.get("masked_url") or item.get("image_url") or item.get("raw_url") or item.get("image")
-        normalized_items.append({
-            "id": str(item.get("$id") or item.get("id") or item.get("name") or len(normalized_items)),
+    def _fallback_image(item: Dict[str, Any]) -> str:
+        return str(
+            item.get("masked_url")
+            or item.get("maskedUrl")
+            or item.get("image_url")
+            or item.get("imageUrl")
+            or item.get("raw_url")
+            or item.get("url")
+            or item.get("image")
+            or ""
+        ).strip()
+
+    def _fallback_tokens(item: Dict[str, Any]) -> set:
+        blob = " ".join(str(item.get(k, "") or "") for k in (
+            "slot", "type", "category", "cat", "category_group",
+            "sub_category", "subcategory", "subCategory",
+            "name", "label", "description"
+        )).lower()
+        return set(re.sub(r"[^a-z0-9]+", " ", blob).split())
+
+    def _fallback_role(item: Dict[str, Any]) -> str:
+        tokens = _fallback_tokens(item)
+
+        if tokens.intersection({
+            "shoe", "shoes", "sneaker", "sneakers", "boot", "boots",
+            "heel", "heels", "sandal", "sandals", "loafer", "loafers",
+            "footwear"
+        }):
+            return "footwear"
+
+        # Accessories before clothing.
+        if tokens.intersection({
+            "watch", "watches", "belt", "belts", "cap", "caps", "hat", "hats",
+            "sunglass", "sunglasses", "eyewear", "glasses", "bag", "bags",
+            "purse", "handbag", "clutch", "tote", "jewelry", "jewellery",
+            "ring", "rings", "necklace", "necklaces", "bracelet", "bracelets",
+            "earring", "earrings", "scarf", "scarves"
+        }):
+            return "accessory"
+
+        # Tops before bottoms so short-sleeve shirt never becomes shorts.
+        if tokens.intersection({
+            "top", "tops", "shirt", "shirts", "tee", "tshirt", "tshirts",
+            "blouse", "jacket", "blazer", "sweater", "hoodie", "kurta",
+            "kurti", "dress", "dresses", "saree", "sari", "tunic", "tunics"
+        }):
+            return "top"
+
+        # shorts only; never short.
+        if tokens.intersection({
+            "bottom", "bottoms", "pant", "pants", "trouser", "trousers",
+            "jean", "jeans", "shorts", "skirt", "skirts", "chino", "chinos"
+        }):
+            return "bottom"
+
+        return "unknown"
+
+    def _fallback_norm(item: Dict[str, Any]) -> Dict[str, Any]:
+        image = _fallback_image(item)
+        return {
+            "id": str(item.get("$id") or item.get("id") or item.get("item_id") or item.get("name") or ""),
             "name": str(item.get("name") or item.get("label") or item.get("category") or "Wardrobe item"),
-            "category": str(item.get("category") or item.get("sub_category") or "Item"),
-            "sub_category": str(item.get("sub_category") or ""),
+            "category": str(item.get("category") or item.get("cat") or item.get("sub_category") or "Item"),
+            "sub_category": str(item.get("sub_category") or item.get("subcategory") or item.get("subCategory") or ""),
             "color": str(item.get("color_name") or item.get("color") or ""),
             "pattern": str(item.get("pattern") or ""),
             "image_url": image,
-            "masked_url": item.get("masked_url") or image,
-        })
+            "masked_url": item.get("masked_url") or item.get("maskedUrl") or image,
+            "imageUrl": item.get("imageUrl") or image,
+            "maskedUrl": item.get("maskedUrl") or item.get("masked_url") or image,
+        }
 
-    card_id = f"demo_board_{int(time.time())}"
-    card = {
-        "id": card_id,
-        "title": title,
-        "name": title,
-        "kind": "style_board",
-        "score": 88,
-        "vibe": occasion,
-        "aesthetic": note,
-        "items": normalized_items,
+    def _unique_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen = set()
+        out = []
+        for item in items:
+            key = str(item.get("$id") or item.get("id") or item.get("item_id") or item.get("name") or item.get("label") or id(item)).lower()
+            if key not in seen:
+                seen.add(key)
+                out.append(item)
+        return out
+
+    buckets = {
+        "top": [],
+        "bottom": [],
+        "footwear": [],
+        "accessory": [],
     }
-    item_names = ", ".join(i["name"] for i in normalized_items[:3])
-    message = f"Here is a {occasion} board from your wardrobe: {item_names}. I kept it {note}, with footwear and accessories supporting the main look."
+
+    for item in wardrobe or []:
+        if not isinstance(item, dict):
+            continue
+        if not _fallback_image(item):
+            continue
+        role = _fallback_role(item)
+        if role in buckets:
+            buckets[role].append(item)
+
+    for key in buckets:
+        buckets[key] = _unique_items(buckets[key])
+
+    # Last-resort supplement from selected items only if wardrobe buckets are incomplete.
+    if not buckets["top"] or not buckets["bottom"] or not buckets["footwear"]:
+        for item in selected:
+            if not isinstance(item, dict) or not _fallback_image(item):
+                continue
+            role = _fallback_role(item)
+            if role in buckets:
+                buckets[role].append(item)
+
+        for key in buckets:
+            buckets[key] = _unique_items(buckets[key])
+
+    cards: List[Dict[str, Any]] = []
+    board_ids: List[str] = []
+
+    can_build = bool(buckets["top"] and buckets["bottom"] and buckets["footwear"])
+
+    if can_build:
+        variant_seed = abs(hash(f"{user_id}:{query_text}:{int(time.time() // 60)}"))
+        available_variety = len(buckets["top"]) + len(buckets["bottom"]) + len(buckets["footwear"]) + len(buckets["accessory"])
+        board_count = 3 if available_variety >= 6 else 2
+
+        for idx in range(board_count):
+            top = buckets["top"][(variant_seed + idx) % len(buckets["top"])]
+            bottom = buckets["bottom"][(variant_seed + idx) % len(buckets["bottom"])]
+            shoe = buckets["footwear"][(variant_seed + idx) % len(buckets["footwear"])]
+
+            accessories: List[Dict[str, Any]] = []
+            if buckets["accessory"]:
+                max_accessories = min(3, len(buckets["accessory"]))
+                for offset in range(max_accessories):
+                    accessories.append(
+                        buckets["accessory"][(variant_seed + idx + offset) % len(buckets["accessory"])]
+                    )
+
+            board_items = [_fallback_norm(x) for x in [top, bottom, shoe] + accessories]
+            board_id = f"demo_board_{int(time.time())}_{idx}"
+            board_ids.append(board_id)
+
+            cards.append({
+                "id": board_id,
+                "title": title if idx == 0 else f"{title} {idx + 1}",
+                "name": title if idx == 0 else f"{title} {idx + 1}",
+                "kind": "style_board",
+                "score": max(82, 91 - idx * 3),
+                "vibe": occasion,
+                "aesthetic": note,
+                "items": board_items,
+                "accessories": [_fallback_norm(x) for x in accessories],
+            })
+
+    if not cards:
+        normalized_items: List[Dict[str, Any]] = []
+        for item in selected:
+            if not isinstance(item, dict) or not _fallback_image(item):
+                continue
+            normalized_items.append(_fallback_norm(item))
+
+        if normalized_items:
+            card_id = f"demo_board_{int(time.time())}"
+            board_ids.append(card_id)
+            cards.append({
+                "id": card_id,
+                "title": title,
+                "name": title,
+                "kind": "style_board",
+                "score": 84,
+                "vibe": occasion,
+                "aesthetic": note,
+                "items": normalized_items[:6],
+                "accessories": [],
+            })
+
+    if not cards:
+        return {}
+
+    first_names = ", ".join(i["name"] for i in cards[0]["items"][:6])
+    message = (
+        f"Here are {len(cards)} {occasion} boards from your wardrobe. "
+        f"First look: {first_names}. I kept it {note}, with accessories completing the main look."
+    )
+
+    logger.info(
+        "chat.rich_fallback user_id=%s wardrobe=%d cards=%d top=%d bottom=%d footwear=%d accessories=%d",
+        user_id,
+        len(wardrobe or []),
+        len(cards),
+        len(buckets["top"]),
+        len(buckets["bottom"]),
+        len(buckets["footwear"]),
+        len(buckets["accessory"]),
+    )
+
     return {
         "message": message,
         "type": "style_board",
-        "cards": [card],
-        "board_ids": card_id,
-        "data": {"outfits": [card], "rendered_boards": []},
-        "meta": {"wardrobe_count": len(wardrobe), "mode": "deterministic_style_board"},
+        "cards": cards,
+        "board_ids": ",".join(board_ids),
+        "data": {"outfits": cards, "rendered_boards": []},
+        "meta": {
+            "wardrobe_count": len(wardrobe or []),
+            "mode": "deterministic_style_board_v2",
+            "fallback_cards": len(cards),
+            "accessory_count": len(buckets["accessory"]),
+        },
     }
 
 def _detect_mode(text: str) -> str:
