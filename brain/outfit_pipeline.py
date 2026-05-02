@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import uuid
@@ -23,10 +24,162 @@ _MEMORY_LOCK = Lock()
 _MEMORY_FILE = os.path.join(os.path.dirname(__file__), "data", "outfit_memory.json")
 
 
+def _tokens(value: Any) -> List[str]:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip().split()
+
+
 def _contains_word(text: str, words: List[str]) -> bool:
-    # FIX: Removed the strict space padding so "Tops" will successfully match "top" and "tops"
-    text = str(text or "").lower()
-    return any(w in text for w in words)
+    """
+    Token-aware helper. This avoids substring mistakes like:
+    "short" inside "short-sleeved".
+    """
+    parts = set(_tokens(text))
+    return any(str(w or "").lower() in parts for w in words)
+
+
+def _has_any(parts: List[str], words: List[str]) -> bool:
+    return any(word in parts for word in words)
+
+
+def _infer_category(item: Dict[str, Any]) -> str:
+    """
+    Canonical category inference.
+
+    Critical demo cases:
+    - White Short-Sleeved Shirt -> Tops
+    - Khaki Shorts -> Bottoms
+    - Brown Boots -> Footwear
+    - Watch -> Accessories
+    """
+    if not isinstance(item, dict):
+        return "Accessories"
+
+    explicit = str(item.get("category") or item.get("cat") or item.get("type") or "").strip().lower()
+    explicit_map = {
+        "top": "Tops",
+        "tops": "Tops",
+        "shirt": "Tops",
+        "tshirt": "Tops",
+        "t-shirt": "Tops",
+
+        "bottom": "Bottoms",
+        "bottoms": "Bottoms",
+        "pants": "Bottoms",
+        "trousers": "Bottoms",
+        "jeans": "Bottoms",
+        "shorts": "Bottoms",
+
+        "footwear": "Footwear",
+        "shoe": "Footwear",
+        "shoes": "Footwear",
+
+        "accessory": "Accessories",
+        "accessories": "Accessories",
+        "bag": "Accessories",
+        "bags": "Accessories",
+        "jewelry": "Accessories",
+        "jewellery": "Accessories",
+
+        "outerwear": "Outerwear",
+        "outer": "Outerwear",
+
+        "dress": "Dresses",
+        "dresses": "Dresses",
+        "indian wear": "Dresses",
+    }
+
+    if explicit in explicit_map:
+        return explicit_map[explicit]
+
+    joined = " ".join(
+        str(item.get(k, "") or "")
+        for k in (
+            "category",
+            "cat",
+            "type",
+            "name",
+            "label",
+            "sub_category",
+            "subcategory",
+            "subCategory",
+            "description",
+        )
+    )
+    parts = _tokens(joined)
+
+    # Tops first so "Short-Sleeved Shirt" never becomes Bottoms.
+    if _has_any(parts, [
+        "shirt", "shirts", "tee", "tshirt", "tshirts", "top", "tops",
+        "blouse", "blouses", "hoodie", "hoodies", "sweater", "sweaters",
+        "kurta", "kurtas", "polo", "polos",
+    ]):
+        return "Tops"
+
+    # Only "shorts", never "short".
+    if _has_any(parts, [
+        "pants", "pant", "trousers", "trouser", "jeans", "jean",
+        "shorts", "skirt", "skirts", "legging", "leggings", "chino", "chinos",
+    ]):
+        return "Bottoms"
+
+    if _has_any(parts, [
+        "shoe", "shoes", "boot", "boots", "sneaker", "sneakers",
+        "heel", "heels", "sandal", "sandals", "loafer", "loafers",
+        "slipper", "slippers",
+    ]):
+        return "Footwear"
+
+    if _has_any(parts, [
+        "watch", "watches", "bag", "bags", "belt", "belts",
+        "scarf", "scarves", "jewelry", "jewellery", "ring", "rings",
+        "necklace", "bracelet", "earring", "earrings", "accessory",
+        "accessories", "hat", "cap", "sunglass", "sunglasses",
+    ]):
+        return "Accessories"
+
+    if _has_any(parts, ["jacket", "coat", "blazer", "outerwear", "cardigan", "overshirt"]):
+        return "Outerwear"
+
+    if _has_any(parts, ["dress", "dresses", "gown", "jumpsuit", "saree", "lehenga", "sherwani"]):
+        return "Dresses"
+
+    return "Accessories"
+
+
+def _bucket_for_category(category: str) -> str:
+    return {
+        "Tops": "tops",
+        "Bottoms": "bottoms",
+        "Footwear": "shoes",
+        "Accessories": "accessories",
+        "Outerwear": "outerwear",
+        "Dresses": "dresses",
+    }.get(str(category or ""), "accessories")
+
+
+def _type_for_category(category: str) -> str:
+    return {
+        "Tops": "top",
+        "Bottoms": "bottom",
+        "Footwear": "shoes",
+        "Accessories": "accessory",
+        "Outerwear": "outerwear",
+        "Dresses": "dress",
+    }.get(str(category or ""), "accessory")
+
+
+def _stable_offset(seed: str, size: int) -> int:
+    if size <= 0:
+        return 0
+    digest = hashlib.sha256(str(seed or "").encode("utf-8", errors="ignore")).digest()
+    return int.from_bytes(digest[:4], "big") % size
+
+
+def _rotate(values: List[Dict[str, Any]], offset: int) -> List[Dict[str, Any]]:
+    if not values:
+        return values
+    offset = offset % len(values)
+    return values[offset:] + values[:offset]
 
 
 def _dict(value: Any) -> Dict[str, Any]:
@@ -131,18 +284,35 @@ def _ensure_user_memory(memory: Dict[str, Any], user_id: str) -> Dict[str, Any]:
 
 def _normalize_item(item: Dict[str, Any], fallback_type: str) -> Dict[str, Any]:
     item = item or {}
-    item_type = str(item.get("type") or item.get("category") or fallback_type).lower()
+    enriched = dict(item)
+
+    if fallback_type and not enriched.get("category") and not enriched.get("type"):
+        enriched["category"] = fallback_type
+
+    category_name = _infer_category(enriched)
+    item_type = _type_for_category(category_name)
+
+    raw_tags = item.get("occasion_tags", item.get("occasions", []))
+    if isinstance(raw_tags, str):
+        raw_tags = [raw_tags]
+
+    raw_weather = item.get("weather_tags", item.get("weather", []))
+    if isinstance(raw_weather, str):
+        raw_weather = [raw_weather]
+
     return {
-        "id": str(item.get("id") or item.get("$id") or item.get("item_id") or item.get("name") or ""),
-        "name": str(item.get("name") or item_type.title()),
+        "id": str(item.get("id") or item.get("$id") or item.get("item_id") or item.get("image_id") or item.get("name") or ""),
+        "name": str(item.get("name") or item.get("label") or item_type.title()),
         "type": item_type,
-        "color": str(item.get("color") or item.get("color_name") or "").lower(),
-        "image_url": str(item.get("image_url") or item.get("raw_image_url") or item.get("raw_url") or "").strip(),
-        "masked_url": str(item.get("masked_url") or item.get("masked_image_url") or item.get("sticker_url") or "").strip(),
-        "fabric": str(item.get("fabric") or "").lower(),
+        "category": category_name,
+        "sub_category": str(item.get("sub_category") or item.get("subcategory") or item.get("label") or item_type).strip(),
+        "color": str(item.get("color") or item.get("color_name") or item.get("color_code") or "").lower(),
+        "image_url": str(item.get("image_url") or item.get("raw_image_url") or item.get("raw_url") or item.get("imageUrl") or "").strip(),
+        "masked_url": str(item.get("masked_url") or item.get("masked_image_url") or item.get("sticker_url") or item.get("maskedUrl") or "").strip(),
+        "fabric": str(item.get("fabric") or item.get("pattern") or "").lower(),
         "style": str(item.get("style") or item.get("vibe") or "").lower(),
-        "occasion_tags": [str(v).lower() for v in item.get("occasion_tags", item.get("occasions", [])) if v],
-        "weather_tags": [str(v).lower() for v in item.get("weather_tags", item.get("weather", [])) if v],
+        "occasion_tags": [str(v).strip().lower() for v in raw_tags if str(v or "").strip()],
+        "weather_tags": [str(v).strip().lower() for v in raw_weather if str(v or "").strip()],
         "layerable": bool(item.get("layerable", False)),
     }
 
@@ -157,70 +327,34 @@ def _normalize_wardrobe(raw_wardrobe: Any) -> Dict[str, List[Dict[str, Any]]]:
         "accessories": [],
     }
 
-    def _add(raw: Dict[str, Any]) -> None:
-        category = str(
-            raw.get("type")
-            or raw.get("category")
-            or raw.get("main_category")
-            or ""
-        ).lower()
-
-        name = str(raw.get("name", "")).lower()
-
-        # HARD OVERRIDE (MOST IMPORTANT)
-        if any(x in name for x in ["shoe", "sneaker", "boot", "heel", "sandal"]):
-            parts["shoes"].append(_normalize_item(raw, "shoes"))
-            return
-        if any(x in name for x in ["dress", "gown", "saree", "lehenga", "jumpsuit"]):
-            parts["dresses"].append(_normalize_item(raw, "dress"))
-            return
-        if any(x in name for x in ["kurta", "sherwani"]):
-            parts["tops"].append(_normalize_item(raw, "top"))
-            return
-        if any(x in name for x in ["bag", "watch", "necklace", "earring", "bracelet", "belt", "scarf", "cap", "hat"]):
-            parts["accessories"].append(_normalize_item(raw, "accessory"))
+    def _add(raw: Dict[str, Any], forced_category: str = "") -> None:
+        if not isinstance(raw, dict):
             return
 
-        # FIX: Added plurals (shoes, dresses, accessories, bottoms, outerwear, tops) to ensure matching
-        sub_category = str(raw.get("sub_category") or raw.get("subcategory") or "").lower()
-        category_text = f"{category} {sub_category}"
+        enriched = dict(raw)
+        if forced_category and not enriched.get("category") and not enriched.get("type"):
+            enriched["category"] = forced_category
 
-        if _contains_word(category_text, ["shoe", "shoes", "footwear", "sneaker", "heel", "boot", "sandal"]):
-            parts["shoes"].append(_normalize_item(raw, "shoes"))
-        elif _contains_word(category_text, ["dress", "dresses", "gown", "onepiece", "one-piece", "jumpsuit", "saree", "lehenga"]):
-            parts["dresses"].append(_normalize_item(raw, "dress"))
-        elif _contains_word(category_text, ["accessory", "accessories", "jewelry", "jewellery", "bag", "watch", "belt", "scarf", "hat", "sunglass"]):
-            parts["accessories"].append(_normalize_item(raw, "accessory"))
-        elif _contains_word(category_text, ["bottom", "bottoms", "jean", "pant", "pants", "trouser", "skirt", "short"]):
-            parts["bottoms"].append(_normalize_item(raw, "bottom"))
-        elif _contains_word(category_text, ["outer", "outerwear", "jacket", "blazer", "coat", "hoodie"]):
-            parts["outerwear"].append(_normalize_item(raw, "outerwear"))
-        elif _contains_word(category_text, ["top", "tops", "shirt", "tee", "blouse", "sweater", "kurta", "sherwani"]):
-            parts["tops"].append(_normalize_item(raw, "top"))
+        category_name = _infer_category(enriched)
+        bucket = _bucket_for_category(category_name)
+        parts[bucket].append(_normalize_item(enriched, _type_for_category(category_name)))
 
     if isinstance(raw_wardrobe, dict):
         for item in raw_wardrobe.get("tops", []) or []:
-            if isinstance(item, dict):
-                _add(item)
+            _add(item, "Tops")
         for item in raw_wardrobe.get("bottoms", []) or []:
-            if isinstance(item, dict):
-                _add(item)
+            _add(item, "Bottoms")
         for item in raw_wardrobe.get("shoes", raw_wardrobe.get("footwear", [])) or []:
-            if isinstance(item, dict):
-                _add(item)
+            _add(item, "Footwear")
         for item in raw_wardrobe.get("outerwear", []) or []:
-            if isinstance(item, dict):
-                _add(item)
+            _add(item, "Outerwear")
         for item in raw_wardrobe.get("dresses", []) or []:
-            if isinstance(item, dict):
-                _add(item)
+            _add(item, "Dresses")
         for item in raw_wardrobe.get("accessories", raw_wardrobe.get("jewelry", [])) or []:
-            if isinstance(item, dict):
-                _add(item)
+            _add(item, "Accessories")
     elif isinstance(raw_wardrobe, list):
         for item in raw_wardrobe:
-            if isinstance(item, dict):
-                _add(item)
+            _add(item)
 
     return parts
 
@@ -320,46 +454,50 @@ def _merge_wardrobe(
             seen.add(str(item.get("id", "")))
 
     for item in semantic_items:
-        item_type = str(item.get("type", "")).lower()
         item_id = str(item.get("id", ""))
         if not item_id or item_id in seen:
             continue
 
-        # FIX: Added plurals here as well
-        item_name = str(item.get("name") or "").lower()
-        item_text = f"{item_type} {item_name}"
-        if _contains_word(item_text, ["shoe", "shoes", "footwear", "sneaker", "boot", "heel", "sandal"]):
-            merged["shoes"].append(item)
-        elif _contains_word(item_text, ["bottom", "bottoms", "pant", "pants", "trouser", "jean", "skirt", "short"]):
-            merged["bottoms"].append(item)
-        elif _contains_word(item_text, ["outer", "outerwear", "jacket", "coat", "blazer", "hoodie"]):
-            merged["outerwear"].append(item)
-        elif _contains_word(item_text, ["dress", "dresses", "gown", "onepiece", "one-piece", "jumpsuit", "saree", "lehenga"]):
-            merged["dresses"].append(item)
-        elif _contains_word(item_text, ["accessory", "accessories", "jewel", "jewelry", "bag", "watch", "belt", "scarf", "hat", "sunglass"]):
-            merged["accessories"].append(item)
-        elif _contains_word(item_text, ["top", "tops", "shirt", "tee", "blouse", "sweater", "kurta", "sherwani"]):
-            merged["tops"].append(item)
-
+        category_name = _infer_category(item)
+        bucket = _bucket_for_category(category_name)
+        merged[bucket].append(_normalize_item(item, _type_for_category(category_name)))
         seen.add(item_id)
 
     return merged
 
 
 def _occasion_filter(wardrobe: Dict[str, List[Dict[str, Any]]], occasion: str) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Soft occasion handling:
+    - keep usable wardrobe items instead of dropping them
+    - move exact occasion matches first
+    - date_night/casual/work pieces still produce visual boards
+    """
     occ = str(occasion or "").strip().lower()
     if not occ:
         return wardrobe
 
-    filtered: Dict[str, List[Dict[str, Any]]] = {}
+    reordered: Dict[str, List[Dict[str, Any]]] = {}
+
     for key, items in wardrobe.items():
-        matched = []
+        matched: List[Dict[str, Any]] = []
+        rest: List[Dict[str, Any]] = []
+
         for item in items or []:
-            tags = [str(v).strip().lower() for v in (item.get("occasion_tags") or []) if str(v).strip()]
-            if occ in tags or any(occ in t for t in tags):
+            tags = item.get("occasion_tags") or item.get("occasions") or []
+            if isinstance(tags, str):
+                tags = [tags]
+
+            normalized_tags = [str(v).strip().lower() for v in tags if str(v or "").strip()]
+
+            if occ in normalized_tags or any(occ in tag for tag in normalized_tags):
                 matched.append(item)
-        filtered[key] = matched if matched else list(items or [])
-    return filtered
+            else:
+                rest.append(item)
+
+        reordered[key] = matched + rest
+
+    return reordered
 
 
 def _master_piece_score(item: Dict[str, Any], occasion: str, semantic_map: Dict[str, float]) -> float:
@@ -624,9 +762,9 @@ def validate_outfit(outfit: Dict[str, Any], context: Dict[str, Any]) -> bool:
     bottom_type = str(bottom.get("type", "")).lower()
     occasion = str(context.get("occasion", "")).lower()
 
-    if "formal" in top_type and "short" in bottom_type:
+    if "formal" in top_type and "shorts" in _tokens(bottom_type):
         return False
-    if occasion in ("office", "work") and "short" in bottom_type:
+    if occasion in ("office", "work") and "shorts" in _tokens(bottom_type):
         return False
     return True
 
@@ -1076,6 +1214,59 @@ def _build_cards(outfits: List[Dict[str, Any]], context: Dict[str, Any]) -> List
     return cards
 
 
+
+def _item_id(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return str(item.get("id") or item.get("$id") or item.get("image_id") or item.get("masked_id") or "").strip()
+
+
+def _outfit_signature(outfit: Dict[str, Any]) -> str:
+    return "|".join([
+        _item_id(outfit.get("top") or {}),
+        _item_id(outfit.get("bottom") or {}),
+        _item_id(outfit.get("dress") or {}),
+        _item_id(outfit.get("shoes") or {}),
+        _item_id(outfit.get("outerwear") or {}),
+    ])
+
+
+def _different_enough(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    return (
+        _item_id(a.get("top") or a.get("dress") or {}) != _item_id(b.get("top") or b.get("dress") or {}) or
+        _item_id(a.get("bottom") or {}) != _item_id(b.get("bottom") or {}) or
+        _item_id(a.get("shoes") or {}) != _item_id(b.get("shoes") or {})
+    )
+
+
+def _diversify_outfits(outfits: List[Dict[str, Any]], limit: int = 3) -> List[Dict[str, Any]]:
+    selected: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for outfit in outfits or []:
+        sig = _outfit_signature(outfit)
+        if not sig or sig in seen:
+            continue
+
+        if not selected or any(_different_enough(existing, outfit) for existing in selected):
+            selected.append(outfit)
+            seen.add(sig)
+
+        if len(selected) >= limit:
+            break
+
+    for outfit in outfits or []:
+        if len(selected) >= limit:
+            break
+
+        sig = _outfit_signature(outfit)
+        if sig and sig not in seen:
+            selected.append(outfit)
+            seen.add(sig)
+
+    return selected
+
+
 def save_feedback(user_id: str, outfit: Dict[str, Any], feedback: str) -> Dict[str, Any]:
     feedback_value = str(feedback).strip().lower()
     if feedback_value not in ("up", "down"):
@@ -1245,6 +1436,12 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         if widened:
             candidate_combos = widened
 
+    # Variant seed: repeated asks should not always show the exact same first look.
+    query_hint = str(context.get("query") or context.get("prompt") or occasion or "")
+    time_bucket = int(datetime.now(timezone.utc).timestamp() // 300)
+    offset = _stable_offset(f"{user_id}:{query_hint}:{time_bucket}", len(candidate_combos))
+    candidate_combos = _rotate(candidate_combos, offset)
+
     merged_context = dict(context)
     merged_context["style_dna"] = style_dna
     merged_context["style_graph"] = style_graph_engine.build_graph(wardrobe)
@@ -1264,7 +1461,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             _attach_score_meta(scored_combo, merged_context)
             scored.append(scored_combo)
 
-        ranked = outfit_ranker.rank(user_id=user_id, outfits=scored, top_n=3)
+        ranked = outfit_ranker.rank(user_id=user_id, outfits=scored, top_n=min(10, len(scored)))
 
         # Closed-loop (lightweight): if a refinement is requested (or suggested proactively),
         # run a deterministic refinement pass and re-score using the UnifiedStyleScorer.
@@ -1318,6 +1515,8 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             ),
             reverse=True,
         )
+
+        ranked = _diversify_outfits(ranked, limit=3)
 
         user_memory["recent_outfits"] = ranked + user_memory.get("recent_outfits", [])
         user_memory["recent_outfits"] = user_memory["recent_outfits"][:30]
