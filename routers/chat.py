@@ -7,6 +7,7 @@ import logging
 import time
 import concurrent.futures
 import threading
+import re
 
 from deep_translator import GoogleTranslator
 
@@ -164,6 +165,107 @@ def _is_fast_wardrobe_count_query(text: str) -> bool:
     return any(k in lowered for k in count_words) and any(k in lowered for k in wardrobe_words)
 
 
+def _chat_tokens(value: Any) -> List[str]:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip().split()
+
+
+def _chat_has_any(tokens: List[str], words: List[str]) -> bool:
+    return any(word in tokens for word in words)
+
+
+def _infer_chat_category(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return "Accessories"
+
+    explicit = str(item.get("category") or item.get("cat") or item.get("type") or "").strip().lower()
+    explicit_map = {
+        "top": "Tops",
+        "tops": "Tops",
+        "shirt": "Tops",
+        "tshirt": "Tops",
+        "t-shirt": "Tops",
+        "bottom": "Bottoms",
+        "bottoms": "Bottoms",
+        "pants": "Bottoms",
+        "trousers": "Bottoms",
+        "jeans": "Bottoms",
+        "shorts": "Bottoms",
+        "footwear": "Footwear",
+        "shoe": "Footwear",
+        "shoes": "Footwear",
+        "accessory": "Accessories",
+        "accessories": "Accessories",
+        "bag": "Accessories",
+        "bags": "Accessories",
+        "jewelry": "Accessories",
+        "jewellery": "Accessories",
+        "outerwear": "Outerwear",
+        "outer": "Outerwear",
+        "dress": "Dresses",
+        "dresses": "Dresses",
+        "indian wear": "Dresses",
+    }
+
+    if explicit in explicit_map:
+        return explicit_map[explicit]
+
+    joined = " ".join(
+        str(item.get(k, "") or "")
+        for k in (
+            "category",
+            "category_group",
+            "cat",
+            "type",
+            "name",
+            "label",
+            "sub_category",
+            "subcategory",
+            "subCategory",
+            "description",
+        )
+    )
+
+    tokens = _chat_tokens(joined)
+
+    # Tops first: Short-Sleeved Shirt must be Tops.
+    if _chat_has_any(tokens, [
+        "shirt", "shirts", "tee", "tshirt", "tshirts", "top", "tops",
+        "blouse", "blouses", "hoodie", "hoodies", "sweater", "sweaters",
+        "kurta", "kurtas", "polo", "polos",
+    ]):
+        return "Tops"
+
+    # Only shorts, never short.
+    if _chat_has_any(tokens, [
+        "pants", "pant", "trousers", "trouser", "jeans", "jean",
+        "shorts", "skirt", "skirts", "legging", "leggings", "chino", "chinos",
+    ]):
+        return "Bottoms"
+
+    if _chat_has_any(tokens, [
+        "shoe", "shoes", "boot", "boots", "sneaker", "sneakers",
+        "heel", "heels", "sandal", "sandals", "loafer", "loafers",
+        "slipper", "slippers",
+    ]):
+        return "Footwear"
+
+    if _chat_has_any(tokens, [
+        "watch", "watches", "bag", "bags", "belt", "belts",
+        "scarf", "scarves", "jewelry", "jewellery", "ring", "rings",
+        "necklace", "bracelet", "earring", "earrings", "accessory",
+        "accessories", "hat", "cap", "sunglass", "sunglasses",
+    ]):
+        return "Accessories"
+
+    if _chat_has_any(tokens, ["jacket", "coat", "blazer", "outerwear", "cardigan", "overshirt"]):
+        return "Outerwear"
+
+    if _chat_has_any(tokens, ["dress", "dresses", "gown", "jumpsuit", "saree", "lehenga", "sherwani"]):
+        return "Dresses"
+
+    return "Accessories"
+
+
 def _fast_wardrobe_count_response(user_id: str, query_text: str) -> Dict[str, Any]:
     try:
         docs = AppwriteProxy().list_documents("outfits", user_id=user_id, limit=100)
@@ -172,18 +274,17 @@ def _fast_wardrobe_count_response(user_id: str, query_text: str) -> Dict[str, An
 
     counts = {"tops": 0, "bottoms": 0, "shoes": 0, "dresses": 0, "accessories": 0}
     for d in docs:
-        category = str(d.get("category") or d.get("category_group") or "").lower()
-        sub = str(d.get("sub_category") or d.get("subcategory") or "").lower()
-        blob = f"{category} {sub}"
-        if any(k in blob for k in ["top", "shirt", "blouse", "jacket", "blazer", "tee"]):
+        cat = _infer_chat_category(d)
+
+        if cat in {"Tops", "Outerwear"}:
             counts["tops"] += 1
-        elif any(k in blob for k in ["bottom", "pant", "trouser", "jean", "short", "skirt"]):
+        elif cat == "Bottoms":
             counts["bottoms"] += 1
-        elif any(k in blob for k in ["shoe", "sneaker", "heel", "boot", "sandal", "footwear"]):
+        elif cat == "Footwear":
             counts["shoes"] += 1
-        elif "dress" in blob:
+        elif cat == "Dresses":
             counts["dresses"] += 1
-        elif any(k in blob for k in ["accessory", "watch", "bag", "jewel", "necklace", "earring"]):
+        else:
             counts["accessories"] += 1
 
     lowered = str(query_text or "").lower()
@@ -244,41 +345,58 @@ def _fetch_wardrobe_for_style(user_id: str, request_wardrobe: Any) -> List[Dict[
 
 
 def _pick_style_items(items: List[Dict[str, Any]], query_text: str) -> List[Dict[str, Any]]:
-    buckets: Dict[str, List[Dict[str, Any]]] = {
-        "hero": [],
+    buckets = {
+        "tops": [],
         "bottoms": [],
-        "footwear": [],
-        "support": [],
+        "shoes": [],
+        "dresses": [],
+        "outerwear": [],
+        "accessories": [],
     }
-    for item in items:
-        blob = _item_category_blob(item)
-        if any(k in blob for k in ["shoe", "boot", "sneaker", "heel", "sandal", "footwear"]):
-            buckets["footwear"].append(item)
-        elif any(k in blob for k in ["pant", "trouser", "jean", "short", "skirt", "bottom"]):
+
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+
+        cat = _infer_chat_category(item)
+
+        if cat == "Tops":
+            buckets["tops"].append(item)
+        elif cat == "Bottoms":
             buckets["bottoms"].append(item)
-        elif any(k in blob for k in ["watch", "bag", "jewel", "belt", "accessor"]):
-            buckets["support"].append(item)
+        elif cat == "Footwear":
+            buckets["shoes"].append(item)
+        elif cat == "Dresses":
+            buckets["dresses"].append(item)
+        elif cat == "Outerwear":
+            buckets["outerwear"].append(item)
         else:
-            buckets["hero"].append(item)
+            buckets["accessories"].append(item)
 
     selected: List[Dict[str, Any]] = []
-    selected.extend(buckets["hero"][:1])
-    selected.extend(buckets["bottoms"][:1])
-    selected.extend(buckets["footwear"][:1])
-    selected.extend(buckets["support"][:2])
-    if not selected:
-        selected = items[:4]
-    elif len(selected) < 3:
-        seen = {str(i.get("$id") or i.get("id") or i.get("name")) for i in selected}
-        for item in items:
-            key = str(item.get("$id") or item.get("id") or item.get("name"))
-            if key not in seen:
-                selected.append(item)
-                seen.add(key)
-            if len(selected) >= 4:
-                break
-    return selected[:5]
 
+    if buckets["dresses"]:
+        selected.append(buckets["dresses"][0])
+    else:
+        selected.extend(buckets["tops"][:1])
+        selected.extend(buckets["bottoms"][:1])
+
+    selected.extend(buckets["outerwear"][:1])
+    selected.extend(buckets["shoes"][:1])
+    selected.extend(buckets["accessories"][:1])
+
+    unique: List[Dict[str, Any]] = []
+    seen = set()
+
+    for item in selected:
+        item_id = str(item.get("id") or item.get("$id") or item.get("image_id") or item.get("name") or "")
+        if item_id and item_id in seen:
+            continue
+        if item_id:
+            seen.add(item_id)
+        unique.append(item)
+
+    return unique[:5]
 
 def _demo_style_board_payload(user_id: str, query_text: str, request_wardrobe: Any) -> Dict[str, Any]:
     wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
