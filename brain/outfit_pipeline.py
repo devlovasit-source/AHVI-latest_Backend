@@ -2046,3 +2046,178 @@ def _ahvi_board_item_ids_from_cards(cards, fallback_ranked):
     return deduped
 # ---- end AHVI style board contract fix ----
 
+
+
+# ---- AHVI final strict accessory override ----
+def _ahvi_strict_tokens(item):
+    blob = " ".join(str(item.get(k, "") or "") for k in (
+        "slot", "type", "category", "cat", "category_group",
+        "sub_category", "subcategory", "subCategory",
+        "name", "label", "description"
+    )).lower()
+    return set(re.sub(r"[^a-z0-9]+", " ", blob).split())
+
+
+def _ahvi_is_accessory_item(item):
+    if not isinstance(item, dict):
+        return False
+
+    tokens = _ahvi_strict_tokens(item)
+
+    clothing_reject = {
+        "top", "tops", "shirt", "shirts", "tee", "tshirt", "tshirts",
+        "blouse", "tunic", "tunics", "kurta", "saree", "sari",
+        "dress", "dresses", "gown", "jumpsuit",
+        "bottom", "bottoms", "pant", "pants", "trouser", "trousers",
+        "jean", "jeans", "short", "shorts", "skirt", "skirts",
+        "legging", "leggings", "chino", "chinos",
+        "footwear", "shoe", "shoes", "sneaker", "sneakers",
+        "boot", "boots", "heel", "heels", "sandal", "sandals",
+        "outerwear", "jacket", "coat", "blazer",
+    }
+
+    accessory_accept = {
+        "accessory", "accessories",
+        "watch", "watches",
+        "belt", "belts",
+        "cap", "caps",
+        "hat", "hats",
+        "sunglass", "sunglasses",
+        "eyewear", "glasses",
+        "bag", "bags", "purse", "handbag",
+        "jewelry", "jewellery",
+        "ring", "rings",
+        "necklace", "necklaces",
+        "bracelet", "bracelets",
+        "earring", "earrings",
+        "scarf", "scarves",
+    }
+
+    if tokens.intersection(clothing_reject):
+        # Allow only explicit accessory categories/names, never clothing names.
+        if not tokens.intersection(accessory_accept):
+            return False
+        # If both accessory + clothing words exist, reject obvious clothing.
+        if tokens.intersection({
+            "shirt", "tunic", "pants", "trousers", "jeans", "saree",
+            "dress", "shoes", "sneakers", "boots", "sandals"
+        }):
+            return False
+
+    return bool(tokens.intersection(accessory_accept))
+
+
+def _ahvi_accessory_candidates(wardrobe, combo, limit=3):
+    candidates = []
+
+    if isinstance(combo, dict) and isinstance(combo.get("accessories"), list):
+        candidates.extend([x for x in combo.get("accessories") if isinstance(x, dict)])
+
+    if isinstance(wardrobe, dict):
+        for values in wardrobe.values():
+            if isinstance(values, list):
+                for item in values:
+                    if isinstance(item, dict):
+                        candidates.append(item)
+
+    # Strict filter only. No clothing fallback.
+    candidates = [x for x in candidates if _ahvi_is_accessory_item(x)]
+
+    seen = set()
+    unique = []
+    for item in candidates:
+        key = _ahvi_card_item_key(item) if "_ahvi_card_item_key" in globals() else str(
+            item.get("id") or item.get("$id") or item.get("name") or item.get("label") or id(item)
+        ).lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+
+    priority = {
+        "watch": 0, "watches": 0,
+        "belt": 1, "belts": 1,
+        "sunglass": 2, "sunglasses": 2, "eyewear": 2, "glasses": 2,
+        "bag": 3, "bags": 3, "purse": 3, "handbag": 3,
+        "cap": 4, "caps": 4, "hat": 4, "hats": 4,
+        "jewelry": 5, "jewellery": 5, "earring": 5, "earrings": 5,
+        "bracelet": 5, "necklace": 5, "ring": 5,
+        "scarf": 6, "scarves": 6,
+    }
+
+    def score(item):
+        tokens = _ahvi_strict_tokens(item)
+        best = min([priority.get(t, 99) for t in tokens] or [99])
+        has_image = bool(
+            item.get("masked_url")
+            or item.get("maskedUrl")
+            or item.get("image_url")
+            or item.get("imageUrl")
+            or item.get("url")
+        )
+        return (best, 0 if has_image else 1, str(item.get("name") or item.get("label") or ""))
+
+    unique.sort(key=score)
+    return unique[:limit]
+
+
+def _ahvi_finalize_style_cards(cards, outfits, wardrobe, limit=3):
+    if not isinstance(cards, list):
+        return cards
+
+    for index, card in enumerate(cards):
+        if not isinstance(card, dict):
+            continue
+
+        outfit = outfits[index] if isinstance(outfits, list) and index < len(outfits) and isinstance(outfits[index], dict) else {}
+
+        raw_items = card.get("items") if isinstance(card.get("items"), list) else []
+
+        # Keep core clothing/shoe items, but remove fake accessories like extra pants/sarees.
+        core_items = []
+        seen_core = set()
+
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            if _ahvi_is_accessory_item(item):
+                continue
+
+            key = _ahvi_card_item_key(item) if "_ahvi_card_item_key" in globals() else str(
+                item.get("id") or item.get("$id") or item.get("name") or item.get("label") or id(item)
+            ).lower()
+
+            if key not in seen_core:
+                seen_core.add(key)
+                core_items.append(item)
+
+        # For demo board, keep max 3-4 core pieces.
+        core_items = core_items[:4]
+
+        accessories = _ahvi_accessory_candidates(wardrobe, outfit, limit=limit)
+
+        seen = {
+            _ahvi_card_item_key(x) if "_ahvi_card_item_key" in globals() else str(
+                x.get("id") or x.get("$id") or x.get("name") or x.get("label") or id(x)
+            ).lower()
+            for x in core_items
+            if isinstance(x, dict)
+        }
+
+        final_items = list(core_items)
+        final_accessories = []
+
+        for acc in accessories:
+            key = _ahvi_card_item_key(acc) if "_ahvi_card_item_key" in globals() else str(
+                acc.get("id") or acc.get("$id") or acc.get("name") or acc.get("label") or id(acc)
+            ).lower()
+            if key and key not in seen:
+                final_items.append(acc)
+                final_accessories.append(acc)
+                seen.add(key)
+
+        card["items"] = final_items[:7]
+        card["accessories"] = final_accessories
+
+    return cards
+# ---- end AHVI final strict accessory override ----
+
