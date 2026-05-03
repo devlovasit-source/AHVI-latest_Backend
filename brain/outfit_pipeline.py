@@ -19,6 +19,7 @@ from services import ai_gateway
 from services.appwrite_proxy import AppwriteProxy
 from services.embedding_service import get_model
 from services.qdrant_service import qdrant_service
+from brain.engines.outfit_quality_guard import filter_and_guard_outfits
 
 
 # ---- AHVI demo fix: normalize Appwrite wardrobe records into outfit slots ----
@@ -1609,6 +1610,34 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         )
 
         ranked = _diversify_outfits(ranked, limit=3)
+
+        # AHVI editorial quality guard: remove weak/bad combinations before memory, indexing and card rendering.
+        try:
+            ranked = filter_and_guard_outfits(
+                ranked,
+                user_profile=(
+                    merged_context.get("user_profile")
+                    or merged_context.get("profile")
+                    or merged_context.get("user")
+                    or {}
+                ),
+                intent=(
+                    merged_context.get("occasion")
+                    or merged_context.get("intent")
+                    or locals().get("occasion")
+                    or ""
+                ),
+                query=(
+                    merged_context.get("user_query")
+                    or merged_context.get("query")
+                    or locals().get("user_query")
+                    or locals().get("query")
+                    or ""
+                ),
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("outfit_quality_guard_failed: %s", e)
 
         user_memory["recent_outfits"] = ranked + user_memory.get("recent_outfits", [])
         user_memory["recent_outfits"] = user_memory["recent_outfits"][:30]

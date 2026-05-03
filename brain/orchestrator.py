@@ -271,6 +271,10 @@ def _wardrobe_from_appwrite(user_id: str) -> List[Dict[str, Any]]:
             {
                 "id": d.get("$id") or d.get("id"),
                 "name": d.get("name"),
+                "image_url": d.get("image_url") or d.get("imageUrl") or d.get("raw_image_url") or d.get("url"),
+                "imageUrl": d.get("imageUrl") or d.get("image_url") or d.get("raw_image_url") or d.get("url"),
+                "masked_url": d.get("masked_url") or d.get("maskedUrl") or d.get("sticker_url") or d.get("cutout_url") or d.get("image_url") or d.get("imageUrl") or d.get("url"),
+                "maskedUrl": d.get("maskedUrl") or d.get("masked_url") or d.get("sticker_url") or d.get("cutout_url") or d.get("imageUrl") or d.get("image_url") or d.get("url"),
                 "category": d.get("category") or d.get("main_category"),
                 "sub_category": d.get("sub_category") or d.get("subcategory"),
                 "color": d.get("color") or d.get("color_code"),
