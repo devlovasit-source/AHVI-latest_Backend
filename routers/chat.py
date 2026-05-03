@@ -2237,3 +2237,148 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
     }
 
 # ================= AHVI ACCESSORY POLICY PATCH V3 END =================
+
+
+# ================= AHVI CHAT PIPELINE ADAPTER V1 BEGIN =================
+# Final definition wins over duplicate _demo_style_board_payload functions above.
+# This routes fallback style boards through the existing canonical outfit_pipeline.
+
+try:
+    _ahvi_legacy_demo_style_board_payload = _demo_style_board_payload
+except Exception:
+    _ahvi_legacy_demo_style_board_payload = None
+
+
+def _ahvi_chat_adapter_occasion(query_text):
+    q = str(query_text or "").lower()
+    if any(k in q for k in ["date", "dinner", "night"]):
+        return "date night"
+    if any(k in q for k in ["office", "meeting", "work", "client"]):
+        return "office"
+    if any(k in q for k in ["party", "club", "night out"]):
+        return "party"
+    if any(k in q for k in ["travel", "airport", "trip"]):
+        return "travel"
+    if any(k in q for k in ["coffee", "casual", "outing", "weekend", "street", "sport", "travel", "outdoor"]):
+        return "casual outing"
+    return "today"
+
+
+def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profile=None):
+    try:
+        from brain.outfit_pipeline import get_daily_outfits as _ahvi_get_daily_outfits
+
+        effective_profile = _ahvi_resolve_effective_user_profile(user_id, user_profile or {})
+        wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
+        wardrobe = [
+            item for item in wardrobe
+            if _ahvi_item_allowed_for_user_profile(item, effective_profile, query_text)
+        ]
+
+        occasion = _ahvi_chat_adapter_occasion(query_text)
+
+        result = _ahvi_get_daily_outfits({
+            "user_id": user_id,
+            "wardrobe": wardrobe,
+            "context": {
+                "occasion": occasion,
+                "query": query_text,
+                "user_profile": effective_profile,
+                "style_gender": _ahvi_profile_style_gender(effective_profile),
+                "signals": {
+                    "source": "routers.chat.pipeline_adapter",
+                    "style_gender": _ahvi_profile_style_gender(effective_profile),
+                },
+            },
+        })
+
+        if not isinstance(result, dict):
+            raise RuntimeError("outfit_pipeline returned non-dict result")
+
+        cards = result.get("cards") if isinstance(result.get("cards"), list) else []
+        cards = _ahvi_orchestrator_merge_card_accessories(cards) if "_ahvi_orchestrator_merge_card_accessories" in globals() else cards
+
+        if cards:
+            board_item_ids = result.get("board_item_ids") if isinstance(result.get("board_item_ids"), list) else []
+            board_ids = ",".join([str(x) for x in board_item_ids if str(x).strip()])
+
+            message = (
+                result.get("message")
+                or result.get("context")
+                or f"Here are {len(cards)} {occasion} boards from your wardrobe."
+            )
+
+            try:
+                logger.info(
+                    "ahvi.chat_pipeline_adapter user_id=%s occasion=%s wardrobe=%s cards=%s first_card_items=%s",
+                    user_id,
+                    occasion,
+                    len(wardrobe),
+                    len(cards),
+                    [
+                        str((i or {}).get("name") or (i or {}).get("label") or "")
+                        for i in ((cards[0].get("items") if cards and isinstance(cards[0], dict) else []) or [])
+                        if isinstance(i, dict)
+                    ][:8],
+                )
+            except Exception:
+                pass
+
+            return {
+                "success": True,
+                "message": str(message),
+                "board": "style",
+                "type": "cards",
+                "cards": cards,
+                "board_ids": board_ids or "",
+                "data": {
+                    "outfits": result.get("outfits") or [],
+                    "rendered_boards": [],
+                    "board_item_ids": board_item_ids,
+                    "pipeline": result.get("pipeline") or {},
+                    "style_gender": _ahvi_profile_style_gender(effective_profile),
+                },
+                "meta": {
+                    "intent": "style_pipeline_adapter",
+                    "domain": "style",
+                    "mode": "outfit_pipeline_adapter",
+                    "wardrobe_count": len(wardrobe),
+                    "style_gender": _ahvi_profile_style_gender(effective_profile),
+                    "occasion": occasion,
+                },
+            }
+
+        try:
+            logger.warning(
+                "ahvi.chat_pipeline_adapter_empty user_id=%s occasion=%s wardrobe=%s result_context=%s",
+                user_id,
+                occasion,
+                len(wardrobe),
+                str(result.get("context") or "")[:180],
+            )
+        except Exception:
+            pass
+
+    except Exception as exc:
+        try:
+            logger.warning(
+                "ahvi.chat_pipeline_adapter_failed user_id=%s error=%s",
+                user_id,
+                str(exc)[:180],
+            )
+        except Exception:
+            pass
+
+    # Legacy fallback remains only as last safety net.
+    if callable(_ahvi_legacy_demo_style_board_payload):
+        try:
+            return _ahvi_legacy_demo_style_board_payload(user_id, query_text, request_wardrobe, user_profile)
+        except TypeError:
+            return _ahvi_legacy_demo_style_board_payload(user_id, query_text, request_wardrobe)
+        except Exception:
+            pass
+
+    return {}
+
+# ================= AHVI CHAT PIPELINE ADAPTER V1 END =================
+

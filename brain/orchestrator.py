@@ -601,34 +601,37 @@ class AhviOrchestrator:
                 },
             )
 
+            # ================= AHVI CLEAN STYLE RETURN V1 BEGIN =================
             board_item_ids = outfit_result.get("board_item_ids") if isinstance(outfit_result.get("board_item_ids"), list) else []
             board_item_ids = [str(x).strip() for x in board_item_ids if str(x).strip()]
             primary_board_id = board_item_ids[0] if board_item_ids else ""
-            cards = outfit_result.get("cards") if isinstance(outfit_result.get("cards"), list) else []
-        cards = _ahvi_orchestrator_merge_card_accessories(cards)
 
-        try:
-            logger.info(
-                "style card detail uid=%s card_item_counts=%s accessory_counts=%s first_card_items=%s",
-                uid,
-                [
-                    len(c.get("items") or [])
-                    for c in cards
-                    if isinstance(c, dict)
-                ],
-                [
-                    len(c.get("accessories") or [])
-                    for c in cards
-                    if isinstance(c, dict)
-                ],
-                [
-                    str((i or {}).get("name") or (i or {}).get("label") or "")
-                    for i in ((cards[0].get("items") if cards and isinstance(cards[0], dict) else []) or [])
-                    if isinstance(i, dict)
-                ][:8],
-            )
-        except Exception:
-            pass
+            cards = outfit_result.get("cards") if isinstance(outfit_result.get("cards"), list) else []
+            cards = _ahvi_orchestrator_merge_card_accessories(cards)
+
+            try:
+                logger.info(
+                    "style card detail uid=%s card_item_counts=%s accessory_counts=%s first_card_items=%s",
+                    uid,
+                    [
+                        len(c.get("items") or [])
+                        for c in cards
+                        if isinstance(c, dict)
+                    ],
+                    [
+                        len(c.get("accessories") or [])
+                        for c in cards
+                        if isinstance(c, dict)
+                    ],
+                    [
+                        str((i or {}).get("name") or (i or {}).get("label") or "")
+                        for i in ((cards[0].get("items") if cards and isinstance(cards[0], dict) else []) or [])
+                        if isinstance(i, dict)
+                    ][:8],
+                )
+            except Exception:
+                pass
+
             rendered_boards = _render_style_boards_for_chat(
                 cards,
                 {
@@ -658,7 +661,6 @@ class AhviOrchestrator:
                 "board": "style",
                 "type": "cards",
                 "cards": cards,
-                # Flutter currently consumes board_ids as a single id string.
                 "board_ids": primary_board_id,
                 "data": {
                     "outfits": outfits,
@@ -675,6 +677,7 @@ class AhviOrchestrator:
                     "wardrobe_count": len(wardrobe),
                 },
             }
+            # ================= AHVI CLEAN STYLE RETURN V1 END =================
 
         merged = {
             "type": "general",
