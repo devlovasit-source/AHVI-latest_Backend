@@ -1323,6 +1323,17 @@ def text_chat(request: TextChatRequest, http_request: Request):
 
     board_ids_text = str(result.get("board_ids") or "")
 
+    if visual_context and isinstance(cards_payload, list) and cards_payload:
+        cards_payload = _ahvi_final_response_style_guard(
+            cards_payload,
+            user_id,
+            english_input,
+            request.wardrobe,
+            request.user_profile if isinstance(request.user_profile, dict) else {},
+        )
+        if isinstance(data_payload, dict):
+            data_payload["outfits"] = cards_payload
+
     logger.info(
         "chat.text_response user_id=%s cards=%d",
         user_id,
@@ -2381,4 +2392,367 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
     return {}
 
 # ================= AHVI CHAT PIPELINE ADAPTER V1 END =================
+
+
+# ================= AHVI CHAT RESPONSE STYLE GUARD V1 BEGIN =================
+# Last-mile card sanitizer for /api/text.
+# This catches cards from orchestrator, outfit_pipeline, adapter, and fallbacks
+# before the response leaves the backend.
+
+def _ahvi_resp_blob(item):
+    if not isinstance(item, dict):
+        return ""
+    return " ".join(
+        str(item.get(k, "") or "")
+        for k in (
+            "role", "slot", "type", "category", "cat", "category_group",
+            "sub_category", "subcategory", "subCategory",
+            "name", "label", "description", "pattern", "color", "color_name",
+        )
+    ).lower()
+
+
+def _ahvi_resp_tokens(value):
+    return set(_chat_tokens(value or ""))
+
+
+def _ahvi_resp_key(item):
+    if not isinstance(item, dict):
+        return ""
+    return str(
+        item.get("$id")
+        or item.get("id")
+        or item.get("item_id")
+        or item.get("itemId")
+        or item.get("image_id")
+        or item.get("name")
+        or item.get("label")
+        or id(item)
+    ).lower()
+
+
+def _ahvi_resp_image(item):
+    if not isinstance(item, dict):
+        return ""
+    return str(
+        item.get("masked_url")
+        or item.get("maskedUrl")
+        or item.get("image_url")
+        or item.get("imageUrl")
+        or item.get("raw_url")
+        or item.get("rawUrl")
+        or item.get("url")
+        or item.get("image")
+        or ""
+    ).strip()
+
+
+def _ahvi_resp_role(item):
+    blob = _ahvi_resp_blob(item)
+    tokens = _ahvi_resp_tokens(blob)
+
+    if tokens.intersection({
+        "shoe", "shoes", "sneaker", "sneakers", "boot", "boots",
+        "heel", "heels", "sandal", "sandals", "loafer", "loafers",
+        "slipper", "slippers", "slider", "sliders", "footwear"
+    }):
+        return "footwear"
+
+    if tokens.intersection({
+        "watch", "watches", "belt", "belts", "cap", "caps", "hat", "hats",
+        "sunglass", "sunglasses", "eyewear", "glasses", "bag", "bags",
+        "purse", "handbag", "clutch", "tote", "jewelry", "jewellery",
+        "ring", "rings", "necklace", "necklaces", "bracelet", "bracelets",
+        "earring", "earrings", "scarf", "scarves", "accessory", "accessories"
+    }):
+        return "accessory"
+
+    if tokens.intersection({
+        "dress", "dresses", "saree", "sari", "lehenga", "gown", "jumpsuit", "sherwani"
+    }):
+        return "dress"
+
+    # Tops before bottoms so short-sleeved shirt never becomes shorts.
+    if tokens.intersection({
+        "top", "tops", "shirt", "shirts", "tee", "tshirt", "tshirts",
+        "polo", "polos", "jacket", "blazer", "sweater", "hoodie",
+        "kurta", "kurti", "tunic", "tunics"
+    }):
+        return "top"
+
+    if tokens.intersection({
+        "bottom", "bottoms", "pant", "pants", "trouser", "trousers",
+        "jean", "jeans", "shorts", "skirt", "skirts", "chino", "chinos"
+    }):
+        return "bottom"
+
+    return "unknown"
+
+
+def _ahvi_resp_accessory_type(item):
+    blob = _ahvi_resp_blob(item)
+    if "watch" in blob:
+        return "watch"
+    if "belt" in blob:
+        return "belt"
+    if "cap" in blob or "hat" in blob:
+        return "headwear"
+    if "bag" in blob:
+        return "bag"
+    if any(k in blob for k in ["ring", "necklace", "bracelet", "earring", "jewelry", "jewellery"]):
+        return "jewelry"
+    if "sunglass" in blob or "eyewear" in blob or "glasses" in blob:
+        return "eyewear"
+    if "scarf" in blob:
+        return "scarf"
+    return "accessory"
+
+
+def _ahvi_resp_norm(item, role=None):
+    row = dict(item or {})
+    resolved = role or _ahvi_resp_role(row)
+
+    if resolved == "top":
+        row["role"] = "top"
+        row["slot"] = "top"
+        row["category"] = "Tops"
+    elif resolved == "bottom":
+        row["role"] = "bottom"
+        row["slot"] = "bottom"
+        row["category"] = "Bottoms"
+    elif resolved == "footwear":
+        row["role"] = "footwear"
+        row["slot"] = "footwear"
+        row["category"] = "Footwear"
+    elif resolved == "dress":
+        row["role"] = "dress"
+        row["slot"] = "dress"
+        row["category"] = "Dresses"
+    elif resolved == "accessory":
+        row["role"] = "accessory"
+        row["slot"] = "accessory"
+        row["category"] = "Accessories"
+
+    image = _ahvi_resp_image(row)
+    if image:
+        row["image_url"] = row.get("image_url") or image
+        row["imageUrl"] = row.get("imageUrl") or image
+        row["masked_url"] = row.get("masked_url") or image
+        row["maskedUrl"] = row.get("maskedUrl") or image
+
+    return row
+
+
+def _ahvi_resp_pool(wardrobe, query_text, user_profile):
+    effective_profile = user_profile or {}
+    buckets = {
+        "top": [],
+        "bottom": [],
+        "dress": [],
+        "footwear": [],
+        "accessory": [],
+    }
+    seen = {k: set() for k in buckets}
+
+    for item in wardrobe or []:
+        if not isinstance(item, dict):
+            continue
+        if not _ahvi_resp_image(item):
+            continue
+        try:
+            if not _ahvi_item_allowed_for_user_profile(item, effective_profile, query_text):
+                continue
+        except Exception:
+            pass
+
+        role = _ahvi_resp_role(item)
+        if role not in buckets:
+            continue
+
+        key = _ahvi_resp_key(item)
+        if key in seen[role]:
+            continue
+
+        seen[role].add(key)
+        buckets[role].append(item)
+
+    return buckets
+
+
+def _ahvi_resp_pick(pool, used, fallback=None):
+    for item in pool or []:
+        key = _ahvi_resp_key(item)
+        if key and key not in used:
+            used.add(key)
+            return item
+
+    if fallback is not None:
+        key = _ahvi_resp_key(fallback)
+        if key:
+            used.add(key)
+        return fallback
+
+    if pool:
+        item = pool[0]
+        key = _ahvi_resp_key(item)
+        if key:
+            used.add(key)
+        return item
+
+    return None
+
+
+def _ahvi_resp_clean_accessories(items, query_text):
+    q = str(query_text or "").lower()
+    headwear_allowed = any(k in q for k in [
+        "casual", "street", "travel", "airport", "sport", "gym",
+        "sun", "beach", "outdoor", "college", "weekend"
+    ])
+
+    out = []
+    seen_types = set()
+    seen_ids = set()
+
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+
+        key = _ahvi_resp_key(item)
+        if key and key in seen_ids:
+            continue
+
+        typ = _ahvi_resp_accessory_type(item)
+
+        if typ == "headwear" and not headwear_allowed:
+            continue
+
+        # one watch max, one belt max, one cap max, etc.
+        if typ in seen_types:
+            continue
+
+        out.append(_ahvi_resp_norm(item, "accessory"))
+
+        if key:
+            seen_ids.add(key)
+        seen_types.add(typ)
+
+        max_count = 2 if headwear_allowed else 1
+        if len(out) >= max_count:
+            break
+
+    return out
+
+
+def _ahvi_resp_names(items):
+    return [
+        str((i or {}).get("name") or (i or {}).get("label") or (i or {}).get("category") or "")
+        for i in items or []
+        if isinstance(i, dict)
+    ]
+
+
+def _ahvi_final_response_style_guard(cards, user_id, query_text, request_wardrobe=None, user_profile=None):
+    if not isinstance(cards, list) or not cards:
+        return cards
+
+    try:
+        effective_profile = _ahvi_resolve_effective_user_profile(user_id, user_profile or {})
+    except Exception:
+        effective_profile = user_profile or {}
+
+    try:
+        wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
+    except Exception:
+        wardrobe = []
+
+    buckets = _ahvi_resp_pool(wardrobe, query_text, effective_profile)
+
+    used_top = set()
+    used_bottom = set()
+    used_dress = set()
+    used_footwear = set()
+
+    final_cards = []
+
+    for idx, card in enumerate(cards[:3]):
+        if not isinstance(card, dict):
+            continue
+
+        source_items = []
+        for key in ("items", "accessories"):
+            value = card.get(key)
+            if isinstance(value, list):
+                source_items.extend([x for x in value if isinstance(x, dict)])
+
+        top = next((x for x in source_items if _ahvi_resp_role(x) == "top"), None)
+        bottom = next((x for x in source_items if _ahvi_resp_role(x) == "bottom"), None)
+        dress = next((x for x in source_items if _ahvi_resp_role(x) == "dress"), None)
+        footwear = next((x for x in source_items if _ahvi_resp_role(x) == "footwear"), None)
+        accessories = [x for x in source_items if _ahvi_resp_role(x) == "accessory"]
+
+        final_items = []
+
+        if dress and not (top and bottom):
+            chosen_dress = _ahvi_resp_pick(buckets["dress"], used_dress, dress)
+            if chosen_dress:
+                final_items.append(_ahvi_resp_norm(chosen_dress, "dress"))
+        else:
+            chosen_top = _ahvi_resp_pick(buckets["top"], used_top, top)
+            chosen_bottom = _ahvi_resp_pick(buckets["bottom"], used_bottom, bottom)
+
+            if chosen_top:
+                final_items.append(_ahvi_resp_norm(chosen_top, "top"))
+            if chosen_bottom:
+                final_items.append(_ahvi_resp_norm(chosen_bottom, "bottom"))
+
+        chosen_footwear = _ahvi_resp_pick(buckets["footwear"], used_footwear, footwear)
+        if chosen_footwear:
+            final_items.append(_ahvi_resp_norm(chosen_footwear, "footwear"))
+
+        # If existing card has two watches, this collapses to one.
+        final_items.extend(_ahvi_resp_clean_accessories(accessories or buckets["accessory"], query_text))
+
+        fixed = dict(card)
+        fixed["items"] = final_items
+        fixed["accessories"] = []
+
+        top_name = next((str(i.get("name") or i.get("label") or "top") for i in final_items if _ahvi_resp_role(i) in {"top", "dress"}), "")
+        bottom_name = next((str(i.get("name") or i.get("label") or "bottom") for i in final_items if _ahvi_resp_role(i) == "bottom"), "")
+        footwear_name = next((str(i.get("name") or i.get("label") or "footwear") for i in final_items if _ahvi_resp_role(i) == "footwear"), "")
+
+        core = ", ".join([x for x in [top_name, bottom_name, footwear_name] if x])
+
+        if "date" in str(query_text or "").lower():
+            why = f"This works for date night because {core} creates a clean smart-casual balance without over-accessorizing."
+        elif any(k in str(query_text or "").lower() for k in ["office", "meeting", "work"]):
+            why = f"This works for office because {core} keeps the outfit structured, neat, and wearable."
+        else:
+            why = f"This works because {core} creates a balanced top-bottom-footwear structure."
+
+        fixed["why_it_works"] = why
+        fixed["explanation"] = why
+        fixed["reason"] = why
+        fixed["style_reason"] = why
+
+        title = str(fixed.get("title") or fixed.get("name") or "").strip()
+        if not title or title.lower() in {"style board", "ahvi styled look"}:
+            fixed["title"] = f"Look {idx + 1} · Styled Fit"
+            fixed["name"] = fixed["title"]
+
+        final_cards.append(fixed)
+
+    try:
+        logger.info(
+            "ahvi.chat_response_style_guard_v1 user_id=%s cards=%s signatures=%s accessory_counts=%s",
+            user_id,
+            len(final_cards),
+            [" | ".join(_ahvi_resp_names(c.get("items") or [])) for c in final_cards],
+            [len([i for i in (c.get("items") or []) if isinstance(i, dict) and _ahvi_resp_role(i) == "accessory"]) for c in final_cards],
+        )
+    except Exception:
+        pass
+
+    return final_cards or cards
+
+# ================= AHVI CHAT RESPONSE STYLE GUARD V1 END =================
 
