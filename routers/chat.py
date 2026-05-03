@@ -1602,3 +1602,369 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
     }
 
 # ================= AHVI STYLE CHAT PATCH V2 END =================
+
+# ================= AHVI ACCESSORY POLICY PATCH V3 BEGIN =================
+
+_AHVI_HEADWEAR_EXPLICIT_TOKENS = {
+    "cap", "caps", "hat", "hats", "headwear", "beanie"
+}
+
+_AHVI_HEADWEAR_CASUAL_TOKENS = {
+    "casual", "coffee", "outing", "weekend", "errand", "errands",
+    "street", "streetwear", "sport", "sports", "sporty", "gym",
+    "walk", "outdoor", "outdoors", "travel", "airport", "college",
+    "beach", "summer", "daytime"
+}
+
+_AHVI_HEADWEAR_BLOCK_TOKENS = {
+    "date", "dinner", "night", "formal", "office", "work", "meeting",
+    "interview", "wedding", "party", "business", "professional"
+}
+
+
+def _ahvi_v3_tokens_for_item(item):
+    blob = " ".join(
+        str(item.get(k, "") or "")
+        for k in (
+            "role", "slot", "type", "category", "cat", "category_group",
+            "sub_category", "subcategory", "subCategory",
+            "name", "label", "description",
+        )
+    )
+    return set(_chat_tokens(blob))
+
+
+def _ahvi_v3_query_tokens(query_text):
+    return set(_chat_tokens(query_text or ""))
+
+
+def _ahvi_v3_is_casual_query(query_text):
+    tokens = _ahvi_v3_query_tokens(query_text)
+    return bool(tokens.intersection(_AHVI_HEADWEAR_CASUAL_TOKENS))
+
+
+def _ahvi_v3_allows_headwear(query_text):
+    tokens = _ahvi_v3_query_tokens(query_text)
+
+    if tokens.intersection(_AHVI_HEADWEAR_EXPLICIT_TOKENS):
+        return True
+
+    if tokens.intersection(_AHVI_HEADWEAR_BLOCK_TOKENS):
+        return False
+
+    return bool(tokens.intersection(_AHVI_HEADWEAR_CASUAL_TOKENS))
+
+
+def _ahvi_v3_accessory_subrole(item):
+    tokens = _ahvi_v3_tokens_for_item(item)
+
+    if tokens.intersection({"watch", "watches"}):
+        return "watch"
+
+    if tokens.intersection({"cap", "caps", "hat", "hats", "headwear", "beanie"}):
+        return "headwear"
+
+    if tokens.intersection({"belt", "belts"}):
+        return "belt"
+
+    if tokens.intersection({"sunglass", "sunglasses", "eyewear", "glasses", "shade", "shades"}):
+        return "eyewear"
+
+    if tokens.intersection({"bag", "bags", "purse", "clutch", "backpack", "tote", "handbag"}):
+        return "bag"
+
+    if tokens.intersection({
+        "necklace", "earring", "earrings", "ring", "rings",
+        "bracelet", "bracelets", "jewelry", "jewellery"
+    }):
+        return "jewelry"
+
+    if tokens.intersection({"scarf", "scarves"}):
+        return "scarf"
+
+    return "accessory"
+
+
+def _ahvi_v3_select_accessories(accessories, query_text, seed=0, idx=0):
+    """Select clean accessories: one per subrole, cap only for casual intent."""
+    if not accessories:
+        return []
+
+    allow_headwear = _ahvi_v3_allows_headwear(query_text)
+    is_casual = _ahvi_v3_is_casual_query(query_text)
+
+    if is_casual:
+        priority = ["headwear", "watch", "eyewear", "bag", "belt", "jewelry", "scarf", "accessory"]
+        max_count = 2
+    else:
+        priority = ["watch", "belt", "eyewear", "bag", "jewelry", "scarf", "accessory"]
+        max_count = 2
+
+    by_subrole = {}
+    seen_ids = set()
+
+    for offset in range(len(accessories)):
+        item = accessories[(seed + idx + offset) % len(accessories)]
+
+        if not isinstance(item, dict):
+            continue
+
+        item_id = str(
+            item.get("$id")
+            or item.get("id")
+            or item.get("item_id")
+            or item.get("name")
+            or item.get("label")
+            or ""
+        ).lower()
+
+        if item_id and item_id in seen_ids:
+            continue
+
+        subrole = _ahvi_v3_accessory_subrole(item)
+
+        if subrole == "headwear" and not allow_headwear:
+            continue
+
+        if subrole in by_subrole:
+            continue
+
+        if item_id:
+            seen_ids.add(item_id)
+
+        by_subrole[subrole] = item
+
+    selected = []
+
+    for subrole in priority:
+        if subrole in by_subrole:
+            selected.append(by_subrole[subrole])
+        if len(selected) >= max_count:
+            break
+
+    return selected
+
+
+def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profile=None):
+    effective_profile = _ahvi_resolve_effective_user_profile(user_id, user_profile or {})
+
+    wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
+    wardrobe = [
+        item for item in wardrobe
+        if _ahvi_item_allowed_for_user_profile(item, effective_profile, query_text)
+    ]
+
+    selected = _pick_style_items(wardrobe, query_text, effective_profile)
+
+    if not selected:
+        return {
+            "message": (
+                "I can style this better once your wardrobe has enough compatible pieces. "
+                "I filtered out items that do not match the saved user style preference."
+            ),
+            "type": "style_fallback",
+            "cards": [],
+            "board_ids": "",
+            "data": {"outfits": [], "rendered_boards": []},
+            "meta": {
+                "wardrobe_count": len(wardrobe),
+                "mode": "deterministic_style_no_compatible_wardrobe",
+                "style_gender": _ahvi_profile_style_gender(effective_profile),
+                "accessory_policy": "one_per_type_headwear_only_for_casual",
+            },
+        }
+
+    q = (query_text or "").lower()
+
+    if any(k in q for k in ["date", "dinner", "night"]):
+        occasion = "date night"
+        title = "Date Night Edit"
+        note = "soft polish, clean contrast, and one memorable detail"
+    elif any(k in q for k in ["coffee", "casual", "outing", "weekend", "street", "sport", "travel", "outdoor"]):
+        occasion = "casual outing"
+        title = "Casual Outing Board"
+        note = "relaxed structure with a neat finish"
+    else:
+        occasion = "today"
+        title = "AHVI Styled Look"
+        note = "balanced, wearable, and intentional"
+
+    allow_dresses = (
+        _ahvi_profile_style_gender(effective_profile) != "male"
+        or _ahvi_query_allows_feminine_item(query_text)
+    )
+
+    buckets = {
+        "top": [],
+        "bottom": [],
+        "dress": [],
+        "footwear": [],
+        "accessory": [],
+    }
+
+    for item in wardrobe or []:
+        if not isinstance(item, dict):
+            continue
+
+        if not _ahvi_fallback_image(item):
+            continue
+
+        role = _ahvi_fallback_role(item)
+
+        if role == "dress" and not allow_dresses:
+            continue
+
+        if role in buckets:
+            buckets[role].append(item)
+
+    for key in buckets:
+        buckets[key] = _ahvi_unique_items(buckets[key])
+
+    if not buckets["top"] or not buckets["bottom"] or not buckets["footwear"]:
+        for item in selected:
+            if not isinstance(item, dict):
+                continue
+
+            if not _ahvi_fallback_image(item):
+                continue
+
+            role = _ahvi_fallback_role(item)
+
+            if role == "dress" and not allow_dresses:
+                continue
+
+            if role in buckets:
+                buckets[role].append(item)
+
+    for key in buckets:
+        buckets[key] = _ahvi_unique_items(buckets[key])
+
+    cards = []
+    board_ids = []
+
+    seed = abs(hash(f"{user_id}:{query_text}:{int(time.time() // 60)}"))
+
+    can_build_two_piece = bool(buckets["top"] and buckets["bottom"] and buckets["footwear"])
+    can_build_one_piece = bool(allow_dresses and buckets["dress"] and buckets["footwear"])
+
+    if can_build_two_piece or can_build_one_piece:
+        variety = sum(len(v) for v in buckets.values())
+        board_count = 3 if variety >= 6 else 2
+
+        for idx in range(board_count):
+            accessories = _ahvi_v3_select_accessories(
+                buckets["accessory"],
+                query_text,
+                seed=seed,
+                idx=idx,
+            )
+
+            if can_build_two_piece:
+                top = buckets["top"][(seed + idx) % len(buckets["top"])]
+                bottom = buckets["bottom"][(seed + idx) % len(buckets["bottom"])]
+                footwear = buckets["footwear"][(seed + idx) % len(buckets["footwear"])]
+                raw_items = [top, bottom, footwear] + accessories
+            else:
+                dress = buckets["dress"][(seed + idx) % len(buckets["dress"])]
+                footwear = buckets["footwear"][(seed + idx) % len(buckets["footwear"])]
+                raw_items = [dress, footwear] + accessories
+
+            board_items = [_ahvi_fallback_norm(x) for x in raw_items]
+            board_id = f"demo_board_{int(time.time())}_{idx}"
+            board_ids.append(board_id)
+
+            cards.append({
+                "id": board_id,
+                "title": title if idx == 0 else f"{title} {idx + 1}",
+                "name": title if idx == 0 else f"{title} {idx + 1}",
+                "kind": "style_board",
+                "score": max(82, 91 - idx * 3),
+                "vibe": occasion,
+                "aesthetic": note,
+                "items": board_items,
+
+                # Important:
+                # Accessories are already included in items.
+                # Keep this empty to avoid frontend double-rendering them.
+                "accessories": [],
+
+                "why_chosen": (
+                    f"Chosen using the saved {_ahvi_profile_style_gender(effective_profile)} style preference, "
+                    "wardrobe compatibility, occasion intent, and accessory policy: one item per accessory type."
+                ),
+            })
+
+    if not cards:
+        normalized_items = []
+
+        for item in selected:
+            if isinstance(item, dict) and _ahvi_fallback_image(item):
+                normalized_items.append(_ahvi_fallback_norm(item))
+
+        if normalized_items:
+            board_id = f"demo_board_{int(time.time())}"
+            board_ids.append(board_id)
+            cards.append({
+                "id": board_id,
+                "title": title,
+                "name": title,
+                "kind": "style_board",
+                "score": 84,
+                "vibe": occasion,
+                "aesthetic": note,
+                "items": normalized_items[:6],
+                "accessories": [],
+                "why_chosen": (
+                    f"Chosen using the saved {_ahvi_profile_style_gender(effective_profile)} style preference "
+                    "and available compatible wardrobe items."
+                ),
+            })
+
+    if not cards:
+        return {}
+
+    first_names = ", ".join(i["name"] for i in cards[0]["items"][:6])
+
+    message = (
+        f"Here are {len(cards)} {occasion} boards from your wardrobe. "
+        f"First look: {first_names}. "
+        "I filtered the wardrobe using the saved user style preference and limited accessories to one per type."
+    )
+
+    try:
+        logger.info(
+            "ahvi.accessory_policy_v3 user_id=%s style_gender=%s cards=%s headwear_allowed=%s accessory_counts=%s",
+            user_id,
+            _ahvi_profile_style_gender(effective_profile),
+            len(cards),
+            _ahvi_v3_allows_headwear(query_text),
+            [len(card.get("items") or []) - 3 for card in cards],
+        )
+    except Exception:
+        pass
+
+    return {
+        "success": True,
+        "message": message,
+        "board": "style",
+        "type": "cards",
+        "cards": cards,
+        "board_ids": board_ids[0] if board_ids else "",
+        "data": {
+            "outfits": [],
+            "rendered_boards": [],
+            "board_item_ids": board_ids,
+            "style_gender": _ahvi_profile_style_gender(effective_profile),
+            "accessory_policy": "one_per_type_headwear_only_for_casual",
+        },
+        "meta": {
+            "intent": "style_fallback",
+            "domain": "style",
+            "mode": "deterministic_style_board",
+            "wardrobe_count": len(wardrobe),
+            "style_gender": _ahvi_profile_style_gender(effective_profile),
+            "accessory_policy": "one_per_type_headwear_only_for_casual",
+        },
+    }
+
+# ================= AHVI ACCESSORY POLICY PATCH V3 END =================
