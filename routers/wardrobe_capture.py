@@ -37,6 +37,21 @@ class SaveSelectedRequest(BaseModel):
     detected_items: List[Dict[str, Any]]
 
 
+
+
+class CaptureAnalyzeBatchRequest(BaseModel):
+    user_id: str
+    image_base64s: List[str] = Field(default_factory=list)
+    auto_save: bool = False
+    save_duplicates: bool = False
+
+
+class DeleteSelectedRequest(BaseModel):
+    user_id: str
+    item_ids: List[str] = Field(default_factory=list)
+    items: List[Dict[str, Any]] = Field(default_factory=list)
+    delete_r2: bool = True
+
 def _request_user_id(http_request: Request) -> str:
     user = getattr(http_request.state, "user", None)
     if not isinstance(user, dict):
@@ -542,16 +557,280 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
 
 # ================= AHVI SAVE SELECTED 6 ITEMS PATCH V2 BEGIN =================
 
+# ================= AHVI CAPTURE SAVE DELETE PATCH V4 BEGIN =================
+
+def _ahvi_outfits_collection_id() -> str:
+    return (
+        os.getenv("APPWRITE_COLLECTION_OUTFITS")
+        or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_OUTFITS")
+        or os.getenv("APPWRITE_COLLECTION_ID")
+        or "outfits"
+    )
+
+
+def _ahvi_appwrite_ready() -> bool:
+    return bool(
+        os.getenv("APPWRITE_ENDPOINT")
+        and os.getenv("APPWRITE_PROJECT_ID")
+        and os.getenv("APPWRITE_API_KEY")
+        and os.getenv("APPWRITE_DATABASE_ID")
+        and _ahvi_outfits_collection_id()
+    )
+
+
+def _ahvi_appwrite_headers() -> Dict[str, str]:
+    return {
+        "X-Appwrite-Project": os.getenv("APPWRITE_PROJECT_ID", ""),
+        "X-Appwrite-Key": os.getenv("APPWRITE_API_KEY", ""),
+        "Content-Type": "application/json",
+    }
+
+
+def _ahvi_appwrite_doc_url(document_id: str) -> str:
+    endpoint = str(os.getenv("APPWRITE_ENDPOINT") or "").rstrip("/")
+    database_id = str(os.getenv("APPWRITE_DATABASE_ID") or "").strip()
+    collection_id = _ahvi_outfits_collection_id()
+    return f"{endpoint}/databases/{database_id}/collections/{collection_id}/documents/{document_id}"
+
+
+def _ahvi_item_doc_id(item: Dict[str, Any]) -> str:
+    return str(
+        item.get("$id")
+        or item.get("document_id")
+        or item.get("documentId")
+        or item.get("id")
+        or item.get("item_id")
+        or item.get("itemId")
+        or ""
+    ).strip()
+
+
+def _ahvi_fetch_outfit_doc(document_id: str) -> Dict[str, Any]:
+    if not _ahvi_appwrite_ready() or not document_id:
+        return {}
+
+    try:
+        res = requests.get(
+            _ahvi_appwrite_doc_url(document_id),
+            headers=_ahvi_appwrite_headers(),
+            timeout=15,
+        )
+        if res.status_code == 404:
+            return {}
+        res.raise_for_status()
+        data = res.json()
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _ahvi_delete_outfit_doc(document_id: str) -> Dict[str, Any]:
+    if not _ahvi_appwrite_ready():
+        return {"ok": False, "status": "appwrite_not_configured"}
+
+    if not document_id:
+        return {"ok": False, "status": "missing_document_id"}
+
+    try:
+        res = requests.delete(
+            _ahvi_appwrite_doc_url(document_id),
+            headers=_ahvi_appwrite_headers(),
+            timeout=15,
+        )
+
+        if res.status_code in {200, 202, 204, 404}:
+            return {"ok": True, "status": res.status_code}
+
+        return {
+            "ok": False,
+            "status": res.status_code,
+            "error": res.text[:400],
+        }
+    except Exception as exc:
+        return {"ok": False, "status": "exception", "error": str(exc)}
+
+
+def _ahvi_file_name_from_url(url: Any) -> str:
+    try:
+        from urllib.parse import urlparse, unquote
+        path = urlparse(str(url or "")).path
+        name = unquote(path.rsplit("/", 1)[-1])
+        return name.strip()
+    except Exception:
+        return ""
+
+
+def _ahvi_extract_r2_file_names(item: Dict[str, Any]) -> Dict[str, str]:
+    raw_file_name = str(
+        item.get("raw_file_name")
+        or item.get("rawFileName")
+        or item.get("raw_key")
+        or item.get("rawKey")
+        or ""
+    ).strip()
+
+    masked_file_name = str(
+        item.get("masked_file_name")
+        or item.get("maskedFileName")
+        or item.get("masked_key")
+        or item.get("maskedKey")
+        or ""
+    ).strip()
+
+    if not raw_file_name:
+        raw_file_name = _ahvi_file_name_from_url(
+            item.get("raw_url")
+            or item.get("rawUrl")
+            or item.get("image_url")
+            or item.get("imageUrl")
+        )
+
+    if not masked_file_name:
+        masked_file_name = _ahvi_file_name_from_url(
+            item.get("masked_url")
+            or item.get("maskedUrl")
+            or item.get("url")
+        )
+
+    return {
+        "raw_file_name": raw_file_name,
+        "masked_file_name": masked_file_name,
+    }
+
+
+def _ahvi_delete_r2_images_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    names = _ahvi_extract_r2_file_names(item)
+
+    if not names.get("raw_file_name") and not names.get("masked_file_name"):
+        return {
+            "raw_deleted": False,
+            "masked_deleted": False,
+            "status": "no_r2_file_names",
+        }
+
+    try:
+        result = R2Storage().delete_wardrobe_images(
+            raw_file_name=names.get("raw_file_name") or "",
+            masked_file_name=names.get("masked_file_name") or "",
+        )
+        result["status"] = "ok"
+        result.update(names)
+        return result
+    except Exception as exc:
+        return {
+            "raw_deleted": False,
+            "masked_deleted": False,
+            "status": "exception",
+            "error": str(exc),
+            **names,
+        }
+
+
+def _ahvi_doc_belongs_to_user(doc: Dict[str, Any], user_id: str) -> bool:
+    if not isinstance(doc, dict) or not doc:
+        return True
+
+    owner = str(
+        doc.get("userId")
+        or doc.get("user_id")
+        or doc.get("owner_id")
+        or ""
+    ).strip()
+
+    if not owner:
+        return True
+
+    return owner == str(user_id or "").strip()
+
+
+@router.post("/analyze-batch")
+async def analyze_capture_batch(http_request: Request, request: CaptureAnalyzeBatchRequest):
+    user_id = _effective_user_id(http_request, request.user_id)
+
+    images = list(request.image_base64s or [])[:6]
+    all_items: List[Dict[str, Any]] = []
+    per_image: List[Dict[str, Any]] = []
+    errors: List[Dict[str, Any]] = []
+
+    if not images:
+        raise HTTPException(status_code=400, detail="image_base64s is required")
+
+    for index, image_base64 in enumerate(images):
+        try:
+            single_request = CaptureAnalyzeRequest(
+                user_id=user_id,
+                image_base64=image_base64,
+                auto_save=False,
+                save_duplicates=request.save_duplicates,
+            )
+
+            result = await analyze_capture(http_request, single_request)
+            items = result.get("items") if isinstance(result, dict) else []
+            if not isinstance(items, list):
+                items = []
+
+            normalized = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+
+                item = dict(item)
+                item["source_image_index"] = index
+                item["batch_index"] = index
+                normalized.append(item)
+                all_items.append(item)
+
+            per_image.append({
+                "index": index,
+                "success": True,
+                "count": len(normalized),
+                "items": normalized,
+                "stage_trace": result.get("stage_trace") if isinstance(result, dict) else {},
+            })
+
+        except Exception as exc:
+            errors.append({"index": index, "error": str(exc)})
+            per_image.append({
+                "index": index,
+                "success": False,
+                "count": 0,
+                "items": [],
+                "error": str(exc),
+            })
+
+    try:
+        import logging
+        logging.getLogger("ahvi.wardrobe_capture").info(
+            "ahvi.capture_analyze_batch user_id=%s images=%s items=%s errors=%s",
+            user_id,
+            len(images),
+            len(all_items),
+            len(errors),
+        )
+    except Exception:
+        pass
+
+    return {
+        "success": len(all_items) > 0,
+        "count": len(all_items),
+        "items": all_items,
+        "per_image": per_image,
+        "errors": errors,
+        "max_selectable": 6,
+        "stage_trace": {
+            "batch_images": len(images),
+            "batch_items": len(all_items),
+            "batch_errors": len(errors),
+        },
+    }
+
+
 @router.post("/save-selected")
 def save_selected(http_request: Request, request: SaveSelectedRequest):
     user_id = _effective_user_id(http_request, request.user_id)
 
     max_selectable = 6
-
-    selected_item_ids = list(request.selected_item_ids or [])
-    if len(selected_item_ids) > max_selectable:
-        selected_item_ids = selected_item_ids[:max_selectable]
-
+    selected_item_ids = list(request.selected_item_ids or [])[:max_selectable]
     detected_items = list(request.detected_items or [])
 
     normalized_items: List[Dict[str, Any]] = []
@@ -575,9 +854,6 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
             or item.get("url")
         )
 
-        # Multi-scan fix:
-        # Some frontend save-selected calls send base64-only analyzed items.
-        # Persistence needs permanent raw/masked URLs, so retry upload here.
         try:
             item = _try_upload_inline_images(item)
         except Exception as exc:
@@ -615,7 +891,7 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
     try:
         import logging
         logging.getLogger("ahvi.wardrobe_capture").info(
-            "ahvi.save_selected_v2 user_id=%s selected=%s input_items=%s normalized_items=%s upload_fixed=%s skipped_invalid=%s saved=%s skipped=%s errors=%s",
+            "ahvi.save_selected_v4 user_id=%s selected=%s input_items=%s normalized_items=%s upload_fixed=%s skipped_invalid=%s saved=%s skipped=%s errors=%s",
             user_id,
             len(selected_item_ids),
             len(detected_items),
@@ -631,5 +907,90 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
 
     return result
 
-# ================= AHVI SAVE SELECTED 6 ITEMS PATCH V2 END =================
+
+@router.post("/delete-selected")
+def delete_selected(http_request: Request, request: DeleteSelectedRequest):
+    user_id = _effective_user_id(http_request, request.user_id)
+
+    ids: List[str] = []
+    by_id: Dict[str, Dict[str, Any]] = {}
+
+    for item_id in request.item_ids or []:
+        clean = str(item_id or "").strip()
+        if clean and clean not in ids:
+            ids.append(clean)
+
+    for item in request.items or []:
+        if not isinstance(item, dict):
+            continue
+
+        clean = _ahvi_item_doc_id(item)
+        if clean and clean not in ids:
+            ids.append(clean)
+
+        if clean:
+            by_id[clean] = dict(item)
+
+    ids = ids[:24]
+
+    deleted: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
+    errors: List[Dict[str, Any]] = []
+
+    for doc_id in ids:
+        supplied_item = by_id.get(doc_id) or {}
+        appwrite_doc = _ahvi_fetch_outfit_doc(doc_id)
+        source_item = {**supplied_item, **appwrite_doc} if appwrite_doc else supplied_item
+
+        if appwrite_doc and not _ahvi_doc_belongs_to_user(appwrite_doc, user_id):
+            skipped.append({
+                "id": doc_id,
+                "reason": "user_mismatch",
+            })
+            continue
+
+        r2_result = {"status": "skipped"}
+        if bool(request.delete_r2):
+            r2_result = _ahvi_delete_r2_images_for_item(source_item)
+
+        appwrite_result = _ahvi_delete_outfit_doc(doc_id)
+
+        if appwrite_result.get("ok"):
+            deleted.append({
+                "id": doc_id,
+                "appwrite": appwrite_result,
+                "r2": r2_result,
+            })
+        else:
+            errors.append({
+                "id": doc_id,
+                "appwrite": appwrite_result,
+                "r2": r2_result,
+            })
+
+    try:
+        import logging
+        logging.getLogger("ahvi.wardrobe_capture").info(
+            "ahvi.delete_selected_v4 user_id=%s requested=%s deleted=%s skipped=%s errors=%s",
+            user_id,
+            len(ids),
+            len(deleted),
+            len(skipped),
+            errors,
+        )
+    except Exception:
+        pass
+
+    return {
+        "success": len(errors) == 0,
+        "requested_count": len(ids),
+        "deleted_count": len(deleted),
+        "skipped_count": len(skipped),
+        "error_count": len(errors),
+        "deleted": deleted,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+# ================= AHVI CAPTURE SAVE DELETE PATCH V4 END =================
 
