@@ -5,6 +5,7 @@ from collections import OrderedDict
 import os
 import logging
 import time
+import hashlib
 import concurrent.futures
 import threading
 import re
@@ -540,42 +541,290 @@ def _demo_style_board_payload(user_id: str, query_text: str, request_wardrobe: A
 
     cards: List[Dict[str, Any]] = []
     board_ids: List[str] = []
-
     can_build = bool(buckets["top"] and buckets["bottom"] and buckets["footwear"])
 
+    # ================= AHVI STYLE BOARD VARIETY V9 BEGIN =================
+    def _stable_int(value: str) -> int:
+        try:
+            return int(hashlib.sha1(value.encode("utf-8")).hexdigest()[:12], 16)
+        except Exception:
+            return abs(hash(value))
+
+    def _item_key(item: Dict[str, Any]) -> str:
+        return str(
+            item.get("$id")
+            or item.get("id")
+            or item.get("item_id")
+            or item.get("image_id")
+            or item.get("name")
+            or item.get("label")
+            or id(item)
+        ).lower()
+
+    def _item_text(item: Dict[str, Any]) -> str:
+        return " ".join(
+            str(item.get(k, "") or "")
+            for k in (
+                "name",
+                "label",
+                "category",
+                "cat",
+                "sub_category",
+                "subcategory",
+                "subCategory",
+                "color",
+                "color_name",
+                "pattern",
+                "description",
+            )
+        ).lower()
+
+    def _accessory_type(item: Dict[str, Any]) -> str:
+        text_blob = _item_text(item)
+        if "watch" in text_blob:
+            return "watch"
+        if "belt" in text_blob:
+            return "belt"
+        if "cap" in text_blob or "hat" in text_blob:
+            return "headwear"
+        if "bag" in text_blob:
+            return "bag"
+        if any(k in text_blob for k in ["ring", "necklace", "bracelet", "earring", "jewelry", "jewellery"]):
+            return "jewelry"
+        return "accessory"
+
+    def _combo_signature(top: Dict[str, Any], bottom: Dict[str, Any], shoe: Dict[str, Any]) -> str:
+        return "|".join([_item_key(top), _item_key(bottom), _item_key(shoe)])
+
+    def _rotated(items: List[Dict[str, Any]], salt: str) -> List[Dict[str, Any]]:
+        if not items:
+            return []
+        seed = _stable_int(salt) % len(items)
+        return items[seed:] + items[:seed]
+
+    def _pick_accessories(idx: int, seed: int) -> List[Dict[str, Any]]:
+        if not buckets["accessory"]:
+            return []
+
+        q_local = str(query_text or "").lower()
+        headwear_allowed = any(
+            k in q_local
+            for k in ["casual", "street", "travel", "airport", "sport", "gym", "sun", "beach", "outdoor"]
+        )
+
+        rotated_accessories = _rotated(
+            buckets["accessory"],
+            f"{user_id}:{query_text}:accessory:{idx}:{seed}",
+        )
+
+        picked: List[Dict[str, Any]] = []
+        seen_types = set()
+
+        for accessory in rotated_accessories:
+            typ = _accessory_type(accessory)
+            if typ == "headwear" and not headwear_allowed:
+                continue
+            if typ in seen_types:
+                continue
+
+            picked.append(accessory)
+            seen_types.add(typ)
+
+            if len(picked) >= 2:
+                break
+
+        return picked
+
+    def _occasion_score(
+        top: Dict[str, Any],
+        bottom: Dict[str, Any],
+        shoe: Dict[str, Any],
+        accs: List[Dict[str, Any]],
+    ) -> int:
+        q_local = str(query_text or "").lower()
+        all_text = " ".join(
+            [_item_text(top), _item_text(bottom), _item_text(shoe)]
+            + [_item_text(a) for a in accs]
+        )
+
+        score = 0
+
+        if any(k in q_local for k in ["date", "dinner", "night"]):
+            if any(k in all_text for k in ["black", "dark", "navy", "green", "white", "brown"]):
+                score += 8
+            if any(k in all_text for k in ["shirt", "polo", "trouser", "jeans", "loafer", "boot", "sneaker"]):
+                score += 8
+            if any(k in all_text for k in ["cap", "shorts", "slipper"]):
+                score -= 8
+
+        elif any(k in q_local for k in ["office", "meeting", "work", "client"]):
+            if any(k in all_text for k in ["shirt", "polo", "trouser", "chino", "loafer", "formal", "black", "white", "blue"]):
+                score += 10
+            if any(k in all_text for k in ["cap", "floral", "vacation", "shorts", "slipper", "slider"]):
+                score -= 10
+
+        elif any(k in q_local for k in ["party", "club", "night out"]):
+            if any(k in all_text for k in ["black", "dark", "boot", "watch", "jacket"]):
+                score += 8
+
+        else:
+            if any(k in all_text for k in ["shirt", "tee", "jeans", "sneaker", "trouser"]):
+                score += 5
+
+        return score
+
     if can_build:
-        variant_seed = abs(hash(f"{user_id}:{query_text}:{int(time.time() // 60)}"))
-        available_variety = len(buckets["top"]) + len(buckets["bottom"]) + len(buckets["footwear"]) + len(buckets["accessory"])
+        variety_window = max(1, int(os.getenv("AHVI_STYLE_VARIETY_WINDOW_SECONDS", "300")))
+        time_bucket = int(time.time() // variety_window)
+        seed = _stable_int(f"{user_id}:{query_text}:{time_bucket}:{len(wardrobe)}")
+
+        tops = _rotated(buckets["top"], f"{seed}:tops")
+        bottoms = _rotated(buckets["bottom"], f"{seed}:bottoms")
+        shoes = _rotated(buckets["footwear"], f"{seed}:shoes")
+
+        candidate_rows: List[Dict[str, Any]] = []
+
+        for ti, top in enumerate(tops[:10]):
+            for bi, bottom in enumerate(bottoms[:10]):
+                for si, shoe in enumerate(shoes[:10]):
+                    accessories = _pick_accessories(len(candidate_rows), seed + ti + bi + si)
+                    candidate_rows.append({
+                        "top": top,
+                        "bottom": bottom,
+                        "shoe": shoe,
+                        "accessories": accessories,
+                        "signature": _combo_signature(top, bottom, shoe),
+                        "score": _occasion_score(top, bottom, shoe, accessories)
+                            + ((ti + bi + si + seed) % 7),
+                    })
+
+        candidate_rows.sort(key=lambda row: row["score"], reverse=True)
+
+        available_variety = (
+            len(buckets["top"])
+            + len(buckets["bottom"])
+            + len(buckets["footwear"])
+            + len(buckets["accessory"])
+        )
         board_count = 3 if available_variety >= 6 else 2
 
-        for idx in range(board_count):
-            top = buckets["top"][(variant_seed + idx) % len(buckets["top"])]
-            bottom = buckets["bottom"][(variant_seed + idx) % len(buckets["bottom"])]
-            shoe = buckets["footwear"][(variant_seed + idx) % len(buckets["footwear"])]
+        used_signatures = set()
+        used_tops = set()
+        used_bottoms = set()
+        used_shoes = set()
+        chosen: List[Dict[str, Any]] = []
 
-            accessories: List[Dict[str, Any]] = []
-            if buckets["accessory"]:
-                max_accessories = min(3, len(buckets["accessory"]))
-                for offset in range(max_accessories):
-                    accessories.append(
-                        buckets["accessory"][(variant_seed + idx + offset) % len(buckets["accessory"])]
-                    )
+        # Pass 1: maximize diversity across top/bottom/footwear.
+        for row in candidate_rows:
+            top_key = _item_key(row["top"])
+            bottom_key = _item_key(row["bottom"])
+            shoe_key = _item_key(row["shoe"])
+
+            if row["signature"] in used_signatures:
+                continue
+            if top_key in used_tops and len(buckets["top"]) >= board_count:
+                continue
+            if bottom_key in used_bottoms and len(buckets["bottom"]) >= board_count:
+                continue
+            if shoe_key in used_shoes and len(buckets["footwear"]) >= board_count:
+                continue
+
+            chosen.append(row)
+            used_signatures.add(row["signature"])
+            used_tops.add(top_key)
+            used_bottoms.add(bottom_key)
+            used_shoes.add(shoe_key)
+
+            if len(chosen) >= board_count:
+                break
+
+        # Pass 2: relax if wardrobe is small, but never repeat exact combo.
+        if len(chosen) < board_count:
+            for row in candidate_rows:
+                if row["signature"] in used_signatures:
+                    continue
+                chosen.append(row)
+                used_signatures.add(row["signature"])
+                if len(chosen) >= board_count:
+                    break
+
+        is_date = any(k in str(query_text or "").lower() for k in ["date", "dinner", "night"])
+        is_office = any(k in str(query_text or "").lower() for k in ["office", "meeting", "work", "client"])
+
+        for idx, row in enumerate(chosen[:board_count]):
+            top = row["top"]
+            bottom = row["bottom"]
+            shoe = row["shoe"]
+            accessories = row["accessories"]
 
             board_items = [_fallback_norm(x) for x in [top, bottom, shoe] + accessories]
             board_id = f"demo_board_{int(time.time())}_{idx}"
             board_ids.append(board_id)
 
+            if is_date:
+                board_title = ["Evening Smart Casual", "Clean Relaxed Date Fit", "Soft Casual Evening"][idx % 3]
+            elif is_office:
+                board_title = ["Polished Work Fit", "Smart Office Casual", "Client-Ready Look"][idx % 3]
+            elif occasion == "casual outing":
+                board_title = ["Clean Casual Fit", "Relaxed Weekend Look", "Easy Day Outfit"][idx % 3]
+            else:
+                board_title = ["Clean Daily Look", "Balanced Smart Casual", "Easy Styled Fit"][idx % 3]
+
+            top_name = str(board_items[0].get("name") or "top")
+            bottom_name = str(board_items[1].get("name") or "bottom")
+            shoe_name = str(board_items[2].get("name") or "footwear")
+
+            if is_date:
+                why = (
+                    f"This works for date night because {top_name}, {bottom_name}, and {shoe_name} create a clean smart-casual balance. "
+                    "The outfit feels intentional without looking overdone, and accessories are kept minimal."
+                )
+            elif is_office:
+                why = (
+                    f"This works for office because {top_name}, {bottom_name}, and {shoe_name} keep the look structured, neat, and wearable through the day."
+                )
+            else:
+                why = (
+                    f"This works because {top_name}, {bottom_name}, and {shoe_name} create a balanced outfit with a clear top-bottom-footwear structure."
+                )
+
             cards.append({
                 "id": board_id,
-                "title": title if idx == 0 else f"{title} {idx + 1}",
-                "name": title if idx == 0 else f"{title} {idx + 1}",
+                "title": f"Look {idx + 1} · {board_title}",
+                "name": f"Look {idx + 1} · {board_title}",
                 "kind": "style_board",
-                "score": max(82, 91 - idx * 3),
+                "score": max(82, 94 - idx * 3),
                 "vibe": occasion,
                 "aesthetic": note,
                 "items": board_items,
                 "accessories": [_fallback_norm(x) for x in accessories],
+                "why_it_works": why,
+                "explanation": why,
+                "reason": why,
+                "style_reason": why,
+                "story": {
+                    "title": f"Look {idx + 1} · {board_title}",
+                    "subtitle": why,
+                    "why_it_works": why,
+                    "explanation": why,
+                },
             })
+
+        try:
+            logger.info(
+                "ahvi.style_variety_v9 user_id=%s occasion=%s top=%s bottom=%s footwear=%s accessories=%s cards=%s signatures=%s",
+                user_id,
+                occasion,
+                len(buckets["top"]),
+                len(buckets["bottom"]),
+                len(buckets["footwear"]),
+                len(buckets["accessory"]),
+                len(cards),
+                [c.get("id") for c in cards],
+            )
+        except Exception:
+            pass
+    # ================= AHVI STYLE BOARD VARIETY V9 END =================
 
     if not cards:
         normalized_items: List[Dict[str, Any]] = []
