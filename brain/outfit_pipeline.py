@@ -20,6 +20,7 @@ from services.appwrite_proxy import AppwriteProxy
 from services.embedding_service import get_model
 from services.qdrant_service import qdrant_service
 from brain.engines.outfit_quality_guard import filter_and_guard_outfits
+import re
 
 
 # ---- AHVI demo fix: normalize Appwrite wardrobe records into outfit slots ----

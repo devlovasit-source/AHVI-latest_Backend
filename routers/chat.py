@@ -999,20 +999,40 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # build a deterministic wardrobe board so the demo never lands as plain text only.
     data_payload = result.get("data") or {}
     cards_payload = result.get("cards") or []
-    has_visual_board = bool(
-        isinstance(cards_payload, list)
-        and cards_payload
-    ) or bool(
-        isinstance(data_payload, dict)
-        and (data_payload.get("rendered_boards") or data_payload.get("outfits"))
+
+    # AHVI no visual boards on error responses:
+    # If the orchestrator failed, do not attach deterministic fallback boards.
+    # This avoids showing "temporary issue" text and outfit boards together.
+    result_message_text = str(result.get("message") or "").lower()
+    is_error_style_response = any(
+        marker in result_message_text
+        for marker in (
+            "temporary issue",
+            "please try again",
+            "pipeline temporarily unavailable",
+            "no outfits generated",
+        )
     )
-    if visual_context and not has_visual_board:
-        style_payload = _demo_style_board_payload(user_id, english_input, request.wardrobe)
-        if style_payload.get("cards"):
-            cards_payload = style_payload.get("cards") or []
-            data_payload = style_payload.get("data") or {}
-            result["type"] = style_payload.get("type") or result.get("type")
-            result["board_ids"] = style_payload.get("board_ids") or result.get("board_ids") or ""
+
+    if is_error_style_response:
+        cards_payload = []
+        data_payload = {"outfits": [], "rendered_boards": []}
+        result["board_ids"] = ""
+    else:
+        has_visual_board = bool(
+            isinstance(cards_payload, list)
+            and cards_payload
+        ) or bool(
+            isinstance(data_payload, dict)
+            and (data_payload.get("rendered_boards") or data_payload.get("outfits"))
+        )
+        if visual_context and not has_visual_board:
+            style_payload = _demo_style_board_payload(user_id, english_input, request.wardrobe)
+            if style_payload.get("cards"):
+                cards_payload = style_payload.get("cards") or []
+                data_payload = style_payload.get("data") or {}
+                result["type"] = style_payload.get("type") or result.get("type")
+                result["board_ids"] = style_payload.get("board_ids") or result.get("board_ids") or ""
             result["meta"] = {**(result.get("meta") or {}), **(style_payload.get("meta") or {})}
         lower_message = (message or "").lower()
         if not message or "clarification" in lower_message or "balance isn't quite" in lower_message:
