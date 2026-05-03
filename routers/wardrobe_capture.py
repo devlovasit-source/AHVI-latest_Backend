@@ -1,4 +1,4 @@
-﻿import base64
+import base64
 import io
 import os
 import time
@@ -540,16 +540,96 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         },
     }
 
+# ================= AHVI SAVE SELECTED 6 ITEMS PATCH V2 BEGIN =================
 
 @router.post("/save-selected")
 def save_selected(http_request: Request, request: SaveSelectedRequest):
     user_id = _effective_user_id(http_request, request.user_id)
-    return persist_selected_items(
+
+    max_selectable = 6
+
+    selected_item_ids = list(request.selected_item_ids or [])
+    if len(selected_item_ids) > max_selectable:
+        selected_item_ids = selected_item_ids[:max_selectable]
+
+    detected_items = list(request.detected_items or [])
+
+    normalized_items: List[Dict[str, Any]] = []
+    upload_fixed = 0
+    skipped_invalid = 0
+
+    for original in detected_items:
+        if not isinstance(original, dict):
+            skipped_invalid += 1
+            continue
+
+        item = dict(original)
+
+        had_url = bool(
+            item.get("raw_url")
+            or item.get("rawUrl")
+            or item.get("image_url")
+            or item.get("imageUrl")
+            or item.get("masked_url")
+            or item.get("maskedUrl")
+            or item.get("url")
+        )
+
+        # Multi-scan fix:
+        # Some frontend save-selected calls send base64-only analyzed items.
+        # Persistence needs permanent raw/masked URLs, so retry upload here.
+        try:
+            item = _try_upload_inline_images(item)
+        except Exception as exc:
+            item["upload_error"] = str(exc)
+
+        has_url = bool(
+            item.get("raw_url")
+            or item.get("rawUrl")
+            or item.get("image_url")
+            or item.get("imageUrl")
+            or item.get("masked_url")
+            or item.get("maskedUrl")
+            or item.get("url")
+        )
+
+        if not had_url and has_url:
+            upload_fixed += 1
+
+        normalized_items.append(item)
+
+    result = persist_selected_items(
         user_id=user_id,
-        selected_item_ids=request.selected_item_ids,
-        detected_items=request.detected_items,
+        selected_item_ids=selected_item_ids,
+        detected_items=normalized_items,
     )
 
+    if isinstance(result, dict):
+        result.setdefault("max_selectable", max_selectable)
+        result.setdefault("selected_count", len(selected_item_ids))
+        result.setdefault("input_item_count", len(detected_items))
+        result.setdefault("normalized_item_count", len(normalized_items))
+        result.setdefault("upload_fixed_count", upload_fixed)
+        result.setdefault("skipped_invalid_count", skipped_invalid)
 
+    try:
+        import logging
+        logging.getLogger("ahvi.wardrobe_capture").info(
+            "ahvi.save_selected_v2 user_id=%s selected=%s input_items=%s normalized_items=%s upload_fixed=%s skipped_invalid=%s saved=%s skipped=%s errors=%s",
+            user_id,
+            len(selected_item_ids),
+            len(detected_items),
+            len(normalized_items),
+            upload_fixed,
+            skipped_invalid,
+            result.get("saved_count") if isinstance(result, dict) else None,
+            result.get("skipped") if isinstance(result, dict) else None,
+            result.get("errors") if isinstance(result, dict) else None,
+        )
+    except Exception:
+        pass
 
+    return result
+
+# ================= AHVI SAVE SELECTED 6 ITEMS PATCH V2 END =================
 
