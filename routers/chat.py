@@ -319,568 +319,608 @@ def _fast_wardrobe_count_response(user_id: str, query_text: str) -> Dict[str, An
         "audio_job_id": "offline",
     }
 
-def _item_category_blob(item: Dict[str, Any]) -> str:
-    parts = [
-        item.get("name"),
-        item.get("category"),
-        item.get("sub_category"),
-        item.get("label"),
-        item.get("pattern"),
+
+
+# ================= AHVI CLEAN CHAT STYLE V2 BEGIN =================
+# One clean style adapter for chat.
+# Source of truth: brain.outfit_pipeline.get_daily_outfits
+# Purpose:
+# - remove duplicate _demo_style_board_payload definitions
+# - sanitize cards before they reach Flutter
+# - one watch max
+# - category/role/slot guaranteed for top, bottom, footwear, accessory
+# - fallback still works if orchestrator times out
+
+_AHVI_MALE_STYLE_GENDERS = {"m", "male", "man", "men", "mens", "boy"}
+_AHVI_FEMALE_STYLE_GENDERS = {"f", "female", "woman", "women", "womens", "girl", "ladies"}
+_AHVI_UNISEX_STYLE_GENDERS = {"unisex", "neutral", "genderless", "any"}
+
+_AHVI_FEMININE_ONLY_GARMENTS = {
+    "saree", "sari", "lehenga", "gown", "skirt", "skirts", "blouse", "kurti"
+}
+_AHVI_MALE_TRADITIONAL_GARMENTS = {"sherwani", "achkan"}
+
+_AHVI_EXPLICIT_FEMININE_REQUEST = {
+    "saree", "sari", "lehenga", "gown", "skirt", "skirts",
+    "female", "women", "woman", "ladies", "feminine",
+}
+
+
+def _ahvi_coerce_dict(value):
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            import json as _json
+            parsed = _json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _ahvi_normalize_style_gender(value):
+    raw = str(value or "").strip().lower()
+    if raw in _AHVI_MALE_STYLE_GENDERS:
+        return "male"
+    if raw in _AHVI_FEMALE_STYLE_GENDERS:
+        return "female"
+    if raw in _AHVI_UNISEX_STYLE_GENDERS:
+        return "unisex"
+    return ""
+
+
+def _ahvi_profile_style_gender(profile):
+    profile = profile or {}
+    candidates = [
+        profile.get("style_gender"),
+        profile.get("gender"),
+        profile.get("preferred_gender"),
+        profile.get("target_gender"),
     ]
-    return " ".join(str(p).lower() for p in parts if p)
+
+    for key in ("preferences", "style_preferences", "stylePreference", "profile"):
+        nested = _ahvi_coerce_dict(profile.get(key))
+        candidates.extend([
+            nested.get("style_gender"),
+            nested.get("gender"),
+            nested.get("preferred_gender"),
+            nested.get("target_gender"),
+        ])
+
+    for value in candidates:
+        gender = _ahvi_normalize_style_gender(value)
+        if gender:
+            return gender
+
+    return "unisex"
+
+
+def _ahvi_resolve_effective_user_profile(user_id, request_profile=None):
+    request_profile = request_profile if isinstance(request_profile, dict) else {}
+    try:
+        from services.data_access_service import get_user_profile, merge_user_profiles
+        stored = get_user_profile(user_id=str(user_id or "").strip())
+        merged = merge_user_profiles(stored, request_profile)
+        merged.setdefault("user_id", user_id)
+        return merged
+    except Exception:
+        out = dict(request_profile)
+        out.setdefault("user_id", user_id)
+        return out
+
+
+def _ahvi_query_allows_feminine_item(query_text):
+    tokens = set(_chat_tokens(query_text))
+    return bool(tokens.intersection(_AHVI_EXPLICIT_FEMININE_REQUEST))
+
+
+def _ahvi_item_tokens(item):
+    blob = " ".join(
+        str(item.get(k, "") or "")
+        for k in (
+            "slot", "role", "type", "category", "cat", "category_group",
+            "sub_category", "subcategory", "subCategory",
+            "name", "label", "description", "gender",
+            "style_gender", "target_gender", "audience",
+            "department", "intended_for", "wearer",
+        )
+    )
+    return set(_chat_tokens(blob))
+
+
+def _ahvi_item_allowed_for_user_profile(item, user_profile=None, query_text=""):
+    if not isinstance(item, dict):
+        return False
+
+    target_gender = _ahvi_profile_style_gender(user_profile or {})
+
+    if target_gender != "male":
+        return True
+
+    if _ahvi_query_allows_feminine_item(query_text):
+        return True
+
+    tokens = _ahvi_item_tokens(item)
+
+    audience_blob = " ".join(
+        str(item.get(k, "") or "")
+        for k in (
+            "gender", "style_gender", "target_gender",
+            "audience", "department", "intended_for", "wearer",
+        )
+    )
+    audience_tokens = set(_chat_tokens(audience_blob))
+
+    if audience_tokens.intersection(_AHVI_FEMALE_STYLE_GENDERS):
+        return False
+
+    if tokens.intersection(_AHVI_FEMININE_ONLY_GARMENTS):
+        return False
+
+    if _infer_chat_category(item) == "Dresses" and not tokens.intersection(_AHVI_MALE_TRADITIONAL_GARMENTS):
+        return False
+
+    return True
 
 
 def _fetch_wardrobe_for_style(user_id: str, request_wardrobe: Any) -> List[Dict[str, Any]]:
     if isinstance(request_wardrobe, list):
         return [dict(i) for i in request_wardrobe if isinstance(i, dict)]
+
     try:
-        docs = AppwriteProxy().list_documents("outfits", user_id=user_id, limit=24)
+        docs = AppwriteProxy().list_documents("outfits", user_id=user_id, limit=100)
         if isinstance(docs, dict):
             rows = docs.get("documents") or docs.get("items") or []
         else:
             rows = docs or []
         return [dict(i) for i in rows if isinstance(i, dict)]
     except Exception as exc:
-        logger.warning("style fallback wardrobe fetch failed user_id=%s error=%s", user_id, exc)
+        logger.warning("style wardrobe fetch failed user_id=%s error=%s", user_id, exc)
         return []
 
 
-def _pick_style_items(items: List[Dict[str, Any]], query_text: str) -> List[Dict[str, Any]]:
-    buckets = {
-        "tops": [],
-        "bottoms": [],
-        "shoes": [],
-        "dresses": [],
-        "outerwear": [],
-        "accessories": [],
-    }
-
-    for item in items or []:
-        if not isinstance(item, dict):
-            continue
-
-        cat = _infer_chat_category(item)
-
-        if cat == "Tops":
-            buckets["tops"].append(item)
-        elif cat == "Bottoms":
-            buckets["bottoms"].append(item)
-        elif cat == "Footwear":
-            buckets["shoes"].append(item)
-        elif cat == "Dresses":
-            buckets["dresses"].append(item)
-        elif cat == "Outerwear":
-            buckets["outerwear"].append(item)
-        else:
-            buckets["accessories"].append(item)
-
-    selected: List[Dict[str, Any]] = []
-
-    if buckets["dresses"]:
-        selected.append(buckets["dresses"][0])
-    else:
-        selected.extend(buckets["tops"][:1])
-        selected.extend(buckets["bottoms"][:1])
-
-    selected.extend(buckets["outerwear"][:1])
-    selected.extend(buckets["shoes"][:1])
-    selected.extend(buckets["accessories"][:1])
-
-    unique: List[Dict[str, Any]] = []
-    seen = set()
-
-    for item in selected:
-        item_id = str(item.get("id") or item.get("$id") or item.get("image_id") or item.get("name") or "")
-        if item_id and item_id in seen:
-            continue
-        if item_id:
-            seen.add(item_id)
-        unique.append(item)
-
-    return unique[:5]
-
-def _demo_style_board_payload(user_id: str, query_text: str, request_wardrobe: Any) -> Dict[str, Any]:
-    wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
-    selected = _pick_style_items(wardrobe, query_text)
-    if not selected:
-        return {
-            "message": "I can style this better once you add a few wardrobe pieces. For now, choose one clean hero garment, a neutral base, and one polished accessory.",
-            "type": "style_fallback",
-            "cards": [],
-            "board_ids": "",
-            "data": {"outfits": [], "rendered_boards": []},
-            "meta": {"wardrobe_count": 0, "mode": "deterministic_style_no_wardrobe"},
-        }
-
-    q = (query_text or "").lower()
+def _ahvi_style_occasion(query_text):
+    q = str(query_text or "").lower()
     if any(k in q for k in ["date", "dinner", "night"]):
-        occasion = "date night"
-        title = "Date Night Edit"
-        note = "soft polish, clean contrast, and one memorable detail"
-    elif any(k in q for k in ["coffee", "casual", "outing", "weekend"]):
-        occasion = "casual outing"
-        title = "Casual Outing Board"
-        note = "relaxed structure with a neat finish"
-    else:
-        occasion = "today"
-        title = "AHVI Styled Look"
-        note = "balanced, wearable, and intentional"
+        return "date night"
+    if any(k in q for k in ["office", "meeting", "work", "client"]):
+        return "office"
+    if any(k in q for k in ["party", "club", "night out"]):
+        return "party"
+    if any(k in q for k in ["travel", "airport", "trip"]):
+        return "travel"
+    if any(k in q for k in ["coffee", "casual", "outing", "weekend", "street", "sport", "outdoor"]):
+        return "casual outing"
+    return "today"
 
-    def _fallback_image(item: Dict[str, Any]) -> str:
-        return str(
-            item.get("masked_url")
-            or item.get("maskedUrl")
-            or item.get("image_url")
-            or item.get("imageUrl")
-            or item.get("raw_url")
-            or item.get("url")
-            or item.get("image")
-            or ""
-        ).strip()
 
-    def _fallback_tokens(item: Dict[str, Any]) -> set:
-        blob = " ".join(str(item.get(k, "") or "") for k in (
-            "slot", "type", "category", "cat", "category_group",
+def _ahvi_style_image(item):
+    if not isinstance(item, dict):
+        return ""
+    return str(
+        item.get("masked_url")
+        or item.get("maskedUrl")
+        or item.get("image_url")
+        or item.get("imageUrl")
+        or item.get("raw_url")
+        or item.get("rawUrl")
+        or item.get("url")
+        or item.get("image")
+        or ""
+    ).strip()
+
+
+def _ahvi_style_blob(item):
+    if not isinstance(item, dict):
+        return ""
+    return " ".join(
+        str(item.get(k, "") or "")
+        for k in (
+            "role", "slot", "type", "category", "cat", "category_group",
             "sub_category", "subcategory", "subCategory",
-            "name", "label", "description"
-        )).lower()
-        return set(re.sub(r"[^a-z0-9]+", " ", blob).split())
+            "name", "label", "description", "pattern", "color", "color_name",
+        )
+    ).lower()
 
-    def _fallback_role(item: Dict[str, Any]) -> str:
-        tokens = _fallback_tokens(item)
 
-        if tokens.intersection({
-            "shoe", "shoes", "sneaker", "sneakers", "boot", "boots",
-            "heel", "heels", "sandal", "sandals", "loafer", "loafers",
-            "footwear"
-        }):
-            return "footwear"
+def _ahvi_style_key(item):
+    if not isinstance(item, dict):
+        return ""
+    return str(
+        item.get("$id")
+        or item.get("id")
+        or item.get("item_id")
+        or item.get("itemId")
+        or item.get("image_id")
+        or item.get("name")
+        or item.get("label")
+        or id(item)
+    ).lower()
 
-        # Accessories before clothing.
-        if tokens.intersection({
-            "watch", "watches", "belt", "belts", "cap", "caps", "hat", "hats",
-            "sunglass", "sunglasses", "eyewear", "glasses", "bag", "bags",
-            "purse", "handbag", "clutch", "tote", "jewelry", "jewellery",
-            "ring", "rings", "necklace", "necklaces", "bracelet", "bracelets",
-            "earring", "earrings", "scarf", "scarves"
-        }):
-            return "accessory"
 
-        # Tops before bottoms so short-sleeve shirt never becomes shorts.
-        if tokens.intersection({
-            "top", "tops", "shirt", "shirts", "tee", "tshirt", "tshirts",
-            "blouse", "jacket", "blazer", "sweater", "hoodie", "kurta",
-            "kurti", "dress", "dresses", "saree", "sari", "tunic", "tunics"
-        }):
-            return "top"
+def _ahvi_style_role(item):
+    tokens = set(_chat_tokens(_ahvi_style_blob(item)))
 
-        # shorts only; never short.
-        if tokens.intersection({
-            "bottom", "bottoms", "pant", "pants", "trouser", "trousers",
-            "jean", "jeans", "shorts", "skirt", "skirts", "chino", "chinos"
-        }):
-            return "bottom"
+    if tokens.intersection({
+        "shoe", "shoes", "sneaker", "sneakers", "boot", "boots",
+        "heel", "heels", "sandal", "sandals", "loafer", "loafers",
+        "slipper", "slippers", "slider", "sliders", "footwear"
+    }):
+        return "footwear"
 
-        return "unknown"
+    if tokens.intersection({
+        "watch", "watches", "belt", "belts", "cap", "caps", "hat", "hats",
+        "sunglass", "sunglasses", "eyewear", "glasses", "bag", "bags",
+        "purse", "handbag", "clutch", "tote", "jewelry", "jewellery",
+        "ring", "rings", "necklace", "necklaces", "bracelet", "bracelets",
+        "earring", "earrings", "scarf", "scarves", "accessory", "accessories"
+    }):
+        return "accessory"
 
-    def _fallback_norm(item: Dict[str, Any]) -> Dict[str, Any]:
-        image = _fallback_image(item)
-        return {
-            "id": str(item.get("$id") or item.get("id") or item.get("item_id") or item.get("name") or ""),
-            "name": str(item.get("name") or item.get("label") or item.get("category") or "Wardrobe item"),
-            "category": str(item.get("category") or item.get("cat") or item.get("sub_category") or "Item"),
-            "sub_category": str(item.get("sub_category") or item.get("subcategory") or item.get("subCategory") or ""),
-            "color": str(item.get("color_name") or item.get("color") or ""),
-            "pattern": str(item.get("pattern") or ""),
-            "image_url": image,
-            "masked_url": item.get("masked_url") or item.get("maskedUrl") or image,
-            "imageUrl": item.get("imageUrl") or image,
-            "maskedUrl": item.get("maskedUrl") or item.get("masked_url") or image,
-        }
+    if tokens.intersection({
+        "dress", "dresses", "saree", "sari", "lehenga", "gown", "jumpsuit", "sherwani"
+    }):
+        return "dress"
 
-    def _unique_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        seen = set()
-        out = []
-        for item in items:
-            key = str(item.get("$id") or item.get("id") or item.get("item_id") or item.get("name") or item.get("label") or id(item)).lower()
-            if key not in seen:
-                seen.add(key)
-                out.append(item)
-        return out
+    # Tops before bottoms: short-sleeved shirt must not become shorts.
+    if tokens.intersection({
+        "top", "tops", "shirt", "shirts", "tee", "tshirt", "tshirts",
+        "polo", "polos", "jacket", "blazer", "sweater", "hoodie",
+        "kurta", "kurti", "tunic", "tunics"
+    }):
+        return "top"
 
-    buckets = {
-        "top": [],
-        "bottom": [],
-        "footwear": [],
-        "accessory": [],
-    }
+    if tokens.intersection({
+        "bottom", "bottoms", "pant", "pants", "trouser", "trousers",
+        "jean", "jeans", "shorts", "skirt", "skirts", "chino", "chinos"
+    }):
+        return "bottom"
+
+    return "unknown"
+
+
+def _ahvi_style_norm(item, role=None):
+    row = dict(item or {})
+    resolved = role or _ahvi_style_role(row)
+
+    if resolved == "top":
+        row["role"] = "top"
+        row["slot"] = "top"
+        row["category"] = "Tops"
+    elif resolved == "bottom":
+        row["role"] = "bottom"
+        row["slot"] = "bottom"
+        row["category"] = "Bottoms"
+    elif resolved == "footwear":
+        row["role"] = "footwear"
+        row["slot"] = "footwear"
+        row["category"] = "Footwear"
+    elif resolved == "dress":
+        row["role"] = "dress"
+        row["slot"] = "dress"
+        row["category"] = "Dresses"
+    elif resolved == "accessory":
+        row["role"] = "accessory"
+        row["slot"] = "accessory"
+        row["category"] = "Accessories"
+
+    image = _ahvi_style_image(row)
+    if image:
+        row["image_url"] = row.get("image_url") or image
+        row["imageUrl"] = row.get("imageUrl") or image
+        row["masked_url"] = row.get("masked_url") or image
+        row["maskedUrl"] = row.get("maskedUrl") or image
+
+    return row
+
+
+def _ahvi_style_accessory_type(item):
+    blob = _ahvi_style_blob(item)
+    if "watch" in blob:
+        return "watch"
+    if "belt" in blob:
+        return "belt"
+    if "cap" in blob or "hat" in blob:
+        return "headwear"
+    if "bag" in blob:
+        return "bag"
+    if any(k in blob for k in ["ring", "necklace", "bracelet", "earring", "jewelry", "jewellery"]):
+        return "jewelry"
+    if "sunglass" in blob or "eyewear" in blob or "glasses" in blob:
+        return "eyewear"
+    if "scarf" in blob:
+        return "scarf"
+    return "accessory"
+
+
+def _ahvi_style_pools(wardrobe, query_text, profile):
+    buckets = {"top": [], "bottom": [], "dress": [], "footwear": [], "accessory": []}
+    seen = {k: set() for k in buckets}
 
     for item in wardrobe or []:
         if not isinstance(item, dict):
             continue
-        if not _fallback_image(item):
+        if not _ahvi_style_image(item):
             continue
-        role = _fallback_role(item)
-        if role in buckets:
-            buckets[role].append(item)
+        if not _ahvi_item_allowed_for_user_profile(item, profile, query_text):
+            continue
 
-    for key in buckets:
-        buckets[key] = _unique_items(buckets[key])
+        role = _ahvi_style_role(item)
+        if role not in buckets:
+            continue
 
-    # Last-resort supplement from selected items only if wardrobe buckets are incomplete.
-    if not buckets["top"] or not buckets["bottom"] or not buckets["footwear"]:
-        for item in selected:
-            if not isinstance(item, dict) or not _fallback_image(item):
-                continue
-            role = _fallback_role(item)
-            if role in buckets:
-                buckets[role].append(item)
+        key = _ahvi_style_key(item)
+        if key in seen[role]:
+            continue
 
-        for key in buckets:
-            buckets[key] = _unique_items(buckets[key])
+        seen[role].add(key)
+        buckets[role].append(item)
 
-    cards: List[Dict[str, Any]] = []
-    board_ids: List[str] = []
-    can_build = bool(buckets["top"] and buckets["bottom"] and buckets["footwear"])
+    return buckets
 
-    # ================= AHVI STYLE BOARD VARIETY V9 BEGIN =================
-    def _stable_int(value: str) -> int:
-        try:
-            return int(hashlib.sha1(value.encode("utf-8")).hexdigest()[:12], 16)
-        except Exception:
-            return abs(hash(value))
 
-    def _item_key(item: Dict[str, Any]) -> str:
-        return str(
-            item.get("$id")
-            or item.get("id")
-            or item.get("item_id")
-            or item.get("image_id")
-            or item.get("name")
-            or item.get("label")
-            or id(item)
-        ).lower()
+def _ahvi_style_pick(pool, used, fallback=None):
+    for item in pool or []:
+        key = _ahvi_style_key(item)
+        if key and key not in used:
+            used.add(key)
+            return item
 
-    def _item_text(item: Dict[str, Any]) -> str:
-        return " ".join(
-            str(item.get(k, "") or "")
-            for k in (
-                "name",
-                "label",
-                "category",
-                "cat",
-                "sub_category",
-                "subcategory",
-                "subCategory",
-                "color",
-                "color_name",
-                "pattern",
-                "description",
-            )
-        ).lower()
+    if fallback is not None:
+        key = _ahvi_style_key(fallback)
+        if key:
+            used.add(key)
+        return fallback
 
-    def _accessory_type(item: Dict[str, Any]) -> str:
-        text_blob = _item_text(item)
-        if "watch" in text_blob:
-            return "watch"
-        if "belt" in text_blob:
-            return "belt"
-        if "cap" in text_blob or "hat" in text_blob:
-            return "headwear"
-        if "bag" in text_blob:
-            return "bag"
-        if any(k in text_blob for k in ["ring", "necklace", "bracelet", "earring", "jewelry", "jewellery"]):
-            return "jewelry"
-        return "accessory"
+    if pool:
+        item = pool[0]
+        key = _ahvi_style_key(item)
+        if key:
+            used.add(key)
+        return item
 
-    def _combo_signature(top: Dict[str, Any], bottom: Dict[str, Any], shoe: Dict[str, Any]) -> str:
-        return "|".join([_item_key(top), _item_key(bottom), _item_key(shoe)])
+    return None
 
-    def _rotated(items: List[Dict[str, Any]], salt: str) -> List[Dict[str, Any]]:
-        if not items:
-            return []
-        seed = _stable_int(salt) % len(items)
-        return items[seed:] + items[:seed]
 
-    def _pick_accessories(idx: int, seed: int) -> List[Dict[str, Any]]:
-        if not buckets["accessory"]:
-            return []
+def _ahvi_style_clean_accessories(accessories, query_text):
+    q = str(query_text or "").lower()
+    headwear_allowed = any(k in q for k in [
+        "casual", "street", "travel", "airport", "sport", "gym",
+        "sun", "beach", "outdoor", "college", "weekend"
+    ])
 
-        q_local = str(query_text or "").lower()
-        headwear_allowed = any(
-            k in q_local
-            for k in ["casual", "street", "travel", "airport", "sport", "gym", "sun", "beach", "outdoor"]
-        )
+    out = []
+    seen_types = set()
+    seen_ids = set()
 
-        rotated_accessories = _rotated(
-            buckets["accessory"],
-            f"{user_id}:{query_text}:accessory:{idx}:{seed}",
-        )
+    for item in accessories or []:
+        if not isinstance(item, dict):
+            continue
 
-        picked: List[Dict[str, Any]] = []
-        seen_types = set()
+        key = _ahvi_style_key(item)
+        if key and key in seen_ids:
+            continue
 
-        for accessory in rotated_accessories:
-            typ = _accessory_type(accessory)
-            if typ == "headwear" and not headwear_allowed:
-                continue
-            if typ in seen_types:
-                continue
+        typ = _ahvi_style_accessory_type(item)
 
-            picked.append(accessory)
-            seen_types.add(typ)
+        if typ == "headwear" and not headwear_allowed:
+            continue
 
-            if len(picked) >= 2:
-                break
+        # one watch max, one belt max, one cap max, etc.
+        if typ in seen_types:
+            continue
 
-        return picked
+        out.append(_ahvi_style_norm(item, "accessory"))
 
-    def _occasion_score(
-        top: Dict[str, Any],
-        bottom: Dict[str, Any],
-        shoe: Dict[str, Any],
-        accs: List[Dict[str, Any]],
-    ) -> int:
-        q_local = str(query_text or "").lower()
-        all_text = " ".join(
-            [_item_text(top), _item_text(bottom), _item_text(shoe)]
-            + [_item_text(a) for a in accs]
-        )
+        if key:
+            seen_ids.add(key)
+        seen_types.add(typ)
 
-        score = 0
+        max_count = 2 if headwear_allowed else 1
+        if len(out) >= max_count:
+            break
 
-        if any(k in q_local for k in ["date", "dinner", "night"]):
-            if any(k in all_text for k in ["black", "dark", "navy", "green", "white", "brown"]):
-                score += 8
-            if any(k in all_text for k in ["shirt", "polo", "trouser", "jeans", "loafer", "boot", "sneaker"]):
-                score += 8
-            if any(k in all_text for k in ["cap", "shorts", "slipper"]):
-                score -= 8
+    return out
 
-        elif any(k in q_local for k in ["office", "meeting", "work", "client"]):
-            if any(k in all_text for k in ["shirt", "polo", "trouser", "chino", "loafer", "formal", "black", "white", "blue"]):
-                score += 10
-            if any(k in all_text for k in ["cap", "floral", "vacation", "shorts", "slipper", "slider"]):
-                score -= 10
 
-        elif any(k in q_local for k in ["party", "club", "night out"]):
-            if any(k in all_text for k in ["black", "dark", "boot", "watch", "jacket"]):
-                score += 8
+def _ahvi_style_names(items):
+    return [
+        str((i or {}).get("name") or (i or {}).get("label") or (i or {}).get("category") or "")
+        for i in items or []
+        if isinstance(i, dict)
+    ]
 
+
+def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None, user_profile=None):
+    if not isinstance(cards, list):
+        return []
+
+    profile = _ahvi_resolve_effective_user_profile(user_id, user_profile or {})
+    wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
+    buckets = _ahvi_style_pools(wardrobe, query_text, profile)
+
+    if not cards:
+        # Build empty shells; sanitizer will fill from wardrobe pools.
+        cards = [{"id": f"style_card_{i}", "title": f"Look {i + 1} · Styled Fit", "items": [], "accessories": []} for i in range(3)]
+
+    used_top = set()
+    used_bottom = set()
+    used_dress = set()
+    used_footwear = set()
+
+    cleaned = []
+
+    for idx, card in enumerate(cards[:3]):
+        if not isinstance(card, dict):
+            continue
+
+        source_items = []
+        for key in ("items", "accessories"):
+            value = card.get(key)
+            if isinstance(value, list):
+                source_items.extend([x for x in value if isinstance(x, dict)])
+
+        top = next((x for x in source_items if _ahvi_style_role(x) == "top"), None)
+        bottom = next((x for x in source_items if _ahvi_style_role(x) == "bottom"), None)
+        dress = next((x for x in source_items if _ahvi_style_role(x) == "dress"), None)
+        footwear = next((x for x in source_items if _ahvi_style_role(x) == "footwear"), None)
+        accessories = [x for x in source_items if _ahvi_style_role(x) == "accessory"]
+
+        final_items = []
+
+        if dress and not (top and bottom):
+            chosen_dress = _ahvi_style_pick(buckets["dress"], used_dress, dress)
+            if chosen_dress:
+                final_items.append(_ahvi_style_norm(chosen_dress, "dress"))
         else:
-            if any(k in all_text for k in ["shirt", "tee", "jeans", "sneaker", "trouser"]):
-                score += 5
+            chosen_top = _ahvi_style_pick(buckets["top"], used_top, top)
+            chosen_bottom = _ahvi_style_pick(buckets["bottom"], used_bottom, bottom)
 
-        return score
+            if chosen_top:
+                final_items.append(_ahvi_style_norm(chosen_top, "top"))
+            if chosen_bottom:
+                final_items.append(_ahvi_style_norm(chosen_bottom, "bottom"))
 
-    if can_build:
-        variety_window = max(1, int(os.getenv("AHVI_STYLE_VARIETY_WINDOW_SECONDS", "300")))
-        time_bucket = int(time.time() // variety_window)
-        seed = _stable_int(f"{user_id}:{query_text}:{time_bucket}:{len(wardrobe)}")
+        chosen_footwear = _ahvi_style_pick(buckets["footwear"], used_footwear, footwear)
+        if chosen_footwear:
+            final_items.append(_ahvi_style_norm(chosen_footwear, "footwear"))
 
-        tops = _rotated(buckets["top"], f"{seed}:tops")
-        bottoms = _rotated(buckets["bottom"], f"{seed}:bottoms")
-        shoes = _rotated(buckets["footwear"], f"{seed}:shoes")
+        final_items.extend(_ahvi_style_clean_accessories(accessories or buckets["accessory"], query_text))
 
-        candidate_rows: List[Dict[str, Any]] = []
+        fixed = dict(card)
+        fixed["items"] = final_items
+        fixed["accessories"] = []
 
-        for ti, top in enumerate(tops[:10]):
-            for bi, bottom in enumerate(bottoms[:10]):
-                for si, shoe in enumerate(shoes[:10]):
-                    accessories = _pick_accessories(len(candidate_rows), seed + ti + bi + si)
-                    candidate_rows.append({
-                        "top": top,
-                        "bottom": bottom,
-                        "shoe": shoe,
-                        "accessories": accessories,
-                        "signature": _combo_signature(top, bottom, shoe),
-                        "score": _occasion_score(top, bottom, shoe, accessories)
-                            + ((ti + bi + si + seed) % 7),
-                    })
+        top_name = next((str(i.get("name") or i.get("label") or "top") for i in final_items if _ahvi_style_role(i) in {"top", "dress"}), "")
+        bottom_name = next((str(i.get("name") or i.get("label") or "bottom") for i in final_items if _ahvi_style_role(i) == "bottom"), "")
+        footwear_name = next((str(i.get("name") or i.get("label") or "footwear") for i in final_items if _ahvi_style_role(i) == "footwear"), "")
+        core = ", ".join([x for x in [top_name, bottom_name, footwear_name] if x])
 
-        candidate_rows.sort(key=lambda row: row["score"], reverse=True)
+        q = str(query_text or "").lower()
+        if "date" in q:
+            why = f"This works for date night because {core} creates a clean smart-casual balance without over-accessorizing."
+        elif any(k in q for k in ["office", "meeting", "work"]):
+            why = f"This works for office because {core} keeps the outfit structured, neat, and wearable."
+        else:
+            why = f"This works because {core} creates a balanced top-bottom-footwear structure."
 
-        available_variety = (
-            len(buckets["top"])
-            + len(buckets["bottom"])
-            + len(buckets["footwear"])
-            + len(buckets["accessory"])
+        fixed["why_it_works"] = why
+        fixed["explanation"] = why
+        fixed["reason"] = why
+        fixed["style_reason"] = why
+
+        title = str(fixed.get("title") or fixed.get("name") or "").strip()
+        if not title or title.lower() in {"style board", "ahvi styled look"}:
+            fixed["title"] = f"Look {idx + 1} · Styled Fit"
+            fixed["name"] = fixed["title"]
+
+        cleaned.append(fixed)
+
+    try:
+        logger.info(
+            "ahvi.clean_chat_style_guard_v2 user_id=%s cards=%s signatures=%s accessory_counts=%s",
+            user_id,
+            len(cleaned),
+            [" | ".join(_ahvi_style_names(c.get("items") or [])) for c in cleaned],
+            [len([i for i in (c.get("items") or []) if isinstance(i, dict) and _ahvi_style_role(i) == "accessory"]) for c in cleaned],
         )
-        board_count = 3 if available_variety >= 6 else 2
+    except Exception:
+        pass
 
-        used_signatures = set()
-        used_tops = set()
-        used_bottoms = set()
-        used_shoes = set()
-        chosen: List[Dict[str, Any]] = []
+    return cleaned
 
-        # Pass 1: maximize diversity across top/bottom/footwear.
-        for row in candidate_rows:
-            top_key = _item_key(row["top"])
-            bottom_key = _item_key(row["bottom"])
-            shoe_key = _item_key(row["shoe"])
 
-            if row["signature"] in used_signatures:
-                continue
-            if top_key in used_tops and len(buckets["top"]) >= board_count:
-                continue
-            if bottom_key in used_bottoms and len(buckets["bottom"]) >= board_count:
-                continue
-            if shoe_key in used_shoes and len(buckets["footwear"]) >= board_count:
-                continue
+def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profile=None):
+    profile = _ahvi_resolve_effective_user_profile(user_id, user_profile or {})
+    wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
+    wardrobe = [
+        item for item in wardrobe
+        if _ahvi_item_allowed_for_user_profile(item, profile, query_text)
+    ]
 
-            chosen.append(row)
-            used_signatures.add(row["signature"])
-            used_tops.add(top_key)
-            used_bottoms.add(bottom_key)
-            used_shoes.add(shoe_key)
+    occasion = _ahvi_style_occasion(query_text)
 
-            if len(chosen) >= board_count:
-                break
+    try:
+        from brain.outfit_pipeline import get_daily_outfits
 
-        # Pass 2: relax if wardrobe is small, but never repeat exact combo.
-        if len(chosen) < board_count:
-            for row in candidate_rows:
-                if row["signature"] in used_signatures:
-                    continue
-                chosen.append(row)
-                used_signatures.add(row["signature"])
-                if len(chosen) >= board_count:
-                    break
-
-        is_date = any(k in str(query_text or "").lower() for k in ["date", "dinner", "night"])
-        is_office = any(k in str(query_text or "").lower() for k in ["office", "meeting", "work", "client"])
-
-        for idx, row in enumerate(chosen[:board_count]):
-            top = row["top"]
-            bottom = row["bottom"]
-            shoe = row["shoe"]
-            accessories = row["accessories"]
-
-            board_items = [_fallback_norm(x) for x in [top, bottom, shoe] + accessories]
-            board_id = f"demo_board_{int(time.time())}_{idx}"
-            board_ids.append(board_id)
-
-            if is_date:
-                board_title = ["Evening Smart Casual", "Clean Relaxed Date Fit", "Soft Casual Evening"][idx % 3]
-            elif is_office:
-                board_title = ["Polished Work Fit", "Smart Office Casual", "Client-Ready Look"][idx % 3]
-            elif occasion == "casual outing":
-                board_title = ["Clean Casual Fit", "Relaxed Weekend Look", "Easy Day Outfit"][idx % 3]
-            else:
-                board_title = ["Clean Daily Look", "Balanced Smart Casual", "Easy Styled Fit"][idx % 3]
-
-            top_name = str(board_items[0].get("name") or "top")
-            bottom_name = str(board_items[1].get("name") or "bottom")
-            shoe_name = str(board_items[2].get("name") or "footwear")
-
-            if is_date:
-                why = (
-                    f"This works for date night because {top_name}, {bottom_name}, and {shoe_name} create a clean smart-casual balance. "
-                    "The outfit feels intentional without looking overdone, and accessories are kept minimal."
-                )
-            elif is_office:
-                why = (
-                    f"This works for office because {top_name}, {bottom_name}, and {shoe_name} keep the look structured, neat, and wearable through the day."
-                )
-            else:
-                why = (
-                    f"This works because {top_name}, {bottom_name}, and {shoe_name} create a balanced outfit with a clear top-bottom-footwear structure."
-                )
-
-            cards.append({
-                "id": board_id,
-                "title": f"Look {idx + 1} · {board_title}",
-                "name": f"Look {idx + 1} · {board_title}",
-                "kind": "style_board",
-                "score": max(82, 94 - idx * 3),
-                "vibe": occasion,
-                "aesthetic": note,
-                "items": board_items,
-                "accessories": [_fallback_norm(x) for x in accessories],
-                "why_it_works": why,
-                "explanation": why,
-                "reason": why,
-                "style_reason": why,
-                "story": {
-                    "title": f"Look {idx + 1} · {board_title}",
-                    "subtitle": why,
-                    "why_it_works": why,
-                    "explanation": why,
+        result = get_daily_outfits({
+            "user_id": user_id,
+            "wardrobe": wardrobe,
+            "context": {
+                "occasion": occasion,
+                "query": query_text,
+                "user_profile": profile,
+                "style_gender": _ahvi_profile_style_gender(profile),
+                "signals": {
+                    "source": "routers.chat.clean_style_adapter_v2",
+                    "style_gender": _ahvi_profile_style_gender(profile),
                 },
-            })
+            },
+        })
 
-        try:
-            logger.info(
-                "ahvi.style_variety_v9 user_id=%s occasion=%s top=%s bottom=%s footwear=%s accessories=%s cards=%s signatures=%s",
-                user_id,
-                occasion,
-                len(buckets["top"]),
-                len(buckets["bottom"]),
-                len(buckets["footwear"]),
-                len(buckets["accessory"]),
-                len(cards),
-                [c.get("id") for c in cards],
-            )
-        except Exception:
-            pass
-    # ================= AHVI STYLE BOARD VARIETY V9 END =================
+        if not isinstance(result, dict):
+            result = {}
 
-    if not cards:
-        normalized_items: List[Dict[str, Any]] = []
-        for item in selected:
-            if not isinstance(item, dict) or not _fallback_image(item):
-                continue
-            normalized_items.append(_fallback_norm(item))
+    except Exception as exc:
+        logger.warning("ahvi.clean_chat_style_adapter_v2 pipeline_failed user_id=%s error=%s", user_id, str(exc)[:180])
+        result = {}
 
-        if normalized_items:
-            card_id = f"demo_board_{int(time.time())}"
-            board_ids.append(card_id)
-            cards.append({
-                "id": card_id,
-                "title": title,
-                "name": title,
-                "kind": "style_board",
-                "score": 84,
-                "vibe": occasion,
-                "aesthetic": note,
-                "items": normalized_items[:6],
-                "accessories": [],
-            })
+    raw_cards = result.get("cards") if isinstance(result.get("cards"), list) else []
+    cards = _ahvi_sanitize_style_cards(raw_cards, user_id, query_text, wardrobe, profile)
 
-    if not cards:
-        return {}
+    board_item_ids = result.get("board_item_ids") if isinstance(result.get("board_item_ids"), list) else []
+    board_ids = ",".join([str(x) for x in board_item_ids if str(x).strip()])
 
-    first_names = ", ".join(i["name"] for i in cards[0]["items"][:6])
+    first_names = ", ".join(_ahvi_style_names((cards[0].get("items") if cards else []) or [])[:5])
     message = (
-        f"Here are {len(cards)} {occasion} boards from your wardrobe. "
-        f"First look: {first_names}. I kept it {note}, with accessories completing the main look."
+        result.get("message")
+        or result.get("context")
+        or f"Here are {len(cards)} {occasion} boards from your wardrobe. First look: {first_names}."
     )
 
-    logger.info(
-        "chat.rich_fallback user_id=%s wardrobe=%d cards=%d top=%d bottom=%d footwear=%d accessories=%d",
-        user_id,
-        len(wardrobe or []),
-        len(cards),
-        len(buckets["top"]),
-        len(buckets["bottom"]),
-        len(buckets["footwear"]),
-        len(buckets["accessory"]),
-    )
+    try:
+        logger.info(
+            "ahvi.clean_chat_style_adapter_v2 user_id=%s occasion=%s wardrobe=%s cards=%s first_card_items=%s",
+            user_id,
+            occasion,
+            len(wardrobe),
+            len(cards),
+            _ahvi_style_names((cards[0].get("items") if cards else []) or [])[:8],
+        )
+    except Exception:
+        pass
 
     return {
-        "message": message,
-        "type": "style_board",
+        "success": True,
+        "message": str(message),
+        "board": "style",
+        "type": "cards",
         "cards": cards,
-        "board_ids": ",".join(board_ids),
-        "data": {"outfits": cards, "rendered_boards": []},
+        "board_ids": board_ids,
+        "data": {
+            "outfits": cards,
+            "rendered_boards": [],
+            "board_item_ids": board_item_ids,
+            "pipeline": result.get("pipeline") if isinstance(result.get("pipeline"), dict) else {},
+            "style_gender": _ahvi_profile_style_gender(profile),
+        },
         "meta": {
-            "wardrobe_count": len(wardrobe or []),
-            "mode": "deterministic_style_board_v2",
-            "fallback_cards": len(cards),
-            "accessory_count": len(buckets["accessory"]),
+            "intent": "style_pipeline_adapter",
+            "domain": "style",
+            "mode": "clean_outfit_pipeline_adapter_v2",
+            "wardrobe_count": len(wardrobe),
+            "style_gender": _ahvi_profile_style_gender(profile),
+            "occasion": occasion,
         },
     }
+
+
+def _ahvi_final_response_style_guard(cards, user_id, query_text, request_wardrobe=None, user_profile=None):
+    return _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe, user_profile)
+
+# ================= AHVI CLEAN CHAT STYLE V2 END =================
+
 
 def _detect_mode(text: str) -> str:
     t = text.lower().strip()
@@ -1248,6 +1288,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # build a deterministic wardrobe board so the demo never lands as plain text only.
     data_payload = result.get("data") or {}
     cards_payload = result.get("cards") or []
+    style_payload = {}
 
     # AHVI no visual boards on error responses:
     # If the orchestrator failed, do not attach deterministic fallback boards.
@@ -1363,1396 +1404,3 @@ def text_chat(request: TextChatRequest, http_request: Request):
         _CHAT_CACHE.set(cache_key, response)
 
     return response
-
-# ================= AHVI STYLE CHAT PATCH V2 BEGIN =================
-
-_AHVI_MALE_STYLE_GENDERS = {"m", "male", "man", "men", "mens", "boy"}
-_AHVI_FEMALE_STYLE_GENDERS = {"f", "female", "woman", "women", "womens", "girl", "ladies"}
-_AHVI_UNISEX_STYLE_GENDERS = {"unisex", "neutral", "genderless", "any"}
-
-_AHVI_FEMININE_ONLY_GARMENTS = {
-    "saree", "sari", "lehenga", "gown", "skirt", "skirts", "blouse", "kurti"
-}
-_AHVI_MALE_TRADITIONAL_GARMENTS = {"sherwani", "achkan"}
-
-_AHVI_EXPLICIT_FEMININE_REQUEST = {
-    "saree", "sari", "lehenga", "gown", "skirt", "skirts",
-    "female", "women", "woman", "ladies", "feminine",
-}
-
-
-def _ahvi_coerce_dict(value):
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str) and value.strip():
-        try:
-            import json as _json
-            parsed = _json.loads(value)
-            return parsed if isinstance(parsed, dict) else {}
-        except Exception:
-            return {}
-    return {}
-
-
-def _ahvi_normalize_style_gender(value):
-    raw = str(value or "").strip().lower()
-    if raw in _AHVI_MALE_STYLE_GENDERS:
-        return "male"
-    if raw in _AHVI_FEMALE_STYLE_GENDERS:
-        return "female"
-    if raw in _AHVI_UNISEX_STYLE_GENDERS:
-        return "unisex"
-    return ""
-
-
-def _ahvi_profile_style_gender(profile):
-    profile = profile or {}
-    candidates = [
-        profile.get("style_gender"),
-        profile.get("gender"),
-        profile.get("preferred_gender"),
-        profile.get("target_gender"),
-    ]
-
-    for key in ("preferences", "style_preferences", "stylePreference", "profile"):
-        nested = _ahvi_coerce_dict(profile.get(key))
-        candidates.extend([
-            nested.get("style_gender"),
-            nested.get("gender"),
-            nested.get("preferred_gender"),
-            nested.get("target_gender"),
-        ])
-
-    for value in candidates:
-        gender = _ahvi_normalize_style_gender(value)
-        if gender:
-            return gender
-
-    return "unisex"
-
-
-def _ahvi_resolve_effective_user_profile(user_id, request_profile=None):
-    request_profile = request_profile if isinstance(request_profile, dict) else {}
-    try:
-        from services.data_access_service import get_user_profile, merge_user_profiles
-        stored = get_user_profile(user_id=str(user_id or "").strip())
-        merged = merge_user_profiles(stored, request_profile)
-        merged.setdefault("user_id", user_id)
-        return merged
-    except Exception:
-        out = dict(request_profile)
-        out.setdefault("user_id", user_id)
-        return out
-
-
-def _ahvi_query_allows_feminine_item(query_text):
-    tokens = set(_chat_tokens(query_text))
-    return bool(tokens.intersection(_AHVI_EXPLICIT_FEMININE_REQUEST))
-
-
-def _ahvi_item_tokens(item):
-    blob = " ".join(
-        str(item.get(k, "") or "")
-        for k in (
-            "slot", "type", "category", "cat", "category_group",
-            "sub_category", "subcategory", "subCategory",
-            "name", "label", "description", "gender",
-            "style_gender", "target_gender", "audience",
-            "department", "intended_for", "wearer",
-        )
-    )
-    return set(_chat_tokens(blob))
-
-
-def _ahvi_item_allowed_for_user_profile(item, user_profile=None, query_text=""):
-    if not isinstance(item, dict):
-        return False
-
-    target_gender = _ahvi_profile_style_gender(user_profile or {})
-
-    if target_gender != "male":
-        return True
-
-    if _ahvi_query_allows_feminine_item(query_text):
-        return True
-
-    tokens = _ahvi_item_tokens(item)
-
-    audience_blob = " ".join(
-        str(item.get(k, "") or "")
-        for k in (
-            "gender", "style_gender", "target_gender",
-            "audience", "department", "intended_for", "wearer",
-        )
-    )
-    audience_tokens = set(_chat_tokens(audience_blob))
-
-    if audience_tokens.intersection(_AHVI_FEMALE_STYLE_GENDERS):
-        return False
-
-    if tokens.intersection(_AHVI_FEMININE_ONLY_GARMENTS):
-        return False
-
-    if _infer_chat_category(item) == "Dresses" and not tokens.intersection(_AHVI_MALE_TRADITIONAL_GARMENTS):
-        return False
-
-    return True
-
-
-def _pick_style_items(items, query_text, user_profile=None):
-    user_profile = user_profile or {}
-    allow_dresses = (
-        _ahvi_profile_style_gender(user_profile) != "male"
-        or _ahvi_query_allows_feminine_item(query_text)
-    )
-
-    buckets = {
-        "tops": [],
-        "bottoms": [],
-        "footwear": [],
-        "dresses": [],
-        "outerwear": [],
-        "accessories": [],
-    }
-
-    for item in items or []:
-        if not isinstance(item, dict):
-            continue
-
-        if not _ahvi_item_allowed_for_user_profile(item, user_profile, query_text):
-            continue
-
-        cat = _infer_chat_category(item)
-
-        if cat == "Tops":
-            buckets["tops"].append(item)
-        elif cat == "Bottoms":
-            buckets["bottoms"].append(item)
-        elif cat == "Footwear":
-            buckets["footwear"].append(item)
-        elif cat == "Dresses":
-            if allow_dresses:
-                buckets["dresses"].append(item)
-        elif cat == "Outerwear":
-            buckets["outerwear"].append(item)
-        else:
-            buckets["accessories"].append(item)
-
-    selected = []
-
-    if allow_dresses and buckets["dresses"]:
-        selected.append(buckets["dresses"][0])
-    else:
-        selected.extend(buckets["tops"][:1])
-        selected.extend(buckets["bottoms"][:1])
-
-    selected.extend(buckets["outerwear"][:1])
-    selected.extend(buckets["footwear"][:1])
-    selected.extend(buckets["accessories"][:2])
-
-    unique = []
-    seen = set()
-
-    for item in selected:
-        item_id = str(
-            item.get("id")
-            or item.get("$id")
-            or item.get("image_id")
-            or item.get("name")
-            or ""
-        )
-        if item_id and item_id in seen:
-            continue
-        if item_id:
-            seen.add(item_id)
-        unique.append(item)
-
-    return unique[:6]
-
-
-def _ahvi_fallback_image(item):
-    return str(
-        item.get("masked_url")
-        or item.get("maskedUrl")
-        or item.get("image_url")
-        or item.get("imageUrl")
-        or item.get("raw_url")
-        or item.get("url")
-        or item.get("image")
-        or ""
-    ).strip()
-
-
-def _ahvi_fallback_tokens(item):
-    blob = " ".join(
-        str(item.get(k, "") or "")
-        for k in (
-            "slot", "type", "category", "cat", "category_group",
-            "sub_category", "subcategory", "subCategory",
-            "name", "label", "description", "gender",
-            "style_gender", "target_gender", "audience",
-            "department", "intended_for", "wearer",
-        )
-    )
-    return set(re.sub(r"[^a-z0-9]+", " ", blob.lower()).split())
-
-
-def _ahvi_fallback_role(item):
-    tokens = _ahvi_fallback_tokens(item)
-
-    if tokens.intersection({
-        "shoe", "shoes", "sneaker", "sneakers", "boot", "boots",
-        "heel", "heels", "sandal", "sandals", "loafer", "loafers",
-        "slipper", "slippers", "footwear",
-    }):
-        return "footwear"
-
-    if tokens.intersection({
-        "watch", "watches", "belt", "belts", "cap", "caps", "hat", "hats",
-        "sunglass", "sunglasses", "eyewear", "glasses", "bag", "bags",
-        "purse", "handbag", "clutch", "tote", "jewelry", "jewellery",
-        "ring", "rings", "necklace", "necklaces", "bracelet", "bracelets",
-        "earring", "earrings", "scarf", "scarves",
-    }):
-        return "accessory"
-
-    # Critical: one-piece garments are not tops.
-    if tokens.intersection({
-        "dress", "dresses", "saree", "sari", "lehenga",
-        "gown", "jumpsuit", "sherwani",
-    }):
-        return "dress"
-
-    if tokens.intersection({
-        "top", "tops", "shirt", "shirts", "tee", "tshirt", "tshirts",
-        "jacket", "blazer", "sweater", "hoodie", "kurta",
-        "polo", "tunic", "tunics",
-    }):
-        return "top"
-
-    if tokens.intersection({
-        "bottom", "bottoms", "pant", "pants", "trouser", "trousers",
-        "jean", "jeans", "shorts", "skirt", "skirts", "chino", "chinos",
-    }):
-        return "bottom"
-
-    return "unknown"
-
-
-def _ahvi_fallback_norm(item):
-    image = _ahvi_fallback_image(item)
-    return {
-        "id": str(item.get("$id") or item.get("id") or item.get("item_id") or item.get("name") or ""),
-        "name": str(item.get("name") or item.get("label") or item.get("category") or "Wardrobe item"),
-        "category": str(item.get("category") or item.get("cat") or item.get("sub_category") or "Item"),
-        "sub_category": str(item.get("sub_category") or item.get("subcategory") or item.get("subCategory") or ""),
-        "color": str(item.get("color_name") or item.get("color") or ""),
-        "pattern": str(item.get("pattern") or ""),
-        "image_url": image,
-        "masked_url": item.get("masked_url") or item.get("maskedUrl") or image,
-        "imageUrl": item.get("imageUrl") or image,
-        "maskedUrl": item.get("maskedUrl") or item.get("masked_url") or image,
-    }
-
-
-def _ahvi_unique_items(items):
-    seen = set()
-    out = []
-
-    for item in items or []:
-        key = str(
-            item.get("$id")
-            or item.get("id")
-            or item.get("item_id")
-            or item.get("name")
-            or item.get("label")
-            or id(item)
-        ).lower()
-
-        if key in seen:
-            continue
-
-        seen.add(key)
-        out.append(item)
-
-    return out
-
-
-def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profile=None):
-    effective_profile = _ahvi_resolve_effective_user_profile(user_id, user_profile or {})
-
-    wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
-    wardrobe = [
-        item for item in wardrobe
-        if _ahvi_item_allowed_for_user_profile(item, effective_profile, query_text)
-    ]
-
-    selected = _pick_style_items(wardrobe, query_text, effective_profile)
-
-    if not selected:
-        return {
-            "message": (
-                "I can style this better once your wardrobe has enough compatible pieces. "
-                "I filtered out items that do not match the saved user style preference."
-            ),
-            "type": "style_fallback",
-            "cards": [],
-            "board_ids": "",
-            "data": {"outfits": [], "rendered_boards": []},
-            "meta": {
-                "wardrobe_count": len(wardrobe),
-                "mode": "deterministic_style_no_compatible_wardrobe",
-                "style_gender": _ahvi_profile_style_gender(effective_profile),
-            },
-        }
-
-    q = (query_text or "").lower()
-
-    if any(k in q for k in ["date", "dinner", "night"]):
-        occasion = "date night"
-        title = "Date Night Edit"
-        note = "soft polish, clean contrast, and one memorable detail"
-    elif any(k in q for k in ["coffee", "casual", "outing", "weekend"]):
-        occasion = "casual outing"
-        title = "Casual Outing Board"
-        note = "relaxed structure with a neat finish"
-    else:
-        occasion = "today"
-        title = "AHVI Styled Look"
-        note = "balanced, wearable, and intentional"
-
-    allow_dresses = (
-        _ahvi_profile_style_gender(effective_profile) != "male"
-        or _ahvi_query_allows_feminine_item(query_text)
-    )
-
-    buckets = {
-        "top": [],
-        "bottom": [],
-        "dress": [],
-        "footwear": [],
-        "accessory": [],
-    }
-
-    for item in wardrobe or []:
-        if not isinstance(item, dict):
-            continue
-
-        if not _ahvi_fallback_image(item):
-            continue
-
-        role = _ahvi_fallback_role(item)
-
-        if role == "dress" and not allow_dresses:
-            continue
-
-        if role in buckets:
-            buckets[role].append(item)
-
-    for key in buckets:
-        buckets[key] = _ahvi_unique_items(buckets[key])
-
-    if not buckets["top"] or not buckets["bottom"] or not buckets["footwear"]:
-        for item in selected:
-            if not isinstance(item, dict):
-                continue
-
-            if not _ahvi_fallback_image(item):
-                continue
-
-            role = _ahvi_fallback_role(item)
-
-            if role == "dress" and not allow_dresses:
-                continue
-
-            if role in buckets:
-                buckets[role].append(item)
-
-    for key in buckets:
-        buckets[key] = _ahvi_unique_items(buckets[key])
-
-    cards = []
-    board_ids = []
-
-    seed = abs(hash(f"{user_id}:{query_text}:{int(time.time() // 60)}"))
-
-    can_build_two_piece = bool(buckets["top"] and buckets["bottom"] and buckets["footwear"])
-    can_build_one_piece = bool(allow_dresses and buckets["dress"] and buckets["footwear"])
-
-    if can_build_two_piece or can_build_one_piece:
-        variety = sum(len(v) for v in buckets.values())
-        board_count = 3 if variety >= 6 else 2
-
-        for idx in range(board_count):
-            accessories = []
-
-            if buckets["accessory"]:
-                for offset in range(min(3, len(buckets["accessory"]))):
-                    accessories.append(
-                        buckets["accessory"][(seed + idx + offset) % len(buckets["accessory"])]
-                    )
-
-            if can_build_two_piece:
-                top = buckets["top"][(seed + idx) % len(buckets["top"])]
-                bottom = buckets["bottom"][(seed + idx) % len(buckets["bottom"])]
-                footwear = buckets["footwear"][(seed + idx) % len(buckets["footwear"])]
-                raw_items = [top, bottom, footwear] + accessories
-            else:
-                dress = buckets["dress"][(seed + idx) % len(buckets["dress"])]
-                footwear = buckets["footwear"][(seed + idx) % len(buckets["footwear"])]
-                raw_items = [dress, footwear] + accessories
-
-            board_items = [_ahvi_fallback_norm(x) for x in raw_items]
-            board_id = f"demo_board_{int(time.time())}_{idx}"
-            board_ids.append(board_id)
-
-            cards.append({
-                "id": board_id,
-                "title": title if idx == 0 else f"{title} {idx + 1}",
-                "name": title if idx == 0 else f"{title} {idx + 1}",
-                "kind": "style_board",
-                "score": max(82, 91 - idx * 3),
-                "vibe": occasion,
-                "aesthetic": note,
-                "items": board_items,
-                "accessories": [_ahvi_fallback_norm(x) for x in accessories],
-                "why_chosen": (
-                    f"Chosen using the saved {_ahvi_profile_style_gender(effective_profile)} style preference, "
-                    "wardrobe compatibility, outfit role balance, and occasion intent."
-                ),
-            })
-
-    if not cards:
-        normalized_items = []
-
-        for item in selected:
-            if isinstance(item, dict) and _ahvi_fallback_image(item):
-                normalized_items.append(_ahvi_fallback_norm(item))
-
-        if normalized_items:
-            board_id = f"demo_board_{int(time.time())}"
-            board_ids.append(board_id)
-            cards.append({
-                "id": board_id,
-                "title": title,
-                "name": title,
-                "kind": "style_board",
-                "score": 84,
-                "vibe": occasion,
-                "aesthetic": note,
-                "items": normalized_items[:6],
-                "accessories": [],
-                "why_chosen": (
-                    f"Chosen using the saved {_ahvi_profile_style_gender(effective_profile)} style preference "
-                    "and available compatible wardrobe items."
-                ),
-            })
-
-    if not cards:
-        return {}
-
-    first_names = ", ".join(i["name"] for i in cards[0]["items"][:6])
-
-    message = (
-        f"Here are {len(cards)} {occasion} boards from your wardrobe. "
-        f"First look: {first_names}. "
-        "I filtered the wardrobe using the saved user style preference before building these boards."
-    )
-
-    return {
-        "success": True,
-        "message": message,
-        "board": "style",
-        "type": "cards",
-        "cards": cards,
-        "board_ids": board_ids[0] if board_ids else "",
-        "data": {
-            "outfits": [],
-            "rendered_boards": [],
-            "board_item_ids": board_ids,
-            "style_gender": _ahvi_profile_style_gender(effective_profile),
-        },
-        "meta": {
-            "intent": "style_fallback",
-            "domain": "style",
-            "mode": "deterministic_style_board",
-            "wardrobe_count": len(wardrobe),
-            "style_gender": _ahvi_profile_style_gender(effective_profile),
-        },
-    }
-
-# ================= AHVI STYLE CHAT PATCH V2 END =================
-
-# ================= AHVI ACCESSORY POLICY PATCH V3 BEGIN =================
-
-_AHVI_HEADWEAR_EXPLICIT_TOKENS = {
-    "cap", "caps", "hat", "hats", "headwear", "beanie"
-}
-
-_AHVI_HEADWEAR_CASUAL_TOKENS = {
-    "casual", "coffee", "outing", "weekend", "errand", "errands",
-    "street", "streetwear", "sport", "sports", "sporty", "gym",
-    "walk", "outdoor", "outdoors", "travel", "airport", "college",
-    "beach", "summer", "daytime"
-}
-
-_AHVI_HEADWEAR_BLOCK_TOKENS = {
-    "date", "dinner", "night", "formal", "office", "work", "meeting",
-    "interview", "wedding", "party", "business", "professional"
-}
-
-
-def _ahvi_v3_tokens_for_item(item):
-    blob = " ".join(
-        str(item.get(k, "") or "")
-        for k in (
-            "role", "slot", "type", "category", "cat", "category_group",
-            "sub_category", "subcategory", "subCategory",
-            "name", "label", "description",
-        )
-    )
-    return set(_chat_tokens(blob))
-
-
-def _ahvi_v3_query_tokens(query_text):
-    return set(_chat_tokens(query_text or ""))
-
-
-def _ahvi_v3_is_casual_query(query_text):
-    tokens = _ahvi_v3_query_tokens(query_text)
-    return bool(tokens.intersection(_AHVI_HEADWEAR_CASUAL_TOKENS))
-
-
-def _ahvi_v3_allows_headwear(query_text):
-    tokens = _ahvi_v3_query_tokens(query_text)
-
-    if tokens.intersection(_AHVI_HEADWEAR_EXPLICIT_TOKENS):
-        return True
-
-    if tokens.intersection(_AHVI_HEADWEAR_BLOCK_TOKENS):
-        return False
-
-    return bool(tokens.intersection(_AHVI_HEADWEAR_CASUAL_TOKENS))
-
-
-def _ahvi_v3_accessory_subrole(item):
-    tokens = _ahvi_v3_tokens_for_item(item)
-
-    if tokens.intersection({"watch", "watches"}):
-        return "watch"
-
-    if tokens.intersection({"cap", "caps", "hat", "hats", "headwear", "beanie"}):
-        return "headwear"
-
-    if tokens.intersection({"belt", "belts"}):
-        return "belt"
-
-    if tokens.intersection({"sunglass", "sunglasses", "eyewear", "glasses", "shade", "shades"}):
-        return "eyewear"
-
-    if tokens.intersection({"bag", "bags", "purse", "clutch", "backpack", "tote", "handbag"}):
-        return "bag"
-
-    if tokens.intersection({
-        "necklace", "earring", "earrings", "ring", "rings",
-        "bracelet", "bracelets", "jewelry", "jewellery"
-    }):
-        return "jewelry"
-
-    if tokens.intersection({"scarf", "scarves"}):
-        return "scarf"
-
-    return "accessory"
-
-
-def _ahvi_v3_select_accessories(accessories, query_text, seed=0, idx=0):
-    """Select clean accessories: one per subrole, cap only for casual intent."""
-    if not accessories:
-        return []
-
-    allow_headwear = _ahvi_v3_allows_headwear(query_text)
-    is_casual = _ahvi_v3_is_casual_query(query_text)
-
-    if is_casual:
-        priority = ["headwear", "watch", "eyewear", "bag", "belt", "jewelry", "scarf", "accessory"]
-        max_count = 2
-    else:
-        priority = ["watch", "belt", "eyewear", "bag", "jewelry", "scarf", "accessory"]
-        max_count = 2
-
-    by_subrole = {}
-    seen_ids = set()
-
-    for offset in range(len(accessories)):
-        item = accessories[(seed + idx + offset) % len(accessories)]
-
-        if not isinstance(item, dict):
-            continue
-
-        item_id = str(
-            item.get("$id")
-            or item.get("id")
-            or item.get("item_id")
-            or item.get("name")
-            or item.get("label")
-            or ""
-        ).lower()
-
-        if item_id and item_id in seen_ids:
-            continue
-
-        subrole = _ahvi_v3_accessory_subrole(item)
-
-        if subrole == "headwear" and not allow_headwear:
-            continue
-
-        if subrole in by_subrole:
-            continue
-
-        if item_id:
-            seen_ids.add(item_id)
-
-        by_subrole[subrole] = item
-
-    selected = []
-
-    for subrole in priority:
-        if subrole in by_subrole:
-            selected.append(by_subrole[subrole])
-        if len(selected) >= max_count:
-            break
-
-    return selected
-
-
-def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profile=None):
-    effective_profile = _ahvi_resolve_effective_user_profile(user_id, user_profile or {})
-
-    wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
-    wardrobe = [
-        item for item in wardrobe
-        if _ahvi_item_allowed_for_user_profile(item, effective_profile, query_text)
-    ]
-
-    selected = _pick_style_items(wardrobe, query_text, effective_profile)
-
-    if not selected:
-        return {
-            "message": (
-                "I can style this better once your wardrobe has enough compatible pieces. "
-                "I filtered out items that do not match the saved user style preference."
-            ),
-            "type": "style_fallback",
-            "cards": [],
-            "board_ids": "",
-            "data": {"outfits": [], "rendered_boards": []},
-            "meta": {
-                "wardrobe_count": len(wardrobe),
-                "mode": "deterministic_style_no_compatible_wardrobe",
-                "style_gender": _ahvi_profile_style_gender(effective_profile),
-                "accessory_policy": "one_per_type_headwear_only_for_casual",
-            },
-        }
-
-    q = (query_text or "").lower()
-
-    if any(k in q for k in ["date", "dinner", "night"]):
-        occasion = "date night"
-        title = "Date Night Edit"
-        note = "soft polish, clean contrast, and one memorable detail"
-    elif any(k in q for k in ["coffee", "casual", "outing", "weekend", "street", "sport", "travel", "outdoor"]):
-        occasion = "casual outing"
-        title = "Casual Outing Board"
-        note = "relaxed structure with a neat finish"
-    else:
-        occasion = "today"
-        title = "AHVI Styled Look"
-        note = "balanced, wearable, and intentional"
-
-    allow_dresses = (
-        _ahvi_profile_style_gender(effective_profile) != "male"
-        or _ahvi_query_allows_feminine_item(query_text)
-    )
-
-    buckets = {
-        "top": [],
-        "bottom": [],
-        "dress": [],
-        "footwear": [],
-        "accessory": [],
-    }
-
-    for item in wardrobe or []:
-        if not isinstance(item, dict):
-            continue
-
-        if not _ahvi_fallback_image(item):
-            continue
-
-        role = _ahvi_fallback_role(item)
-
-        if role == "dress" and not allow_dresses:
-            continue
-
-        if role in buckets:
-            buckets[role].append(item)
-
-    for key in buckets:
-        buckets[key] = _ahvi_unique_items(buckets[key])
-
-    if not buckets["top"] or not buckets["bottom"] or not buckets["footwear"]:
-        for item in selected:
-            if not isinstance(item, dict):
-                continue
-
-            if not _ahvi_fallback_image(item):
-                continue
-
-            role = _ahvi_fallback_role(item)
-
-            if role == "dress" and not allow_dresses:
-                continue
-
-            if role in buckets:
-                buckets[role].append(item)
-
-    for key in buckets:
-        buckets[key] = _ahvi_unique_items(buckets[key])
-
-    cards = []
-    board_ids = []
-
-    seed = abs(hash(f"{user_id}:{query_text}:{int(time.time() // 60)}"))
-
-    can_build_two_piece = bool(buckets["top"] and buckets["bottom"] and buckets["footwear"])
-    can_build_one_piece = bool(allow_dresses and buckets["dress"] and buckets["footwear"])
-
-    if can_build_two_piece or can_build_one_piece:
-        variety = sum(len(v) for v in buckets.values())
-        board_count = 3 if variety >= 6 else 2
-
-        for idx in range(board_count):
-            accessories = _ahvi_v3_select_accessories(
-                buckets["accessory"],
-                query_text,
-                seed=seed,
-                idx=idx,
-            )
-
-            if can_build_two_piece:
-                top = buckets["top"][(seed + idx) % len(buckets["top"])]
-                bottom = buckets["bottom"][(seed + idx) % len(buckets["bottom"])]
-                footwear = buckets["footwear"][(seed + idx) % len(buckets["footwear"])]
-                raw_items = [top, bottom, footwear] + accessories
-            else:
-                dress = buckets["dress"][(seed + idx) % len(buckets["dress"])]
-                footwear = buckets["footwear"][(seed + idx) % len(buckets["footwear"])]
-                raw_items = [dress, footwear] + accessories
-
-            board_items = [_ahvi_fallback_norm(x) for x in raw_items]
-            board_id = f"demo_board_{int(time.time())}_{idx}"
-            board_ids.append(board_id)
-
-            cards.append({
-                "id": board_id,
-                "title": title if idx == 0 else f"{title} {idx + 1}",
-                "name": title if idx == 0 else f"{title} {idx + 1}",
-                "kind": "style_board",
-                "score": max(82, 91 - idx * 3),
-                "vibe": occasion,
-                "aesthetic": note,
-                "items": board_items,
-
-                # Important:
-                # Accessories are already included in items.
-                # Keep this empty to avoid frontend double-rendering them.
-                "accessories": [],
-
-                "why_chosen": (
-                    f"Chosen using the saved {_ahvi_profile_style_gender(effective_profile)} style preference, "
-                    "wardrobe compatibility, occasion intent, and accessory policy: one item per accessory type."
-                ),
-            })
-
-    if not cards:
-        normalized_items = []
-
-        for item in selected:
-            if isinstance(item, dict) and _ahvi_fallback_image(item):
-                normalized_items.append(_ahvi_fallback_norm(item))
-
-        if normalized_items:
-            board_id = f"demo_board_{int(time.time())}"
-            board_ids.append(board_id)
-            cards.append({
-                "id": board_id,
-                "title": title,
-                "name": title,
-                "kind": "style_board",
-                "score": 84,
-                "vibe": occasion,
-                "aesthetic": note,
-                "items": normalized_items[:6],
-                "accessories": [],
-                "why_chosen": (
-                    f"Chosen using the saved {_ahvi_profile_style_gender(effective_profile)} style preference "
-                    "and available compatible wardrobe items."
-                ),
-            })
-
-    if not cards:
-        return {}
-
-    first_names = ", ".join(i["name"] for i in cards[0]["items"][:6])
-
-    message = (
-        f"Here are {len(cards)} {occasion} boards from your wardrobe. "
-        f"First look: {first_names}. "
-        "I filtered the wardrobe using the saved user style preference and limited accessories to one per type."
-    )
-
-    try:
-        logger.info(
-            "ahvi.accessory_policy_v3 user_id=%s style_gender=%s cards=%s headwear_allowed=%s accessory_counts=%s",
-            user_id,
-            _ahvi_profile_style_gender(effective_profile),
-            len(cards),
-            _ahvi_v3_allows_headwear(query_text),
-            [len(card.get("items") or []) - 3 for card in cards],
-        )
-    except Exception:
-        pass
-
-    return {
-        "success": True,
-        "message": message,
-        "board": "style",
-        "type": "cards",
-        "cards": cards,
-        "board_ids": board_ids[0] if board_ids else "",
-        "data": {
-            "outfits": [],
-            "rendered_boards": [],
-            "board_item_ids": board_ids,
-            "style_gender": _ahvi_profile_style_gender(effective_profile),
-            "accessory_policy": "one_per_type_headwear_only_for_casual",
-        },
-        "meta": {
-            "intent": "style_fallback",
-            "domain": "style",
-            "mode": "deterministic_style_board",
-            "wardrobe_count": len(wardrobe),
-            "style_gender": _ahvi_profile_style_gender(effective_profile),
-            "accessory_policy": "one_per_type_headwear_only_for_casual",
-        },
-    }
-
-# ================= AHVI ACCESSORY POLICY PATCH V3 END =================
-
-
-# ================= AHVI CHAT PIPELINE ADAPTER V1 BEGIN =================
-# Final definition wins over duplicate _demo_style_board_payload functions above.
-# This routes fallback style boards through the existing canonical outfit_pipeline.
-
-try:
-    _ahvi_legacy_demo_style_board_payload = _demo_style_board_payload
-except Exception:
-    _ahvi_legacy_demo_style_board_payload = None
-
-
-def _ahvi_chat_adapter_occasion(query_text):
-    q = str(query_text or "").lower()
-    if any(k in q for k in ["date", "dinner", "night"]):
-        return "date night"
-    if any(k in q for k in ["office", "meeting", "work", "client"]):
-        return "office"
-    if any(k in q for k in ["party", "club", "night out"]):
-        return "party"
-    if any(k in q for k in ["travel", "airport", "trip"]):
-        return "travel"
-    if any(k in q for k in ["coffee", "casual", "outing", "weekend", "street", "sport", "travel", "outdoor"]):
-        return "casual outing"
-    return "today"
-
-
-def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profile=None):
-    try:
-        from brain.outfit_pipeline import get_daily_outfits as _ahvi_get_daily_outfits
-
-        effective_profile = _ahvi_resolve_effective_user_profile(user_id, user_profile or {})
-        wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
-        wardrobe = [
-            item for item in wardrobe
-            if _ahvi_item_allowed_for_user_profile(item, effective_profile, query_text)
-        ]
-
-        occasion = _ahvi_chat_adapter_occasion(query_text)
-
-        result = _ahvi_get_daily_outfits({
-            "user_id": user_id,
-            "wardrobe": wardrobe,
-            "context": {
-                "occasion": occasion,
-                "query": query_text,
-                "user_profile": effective_profile,
-                "style_gender": _ahvi_profile_style_gender(effective_profile),
-                "signals": {
-                    "source": "routers.chat.pipeline_adapter",
-                    "style_gender": _ahvi_profile_style_gender(effective_profile),
-                },
-            },
-        })
-
-        if not isinstance(result, dict):
-            raise RuntimeError("outfit_pipeline returned non-dict result")
-
-        cards = result.get("cards") if isinstance(result.get("cards"), list) else []
-        cards = _ahvi_orchestrator_merge_card_accessories(cards) if "_ahvi_orchestrator_merge_card_accessories" in globals() else cards
-
-        if cards:
-            board_item_ids = result.get("board_item_ids") if isinstance(result.get("board_item_ids"), list) else []
-            board_ids = ",".join([str(x) for x in board_item_ids if str(x).strip()])
-
-            message = (
-                result.get("message")
-                or result.get("context")
-                or f"Here are {len(cards)} {occasion} boards from your wardrobe."
-            )
-
-            try:
-                logger.info(
-                    "ahvi.chat_pipeline_adapter user_id=%s occasion=%s wardrobe=%s cards=%s first_card_items=%s",
-                    user_id,
-                    occasion,
-                    len(wardrobe),
-                    len(cards),
-                    [
-                        str((i or {}).get("name") or (i or {}).get("label") or "")
-                        for i in ((cards[0].get("items") if cards and isinstance(cards[0], dict) else []) or [])
-                        if isinstance(i, dict)
-                    ][:8],
-                )
-            except Exception:
-                pass
-
-            return {
-                "success": True,
-                "message": str(message),
-                "board": "style",
-                "type": "cards",
-                "cards": cards,
-                "board_ids": board_ids or "",
-                "data": {
-                    "outfits": result.get("outfits") or [],
-                    "rendered_boards": [],
-                    "board_item_ids": board_item_ids,
-                    "pipeline": result.get("pipeline") or {},
-                    "style_gender": _ahvi_profile_style_gender(effective_profile),
-                },
-                "meta": {
-                    "intent": "style_pipeline_adapter",
-                    "domain": "style",
-                    "mode": "outfit_pipeline_adapter",
-                    "wardrobe_count": len(wardrobe),
-                    "style_gender": _ahvi_profile_style_gender(effective_profile),
-                    "occasion": occasion,
-                },
-            }
-
-        try:
-            logger.warning(
-                "ahvi.chat_pipeline_adapter_empty user_id=%s occasion=%s wardrobe=%s result_context=%s",
-                user_id,
-                occasion,
-                len(wardrobe),
-                str(result.get("context") or "")[:180],
-            )
-        except Exception:
-            pass
-
-    except Exception as exc:
-        try:
-            logger.warning(
-                "ahvi.chat_pipeline_adapter_failed user_id=%s error=%s",
-                user_id,
-                str(exc)[:180],
-            )
-        except Exception:
-            pass
-
-    # Legacy fallback remains only as last safety net.
-    if callable(_ahvi_legacy_demo_style_board_payload):
-        try:
-            return _ahvi_legacy_demo_style_board_payload(user_id, query_text, request_wardrobe, user_profile)
-        except TypeError:
-            return _ahvi_legacy_demo_style_board_payload(user_id, query_text, request_wardrobe)
-        except Exception:
-            pass
-
-    return {}
-
-# ================= AHVI CHAT PIPELINE ADAPTER V1 END =================
-
-
-# ================= AHVI CHAT RESPONSE STYLE GUARD V1 BEGIN =================
-# Last-mile card sanitizer for /api/text.
-# This catches cards from orchestrator, outfit_pipeline, adapter, and fallbacks
-# before the response leaves the backend.
-
-def _ahvi_resp_blob(item):
-    if not isinstance(item, dict):
-        return ""
-    return " ".join(
-        str(item.get(k, "") or "")
-        for k in (
-            "role", "slot", "type", "category", "cat", "category_group",
-            "sub_category", "subcategory", "subCategory",
-            "name", "label", "description", "pattern", "color", "color_name",
-        )
-    ).lower()
-
-
-def _ahvi_resp_tokens(value):
-    return set(_chat_tokens(value or ""))
-
-
-def _ahvi_resp_key(item):
-    if not isinstance(item, dict):
-        return ""
-    return str(
-        item.get("$id")
-        or item.get("id")
-        or item.get("item_id")
-        or item.get("itemId")
-        or item.get("image_id")
-        or item.get("name")
-        or item.get("label")
-        or id(item)
-    ).lower()
-
-
-def _ahvi_resp_image(item):
-    if not isinstance(item, dict):
-        return ""
-    return str(
-        item.get("masked_url")
-        or item.get("maskedUrl")
-        or item.get("image_url")
-        or item.get("imageUrl")
-        or item.get("raw_url")
-        or item.get("rawUrl")
-        or item.get("url")
-        or item.get("image")
-        or ""
-    ).strip()
-
-
-def _ahvi_resp_role(item):
-    blob = _ahvi_resp_blob(item)
-    tokens = _ahvi_resp_tokens(blob)
-
-    if tokens.intersection({
-        "shoe", "shoes", "sneaker", "sneakers", "boot", "boots",
-        "heel", "heels", "sandal", "sandals", "loafer", "loafers",
-        "slipper", "slippers", "slider", "sliders", "footwear"
-    }):
-        return "footwear"
-
-    if tokens.intersection({
-        "watch", "watches", "belt", "belts", "cap", "caps", "hat", "hats",
-        "sunglass", "sunglasses", "eyewear", "glasses", "bag", "bags",
-        "purse", "handbag", "clutch", "tote", "jewelry", "jewellery",
-        "ring", "rings", "necklace", "necklaces", "bracelet", "bracelets",
-        "earring", "earrings", "scarf", "scarves", "accessory", "accessories"
-    }):
-        return "accessory"
-
-    if tokens.intersection({
-        "dress", "dresses", "saree", "sari", "lehenga", "gown", "jumpsuit", "sherwani"
-    }):
-        return "dress"
-
-    # Tops before bottoms so short-sleeved shirt never becomes shorts.
-    if tokens.intersection({
-        "top", "tops", "shirt", "shirts", "tee", "tshirt", "tshirts",
-        "polo", "polos", "jacket", "blazer", "sweater", "hoodie",
-        "kurta", "kurti", "tunic", "tunics"
-    }):
-        return "top"
-
-    if tokens.intersection({
-        "bottom", "bottoms", "pant", "pants", "trouser", "trousers",
-        "jean", "jeans", "shorts", "skirt", "skirts", "chino", "chinos"
-    }):
-        return "bottom"
-
-    return "unknown"
-
-
-def _ahvi_resp_accessory_type(item):
-    blob = _ahvi_resp_blob(item)
-    if "watch" in blob:
-        return "watch"
-    if "belt" in blob:
-        return "belt"
-    if "cap" in blob or "hat" in blob:
-        return "headwear"
-    if "bag" in blob:
-        return "bag"
-    if any(k in blob for k in ["ring", "necklace", "bracelet", "earring", "jewelry", "jewellery"]):
-        return "jewelry"
-    if "sunglass" in blob or "eyewear" in blob or "glasses" in blob:
-        return "eyewear"
-    if "scarf" in blob:
-        return "scarf"
-    return "accessory"
-
-
-def _ahvi_resp_norm(item, role=None):
-    row = dict(item or {})
-    resolved = role or _ahvi_resp_role(row)
-
-    if resolved == "top":
-        row["role"] = "top"
-        row["slot"] = "top"
-        row["category"] = "Tops"
-    elif resolved == "bottom":
-        row["role"] = "bottom"
-        row["slot"] = "bottom"
-        row["category"] = "Bottoms"
-    elif resolved == "footwear":
-        row["role"] = "footwear"
-        row["slot"] = "footwear"
-        row["category"] = "Footwear"
-    elif resolved == "dress":
-        row["role"] = "dress"
-        row["slot"] = "dress"
-        row["category"] = "Dresses"
-    elif resolved == "accessory":
-        row["role"] = "accessory"
-        row["slot"] = "accessory"
-        row["category"] = "Accessories"
-
-    image = _ahvi_resp_image(row)
-    if image:
-        row["image_url"] = row.get("image_url") or image
-        row["imageUrl"] = row.get("imageUrl") or image
-        row["masked_url"] = row.get("masked_url") or image
-        row["maskedUrl"] = row.get("maskedUrl") or image
-
-    return row
-
-
-def _ahvi_resp_pool(wardrobe, query_text, user_profile):
-    effective_profile = user_profile or {}
-    buckets = {
-        "top": [],
-        "bottom": [],
-        "dress": [],
-        "footwear": [],
-        "accessory": [],
-    }
-    seen = {k: set() for k in buckets}
-
-    for item in wardrobe or []:
-        if not isinstance(item, dict):
-            continue
-        if not _ahvi_resp_image(item):
-            continue
-        try:
-            if not _ahvi_item_allowed_for_user_profile(item, effective_profile, query_text):
-                continue
-        except Exception:
-            pass
-
-        role = _ahvi_resp_role(item)
-        if role not in buckets:
-            continue
-
-        key = _ahvi_resp_key(item)
-        if key in seen[role]:
-            continue
-
-        seen[role].add(key)
-        buckets[role].append(item)
-
-    return buckets
-
-
-def _ahvi_resp_pick(pool, used, fallback=None):
-    for item in pool or []:
-        key = _ahvi_resp_key(item)
-        if key and key not in used:
-            used.add(key)
-            return item
-
-    if fallback is not None:
-        key = _ahvi_resp_key(fallback)
-        if key:
-            used.add(key)
-        return fallback
-
-    if pool:
-        item = pool[0]
-        key = _ahvi_resp_key(item)
-        if key:
-            used.add(key)
-        return item
-
-    return None
-
-
-def _ahvi_resp_clean_accessories(items, query_text):
-    q = str(query_text or "").lower()
-    headwear_allowed = any(k in q for k in [
-        "casual", "street", "travel", "airport", "sport", "gym",
-        "sun", "beach", "outdoor", "college", "weekend"
-    ])
-
-    out = []
-    seen_types = set()
-    seen_ids = set()
-
-    for item in items or []:
-        if not isinstance(item, dict):
-            continue
-
-        key = _ahvi_resp_key(item)
-        if key and key in seen_ids:
-            continue
-
-        typ = _ahvi_resp_accessory_type(item)
-
-        if typ == "headwear" and not headwear_allowed:
-            continue
-
-        # one watch max, one belt max, one cap max, etc.
-        if typ in seen_types:
-            continue
-
-        out.append(_ahvi_resp_norm(item, "accessory"))
-
-        if key:
-            seen_ids.add(key)
-        seen_types.add(typ)
-
-        max_count = 2 if headwear_allowed else 1
-        if len(out) >= max_count:
-            break
-
-    return out
-
-
-def _ahvi_resp_names(items):
-    return [
-        str((i or {}).get("name") or (i or {}).get("label") or (i or {}).get("category") or "")
-        for i in items or []
-        if isinstance(i, dict)
-    ]
-
-
-def _ahvi_final_response_style_guard(cards, user_id, query_text, request_wardrobe=None, user_profile=None):
-    if not isinstance(cards, list) or not cards:
-        return cards
-
-    try:
-        effective_profile = _ahvi_resolve_effective_user_profile(user_id, user_profile or {})
-    except Exception:
-        effective_profile = user_profile or {}
-
-    try:
-        wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
-    except Exception:
-        wardrobe = []
-
-    buckets = _ahvi_resp_pool(wardrobe, query_text, effective_profile)
-
-    used_top = set()
-    used_bottom = set()
-    used_dress = set()
-    used_footwear = set()
-
-    final_cards = []
-
-    for idx, card in enumerate(cards[:3]):
-        if not isinstance(card, dict):
-            continue
-
-        source_items = []
-        for key in ("items", "accessories"):
-            value = card.get(key)
-            if isinstance(value, list):
-                source_items.extend([x for x in value if isinstance(x, dict)])
-
-        top = next((x for x in source_items if _ahvi_resp_role(x) == "top"), None)
-        bottom = next((x for x in source_items if _ahvi_resp_role(x) == "bottom"), None)
-        dress = next((x for x in source_items if _ahvi_resp_role(x) == "dress"), None)
-        footwear = next((x for x in source_items if _ahvi_resp_role(x) == "footwear"), None)
-        accessories = [x for x in source_items if _ahvi_resp_role(x) == "accessory"]
-
-        final_items = []
-
-        if dress and not (top and bottom):
-            chosen_dress = _ahvi_resp_pick(buckets["dress"], used_dress, dress)
-            if chosen_dress:
-                final_items.append(_ahvi_resp_norm(chosen_dress, "dress"))
-        else:
-            chosen_top = _ahvi_resp_pick(buckets["top"], used_top, top)
-            chosen_bottom = _ahvi_resp_pick(buckets["bottom"], used_bottom, bottom)
-
-            if chosen_top:
-                final_items.append(_ahvi_resp_norm(chosen_top, "top"))
-            if chosen_bottom:
-                final_items.append(_ahvi_resp_norm(chosen_bottom, "bottom"))
-
-        chosen_footwear = _ahvi_resp_pick(buckets["footwear"], used_footwear, footwear)
-        if chosen_footwear:
-            final_items.append(_ahvi_resp_norm(chosen_footwear, "footwear"))
-
-        # If existing card has two watches, this collapses to one.
-        final_items.extend(_ahvi_resp_clean_accessories(accessories or buckets["accessory"], query_text))
-
-        fixed = dict(card)
-        fixed["items"] = final_items
-        fixed["accessories"] = []
-
-        top_name = next((str(i.get("name") or i.get("label") or "top") for i in final_items if _ahvi_resp_role(i) in {"top", "dress"}), "")
-        bottom_name = next((str(i.get("name") or i.get("label") or "bottom") for i in final_items if _ahvi_resp_role(i) == "bottom"), "")
-        footwear_name = next((str(i.get("name") or i.get("label") or "footwear") for i in final_items if _ahvi_resp_role(i) == "footwear"), "")
-
-        core = ", ".join([x for x in [top_name, bottom_name, footwear_name] if x])
-
-        if "date" in str(query_text or "").lower():
-            why = f"This works for date night because {core} creates a clean smart-casual balance without over-accessorizing."
-        elif any(k in str(query_text or "").lower() for k in ["office", "meeting", "work"]):
-            why = f"This works for office because {core} keeps the outfit structured, neat, and wearable."
-        else:
-            why = f"This works because {core} creates a balanced top-bottom-footwear structure."
-
-        fixed["why_it_works"] = why
-        fixed["explanation"] = why
-        fixed["reason"] = why
-        fixed["style_reason"] = why
-
-        title = str(fixed.get("title") or fixed.get("name") or "").strip()
-        if not title or title.lower() in {"style board", "ahvi styled look"}:
-            fixed["title"] = f"Look {idx + 1} · Styled Fit"
-            fixed["name"] = fixed["title"]
-
-        final_cards.append(fixed)
-
-    try:
-        logger.info(
-            "ahvi.chat_response_style_guard_v1 user_id=%s cards=%s signatures=%s accessory_counts=%s",
-            user_id,
-            len(final_cards),
-            [" | ".join(_ahvi_resp_names(c.get("items") or [])) for c in final_cards],
-            [len([i for i in (c.get("items") or []) if isinstance(i, dict) and _ahvi_resp_role(i) == "accessory"]) for c in final_cards],
-        )
-    except Exception:
-        pass
-
-    return final_cards or cards
-
-# ================= AHVI CHAT RESPONSE STYLE GUARD V1 END =================
-
