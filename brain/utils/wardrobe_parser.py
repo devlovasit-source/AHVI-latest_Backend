@@ -18,7 +18,7 @@ def extract_and_clean_response(llama_text: str, wardrobe: List[Dict[str, Any]]) 
         "chips": [],
         "pack_tag": "",
         "board_tag": "",
-        "board_ids": []  # 🔥 NEW (important for UI)
+        "board_ids": [],  # 🔥 NEW (important for UI)
     }
 
     text = response_data["cleaned_text"]
@@ -26,30 +26,28 @@ def extract_and_clean_response(llama_text: str, wardrobe: List[Dict[str, Any]]) 
     # =========================
     # 1. CHIPS
     # =========================
-    chip_match = re.search(r'\[CHIPS?:\s*(.*?)\]', text, re.IGNORECASE)
+    chip_match = re.search(r"\[CHIPS?:\s*(.*?)\]", text, re.IGNORECASE)
     if chip_match:
         chips = chip_match.group(1)
-        response_data["chips"] = [
-            c.strip() for c in chips.split(",") if c.strip()
-        ]
+        response_data["chips"] = [c.strip() for c in chips.split(",") if c.strip()]
 
-    text = re.sub(r'\[CHIPS?:.*?\]', '', text, flags=re.IGNORECASE)
+    text = re.sub(r"\[CHIPS?:.*?\]", "", text, flags=re.IGNORECASE)
 
     # =========================
     # 2. PACK LIST
     # =========================
-    pack_match = re.search(r'\[?PACK_LIST:\s*(.*?)(?:\]|\n|$)', text, re.IGNORECASE)
+    pack_match = re.search(r"\[?PACK_LIST:\s*(.*?)(?:\]|\n|$)", text, re.IGNORECASE)
     if pack_match:
         raw_pack = pack_match.group(1).strip()
         if raw_pack:
             response_data["pack_tag"] = f"[PACK_LIST: {raw_pack}]"
 
-    text = re.sub(r'\[?PACK_LIST:.*?(\]|\n|$)', '', text, flags=re.IGNORECASE)
+    text = re.sub(r"\[?PACK_LIST:.*?(\]|\n|$)", "", text, flags=re.IGNORECASE)
 
     # =========================
     # 3. STYLE BOARD
     # =========================
-    board_match = re.search(r'\[?STYLE_BOARD:\s*(.*?)(?:\]|\n|$)', text, re.IGNORECASE)
+    board_match = re.search(r"\[?STYLE_BOARD:\s*(.*?)(?:\]|\n|$)", text, re.IGNORECASE)
 
     if board_match:
         raw_items = board_match.group(1).strip()
@@ -60,10 +58,7 @@ def extract_and_clean_response(llama_text: str, wardrobe: List[Dict[str, Any]]) 
 
             # 🔥 VALIDATE AGAINST WARDROBE
             valid_ids = []
-            wardrobe_ids = {
-                str(item.get("$id") or item.get("id"))
-                for item in wardrobe
-            }
+            wardrobe_ids = {str(item.get("$id") or item.get("id")) for item in wardrobe}
 
             for i in ids:
                 if i in wardrobe_ids:
@@ -73,7 +68,7 @@ def extract_and_clean_response(llama_text: str, wardrobe: List[Dict[str, Any]]) 
                 response_data["board_ids"] = valid_ids
                 response_data["board_tag"] = f"[STYLE_BOARD: {', '.join(valid_ids)}]"
 
-    text = re.sub(r'\[?STYLE_BOARD:.*?(\]|\n|$)', '', text, flags=re.IGNORECASE)
+    text = re.sub(r"\[?STYLE_BOARD:.*?(\]|\n|$)", "", text, flags=re.IGNORECASE)
 
     # =========================
     # 4. CLEAN TEXT (IMPORTANT)
@@ -86,13 +81,13 @@ def extract_and_clean_response(llama_text: str, wardrobe: List[Dict[str, Any]]) 
             text = text.replace(item_id, "")
 
     # remove generic junk tokens
-    text = re.sub(r'\b(id\d+|item\d+|items?|ids?)\b', '', text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(id\d+|item\d+|items?|ids?)\b", "", text, flags=re.IGNORECASE)
 
     # remove empty brackets / artifacts
-    text = re.sub(r'\(\s*[,\s]*\)', '', text)
+    text = re.sub(r"\(\s*[,\s]*\)", "", text)
 
     # normalize spaces
-    text = re.sub(r'\s{2,}', ' ', text).strip()
+    text = re.sub(r"\s{2,}", " ", text).strip()
 
     response_data["cleaned_text"] = text
 

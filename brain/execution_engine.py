@@ -21,8 +21,8 @@ class ExecutionEngine:
         handlers: Dict[str, Callable],
         timeout_seconds: float = 3.0,
         slow_step_threshold_seconds: float = 1.5,
-        context: Optional[Dict[str, Any]] = None,   # 🔥 NEW
-        state: Optional[Dict[str, Any]] = None,     # 🔥 NEW
+        context: Optional[Dict[str, Any]] = None,  # 🔥 NEW
+        state: Optional[Dict[str, Any]] = None,  # 🔥 NEW
     ) -> Dict[str, Any]:
 
         results: List[Dict[str, Any]] = []
@@ -36,11 +36,7 @@ class ExecutionEngine:
             handler = handlers.get(step)
 
             if handler is None:
-                results.append({
-                    "step": step,
-                    "ok": False,
-                    "error": "missing handler"
-                })
+                results.append({"step": step, "ok": False, "error": "missing handler"})
                 continue
 
             try:
@@ -68,28 +64,28 @@ class ExecutionEngine:
                 # 🔥 store last output in shared state
                 state[step] = payload
 
-                results.append({
-                    "step": step,
-                    "ok": True,
-                    "payload": payload,
-                    "latency_ms": round(elapsed * 1000.0, 2),
-                    "slow": elapsed > slow_step_threshold_seconds,
-                })
+                results.append(
+                    {
+                        "step": step,
+                        "ok": True,
+                        "payload": payload,
+                        "latency_ms": round(elapsed * 1000.0, 2),
+                        "slow": elapsed > slow_step_threshold_seconds,
+                    }
+                )
 
             except FutureTimeoutError:
-                results.append({
-                    "step": step,
-                    "ok": False,
-                    "error": f"timeout after {timeout_seconds}s",
-                })
+                results.append(
+                    {
+                        "step": step,
+                        "ok": False,
+                        "error": f"timeout after {timeout_seconds}s",
+                    }
+                )
                 break
 
             except Exception as exc:
-                results.append({
-                    "step": step,
-                    "ok": False,
-                    "error": str(exc)
-                })
+                results.append({"step": step, "ok": False, "error": str(exc)})
                 break
 
         return {

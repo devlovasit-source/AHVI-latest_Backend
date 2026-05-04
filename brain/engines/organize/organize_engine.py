@@ -8,7 +8,9 @@ import datetime
 class OrganizeEngine:
 
     def __init__(self):
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        base_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
         file_path = os.path.join(base_dir, "data", "organize_data.json")
 
         try:
@@ -47,21 +49,10 @@ class OrganizeEngine:
             "type": "task_board",
             "area": area["label"],
             "cards": [
-                {
-                    "kind": "today",
-                    "title": "Today",
-                    "items": today_tasks
-                },
-                {
-                    "kind": "this_week",
-                    "title": "This week",
-                    "items": week_tasks
-                }
+                {"kind": "today", "title": "Today", "items": today_tasks},
+                {"kind": "this_week", "title": "This week", "items": week_tasks},
             ],
-            "cta": {
-                "primary": "Mark done",
-                "secondary": "Add task"
-            }
+            "cta": {"primary": "Mark done", "secondary": "Add task"},
         }
 
     # =========================
@@ -84,7 +75,7 @@ class OrganizeEngine:
         return {
             "type": "organize_dashboard",
             "date": datetime.datetime.now().strftime("%Y-%m-%d"),
-            "boards": boards
+            "boards": boards,
         }
 
 

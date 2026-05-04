@@ -38,7 +38,9 @@ def _detect_scenario(text: str) -> str:
     lowered = (text or "").lower()
     if any(k in lowered for k in ["wedding", "marriage", "bride", "groom"]):
         return "wedding"
-    if any(k in lowered for k in ["business", "work trip", "conference", "client meeting"]):
+    if any(
+        k in lowered for k in ["business", "work trip", "conference", "client meeting"]
+    ):
         return "business"
     if any(k in lowered for k in ["goa", "beach", "vacation", "holiday", "trip"]):
         return "travel"
@@ -49,7 +51,9 @@ def _detect_scenario(text: str) -> str:
 
 def _extract_destination(text: str) -> str:
     lowered = (text or "").lower()
-    m = re.search(r"(?:to|for)\s+([a-z ]{2,30})(?:trip|travel|vacation|holiday|wedding)?", lowered)
+    m = re.search(
+        r"(?:to|for)\s+([a-z ]{2,30})(?:trip|travel|vacation|holiday|wedding)?", lowered
+    )
     if m:
         return m.group(1).strip().title()
     if "goa" in lowered:
@@ -126,7 +130,9 @@ def _scenario_addons(scenario: str) -> List[str]:
 def _normalize_weather(context: Dict[str, Any]) -> str:
     weather = str(context.get("weather") or "").lower()
     if not weather:
-        weather = str((context.get("weather_data") or {}).get("condition") or "").lower()
+        weather = str(
+            (context.get("weather_data") or {}).get("condition") or ""
+        ).lower()
     if any(k in weather for k in ["rain", "storm", "drizzle"]):
         return "rainy"
     if any(k in weather for k in ["cold", "chill", "winter"]):
@@ -155,9 +161,15 @@ def _weather_layer_items(weather: str) -> List[str]:
 
 def _time_based_tasks(time_of_day: str) -> List[str]:
     if time_of_day == "morning":
-        return ["Pack documents and chargers the night before", "Keep a quick breakfast/snack ready"]
+        return [
+            "Pack documents and chargers the night before",
+            "Keep a quick breakfast/snack ready",
+        ]
     if time_of_day == "evening":
-        return ["Keep one ready-to-wear outfit on top", "Add travel-size freshening kit"]
+        return [
+            "Keep one ready-to-wear outfit on top",
+            "Add travel-size freshening kit",
+        ]
     if time_of_day == "night":
         return ["Keep sleepwear and essentials accessible", "Add eye mask/comfort kit"]
     return ["Keep first-day essentials in carry-on"]
@@ -179,7 +191,9 @@ def _timeline_checklist(days: int, scenario: str) -> List[str]:
     return base
 
 
-def _ui_cards(days: int, destination: str, scenario: str, weather: str, time_of_day: str) -> List[Dict[str, Any]]:
+def _ui_cards(
+    days: int, destination: str, scenario: str, weather: str, time_of_day: str
+) -> List[Dict[str, Any]]:
     clothes = _packing_clothes(days=days, scenario=scenario)
     addons = _scenario_addons(scenario=scenario)
     timeline = _timeline_checklist(days=days, scenario=scenario)
@@ -200,7 +214,11 @@ def _ui_cards(days: int, destination: str, scenario: str, weather: str, time_of_
             "kind": "checklist",
             "subtitle": destination,
             "items": timeline,
-            "action": {"type": "open_module", "module": "calendar", "route": "/organize/calendar"},
+            "action": {
+                "type": "open_module",
+                "module": "calendar",
+                "route": "/organize/calendar",
+            },
         },
         {
             "id": "packing_clothes",
@@ -208,7 +226,11 @@ def _ui_cards(days: int, destination: str, scenario: str, weather: str, time_of_
             "kind": "checklist",
             "subtitle": f"{days} days",
             "items": clothes,
-            "action": {"type": "open_module", "module": "life_boards", "route": "/organize/life-boards"},
+            "action": {
+                "type": "open_module",
+                "module": "life_boards",
+                "route": "/organize/life-boards",
+            },
         },
         {
             "id": "packing_essentials",
@@ -216,7 +238,11 @@ def _ui_cards(days: int, destination: str, scenario: str, weather: str, time_of_
             "kind": "checklist",
             "subtitle": scenario.title(),
             "items": addons,
-            "action": {"type": "open_module", "module": "life_boards", "route": "/organize/life-boards"},
+            "action": {
+                "type": "open_module",
+                "module": "life_boards",
+                "route": "/organize/life-boards",
+            },
         },
         {
             "id": "weather_time_adjustments",
@@ -224,12 +250,18 @@ def _ui_cards(days: int, destination: str, scenario: str, weather: str, time_of_
             "kind": "checklist",
             "subtitle": f"{weather.title()} | {time_of_day.title()}",
             "items": weather_items,
-            "action": {"type": "open_module", "module": "calendar", "route": "/organize/calendar"},
+            "action": {
+                "type": "open_module",
+                "module": "calendar",
+                "route": "/organize/calendar",
+            },
         },
     ]
 
 
-def build_plan_pack_response(text: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+def build_plan_pack_response(
+    text: str, context: Dict[str, Any] | None = None
+) -> Dict[str, Any]:
     context = context or {}
     days = _parse_days(text)
     scenario = _detect_scenario(text)
@@ -237,7 +269,13 @@ def build_plan_pack_response(text: str, context: Dict[str, Any] | None = None) -
     weather = _normalize_weather(context=context)
     time_of_day = _time_of_day(context=context)
 
-    cards = _ui_cards(days=days, destination=destination, scenario=scenario, weather=weather, time_of_day=time_of_day)
+    cards = _ui_cards(
+        days=days,
+        destination=destination,
+        scenario=scenario,
+        weather=weather,
+        time_of_day=time_of_day,
+    )
 
     return {
         "intent": "plan_pack",

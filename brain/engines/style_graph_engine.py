@@ -25,13 +25,15 @@ class StyleGraphEngine:
                 if not item_id:
                     continue
 
-                items.append({
-                    "id": item_id,
-                    "type": str(item.get("type", "")).lower(),
-                    "color": str(item.get("color", "")).lower(),
-                    "fabric": str(item.get("fabric", "")).lower(),
-                    "fit": str(item.get("fit", "")).lower(),  # NEW
-                })
+                items.append(
+                    {
+                        "id": item_id,
+                        "type": str(item.get("type", "")).lower(),
+                        "color": str(item.get("color", "")).lower(),
+                        "fabric": str(item.get("fabric", "")).lower(),
+                        "fit": str(item.get("fit", "")).lower(),  # NEW
+                    }
+                )
 
         edges = []
         edge_map = {}
@@ -44,17 +46,9 @@ class StyleGraphEngine:
             key = self._pair_key(left["id"], right["id"])
             edge_map[key] = weight
 
-            edges.append({
-                "from": left["id"],
-                "to": right["id"],
-                "weight": weight
-            })
+            edges.append({"from": left["id"], "to": right["id"], "weight": weight})
 
-        return {
-            "nodes": items,
-            "edges": edges,
-            "edge_map": edge_map
-        }
+        return {"nodes": items, "edges": edges, "edge_map": edge_map}
 
     # =========================
     # PUBLIC

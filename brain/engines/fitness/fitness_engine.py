@@ -5,7 +5,9 @@ import json
 class FitnessEngine:
 
     def __init__(self):
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        base_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
         file_path = os.path.join(base_dir, "data", "fitness_data.json")
 
         try:
@@ -77,14 +79,14 @@ class FitnessEngine:
         if not results:
             return {
                 "message": "No exact match found, try relaxing filters",
-                "fallback": list(self.sessions.values())[:3]
+                "fallback": list(self.sessions.values())[:3],
             }
 
         # Pick top 3
         return {
             "type": "fitness_recommendation",
             "count": len(results),
-            "recommendations": results[:3]
+            "recommendations": results[:3],
         }
 
     # =========================

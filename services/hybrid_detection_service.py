@@ -12,7 +12,6 @@ import httpx
 from services.bg_service import remove_bg_bytes
 from services.r2_storage import R2Storage, R2StorageError
 
-
 # =========================
 # CONFIG
 # =========================
@@ -42,6 +41,7 @@ def get_mediapipe():
 
     try:
         import mediapipe as mp
+
         return mp
     except Exception as e:
         print("[mediapipe disabled]", e)
@@ -113,16 +113,18 @@ def parse_detections(hf_output):
     for item in hf_output:
         box = item.get("box", {})
 
-        detections.append({
-            "label": item.get("label", "item"),
-            "bbox": [
-                int(box.get("xmin", 0)),
-                int(box.get("ymin", 0)),
-                int(box.get("xmax", 0)),
-                int(box.get("ymax", 0)),
-            ],
-            "score": float(item.get("score", 0))
-        })
+        detections.append(
+            {
+                "label": item.get("label", "item"),
+                "bbox": [
+                    int(box.get("xmin", 0)),
+                    int(box.get("ymin", 0)),
+                    int(box.get("xmax", 0)),
+                    int(box.get("ymax", 0)),
+                ],
+                "score": float(item.get("score", 0)),
+            }
+        )
 
     return detections
 
@@ -145,23 +147,29 @@ def get_regions_safe(image_np):
                 lm = res.multi_face_landmarks[0]
                 x = int(lm.landmark[234].x * w)
                 y = int(lm.landmark[234].y * h)
-                regions.append({
-                    "label": "earring",
-                    "bbox": [x-40, y-40, x+40, y+40],
-                    "score": 0.9
-                })
+                regions.append(
+                    {
+                        "label": "earring",
+                        "bbox": [x - 40, y - 40, x + 40, y + 40],
+                        "score": 0.9,
+                    }
+                )
 
         with mp.solutions.pose.Pose(static_image_mode=True) as pose:
             res = pose.process(image_np)
             if res.pose_landmarks:
-                wrist = res.pose_landmarks.landmark[mp.solutions.pose.PoseLandmark.LEFT_WRIST]
+                wrist = res.pose_landmarks.landmark[
+                    mp.solutions.pose.PoseLandmark.LEFT_WRIST
+                ]
                 x = int(wrist.x * w)
                 y = int(wrist.y * h)
-                regions.append({
-                    "label": "watch",
-                    "bbox": [x-50, y-50, x+50, y+50],
-                    "score": 0.9
-                })
+                regions.append(
+                    {
+                        "label": "watch",
+                        "bbox": [x - 50, y - 50, x + 50, y + 50],
+                        "score": 0.9,
+                    }
+                )
 
     except Exception as e:
         print("[mediapipe runtime error]", e)
@@ -179,8 +187,11 @@ def iou(box1, box2):
     y2 = min(box1[3], box2[3])
 
     inter = max(0, x2 - x1) * max(0, y2 - y1)
-    union = ((box1[2]-box1[0])*(box1[3]-box1[1]) +
-             (box2[2]-box2[0])*(box2[3]-box2[1]) - inter)
+    union = (
+        (box1[2] - box1[0]) * (box1[3] - box1[1])
+        + (box2[2] - box2[0]) * (box2[3] - box2[1])
+        - inter
+    )
 
     return inter / union if union else 0
 
@@ -211,9 +222,7 @@ def filter_and_limit(detections, width, height):
 # BG REMOVAL
 # =========================
 async def batch_bg(crops):
-    return await asyncio.gather(
-        *[remove_bg_bytes(c) for c in crops]
-    )
+    return await asyncio.gather(*[remove_bg_bytes(c) for c in crops])
 
 
 # =========================
@@ -250,11 +259,7 @@ async def run_hybrid_detection(image: Image.Image):
     # FALLBACK (IMPORTANT 🔥)
     # -------------------------
     if not detections:
-        detections = [{
-            "label": "item",
-            "bbox": [0, 0, width, height],
-            "score": 1.0
-        }]
+        detections = [{"label": "item", "bbox": [0, 0, width, height], "score": 1.0}]
 
     detections = filter_and_limit(detections, width, height)
 
@@ -292,16 +297,16 @@ async def run_hybrid_detection(image: Image.Image):
             "bbox": meta_row.get("bbox") or [],
             "raw_url": None,
             "masked_url": None,
-            "raw_image_base64": "data:image/jpeg;base64," + base64.b64encode(raw).decode("ascii"),
-            "masked_image_base64": "data:image/png;base64," + base64.b64encode(masked).decode("ascii"),
+            "raw_image_base64": "data:image/jpeg;base64,"
+            + base64.b64encode(raw).decode("ascii"),
+            "masked_image_base64": "data:image/png;base64,"
+            + base64.b64encode(masked).decode("ascii"),
             "upload_error": "",
         }
 
         try:
             upload = r2.upload_wardrobe_images(
-                file_id=file_id,
-                raw_image_bytes=raw,
-                masked_image_bytes=masked
+                file_id=file_id, raw_image_bytes=raw, masked_image_bytes=masked
             )
         except (R2StorageError, Exception) as exc:
             fallback["upload_error"] = str(exc)
@@ -320,10 +325,7 @@ async def run_hybrid_detection(image: Image.Image):
         }
 
     results = await asyncio.gather(
-        *[
-            upload_one(crops[i], masked_list[i], meta[i])
-            for i in range(len(crops))
-        ]
+        *[upload_one(crops[i], masked_list[i], meta[i]) for i in range(len(crops))]
     )
 
     return results

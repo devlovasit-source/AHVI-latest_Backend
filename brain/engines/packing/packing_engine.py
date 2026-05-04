@@ -8,7 +8,9 @@ import math
 class PackingEngine:
 
     def __init__(self):
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        base_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
 
         # Base packing
         base_file = os.path.join(base_dir, "data", "packing_data.json")
@@ -42,10 +44,7 @@ class PackingEngine:
     # BASE ITEMS
     # =========================
     def get_base_items(self):
-        return [
-            {"category": c["label"], "items": c["items"]}
-            for c in self.categories
-        ]
+        return [{"category": c["label"], "items": c["items"]} for c in self.categories]
 
     # =========================
     # PURPOSE ADDONS
@@ -103,10 +102,7 @@ class PackingEngine:
         if not new_items:
             return base_cards
 
-        base_cards.append({
-            "category": title,
-            "items": new_items
-        })
+        base_cards.append({"category": title, "items": new_items})
         return base_cards
 
     # =========================
@@ -142,10 +138,7 @@ class PackingEngine:
 
         # Start with base categories
         for b in base_items:
-            cards.append({
-                "title": b["category"],
-                "items": b["items"]
-            })
+            cards.append({"title": b["category"], "items": b["items"]})
 
         # Destination override
         if dest:
@@ -167,10 +160,10 @@ class PackingEngine:
             "trip_summary": {
                 "days": days,
                 "purpose": purpose,
-                "destination": input_data.get("destination")
+                "destination": input_data.get("destination"),
             },
             "cards": cards,
-            "outfits": outfits
+            "outfits": outfits,
         }
 
 

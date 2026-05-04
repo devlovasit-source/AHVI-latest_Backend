@@ -17,4 +17,3 @@ def set_request_id(request_id: str | None) -> str:
 def get_request_id(default: str = "") -> str:
     rid = _request_id_ctx.get(default)
     return str(rid or "").strip()
-

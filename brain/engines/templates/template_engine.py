@@ -24,10 +24,7 @@ class TemplateEngine:
     # FIND TEMPLATE
     # =========================
     def get_template(self, event_type: str):
-        return [
-            t for t in self.templates
-            if t.get("event_type") == event_type
-        ]
+        return [t for t in self.templates if t.get("event_type") == event_type]
 
     # =========================
     # SMART MATCH (BEST TEMPLATE)
@@ -50,10 +47,9 @@ class TemplateEngine:
             return None
 
         # Pick closest by people_count
-        best = sorted(
-            candidates,
-            key=lambda x: abs(x.get("people_count", 0) - people)
-        )[0]
+        best = sorted(candidates, key=lambda x: abs(x.get("people_count", 0) - people))[
+            0
+        ]
 
         return best
 
@@ -61,19 +57,13 @@ class TemplateEngine:
     # GET TIMELINE
     # =========================
     def get_timeline(self, event_type: str):
-        return next(
-            (t for t in self.timelines if t["event_type"] == event_type),
-            None
-        )
+        return next((t for t in self.timelines if t["event_type"] == event_type), None)
 
     # =========================
     # GET PACKING
     # =========================
     def get_packing(self, key: str):
-        return next(
-            (p for p in self.packing if p["key"] == key),
-            None
-        )
+        return next((p for p in self.packing if p["key"] == key), None)
 
     # =========================
     # BUILD RESPONSE
@@ -93,7 +83,7 @@ class TemplateEngine:
             "people_count": template.get("people_count"),
             "cards": template.get("cards"),
             "timeline": timeline,
-            "packing": packing
+            "packing": packing,
         }
 
 

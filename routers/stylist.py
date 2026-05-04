@@ -86,15 +86,25 @@ def _visual_intelligence_from_outfit(outfit: Dict[str, Any]) -> Dict[str, Any]:
         _dict(outfit.get("shoes")),
     ] + [x for x in (outfit.get("accessories") or []) if isinstance(x, dict)]
 
-    colors = [_safe_text(p.get("color")).lower() for p in parts if _safe_text(p.get("color"))]
-    patterns = [_safe_text(p.get("pattern")).lower() for p in parts if _safe_text(p.get("pattern"))]
-    styles = [_safe_text(p.get("style")).lower() for p in parts if _safe_text(p.get("style"))]
+    colors = [
+        _safe_text(p.get("color")).lower() for p in parts if _safe_text(p.get("color"))
+    ]
+    patterns = [
+        _safe_text(p.get("pattern")).lower()
+        for p in parts
+        if _safe_text(p.get("pattern"))
+    ]
+    styles = [
+        _safe_text(p.get("style")).lower() for p in parts if _safe_text(p.get("style"))
+    ]
     return {
         "dominant_palette": sorted(set(colors))[:4],
         "pattern_mix": sorted(set(patterns))[:4],
         "style_signals": sorted(set(styles))[:4],
         "composition_score": float(outfit.get("score") or 0.0),
-        "story": _safe_text(_dict(outfit.get("story")).get("subtitle") or outfit.get("explanation")),
+        "story": _safe_text(
+            _dict(outfit.get("story")).get("subtitle") or outfit.get("explanation")
+        ),
     }
 
 
@@ -119,7 +129,9 @@ def _render_style_boards(
         if not items:
             continue
 
-        board = style_board_engine.build_board({"items": items, "score": card.get("score")}, context)
+        board = style_board_engine.build_board(
+            {"items": items, "score": card.get("score")}, context
+        )
         image_bytes = b""
         try:
             image_bytes = style_board_renderer.render(board)
@@ -127,12 +139,20 @@ def _render_style_boards(
             print(f"[renderer] error={exc}")
             image_bytes = b""
 
-        image_base64 = base64.b64encode(image_bytes).decode() if (include_base64 and image_bytes) else None
+        image_base64 = (
+            base64.b64encode(image_bytes).decode()
+            if (include_base64 and image_bytes)
+            else None
+        )
         image_url = None
         upload_error = None
         if storage and image_bytes:
             try:
-                uploaded = storage.upload_style_board_image(user_id=str(user_id or "user"), image_bytes=image_bytes, extension="png")
+                uploaded = storage.upload_style_board_image(
+                    user_id=str(user_id or "user"),
+                    image_bytes=image_bytes,
+                    extension="png",
+                )
                 image_url = uploaded.get("image_url")
             except (R2StorageError, Exception) as exc:
                 upload_error = str(exc)
@@ -194,9 +214,15 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
                 "context": context,
             }
         )
-        outfits = result.get("outfits") if isinstance(result.get("outfits"), list) else []
+        outfits = (
+            result.get("outfits") if isinstance(result.get("outfits"), list) else []
+        )
         cards = result.get("cards") if isinstance(result.get("cards"), list) else []
-        board_item_ids = result.get("board_item_ids") if isinstance(result.get("board_item_ids"), list) else []
+        board_item_ids = (
+            result.get("board_item_ids")
+            if isinstance(result.get("board_item_ids"), list)
+            else []
+        )
         board_item_ids = [str(x).strip() for x in board_item_ids if str(x).strip()]
         primary_board_id = board_item_ids[0] if board_item_ids else ""
 
@@ -229,7 +255,9 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
             include_base64=bool(request.include_base64),
             upload_style_boards_to_r2=bool(request.upload_style_boards_to_r2),
         )
-        visual_intelligence = _visual_intelligence_from_outfit(_first_dict(outfits)) if outfits else {}
+        visual_intelligence = (
+            _visual_intelligence_from_outfit(_first_dict(outfits)) if outfits else {}
+        )
 
         return {
             "success": True,
@@ -253,7 +281,9 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
             },
         }
     except Exception as exc:
-        logger.exception("stylist.pipeline failed user_id=%s error=%s", request.user_id, str(exc))
+        logger.exception(
+            "stylist.pipeline failed user_id=%s error=%s", request.user_id, str(exc)
+        )
         return {
             "success": False,
             "board": "style",

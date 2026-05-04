@@ -2,34 +2,62 @@
 
 from typing import Any, Dict, List, Tuple
 
-
 LOUD_COLORS = {
-    "yellow", "orange", "neon", "fluorescent",
-    "bright yellow", "bright orange", "lime",
+    "yellow",
+    "orange",
+    "neon",
+    "fluorescent",
+    "bright yellow",
+    "bright orange",
+    "lime",
 }
 
 SMART_OCCASIONS = {
-    "smart casual", "date", "date night", "office",
-    "business casual", "evening", "evening casual",
-    "dinner", "brunch",
+    "smart casual",
+    "date",
+    "date night",
+    "office",
+    "business casual",
+    "evening",
+    "evening casual",
+    "dinner",
+    "brunch",
 }
 
 MALE_BLOCKED_CATEGORIES = {
-    "saree", "lehenga", "skirt", "gown", "dress",
-    "heels", "heel", "heeled boots", "heeled_boots",
-    "women sandals", "women_sandals",
+    "saree",
+    "lehenga",
+    "skirt",
+    "gown",
+    "dress",
+    "heels",
+    "heel",
+    "heeled boots",
+    "heeled_boots",
+    "women sandals",
+    "women_sandals",
 }
 
 SMART_FOOTWEAR_GOOD = {
-    "sneakers", "minimal sneakers", "minimal_sneakers",
-    "white sneakers", "cream sneakers", "loafers",
-    "chelsea boots", "chelsea_boots", "formal shoes",
-    "leather sneakers", "boots",
+    "sneakers",
+    "minimal sneakers",
+    "minimal_sneakers",
+    "white sneakers",
+    "cream sneakers",
+    "loafers",
+    "chelsea boots",
+    "chelsea_boots",
+    "formal shoes",
+    "leather sneakers",
+    "boots",
 }
 
 ATHLETIC_FOOTWEAR = {
-    "running shoes", "sports shoes", "athletic shoes",
-    "trainers", "gym shoes",
+    "running shoes",
+    "sports shoes",
+    "athletic shoes",
+    "trainers",
+    "gym shoes",
 }
 
 
@@ -78,8 +106,13 @@ def _explicitly_requested_bold(intent: str, query: str) -> bool:
     return any(
         word in text
         for word in [
-            "bold", "streetwear", "sporty", "sneakerhead",
-            "statement", "athletic", "gym",
+            "bold",
+            "streetwear",
+            "sporty",
+            "sneakerhead",
+            "statement",
+            "athletic",
+            "gym",
         ]
     )
 
@@ -139,19 +172,28 @@ def guard_outfit(
         or outfit.get("scenario")
     )
 
-    outfit_text = " ".join([
-        _item_text(top),
-        _item_text(bottom),
-        _item_text(footwear),
-        occasion_text,
-    ])
+    outfit_text = " ".join(
+        [
+            _item_text(top),
+            _item_text(bottom),
+            _item_text(footwear),
+            occasion_text,
+        ]
+    )
 
     if _is_male_user(user_profile):
         for item in [top, bottom, footwear, *accessories]:
             if item and _is_male_blocked_item(item):
-                return False, -100, ["Blocked item for male profile unless explicitly requested"], fixed
+                return (
+                    False,
+                    -100,
+                    ["Blocked item for male profile unless explicitly requested"],
+                    fixed,
+                )
 
-    is_smart_occasion = any(o in occasion_text or o in outfit_text for o in SMART_OCCASIONS)
+    is_smart_occasion = any(
+        o in occasion_text or o in outfit_text for o in SMART_OCCASIONS
+    )
     bold_requested = _explicitly_requested_bold(intent, query)
 
     if footwear:
@@ -165,7 +207,9 @@ def guard_outfit(
             penalty -= 35
             reasons.append("Athletic footwear does not match smart occasion")
 
-        if is_smart_occasion and not any(x in footwear_text for x in SMART_FOOTWEAR_GOOD):
+        if is_smart_occasion and not any(
+            x in footwear_text for x in SMART_FOOTWEAR_GOOD
+        ):
             penalty -= 15
             reasons.append("Footwear is not ideal for smart styling")
 

@@ -11,12 +11,13 @@ from urllib3.util.retry import Retry
 try:
     from google import genai
     from google.genai import types
-except Exception:  # google-genai may be absent in local/dev until requirements are installed
+except (
+    Exception
+):  # google-genai may be absent in local/dev until requirements are installed
     genai = None
     types = None
 
 from brain.tone.tone_engine import tone_engine
-
 
 logger = logging.getLogger("ahvi.llm_service")
 
@@ -30,7 +31,9 @@ AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").strip().lower()
 
 # Gemini / Vertex config
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCP_PROJECT") or "ahvi-485510"
+GOOGLE_CLOUD_PROJECT = (
+    os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCP_PROJECT") or "ahvi-485510"
+)
 GOOGLE_CLOUD_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
 GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "45"))
 
@@ -173,7 +176,10 @@ Task:
 # OLLAMA FALLBACK
 # =========================
 
-def _call_ollama(payload: Dict[str, Any], timeout: int = 30) -> Optional[Dict[str, Any]]:
+
+def _call_ollama(
+    payload: Dict[str, Any], timeout: int = 30
+) -> Optional[Dict[str, Any]]:
     models = [payload.get("model") or DEFAULT_MODEL, *MODEL_FALLBACKS]
     seen = set()
 
@@ -195,7 +201,12 @@ def _call_ollama(payload: Dict[str, Any], timeout: int = 30) -> Optional[Dict[st
             res = session.post(f"{OLLAMA_URL}/generate", json=current, timeout=timeout)
             if res.status_code == 200:
                 return res.json()
-            logger.warning("Ollama call failed status=%s model=%s body=%s", res.status_code, model, res.text[:200])
+            logger.warning(
+                "Ollama call failed status=%s model=%s body=%s",
+                res.status_code,
+                model,
+                res.text[:200],
+            )
         except Exception as exc:
             logger.warning("Ollama call exception model=%s error=%s", model, exc)
 
@@ -205,6 +216,7 @@ def _call_ollama(payload: Dict[str, Any], timeout: int = 30) -> Optional[Dict[st
 # =========================
 # WEATHER OVERLAY
 # =========================
+
 
 def _select_weather_overlay(signals: Optional[Dict[str, Any]]) -> str:
     if not signals:
@@ -228,6 +240,7 @@ def _select_weather_overlay(signals: Optional[Dict[str, Any]]) -> str:
 # =========================
 # BASE GENERATOR
 # =========================
+
 
 def generate_text(
     prompt: str,
@@ -335,6 +348,7 @@ def chat_completion(
 # FOLLOW-UP SUGGESTIONS
 # =========================
 
+
 def generate_followup_suggestions(context: Optional[Dict[str, Any]]) -> List[str]:
     if not context:
         return ["Show outfits", "Try something new"]
@@ -355,11 +369,26 @@ def generate_followup_suggestions(context: Optional[Dict[str, Any]]) -> List[str
         if aesthetic:
             suggestions.append(f"More {aesthetic}")
     elif intent == "refinement":
-        suggestions = ["Make it cleaner", "Add layering", "Switch footwear", "Tone it down"]
+        suggestions = [
+            "Make it cleaner",
+            "Add layering",
+            "Switch footwear",
+            "Tone it down",
+        ]
     elif intent == "explore_styles":
-        suggestions = ["Show minimal styles", "Show bold looks", "Show streetwear", "Try new aesthetics"]
+        suggestions = [
+            "Show minimal styles",
+            "Show bold looks",
+            "Show streetwear",
+            "Try new aesthetics",
+        ]
     else:
-        suggestions = ["Show outfit ideas", "Help me style this", "Suggest something new", "What works better?"]
+        suggestions = [
+            "Show outfit ideas",
+            "Help me style this",
+            "Suggest something new",
+            "What works better?",
+        ]
 
     return list(dict.fromkeys(suggestions))[:4]
 
@@ -367,6 +396,7 @@ def generate_followup_suggestions(context: Optional[Dict[str, Any]]) -> List[str
 # =========================
 # OUTFIT EXPLANATION
 # =========================
+
 
 def generate_outfit_explanation(
     outfits: Any,
@@ -422,6 +452,7 @@ Optional styling note:
 # ITEM EXPLANATION
 # =========================
 
+
 def generate_item_level_explanation(
     outfit: Any,
     user_profile: Optional[Dict[str, Any]] = None,
@@ -464,6 +495,7 @@ Return JSON list only.
 # STYLE ADVICE
 # =========================
 
+
 def generate_style_advice(
     user_input: str,
     wardrobe_summary: str,
@@ -495,6 +527,7 @@ Keep it premium and concise.
 # MAIN ENTRY
 # =========================
 
+
 def generate_ai_response(
     user_input: str,
     outfits: Any,
@@ -524,6 +557,7 @@ def generate_ai_response(
 # FORMATTER
 # =========================
 
+
 def format_wardrobe_for_llm(items: Optional[List[Dict[str, Any]]]) -> str:
     if not items:
         return "Wardrobe is empty."
@@ -535,7 +569,12 @@ def format_wardrobe_for_llm(items: Optional[List[Dict[str, Any]]]) -> str:
             continue
 
         color = item.get("color") or item.get("dominant_color") or "unknown color"
-        item_type = item.get("type") or item.get("category") or item.get("garment_type") or "item"
+        item_type = (
+            item.get("type")
+            or item.get("category")
+            or item.get("garment_type")
+            or "item"
+        )
         name = item.get("name") or item.get("title") or item.get("label") or ""
 
         line = f"- {color} {item_type}"

@@ -38,7 +38,9 @@ class MealPlannerEngine:
             score += 2 if r.get("time_min", 999) <= cap else -3
 
         # allergies
-        allergies = [self.norm(x) for x in input_data.get("user", {}).get("allergies", [])]
+        allergies = [
+            self.norm(x) for x in input_data.get("user", {}).get("allergies", [])
+        ]
         for a in allergies:
             if any(a in self.norm(i) for i in r.get("ingredients", [])):
                 score -= 10
@@ -93,12 +95,7 @@ class MealPlannerEngine:
 
         top = self.pick_top(recipes, input_data, 50)
 
-        buckets = {
-            "breakfast": [],
-            "lunch": [],
-            "snack": [],
-            "dinner": []
-        }
+        buckets = {"breakfast": [], "lunch": [], "snack": [], "dinner": []}
 
         for r in top:
             buckets[self.meal_type(r)].append(r)
@@ -122,13 +119,31 @@ class MealPlannerEngine:
                 if x:
                     used.add(x["id"])
 
-            plan.append({
-                "day": d,
-                "breakfast": {"id": b["id"], "title": b["title"], "note": self.note(b)} if b else {},
-                "lunch": {"id": l["id"], "title": l["title"], "note": self.note(l)} if l else {},
-                "snack": {"id": s["id"], "title": s["title"], "note": self.note(s)} if s else {},
-                "dinner": {"id": dn["id"], "title": dn["title"], "note": self.note(dn)} if dn else {}
-            })
+            plan.append(
+                {
+                    "day": d,
+                    "breakfast": (
+                        {"id": b["id"], "title": b["title"], "note": self.note(b)}
+                        if b
+                        else {}
+                    ),
+                    "lunch": (
+                        {"id": l["id"], "title": l["title"], "note": self.note(l)}
+                        if l
+                        else {}
+                    ),
+                    "snack": (
+                        {"id": s["id"], "title": s["title"], "note": self.note(s)}
+                        if s
+                        else {}
+                    ),
+                    "dinner": (
+                        {"id": dn["id"], "title": dn["title"], "note": self.note(dn)}
+                        if dn
+                        else {}
+                    ),
+                }
+            )
 
         # =========================
         # GROCERY
@@ -141,15 +156,12 @@ class MealPlannerEngine:
 
         grocery = []
         for k, v in ingredient_map.items():
-            grocery.append({
-                "item": k,
-                "used_in": len(set(v))
-            })
+            grocery.append({"item": k, "used_in": len(set(v))})
 
         return {
             "week_id": f"wk_{int(time.time())}",
             "plan": plan,
-            "grocery_list": grocery[:40]
+            "grocery_list": grocery[:40],
         }
 
 

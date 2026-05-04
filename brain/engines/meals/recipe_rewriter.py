@@ -15,10 +15,7 @@ class RecipeRewriter:
 
     def remove_if_contains(self, arr, terms):
         terms = [t.lower() for t in terms]
-        return [
-            x for x in arr
-            if not any(term in x.lower() for term in terms)
-        ]
+        return [x for x in arr if not any(term in x.lower() for term in terms)]
 
     # =========================
     # MAIN FUNCTION
@@ -35,8 +32,12 @@ class RecipeRewriter:
         # JAIN
         # =========================
         if toggles.get("jain"):
-            r["ingredients"] = self.remove_if_contains(r["ingredients"], ["onion", "garlic"])
-            r["steps"] = [s.replace("onion", "").replace("garlic", "") for s in r["steps"]]
+            r["ingredients"] = self.remove_if_contains(
+                r["ingredients"], ["onion", "garlic"]
+            )
+            r["steps"] = [
+                s.replace("onion", "").replace("garlic", "") for s in r["steps"]
+            ]
 
             r.setdefault("goal_tags", []).append("jain")
             r.setdefault("notes", []).append("Jain edit: no onion/garlic.")
@@ -50,7 +51,7 @@ class RecipeRewriter:
                 ("yogurt", "coconut yogurt"),
                 ("milk", "plant milk"),
                 ("paneer", "tofu"),
-                ("ghee", "oil")
+                ("ghee", "oil"),
             ]
 
             r["ingredients"] = [self.replace_pairs(x, pairs) for x in r["ingredients"]]
@@ -65,10 +66,7 @@ class RecipeRewriter:
         if toggles.get("no_egg"):
             r["ingredients"] = self.remove_if_contains(r["ingredients"], ["egg"])
 
-            r["steps"] = [
-                s.replace("egg", "tofu scramble")
-                for s in r["steps"]
-            ]
+            r["steps"] = [s.replace("egg", "tofu scramble") for s in r["steps"]]
 
             r.setdefault("goal_tags", []).append("no_egg")
             r.setdefault("notes", []).append("No-egg edit applied.")
@@ -80,8 +78,7 @@ class RecipeRewriter:
             r["ingredients"] = self.remove_if_contains(r["ingredients"], ["peanut"])
 
             r["steps"] = [
-                s.replace("peanuts", "roasted seeds (optional)")
-                for s in r["steps"]
+                s.replace("peanuts", "roasted seeds (optional)") for s in r["steps"]
             ]
 
             r.setdefault("goal_tags", []).append("no_peanuts")
@@ -92,14 +89,13 @@ class RecipeRewriter:
         # =========================
         if spice == "low":
             r["ingredients"] = [
-                x.replace("chilli", "chilli (optional)").replace("pepper", "pepper (light)")
+                x.replace("chilli", "chilli (optional)").replace(
+                    "pepper", "pepper (light)"
+                )
                 for x in r["ingredients"]
             ]
 
-            r["steps"] = [
-                s.replace("chilli", "chilli (optional)")
-                for s in r["steps"]
-            ]
+            r["steps"] = [s.replace("chilli", "chilli (optional)") for s in r["steps"]]
 
             r.setdefault("notes", []).append("Low-spice edit applied.")
 
@@ -115,20 +111,15 @@ class RecipeRewriter:
             ] + r["steps"]
 
         elif appliance == "airfryer":
-            r["steps"] = [
-                f"{s} (Airfryer option available)"
-                for s in r["steps"]
-            ]
+            r["steps"] = [f"{s} (Airfryer option available)" for s in r["steps"]]
 
         elif appliance == "microwave":
-            r["steps"] = [
-                "Microwave shortcut: pre-cook components then mix."
-            ] + r["steps"]
+            r["steps"] = ["Microwave shortcut: pre-cook components then mix."] + r[
+                "steps"
+            ]
 
         elif appliance == "no_cook":
-            r["steps"] = [
-                "No-cook: assemble ready ingredients into a bowl."
-            ]
+            r["steps"] = ["No-cook: assemble ready ingredients into a bowl."]
             r.setdefault("goal_tags", []).append("no_cook")
 
         # =========================

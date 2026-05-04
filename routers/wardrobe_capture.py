@@ -37,8 +37,6 @@ class SaveSelectedRequest(BaseModel):
     detected_items: List[Dict[str, Any]]
 
 
-
-
 class CaptureAnalyzeBatchRequest(BaseModel):
     user_id: str
     image_base64s: List[str] = Field(default_factory=list)
@@ -52,6 +50,7 @@ class DeleteSelectedRequest(BaseModel):
     items: List[Dict[str, Any]] = Field(default_factory=list)
     delete_r2: bool = True
 
+
 def _request_user_id(http_request: Request) -> str:
     user = getattr(http_request.state, "user", None)
     if not isinstance(user, dict):
@@ -63,7 +62,9 @@ def _effective_user_id(http_request: Request, supplied_user_id: str) -> str:
     authed_user_id = _request_user_id(http_request)
     supplied = str(supplied_user_id or "").strip()
     if authed_user_id and supplied and supplied != authed_user_id:
-        raise HTTPException(status_code=403, detail="user_id does not match authenticated user")
+        raise HTTPException(
+            status_code=403, detail="user_id does not match authenticated user"
+        )
     return authed_user_id or supplied
 
 
@@ -100,7 +101,20 @@ def _normalize_category_from_label(label: str) -> tuple[str, str]:
     raw = str(label or "").strip().lower()
     if any(x in raw for x in ["saree", "kurta", "lehenga", "dupatta", "sherwani"]):
         return ("Indian Wear", raw.title() or "Indian Wear")
-    if any(x in raw for x in ["shirt", "tshirt", "t-shirt", "top", "blouse", "crop", "sweater", "hoodie", "tee"]):
+    if any(
+        x in raw
+        for x in [
+            "shirt",
+            "tshirt",
+            "t-shirt",
+            "top",
+            "blouse",
+            "crop",
+            "sweater",
+            "hoodie",
+            "tee",
+        ]
+    ):
         return ("Tops", raw.title() or "Top")
     if any(x in raw for x in ["pant", "trouser", "jean", "skirt", "short"]):
         return ("Bottoms", raw.title() or "Bottom")
@@ -119,17 +133,78 @@ def _normalize_category_from_label(label: str) -> tuple[str, str]:
     return ("Item", "Item")
 
 
-
 _CANONICAL_CATEGORY_KEYWORDS = [
-    ("Footwear", "Footwear", ["boot", "boots", "shoe", "shoes", "sneaker", "sneakers", "heel", "heels", "sandal", "sandals", "loafer", "loafers", "slipper", "slippers"]),
-    ("Bottoms", "Bottom", ["pant", "pants", "trouser", "trousers", "jean", "jeans", "short", "shorts", "skirt", "chino", "chinos", "legging", "leggings"]),
-    ("Tops", "Top", ["shirt", "shirts", "tshirt", "t-shirt", "tee", "top", "tops", "blouse", "crop", "sweater", "hoodie", "polo"]),
+    (
+        "Footwear",
+        "Footwear",
+        [
+            "boot",
+            "boots",
+            "shoe",
+            "shoes",
+            "sneaker",
+            "sneakers",
+            "heel",
+            "heels",
+            "sandal",
+            "sandals",
+            "loafer",
+            "loafers",
+            "slipper",
+            "slippers",
+        ],
+    ),
+    (
+        "Bottoms",
+        "Bottom",
+        [
+            "pant",
+            "pants",
+            "trouser",
+            "trousers",
+            "jean",
+            "jeans",
+            "short",
+            "shorts",
+            "skirt",
+            "chino",
+            "chinos",
+            "legging",
+            "leggings",
+        ],
+    ),
+    (
+        "Tops",
+        "Top",
+        [
+            "shirt",
+            "shirts",
+            "tshirt",
+            "t-shirt",
+            "tee",
+            "top",
+            "tops",
+            "blouse",
+            "crop",
+            "sweater",
+            "hoodie",
+            "polo",
+        ],
+    ),
     ("Dresses", "Dress", ["dress", "gown", "jumpsuit"]),
     ("Outerwear", "Outerwear", ["jacket", "coat", "blazer", "outerwear", "cardigan"]),
     ("Bags", "Bag", ["bag", "handbag", "backpack", "purse", "tote", "clutch"]),
-    ("Accessories", "Accessory", ["watch", "watches", "belt", "scarf", "hat", "cap", "sunglass", "sunglasses"]),
+    (
+        "Accessories",
+        "Accessory",
+        ["watch", "watches", "belt", "scarf", "hat", "cap", "sunglass", "sunglasses"],
+    ),
     ("Jewelry", "Jewelry", ["bracelet", "ring", "earring", "earrings", "necklace"]),
-    ("Indian Wear", "Indian Wear", ["saree", "kurta", "lehenga", "dupatta", "sherwani"]),
+    (
+        "Indian Wear",
+        "Indian Wear",
+        ["saree", "kurta", "lehenga", "dupatta", "sherwani"],
+    ),
 ]
 _CANONICAL_CATEGORIES = {row[0] for row in _CANONICAL_CATEGORY_KEYWORDS}
 
@@ -150,7 +225,9 @@ def _guardrail_category(
     )
     category_text = str(vision_category or fallback_category or "").lower()
     category = str(vision_category or fallback_category or "Item").strip().title()
-    sub_category = str(vision_sub_category or fallback_sub_category or category or "Item").strip()
+    sub_category = str(
+        vision_sub_category or fallback_sub_category or category or "Item"
+    ).strip()
     corrected = False
 
     matched = False
@@ -159,7 +236,15 @@ def _guardrail_category(
             if category != canonical:
                 corrected = True
             category = canonical
-            if not sub_category or sub_category.lower() in {"item", "unknown", "none", "accessory", "accessories", "top", "tops"}:
+            if not sub_category or sub_category.lower() in {
+                "item",
+                "unknown",
+                "none",
+                "accessory",
+                "accessories",
+                "top",
+                "tops",
+            }:
                 match = next((kw for kw in keywords if kw in primary_text), default_sub)
                 sub_category = match.replace("tshirt", "t-shirt").title()
             matched = True
@@ -167,22 +252,31 @@ def _guardrail_category(
 
     if not matched:
         for canonical, default_sub, keywords in _CANONICAL_CATEGORY_KEYWORDS:
-            if category == canonical or any(keyword in category_text for keyword in keywords):
+            if category == canonical or any(
+                keyword in category_text for keyword in keywords
+            ):
                 if category != canonical:
                     corrected = True
                 category = canonical
-                if not sub_category or sub_category.lower() in {"item", "unknown", "none"}:
+                if not sub_category or sub_category.lower() in {
+                    "item",
+                    "unknown",
+                    "none",
+                }:
                     sub_category = default_sub
                 break
 
     if category not in _CANONICAL_CATEGORIES and category != "Item":
-        normalized_category, normalized_sub = _normalize_category_from_label(category or sub_category or raw_label)
+        normalized_category, normalized_sub = _normalize_category_from_label(
+            category or sub_category or raw_label
+        )
         corrected = corrected or normalized_category != category
         category = normalized_category
         if not sub_category or sub_category.lower() in {"item", "unknown", "none"}:
             sub_category = normalized_sub
 
     return category, sub_category, corrected
+
 
 def _hex_to_name(color_hex: str) -> str:
     named = {
@@ -204,7 +298,7 @@ def _hex_to_name(color_hex: str) -> str:
         h = str(color_hex or "#000000").strip().lstrip("#")
         if len(h) != 6:
             return "unknown"
-        rgb = tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+        rgb = tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
     except Exception:
         return "unknown"
 
@@ -282,7 +376,9 @@ def _extract_first_vision_item(ai_json: Dict[str, Any]) -> Dict[str, Any]:
     return ai_json
 
 
-def _vision_extract_attributes(masked_url: str, fallback_label: str, image_base64: str = "") -> Dict[str, Any]:
+def _vision_extract_attributes(
+    masked_url: str, fallback_label: str, image_base64: str = ""
+) -> Dict[str, Any]:
     base = {
         "name": str(fallback_label or "Item").strip().title() or "Item",
         "category": "",
@@ -295,7 +391,12 @@ def _vision_extract_attributes(masked_url: str, fallback_label: str, image_base6
     }
     if not masked_url and not image_base64:
         return base
-    if str(os.getenv("ENABLE_VISION", "false")).strip().lower() not in {"1", "true", "yes", "on"}:
+    if str(os.getenv("ENABLE_VISION", "false")).strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
         return base
 
     try:
@@ -317,25 +418,35 @@ def _vision_extract_attributes(masked_url: str, fallback_label: str, image_base6
         )
         if isinstance(ai_json, dict):
             ai_item = _extract_first_vision_item(ai_json)
-            base.update({
-                "name": _clean_label_text(ai_item.get("name"), base["name"]),
-                "category": _clean_label_text(ai_item.get("category"), "", 50),
-                "sub_category": _clean_label_text(ai_item.get("sub_category"), "", 50),
-                "pattern": _clean_label_text(ai_item.get("pattern"), base["pattern"], 40).lower(),
-                "color_name": _clean_label_text(ai_item.get("color_name"), "", 40).lower(),
-                "occasions": _normalize_occasions(ai_item.get("occasions")),
-                "confidence": float(ai_item.get("confidence") or 0.0),
-                "reasoning": _clean_label_text(ai_item.get("reasoning"), "", 160),
-                "label_source": "vision",
-                "requires_manual_entry": False,
-            })
+            base.update(
+                {
+                    "name": _clean_label_text(ai_item.get("name"), base["name"]),
+                    "category": _clean_label_text(ai_item.get("category"), "", 50),
+                    "sub_category": _clean_label_text(
+                        ai_item.get("sub_category"), "", 50
+                    ),
+                    "pattern": _clean_label_text(
+                        ai_item.get("pattern"), base["pattern"], 40
+                    ).lower(),
+                    "color_name": _clean_label_text(
+                        ai_item.get("color_name"), "", 40
+                    ).lower(),
+                    "occasions": _normalize_occasions(ai_item.get("occasions")),
+                    "confidence": float(ai_item.get("confidence") or 0.0),
+                    "reasoning": _clean_label_text(ai_item.get("reasoning"), "", 160),
+                    "label_source": "vision",
+                    "requires_manual_entry": False,
+                }
+            )
     except Exception:
         pass
 
     return base
 
 
-async def _full_image_fallback_item(image: Image.Image, source_bytes: bytes, reason: str) -> Dict[str, Any]:
+async def _full_image_fallback_item(
+    image: Image.Image, source_bytes: bytes, reason: str
+) -> Dict[str, Any]:
     masked_bytes = source_bytes
     masked_mime = "image/png"
     try:
@@ -353,8 +464,10 @@ async def _full_image_fallback_item(image: Image.Image, source_bytes: bytes, rea
         "bbox": [0, 0, image.size[0], image.size[1]],
         "raw_url": None,
         "masked_url": None,
-        "raw_image_base64": "data:image/png;base64," + base64.b64encode(source_bytes).decode("ascii"),
-        "masked_image_base64": f"data:{masked_mime};base64," + base64.b64encode(masked_bytes).decode("ascii"),
+        "raw_image_base64": "data:image/png;base64,"
+        + base64.b64encode(source_bytes).decode("ascii"),
+        "masked_image_base64": f"data:{masked_mime};base64,"
+        + base64.b64encode(masked_bytes).decode("ascii"),
         "upload_error": reason,
     }
 
@@ -404,18 +517,26 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
     source_bytes = _bytes_from_image_base64(request.image_base64)
 
     detection_state = "single_garment_demo"
-    if str(os.getenv("WARDROBE_CAPTURE_SINGLE_GARMENT_MODE", "true")).strip().lower() in {"1", "true", "yes", "on"}:
-        detected_items = [await _full_image_fallback_item(image, source_bytes, "single_garment_mode")]
+    if str(
+        os.getenv("WARDROBE_CAPTURE_SINGLE_GARMENT_MODE", "true")
+    ).strip().lower() in {"1", "true", "yes", "on"}:
+        detected_items = [
+            await _full_image_fallback_item(image, source_bytes, "single_garment_mode")
+        ]
     else:
         try:
             detected_items = await run_hybrid_detection(image)
         except Exception as e:
             detection_state = f"fallback:{e}"
-            detected_items = [await _full_image_fallback_item(image, source_bytes, str(e))]
+            detected_items = [
+                await _full_image_fallback_item(image, source_bytes, str(e))
+            ]
 
     if not detected_items:
         detection_state = "fallback:no_detection"
-        detected_items = [await _full_image_fallback_item(image, source_bytes, "no_detection")]
+        detected_items = [
+            await _full_image_fallback_item(image, source_bytes, "no_detection")
+        ]
 
     items = []
     for item in detected_items:
@@ -425,7 +546,9 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         fallback_color_code = _dominant_color_hex_from_image(image)
 
         masked_b64 = str(item.get("masked_image_base64") or "")
-        vision = _vision_extract_attributes(str(item.get("masked_url") or ""), raw_label, masked_b64)
+        vision = _vision_extract_attributes(
+            str(item.get("masked_url") or ""), raw_label, masked_b64
+        )
         category, sub_category, category_corrected = _guardrail_category(
             raw_label=raw_label,
             vision_name=str(vision.get("name") or ""),
@@ -435,19 +558,33 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             fallback_sub_category=sub_category,
         )
 
-        color_code = _dominant_color_hex_from_url(str(item.get("masked_url") or "")) or fallback_color_code
+        color_code = (
+            _dominant_color_hex_from_url(str(item.get("masked_url") or ""))
+            or fallback_color_code
+        )
         if color_code == "#000000" and fallback_color_code != "#000000":
             color_code = fallback_color_code
         color_name = str(vision.get("color_name") or _hex_to_name(color_code))
         label_source = str(vision.get("label_source") or "heuristic")
         if category_corrected and label_source == "vision":
             label_source = "vision+rules"
-        requires_manual_entry = bool(vision.get("requires_manual_entry") or label_source != "vision")
+        requires_manual_entry = bool(
+            vision.get("requires_manual_entry") or label_source != "vision"
+        )
 
         embedding = []
-        if str(os.getenv("ENABLE_IMAGE_EMBEDDINGS", "false")).strip().lower() in {"1", "true", "yes", "on"}:
+        if str(os.getenv("ENABLE_IMAGE_EMBEDDINGS", "false")).strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
             try:
-                embedding = encode_image_url(item.get("masked_url")) if item.get("masked_url") else []
+                embedding = (
+                    encode_image_url(item.get("masked_url"))
+                    if item.get("masked_url")
+                    else []
+                )
             except Exception:
                 embedding = []
 
@@ -455,7 +592,9 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         duplicate = {"checked": False, "is_duplicate": False}
         try:
             pixel_hash = await compute_hash_from_url(str(item.get("masked_url") or ""))
-            duplicate = qdrant_service.find_pixel_duplicate(user_id, pixel_hash, max_distance=6)
+            duplicate = qdrant_service.find_pixel_duplicate(
+                user_id, pixel_hash, max_distance=6
+            )
         except Exception:
             duplicate = {"checked": False, "is_duplicate": False}
 
@@ -466,62 +605,69 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             except Exception:
                 pass
 
-        items.append({
-            "item_id": item.get("item_id") or str(uuid.uuid4()),
-            "name": vision.get("name") or sub_category or raw_label or "Item",
-            "category": category,
-            "sub_category": sub_category,
-            "color_code": color_code,
-            "color_name": color_name,
-            "pattern": str(vision.get("pattern") or "plain"),
-            "occasions": vision.get("occasions") or [],
-            "confidence": confidence,
-            "label_source": label_source,
-            "requires_manual_entry": requires_manual_entry,
-            "reasoning": vision.get("reasoning") or f"hybrid_detection+{label_source}",
-            "bbox": item.get("bbox") or [],
-            "raw_url": item.get("raw_url"),
-            "masked_url": item.get("masked_url"),
-            "raw_image_base64": item.get("raw_image_base64"),
-            "masked_image_base64": item.get("masked_image_base64"),
-            "upload_error": item.get("upload_error") or "",
-            "pixel_hash": pixel_hash,
-            "duplicate": duplicate,
-            "image_embedding": embedding,
-        })
+        items.append(
+            {
+                "item_id": item.get("item_id") or str(uuid.uuid4()),
+                "name": vision.get("name") or sub_category or raw_label or "Item",
+                "category": category,
+                "sub_category": sub_category,
+                "color_code": color_code,
+                "color_name": color_name,
+                "pattern": str(vision.get("pattern") or "plain"),
+                "occasions": vision.get("occasions") or [],
+                "confidence": confidence,
+                "label_source": label_source,
+                "requires_manual_entry": requires_manual_entry,
+                "reasoning": vision.get("reasoning")
+                or f"hybrid_detection+{label_source}",
+                "bbox": item.get("bbox") or [],
+                "raw_url": item.get("raw_url"),
+                "masked_url": item.get("masked_url"),
+                "raw_image_base64": item.get("raw_image_base64"),
+                "masked_image_base64": item.get("masked_image_base64"),
+                "upload_error": item.get("upload_error") or "",
+                "pixel_hash": pixel_hash,
+                "duplicate": duplicate,
+                "image_embedding": embedding,
+            }
+        )
 
     if not items:
-        items = [{
-            "item_id": str(uuid.uuid4()),
-            "name": "Fallback Item",
-            "category": "Tops",
-            "sub_category": "Item",
-            "color_code": "#000000",
-            "color_name": "black",
-            "pattern": "plain",
-            "occasions": ["casual"],
-            "confidence": 0.3,
-            "label_source": "manual_fallback",
-            "requires_manual_entry": True,
-            "reasoning": "fallback_no_detection",
-            "bbox": [],
-            "raw_url": None,
-            "masked_url": None,
-            "raw_image_base64": None,
-            "masked_image_base64": None,
-            "upload_error": "",
-            "pixel_hash": "",
-            "duplicate": {"checked": False, "is_duplicate": False},
-            "image_embedding": [],
-        }]
+        items = [
+            {
+                "item_id": str(uuid.uuid4()),
+                "name": "Fallback Item",
+                "category": "Tops",
+                "sub_category": "Item",
+                "color_code": "#000000",
+                "color_name": "black",
+                "pattern": "plain",
+                "occasions": ["casual"],
+                "confidence": 0.3,
+                "label_source": "manual_fallback",
+                "requires_manual_entry": True,
+                "reasoning": "fallback_no_detection",
+                "bbox": [],
+                "raw_url": None,
+                "masked_url": None,
+                "raw_image_base64": None,
+                "masked_image_base64": None,
+                "upload_error": "",
+                "pixel_hash": "",
+                "duplicate": {"checked": False, "is_duplicate": False},
+                "image_embedding": [],
+            }
+        ]
 
     save_result = None
     save_state = "skipped"
     if bool(request.auto_save):
         try:
             save_candidates = [
-                i for i in items
-                if bool(request.save_duplicates) or not bool((i.get("duplicate") or {}).get("is_duplicate"))
+                i
+                for i in items
+                if bool(request.save_duplicates)
+                or not bool((i.get("duplicate") or {}).get("is_duplicate"))
             ]
             selected_ids = [str(i["item_id"]) for i in save_candidates]
             save_result = persist_selected_items(
@@ -540,10 +686,30 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         "items": items,
         "stage_trace": {
             "detection": detection_state,
-            "background_removal": "ok" if any(i.get("masked_url") or i.get("masked_image_base64") for i in items) else "fallback",
-            "r2_upload": "ok" if all(i.get("masked_url") for i in items) else "not_configured_or_failed",
-            "vision_analyze": "ok" if any(str(i.get("label_source") or "").startswith("vision") for i in items) else "fallback",
-            "duplicate_detection": "ok" if any((i.get("duplicate") or {}).get("checked") for i in items) else "skipped",
+            "background_removal": (
+                "ok"
+                if any(
+                    i.get("masked_url") or i.get("masked_image_base64") for i in items
+                )
+                else "fallback"
+            ),
+            "r2_upload": (
+                "ok"
+                if all(i.get("masked_url") for i in items)
+                else "not_configured_or_failed"
+            ),
+            "vision_analyze": (
+                "ok"
+                if any(
+                    str(i.get("label_source") or "").startswith("vision") for i in items
+                )
+                else "fallback"
+            ),
+            "duplicate_detection": (
+                "ok"
+                if any((i.get("duplicate") or {}).get("checked") for i in items)
+                else "skipped"
+            ),
             "save_to_wardrobe": save_state,
         },
         "save_result": save_result,
@@ -555,9 +721,11 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         },
     }
 
+
 # ================= AHVI SAVE SELECTED 6 ITEMS PATCH V2 BEGIN =================
 
 # ================= AHVI CAPTURE SAVE DELETE PATCH V4 BEGIN =================
+
 
 def _ahvi_outfits_collection_id() -> str:
     return (
@@ -653,6 +821,7 @@ def _ahvi_delete_outfit_doc(document_id: str) -> Dict[str, Any]:
 def _ahvi_file_name_from_url(url: Any) -> str:
     try:
         from urllib.parse import urlparse, unquote
+
         path = urlparse(str(url or "")).path
         name = unquote(path.rsplit("/", 1)[-1])
         return name.strip()
@@ -687,9 +856,7 @@ def _ahvi_extract_r2_file_names(item: Dict[str, Any]) -> Dict[str, str]:
 
     if not masked_file_name:
         masked_file_name = _ahvi_file_name_from_url(
-            item.get("masked_url")
-            or item.get("maskedUrl")
-            or item.get("url")
+            item.get("masked_url") or item.get("maskedUrl") or item.get("url")
         )
 
     return {
@@ -731,10 +898,7 @@ def _ahvi_doc_belongs_to_user(doc: Dict[str, Any], user_id: str) -> bool:
         return True
 
     owner = str(
-        doc.get("userId")
-        or doc.get("user_id")
-        or doc.get("owner_id")
-        or ""
+        doc.get("userId") or doc.get("user_id") or doc.get("owner_id") or ""
     ).strip()
 
     if not owner:
@@ -744,7 +908,9 @@ def _ahvi_doc_belongs_to_user(doc: Dict[str, Any], user_id: str) -> bool:
 
 
 @router.post("/analyze-batch")
-async def analyze_capture_batch(http_request: Request, request: CaptureAnalyzeBatchRequest):
+async def analyze_capture_batch(
+    http_request: Request, request: CaptureAnalyzeBatchRequest
+):
     user_id = _effective_user_id(http_request, request.user_id)
 
     images = list(request.image_base64s or [])[:6]
@@ -780,26 +946,33 @@ async def analyze_capture_batch(http_request: Request, request: CaptureAnalyzeBa
                 normalized.append(item)
                 all_items.append(item)
 
-            per_image.append({
-                "index": index,
-                "success": True,
-                "count": len(normalized),
-                "items": normalized,
-                "stage_trace": result.get("stage_trace") if isinstance(result, dict) else {},
-            })
+            per_image.append(
+                {
+                    "index": index,
+                    "success": True,
+                    "count": len(normalized),
+                    "items": normalized,
+                    "stage_trace": (
+                        result.get("stage_trace") if isinstance(result, dict) else {}
+                    ),
+                }
+            )
 
         except Exception as exc:
             errors.append({"index": index, "error": str(exc)})
-            per_image.append({
-                "index": index,
-                "success": False,
-                "count": 0,
-                "items": [],
-                "error": str(exc),
-            })
+            per_image.append(
+                {
+                    "index": index,
+                    "success": False,
+                    "count": 0,
+                    "items": [],
+                    "error": str(exc),
+                }
+            )
 
     try:
         import logging
+
         logging.getLogger("ahvi.wardrobe_capture").info(
             "ahvi.capture_analyze_batch user_id=%s images=%s items=%s errors=%s",
             user_id,
@@ -890,6 +1063,7 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
 
     try:
         import logging
+
         logging.getLogger("ahvi.wardrobe_capture").info(
             "ahvi.save_selected_v4 user_id=%s selected=%s input_items=%s normalized_items=%s upload_fixed=%s skipped_invalid=%s saved=%s skipped=%s errors=%s",
             user_id,
@@ -940,13 +1114,17 @@ def delete_selected(http_request: Request, request: DeleteSelectedRequest):
     for doc_id in ids:
         supplied_item = by_id.get(doc_id) or {}
         appwrite_doc = _ahvi_fetch_outfit_doc(doc_id)
-        source_item = {**supplied_item, **appwrite_doc} if appwrite_doc else supplied_item
+        source_item = (
+            {**supplied_item, **appwrite_doc} if appwrite_doc else supplied_item
+        )
 
         if appwrite_doc and not _ahvi_doc_belongs_to_user(appwrite_doc, user_id):
-            skipped.append({
-                "id": doc_id,
-                "reason": "user_mismatch",
-            })
+            skipped.append(
+                {
+                    "id": doc_id,
+                    "reason": "user_mismatch",
+                }
+            )
             continue
 
         r2_result = {"status": "skipped"}
@@ -956,20 +1134,25 @@ def delete_selected(http_request: Request, request: DeleteSelectedRequest):
         appwrite_result = _ahvi_delete_outfit_doc(doc_id)
 
         if appwrite_result.get("ok"):
-            deleted.append({
-                "id": doc_id,
-                "appwrite": appwrite_result,
-                "r2": r2_result,
-            })
+            deleted.append(
+                {
+                    "id": doc_id,
+                    "appwrite": appwrite_result,
+                    "r2": r2_result,
+                }
+            )
         else:
-            errors.append({
-                "id": doc_id,
-                "appwrite": appwrite_result,
-                "r2": r2_result,
-            })
+            errors.append(
+                {
+                    "id": doc_id,
+                    "appwrite": appwrite_result,
+                    "r2": r2_result,
+                }
+            )
 
     try:
         import logging
+
         logging.getLogger("ahvi.wardrobe_capture").info(
             "ahvi.delete_selected_v4 user_id=%s requested=%s deleted=%s skipped=%s errors=%s",
             user_id,
@@ -992,5 +1175,5 @@ def delete_selected(http_request: Request, request: DeleteSelectedRequest):
         "errors": errors,
     }
 
-# ================= AHVI CAPTURE SAVE DELETE PATCH V4 END =================
 
+# ================= AHVI CAPTURE SAVE DELETE PATCH V4 END =================

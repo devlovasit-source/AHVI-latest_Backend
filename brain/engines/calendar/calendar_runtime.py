@@ -8,8 +8,9 @@ from middleware.auth_middleware import get_current_user
 from brain.engines.calendar.calendar_utils import (
     classify_intent,
     format_event,
-    build_reminder
+    build_reminder,
 )
+
 router = APIRouter()
 
 
@@ -28,26 +29,16 @@ class DailyEventsRequest(BaseModel):
 # SINGLE EVENT PIPELINE
 # =========================
 @router.post("/calendar/process")
-def process_event(
-    req: CalendarEventRequest,
-    user=Depends(get_current_user)
-):
+def process_event(req: CalendarEventRequest, user=Depends(get_current_user)):
     try:
         user_id = user["user_id"]
 
-        event = {
-            "title": req.text,
-            "user_id": user_id
-        }
+        event = {"title": req.text, "user_id": user_id}
 
         # 🔥 MASTER PIPELINE
         result = run_calendar_runtime(event)
 
-        return {
-            "success": True,
-            "meta": {"user_id": user_id},
-            "data": result
-        }
+        return {"success": True, "meta": {"user_id": user_id}, "data": result}
 
     except Exception:
         print("❌ /calendar/process error:\n", traceback.format_exc())
@@ -58,25 +49,16 @@ def process_event(
 # DAILY BRIEFING PIPELINE
 # =========================
 @router.post("/calendar/daily")
-def daily_briefing(
-    req: DailyEventsRequest,
-    user=Depends(get_current_user)
-):
+def daily_briefing(req: DailyEventsRequest, user=Depends(get_current_user)):
     try:
         user_id = user["user_id"]
 
         # attach user_id to all events
-        events = [
-            {**event, "user_id": user_id}
-            for event in req.events
-        ]
+        events = [{**event, "user_id": user_id} for event in req.events]
 
         result = run_daily_calendar_runtime(events)
 
-        return {
-            "success": True,
-            "data": result
-        }
+        return {"success": True, "data": result}
 
     except Exception:
         print("❌ /calendar/daily error:\n", traceback.format_exc())
@@ -93,7 +75,7 @@ def calendar_health():
         "engine": "calendar_orchestrator_v1",
         "auth": "enabled",
         "mode": "pipeline",
-        "ready": True
+        "ready": True,
     }
     from datetime import datetime, timedelta
 
@@ -107,7 +89,9 @@ def build_prep_tasks(event):
     subtype = event.get("subtype")
 
     if group == "travel":
-        tasks.update(["Check documents", "Pack essentials", "Set alarm", "Leave with buffer"])
+        tasks.update(
+            ["Check documents", "Pack essentials", "Set alarm", "Leave with buffer"]
+        )
 
     elif group == "social":
         tasks.add("Decide outfit")
@@ -165,9 +149,7 @@ def build_outfit(event):
 
     subtype = event.get("subtype")
     if subtype in rules:
-        return {
-            "outfitKeywords": rules[subtype]
-        }
+        return {"outfitKeywords": rules[subtype]}
 
     return None
 
@@ -188,9 +170,7 @@ def build_buffer(event):
 
     leave_by = start - timedelta(minutes=leave_minutes)
 
-    return {
-        "leaveByISO": leave_by.isoformat()
-    }
+    return {"leaveByISO": leave_by.isoformat()}
 
 
 # =========================
@@ -239,5 +219,5 @@ def run_calendar_predictive_engine(event, preferences=None):
         "bufferPlan": build_buffer(event),
         "stressLoadScore": compute_stress(event),
         "followupCandidates": build_followups(event),
-        "linkedErrands": []
+        "linkedErrands": [],
     }

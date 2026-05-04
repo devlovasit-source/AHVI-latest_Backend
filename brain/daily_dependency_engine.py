@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Optional
 from services.appwrite_proxy import AppwriteProxy
 from brain.decision_engine import decision_engine
 
-
 TIME_SLOTS = ("morning", "midday", "afternoon", "evening", "night")
 
 
@@ -35,8 +34,16 @@ def _resolve_time_slot(context: Dict[str, Any]) -> str:
     if requested in TIME_SLOTS:
         return requested
 
-    weather_data = context.get("weather_data", {}) if isinstance(context.get("weather_data"), dict) else {}
-    weather_slot = str(weather_data.get("time_of_day") or context.get("time_of_day") or "").lower().strip()
+    weather_data = (
+        context.get("weather_data", {})
+        if isinstance(context.get("weather_data"), dict)
+        else {}
+    )
+    weather_slot = (
+        str(weather_data.get("time_of_day") or context.get("time_of_day") or "")
+        .lower()
+        .strip()
+    )
     if weather_slot == "day":
         weather_slot = "afternoon"
     if weather_slot in TIME_SLOTS:
@@ -47,7 +54,9 @@ def _resolve_time_slot(context: Dict[str, Any]) -> str:
 
 def _resolve_persona(user_profile: Dict[str, Any]) -> str:
     profile = user_profile if isinstance(user_profile, dict) else {}
-    p = str(profile.get("persona") or profile.get("life_stage") or profile.get("role") or "").lower()
+    p = str(
+        profile.get("persona") or profile.get("life_stage") or profile.get("role") or ""
+    ).lower()
     if profile.get("has_kids") is True or "parent" in p:
         return "busy_parent"
     if "student" in p:
@@ -59,15 +68,21 @@ def _resolve_persona(user_profile: Dict[str, Any]) -> str:
 
 def _count_resource(appwrite: AppwriteProxy, resource: str, user_id: str) -> int:
     try:
-        docs = _normalize_documents(appwrite.list_documents(resource, user_id=user_id, limit=50))
+        docs = _normalize_documents(
+            appwrite.list_documents(resource, user_id=user_id, limit=50)
+        )
         return len(docs)
     except Exception:
         return 0
 
 
-def _first_title(appwrite: AppwriteProxy, resource: str, user_id: str, field: str = "title") -> Optional[str]:
+def _first_title(
+    appwrite: AppwriteProxy, resource: str, user_id: str, field: str = "title"
+) -> Optional[str]:
     try:
-        docs = _normalize_documents(appwrite.list_documents(resource, user_id=user_id, limit=1))
+        docs = _normalize_documents(
+            appwrite.list_documents(resource, user_id=user_id, limit=1)
+        )
         if docs:
             value = docs[0].get(field) or docs[0].get("name")
             return str(value) if value else None
@@ -125,7 +140,11 @@ def _candidate_cards(
                 "AM Skincare",
                 "Quick morning routine to start fresh.",
                 priority=90,
-                action={"type": "open_module", "module": "skincare", "route": "/organize/skincare"},
+                action={
+                    "type": "open_module",
+                    "module": "skincare",
+                    "route": "/organize/skincare",
+                },
             )
         )
         cards.append(
@@ -135,7 +154,11 @@ def _candidate_cards(
                 "Important medicine or event cue for this morning.",
                 priority=95 if has_meds or next_event else 65,
                 notification_needed=bool(has_meds or next_event),
-                action={"type": "open_module", "module": "calendar", "route": "/organize/calendar"},
+                action={
+                    "type": "open_module",
+                    "module": "calendar",
+                    "route": "/organize/calendar",
+                },
             )
         )
 
@@ -146,7 +169,11 @@ def _candidate_cards(
                 "Midday Meal",
                 "Suggested based on your daytime energy needs.",
                 priority=95,
-                action={"type": "open_module", "module": "meal_planner", "route": "/organize/meal-planner"},
+                action={
+                    "type": "open_module",
+                    "module": "meal_planner",
+                    "route": "/organize/meal-planner",
+                },
             )
         )
         cards.append(
@@ -156,7 +183,11 @@ def _candidate_cards(
                 "Check essentials before evening rush.",
                 priority=85,
                 notification_needed=True,
-                action={"type": "open_module", "module": "meal_planner", "route": "/organize/meal-planner"},
+                action={
+                    "type": "open_module",
+                    "module": "meal_planner",
+                    "route": "/organize/meal-planner",
+                },
             )
         )
 
@@ -168,7 +199,11 @@ def _candidate_cards(
                 f"Next event: {next_event or 'Check your schedule'}",
                 priority=100 if next_event else 75,
                 notification_needed=bool(next_event),
-                action={"type": "open_module", "module": "calendar", "route": "/organize/calendar"},
+                action={
+                    "type": "open_module",
+                    "module": "calendar",
+                    "route": "/organize/calendar",
+                },
             )
         )
         cards.append(
@@ -177,7 +212,11 @@ def _candidate_cards(
                 "Top Tasks",
                 "Focus on the two highest-impact tasks now.",
                 priority=90,
-                action={"type": "open_module", "module": "life_boards", "route": "/organize/life-boards"},
+                action={
+                    "type": "open_module",
+                    "module": "life_boards",
+                    "route": "/organize/life-boards",
+                },
             )
         )
 
@@ -188,7 +227,11 @@ def _candidate_cards(
                 "Dinner Suggestion",
                 "Easy dinner card for your evening window.",
                 priority=95,
-                action={"type": "open_module", "module": "meal_planner", "route": "/organize/meal-planner"},
+                action={
+                    "type": "open_module",
+                    "module": "meal_planner",
+                    "route": "/organize/meal-planner",
+                },
             )
         )
         cards.append(
@@ -198,7 +241,11 @@ def _candidate_cards(
                 "Evening meds check-in.",
                 priority=98 if has_meds else 60,
                 notification_needed=bool(has_meds),
-                action={"type": "open_module", "module": "medicines", "route": "/organize/medicines"},
+                action={
+                    "type": "open_module",
+                    "module": "medicines",
+                    "route": "/organize/medicines",
+                },
             )
         )
         cards.append(
@@ -218,7 +265,11 @@ def _candidate_cards(
                 "Tomorrow Preview",
                 "Quick look at next-day priorities.",
                 priority=100,
-                action={"type": "open_module", "module": "calendar", "route": "/organize/calendar"},
+                action={
+                    "type": "open_module",
+                    "module": "calendar",
+                    "route": "/organize/calendar",
+                },
             )
         )
         cards.append(
@@ -236,7 +287,11 @@ def _candidate_cards(
                 "PM Skincare",
                 "Wind-down skincare sequence.",
                 priority=85,
-                action={"type": "open_module", "module": "skincare", "route": "/organize/skincare"},
+                action={
+                    "type": "open_module",
+                    "module": "skincare",
+                    "route": "/organize/skincare",
+                },
             )
         )
 
@@ -248,7 +303,11 @@ def _candidate_cards(
                 "Kid schedule and essentials check.",
                 priority=99 if time_slot in ("morning", "evening") else 80,
                 notification_needed=time_slot in ("morning", "evening"),
-                action={"type": "open_module", "module": "calendar", "route": "/organize/calendar"},
+                action={
+                    "type": "open_module",
+                    "module": "calendar",
+                    "route": "/organize/calendar",
+                },
             )
         )
     elif persona == "student":
@@ -258,7 +317,11 @@ def _candidate_cards(
                 "Study Priority",
                 "Top class/deadline item for this slot.",
                 priority=92 if time_slot in ("afternoon", "night") else 75,
-                action={"type": "open_module", "module": "life_goals", "route": "/organize/life-goals"},
+                action={
+                    "type": "open_module",
+                    "module": "life_goals",
+                    "route": "/organize/life-goals",
+                },
             )
         )
 
@@ -282,10 +345,18 @@ def build_daily_dependency_response(
     appwrite: Optional[AppwriteProxy] = None,
 ) -> Dict[str, Any]:
     app = appwrite or AppwriteProxy()
-    user_profile = context.get("user_profile", {}) if isinstance(context.get("user_profile"), dict) else {}
+    user_profile = (
+        context.get("user_profile", {})
+        if isinstance(context.get("user_profile"), dict)
+        else {}
+    )
     time_slot = _resolve_time_slot(context)
     persona = _resolve_persona(user_profile)
-    weather = str(context.get("weather") or (context.get("weather_data", {}) or {}).get("condition") or "mild")
+    weather = str(
+        context.get("weather")
+        or (context.get("weather_data", {}) or {}).get("condition")
+        or "mild"
+    )
 
     counts = {
         "outfits": _count_resource(app, "outfits", user_id),

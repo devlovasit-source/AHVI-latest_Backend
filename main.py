@@ -17,12 +17,21 @@ import os
 
 
 def _is_production() -> bool:
-    env = str(os.getenv("ENV") or os.getenv("APP_ENV") or os.getenv("ENVIRONMENT") or "").strip().lower()
+    env = (
+        str(os.getenv("ENV") or os.getenv("APP_ENV") or os.getenv("ENVIRONMENT") or "")
+        .strip()
+        .lower()
+    )
     return env in {"prod", "production"}
+
 
 # ?? QDRANT SERVICE
 from services.qdrant_service import qdrant_service
-from services.security_limits import check_rate_limit, extract_client_ip, is_redis_rate_limit_ready
+from services.security_limits import (
+    check_rate_limit,
+    extract_client_ip,
+    is_redis_rate_limit_ready,
+)
 from services.settings import settings
 from middleware.auth_middleware import get_current_user
 from services.job_tracker import job_tracker
@@ -50,7 +59,9 @@ def _mark_router_skipped(module_name: str, reason: str):
         "required": required,
         "error": reason,
     }
-    logger.info("router skipped module=%s reason=%s required=%s", module_name, reason, required)
+    logger.info(
+        "router skipped module=%s reason=%s required=%s", module_name, reason, required
+    )
     if required and settings.strict_router_loading:
         raise RuntimeError(f"required router skipped: {module_name} ({reason})")
 
@@ -67,20 +78,36 @@ def _load_optional_router(module_name: str, attr: str = "router"):
     if not _has_module(module_name):
         status = {"status": "not_found", "required": required, "error": None}
         ROUTER_LOAD_STATUS[module_name] = status
-        logger.info("router skipped module=%s reason=not_found required=%s", module_name, required)
+        logger.info(
+            "router skipped module=%s reason=not_found required=%s",
+            module_name,
+            required,
+        )
         if required and settings.strict_router_loading:
             raise RuntimeError(f"required router not found: {module_name}")
         return None
     try:
         module = __import__(module_name, fromlist=[attr])
         router = getattr(module, attr)
-        ROUTER_LOAD_STATUS[module_name] = {"status": "loaded", "required": required, "error": None}
+        ROUTER_LOAD_STATUS[module_name] = {
+            "status": "loaded",
+            "required": required,
+            "error": None,
+        }
         return router
     except Exception as exc:
-        ROUTER_LOAD_STATUS[module_name] = {"status": "failed", "required": required, "error": str(exc)}
-        logger.exception("router load failed module=%s required=%s", module_name, required)
+        ROUTER_LOAD_STATUS[module_name] = {
+            "status": "failed",
+            "required": required,
+            "error": str(exc),
+        }
+        logger.exception(
+            "router load failed module=%s required=%s", module_name, required
+        )
         if required and settings.strict_router_loading:
-            raise RuntimeError(f"required router failed to load: {module_name}") from exc
+            raise RuntimeError(
+                f"required router failed to load: {module_name}"
+            ) from exc
         return None
 
 
@@ -217,6 +244,7 @@ async def lifespan(_app: FastAPI):
         # Drain in-flight chat orchestrator work first.
         try:
             from routers.chat import shutdown_chat_resources
+
             await asyncio.to_thread(shutdown_chat_resources)
         except Exception:
             logger.exception("chat orchestrator shutdown failed")
@@ -232,6 +260,7 @@ async def lifespan(_app: FastAPI):
         # Close Redis pool used for rate-limit + auth cache.
         try:
             from services.security_limits import get_redis_client
+
             redis_client = await get_redis_client()
             if redis_client is not None and hasattr(redis_client, "aclose"):
                 await redis_client.aclose()
@@ -243,6 +272,7 @@ async def lifespan(_app: FastAPI):
         # Close Appwrite admin client.
         try:
             from services import appwrite_service
+
             appwrite_client = getattr(appwrite_service, "client", None)
             if appwrite_client is not None and hasattr(appwrite_client, "close"):
                 await asyncio.to_thread(appwrite_client.close)
@@ -261,6 +291,7 @@ app = FastAPI(
 )
 
 logger.info("AHVI Backend Started")
+
 
 class PayloadTooLargeError(Exception):
     pass
@@ -415,14 +446,15 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins,
     allow_credentials=(
-        settings.cors_allow_credentials
-        and not ("*" in settings.cors_allowed_origins)
+        settings.cors_allow_credentials and not ("*" in settings.cors_allowed_origins)
     ),
     allow_methods=settings.cors_allowed_methods,
     allow_headers=settings.cors_allowed_headers,
 )
 if settings.cors_allow_credentials and "*" in settings.cors_allowed_origins:
-    logger.warning("CORS_ALLOW_CREDENTIALS ignored because CORS_ALLOWED_ORIGINS contains '*'")
+    logger.warning(
+        "CORS_ALLOW_CREDENTIALS ignored because CORS_ALLOWED_ORIGINS contains '*'"
+    )
 
 app.add_middleware(StreamBodyLimitMiddleware, max_bytes=settings.upload_max_bytes)
 
@@ -447,7 +479,12 @@ async def request_tracing_middleware(request: Request, call_next):
         response.headers["X-Request-ID"] = request_id
         return response
     except Exception:
-        logger.exception("request failed request_id=%s method=%s path=%s", request_id, request.method, request.url.path)
+        logger.exception(
+            "request failed request_id=%s method=%s path=%s",
+            request_id,
+            request.method,
+            request.url.path,
+        )
         raise
     finally:
         elapsed_ms = int((perf_counter() - started) * 1000)
@@ -470,7 +507,17 @@ async def auth_guard_middleware(request: Request, call_next):
     if str(request.method or "").upper() == "OPTIONS":
         return await call_next(request)
     path = str(request.url.path or "")
-    if path == "/" or path.startswith("/health") or path == "/api/notifications/health" or path == "/api/text" or path.startswith("/api/notifications/devices/") or path.startswith("/api/notifications/dispatch-due") or path.startswith("/api/wardrobe/capture/") or path.startswith("/docs") or path.startswith("/openapi"):
+    if (
+        path == "/"
+        or path.startswith("/health")
+        or path == "/api/notifications/health"
+        or path == "/api/text"
+        or path.startswith("/api/notifications/devices/")
+        or path.startswith("/api/notifications/dispatch-due")
+        or path.startswith("/api/wardrobe/capture/")
+        or path.startswith("/docs")
+        or path.startswith("/openapi")
+    ):
         return await call_next(request)
     if path.startswith("/api/tasks/"):
         return await call_next(request)
@@ -482,7 +529,11 @@ async def auth_guard_middleware(request: Request, call_next):
         has_auth_header = bool(request.headers.get("authorization"))
         logger.warning(
             "auth_guard_reject path=%s status=%s reason=%r has_auth_header=%s request_id=%s",
-            path, exc.status_code, str(exc.detail), has_auth_header, request_id,
+            path,
+            exc.status_code,
+            str(exc.detail),
+            has_auth_header,
+            request_id,
         )
         return JSONResponse(
             status_code=exc.status_code,
@@ -517,7 +568,9 @@ async def rate_limit_middleware(request: Request, call_next):
             headers={"Retry-After": str(settings.rate_limit_window_seconds)},
         )
     request_id = str(getattr(request.state, "request_id", "") or "")
-    ip = extract_client_ip(request.headers, request.client.host if request.client else None)
+    ip = extract_client_ip(
+        request.headers, request.client.host if request.client else None
+    )
     user_id = ""
     path = str(request.url.path or "")
     if (
@@ -627,6 +680,7 @@ if garment_router:
     app.include_router(garment_router, prefix="/api")
 
 if not chat_router:
+
     class _FallbackMessage(BaseModel):
         role: str = Field(default="user", min_length=1, max_length=24)
         content: str = Field(default="", max_length=4000)
@@ -646,7 +700,10 @@ if not chat_router:
             message = "Here is a tiny one: Why did the shirt get promoted? Because it had outstanding style."
         elif "how are you" in lower or lower in {"hi", "hello", "hey"}:
             message = "I am here and ready. Ask me for an outfit, a capsule wardrobe, or just talk to me."
-        elif any(k in lower for k in ["outfit", "wear", "style", "wardrobe", "date", "casual"]):
+        elif any(
+            k in lower
+            for k in ["outfit", "wear", "style", "wardrobe", "date", "casual"]
+        ):
             message = "I will assume smart casual for now: choose one clean hero piece, pair it with a neutral base, and finish with footwear or an accessory that matches the occasion."
         else:
             message = "I can help with that. Tell me a little more, or ask me to style an outfit, plan your day, or build a capsule wardrobe."
@@ -663,6 +720,7 @@ if not chat_router:
 # -------------------------
 # HEALTH
 # -------------------------
+
 
 # -------------------------
 # BG REMOVE COMPAT ROUTES
@@ -699,6 +757,7 @@ class VisionCompatRequest(BaseModel):
 
 
 if not vision_router:
+
     @app.post("/api/analyze-image")
     @app.post("/api/vision/analyze-image")
     @app.post("/api/vision/analyze")
@@ -708,6 +767,8 @@ if not vision_router:
             status_code=503,
             detail="Vision analyzer is currently disabled on this server.",
         )
+
+
 @app.get("/")
 def root():
     return {"message": "AHVI backend running"}
@@ -718,7 +779,8 @@ async def health_check():
     required_router_failures = [
         name
         for name, row in ROUTER_LOAD_STATUS.items()
-        if bool((row or {}).get("required")) and str((row or {}).get("status")) != "loaded"
+        if bool((row or {}).get("required"))
+        and str((row or {}).get("status")) != "loaded"
     ]
     redis_ready = await is_redis_rate_limit_ready()
     qdrant_ready = bool(getattr(qdrant_service, "client", None))
@@ -757,6 +819,7 @@ async def health_check():
 async def _probe_redis(timeout: float) -> Dict[str, Any]:
     try:
         from services.security_limits import get_redis_client
+
         client = await asyncio.wait_for(get_redis_client(), timeout=timeout)
         if client is None:
             return {"ok": False, "error": "not_configured"}
@@ -773,7 +836,9 @@ async def _probe_qdrant(timeout: float) -> Dict[str, Any]:
     if client is None:
         return {"ok": False, "error": "not_configured"}
     try:
-        await asyncio.wait_for(asyncio.to_thread(client.get_collections), timeout=timeout)
+        await asyncio.wait_for(
+            asyncio.to_thread(client.get_collections), timeout=timeout
+        )
         return {"ok": True}
     except asyncio.TimeoutError:
         return {"ok": False, "error": "timeout"}
@@ -782,12 +847,20 @@ async def _probe_qdrant(timeout: float) -> Dict[str, Any]:
 
 
 async def _probe_appwrite(timeout: float) -> Dict[str, Any]:
-    appwrite_endpoint = str(os.getenv("APPWRITE_ENDPOINT", "") or os.getenv("EXPO_PUBLIC_APPWRITE_ENDPOINT", "")).strip()
-    appwrite_project = str(os.getenv("APPWRITE_PROJECT_ID", "") or os.getenv("APPWRITE_PROJECT", "") or os.getenv("EXPO_PUBLIC_APPWRITE_PROJECT_ID", "")).strip()
+    appwrite_endpoint = str(
+        os.getenv("APPWRITE_ENDPOINT", "")
+        or os.getenv("EXPO_PUBLIC_APPWRITE_ENDPOINT", "")
+    ).strip()
+    appwrite_project = str(
+        os.getenv("APPWRITE_PROJECT_ID", "")
+        or os.getenv("APPWRITE_PROJECT", "")
+        or os.getenv("EXPO_PUBLIC_APPWRITE_PROJECT_ID", "")
+    ).strip()
     if not (appwrite_endpoint and appwrite_project):
         return {"ok": False, "error": "not_configured"}
     try:
         import httpx
+
         async with httpx.AsyncClient(timeout=timeout) as http:
             resp = await http.get(
                 f"{appwrite_endpoint.rstrip('/')}/health",
@@ -810,7 +883,8 @@ async def health_ready():
     required_router_failures = [
         name
         for name, row in ROUTER_LOAD_STATUS.items()
-        if bool((row or {}).get("required")) and str((row or {}).get("status")) != "loaded"
+        if bool((row or {}).get("required"))
+        and str((row or {}).get("status")) != "loaded"
     ]
 
     redis_probe, qdrant_probe, appwrite_probe = await asyncio.gather(
@@ -827,9 +901,13 @@ async def health_ready():
 
     critical_failures = []
     if required_router_failures:
-        critical_failures.append({"check": "required_routers", "failed": required_router_failures})
+        critical_failures.append(
+            {"check": "required_routers", "failed": required_router_failures}
+        )
     if appwrite_critical and not appwrite_probe["ok"]:
-        critical_failures.append({"check": "appwrite", "error": appwrite_probe.get("error")})
+        critical_failures.append(
+            {"check": "appwrite", "error": appwrite_probe.get("error")}
+        )
     if redis_critical and not redis_probe["ok"]:
         critical_failures.append({"check": "redis", "error": redis_probe.get("error")})
 
@@ -867,7 +945,8 @@ def health_routes():
     required_router_failures = [
         name
         for name, row in ROUTER_LOAD_STATUS.items()
-        if bool((row or {}).get("required")) and str((row or {}).get("status")) != "loaded"
+        if bool((row or {}).get("required"))
+        and str((row or {}).get("status")) != "loaded"
     ]
     return {
         "status": "online" if not required_router_failures else "degraded",
@@ -887,7 +966,12 @@ def get_task_status(job_id: str, request: Request):
     tracker_data = job_tracker.get(job_id) or {}
     if not celery_app or AsyncResult is None:
         if tracker_data:
-            return {"status": tracker_data.get("status", "queued"), "state": tracker_data.get("state", "PENDING"), "job": tracker_data, "request_id": request_id}
+            return {
+                "status": tracker_data.get("status", "queued"),
+                "state": tracker_data.get("state", "PENDING"),
+                "job": tracker_data,
+                "request_id": request_id,
+            }
         return {"status": "celery not configured", "request_id": request_id}
 
     task_result = AsyncResult(job_id, app=celery_app)
@@ -945,13 +1029,12 @@ def get_task_status(job_id: str, request: Request):
 
 
 @app.get("/api/jobs/recent")
-def list_recent_jobs(limit: int = 25, user_id: str | None = None, request_id: str | None = None):
+def list_recent_jobs(
+    limit: int = 25, user_id: str | None = None, request_id: str | None = None
+):
     return {
         "success": True,
-        "jobs": job_tracker.list_recent(limit=limit, user_id=user_id, request_id=request_id),
+        "jobs": job_tracker.list_recent(
+            limit=limit, user_id=user_id, request_id=request_id
+        ),
     }
-
-
-
-
-

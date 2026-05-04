@@ -7,7 +7,6 @@ import httpx
 from redis.asyncio import Redis
 from dotenv import load_dotenv
 
-
 # =========================
 # CONFIG
 # =========================
@@ -29,8 +28,7 @@ LOCK_TTL = 30  # seconds
 redis_client = None
 if REDIS_URL and "${{" not in REDIS_URL:
     redis_client = Redis.from_url(
-        REDIS_URL,
-        decode_responses=False  # IMPORTANT: we store raw bytes
+        REDIS_URL, decode_responses=False  # IMPORTANT: we store raw bytes
     )
 
 
@@ -155,7 +153,7 @@ async def remove_bg_bytes(image_bytes: bytes) -> bytes:
 
     headers = {
         "Authorization": f"Bearer {HF_TOKEN}",
-        "Content-Type": "application/octet-stream"
+        "Content-Type": "application/octet-stream",
     }
 
     try:
@@ -166,9 +164,7 @@ async def remove_bg_bytes(image_bytes: bytes) -> bytes:
             try:
                 async with httpx.AsyncClient(timeout=30) as client:
                     res = await client.post(
-                        HF_BG_URL,
-                        headers=headers,
-                        content=image_bytes
+                        HF_BG_URL, headers=headers, content=image_bytes
                     )
 
                 print(f"[BG STATUS] {res.status_code} (attempt {attempt+1})")
@@ -199,9 +195,12 @@ async def remove_bg_bytes(image_bytes: bytes) -> bytes:
         # 🔓 always release lock
         if has_lock:
             await _release_lock(lock_key)
+
+
 # =========================
 # BACKWARD COMPATIBILITY
 # =========================
+
 
 async def remove_bg_external(image_bytes: bytes) -> bytes:
     return await remove_bg_bytes(image_bytes)
@@ -209,4 +208,5 @@ async def remove_bg_external(image_bytes: bytes) -> bytes:
 
 def remove_bg_external_sync(image_bytes: bytes) -> bytes:
     import asyncio
+
     return asyncio.run(remove_bg_bytes(image_bytes))

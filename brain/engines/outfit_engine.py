@@ -1,4 +1,3 @@
-
 from typing import Any, Dict, List
 import random
 import itertools
@@ -31,7 +30,11 @@ class OutfitEngine:
         bottoms = [i for i in wardrobe if i.get("category") in ["bottom", "bottoms"]]
         shoes = [i for i in wardrobe if i.get("category") in ["shoes", "footwear"]]
         layers = [i for i in wardrobe if i.get("category") in ["outerwear"]]
-        accessories = [i for i in wardrobe if i.get("category") in ["accessories", "bags", "jewelry"]]
+        accessories = [
+            i
+            for i in wardrobe
+            if i.get("category") in ["accessories", "bags", "jewelry"]
+        ]
 
         if not tops or not bottoms or not shoes:
             return {"routes": []}
@@ -39,16 +42,16 @@ class OutfitEngine:
         # =========================
         # GRAPH
         # =========================
-        graph = style_graph_engine.build_graph({
-            "tops": tops,
-            "bottoms": bottoms,
-            "shoes": shoes
-        })
+        graph = style_graph_engine.build_graph(
+            {"tops": tops, "bottoms": bottoms, "shoes": shoes}
+        )
 
         # =========================
         # GENERATE
         # =========================
-        candidates = self._generate_candidates(tops, bottoms, shoes, layers, accessories)
+        candidates = self._generate_candidates(
+            tops, bottoms, shoes, layers, accessories
+        )
 
         # =========================
         # SCORING BLOCK (FIXED)
@@ -58,11 +61,13 @@ class OutfitEngine:
         for items in candidates:
             score_data = style_scorer.score_outfit(items, context, graph)
 
-            scored.append({
-                "items": items,
-                "score": score_data.get("score", 0),   # ✅ FIX (numeric)
-                "score_meta": score_data               # ✅ keep metadata
-            })
+            scored.append(
+                {
+                    "items": items,
+                    "score": score_data.get("score", 0),  # ✅ FIX (numeric)
+                    "score_meta": score_data,  # ✅ keep metadata
+                }
+            )
 
         # =========================
         # SORTING
@@ -173,20 +178,21 @@ class OutfitEngine:
             score = outfit["score"]
             meta = outfit.get("score_meta", {})
 
-            routes.append({
-                "type": route_type,
-                "label": label,
-                "outfit": {
-                    "items": items,
-                    "score": round(score, 3),
-                    "aesthetic": self._build_aesthetic(items, context, route_type),
-                    "description": self._build_description(route_type, context),
-
-                    # ✅ ADD (non-breaking explainability)
-                    "label": meta.get("label"),
-                    "reasons": meta.get("reasons", [])
+            routes.append(
+                {
+                    "type": route_type,
+                    "label": label,
+                    "outfit": {
+                        "items": items,
+                        "score": round(score, 3),
+                        "aesthetic": self._build_aesthetic(items, context, route_type),
+                        "description": self._build_description(route_type, context),
+                        # ✅ ADD (non-breaking explainability)
+                        "label": meta.get("label"),
+                        "reasons": meta.get("reasons", []),
+                    },
                 }
-            })
+            )
 
         return routes
 
@@ -207,13 +213,13 @@ class OutfitEngine:
         vibe_map = {
             "safe": "clean_minimal",
             "elevated": "refined_structured",
-            "bold": "expressive_statement"
+            "bold": "expressive_statement",
         }
 
         return {
             "vibe": vibe_map.get(route_type),
             "color_story": color_story,
-            "occasion": context.get("occasion")
+            "occasion": context.get("occasion"),
         }
 
     # =========================

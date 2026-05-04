@@ -16,7 +16,7 @@ class ContextEngine:
         wardrobe: Optional[List[Dict[str, Any]]] = None,
         user_profile: Optional[Dict[str, Any]] = None,
         history: Optional[List[Dict[str, Any]]] = None,
-        vision: Optional[Dict[str, Any]] = None
+        vision: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
 
         wardrobe = wardrobe or []
@@ -37,7 +37,7 @@ class ContextEngine:
             history=history,
             vision=vision,
             weather=weather_data,
-            time_data=time_data
+            time_data=time_data,
         )
 
         wardrobe_meta = self._analyze_wardrobe(wardrobe)
@@ -45,34 +45,29 @@ class ContextEngine:
 
         return {
             "user_id": user_id,
-
             # 🔥 intent layer
             "intent": intent_data.get("intent"),
             "confidence": intent_data.get("confidence", 0.0),
-
             # 🔥 enriched slots
             "slots": enriched_slots,
-
             # 🔥 raw data
             "user_profile": user_profile,
             "wardrobe": wardrobe,
             "history": history,
             "vision": vision,
-
             # 🔥 intelligence layers
             "weather": weather_data,
             "time": time_data,
             "wardrobe_meta": wardrobe_meta,
             "user_meta": user_meta,
-
             # 🔥 system meta
             "meta": {
                 "has_wardrobe": len(wardrobe) > 0,
                 "has_profile": bool(user_profile),
                 "has_history": len(history) > 0,
                 "has_vision": bool(vision),
-                "wardrobe_size": len(wardrobe)
-            }
+                "wardrobe_size": len(wardrobe),
+            },
         }
 
     # -------------------------
@@ -84,7 +79,7 @@ class ContextEngine:
         history: List[Dict[str, Any]],
         vision: Dict[str, Any],
         weather: Dict[str, Any],
-        time_data: Dict[str, Any]
+        time_data: Dict[str, Any],
     ) -> Dict[str, Any]:
 
         enriched = slots.copy()
@@ -130,8 +125,7 @@ class ContextEngine:
 
             if location.get("lat") and location.get("lon"):
                 return get_hourly_weather(
-                    lat=location.get("lat"),
-                    lon=location.get("lon")
+                    lat=location.get("lat"), lon=location.get("lon")
                 )
 
         except Exception as e:
@@ -155,10 +149,7 @@ class ContextEngine:
         else:
             tod = "night"
 
-        return {
-            "hour": now,
-            "time_of_day": tod
-        }
+        return {"hour": now, "time_of_day": tod}
 
     # -------------------------
     # 👕 WARDROBE INTELLIGENCE
@@ -182,8 +173,12 @@ class ContextEngine:
         return {
             "category_distribution": categories,
             "dominant_color": dominant_color,
-            "has_formal": any("formal" in str(i.get("type", "")).lower() for i in wardrobe),
-            "has_casual": any("casual" in str(i.get("type", "")).lower() for i in wardrobe)
+            "has_formal": any(
+                "formal" in str(i.get("type", "")).lower() for i in wardrobe
+            ),
+            "has_casual": any(
+                "casual" in str(i.get("type", "")).lower() for i in wardrobe
+            ),
         }
 
     # -------------------------
@@ -194,7 +189,7 @@ class ContextEngine:
         return {
             "preferred_style": user_profile.get("style"),
             "preferred_colors": user_profile.get("colors", []),
-            "gender": user_profile.get("gender")
+            "gender": user_profile.get("gender"),
         }
 
 

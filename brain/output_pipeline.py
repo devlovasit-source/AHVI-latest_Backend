@@ -47,10 +47,12 @@ def build_outfit_from_embeddings(items, user_id):
 
     return {
         "items": [top, bottom, shoe],
-        "score": sum([
-            _compatibility_score(top, bottom) if bottom else 0,
-            _compatibility_score(top, shoe) if shoe else 0
-        ])
+        "score": sum(
+            [
+                _compatibility_score(top, bottom) if bottom else 0,
+                _compatibility_score(top, shoe) if shoe else 0,
+            ]
+        ),
     }
 
 
@@ -104,6 +106,4 @@ def get_daily_outfits(input_data):
     # sort best first
     outfits.sort(key=lambda x: x["score"], reverse=True)
 
-    return {
-        "outfits": outfits[:3]
-    }
+    return {"outfits": outfits[:3]}

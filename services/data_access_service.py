@@ -3,7 +3,9 @@ from typing import Any, Dict
 from services.appwrite_proxy import AppwriteProxy
 
 
-def create_document(*, resource: str, payload: Dict[str, Any], document_id: str = "unique()"):
+def create_document(
+    *, resource: str, payload: Dict[str, Any], document_id: str = "unique()"
+):
     return AppwriteProxy().create_document(resource, payload, document_id=document_id)
 
 
@@ -22,7 +24,9 @@ def upsert_user_profile(*, user_id: str, payload: Dict[str, Any]):
     except Exception:
         return proxy.create_document("users", payload, document_id=user_id)
 
+
 # ================= AHVI STYLE PROFILE PATCH V2 BEGIN =================
+
 
 def _ahvi_strip_appwrite_meta(doc):
     return {
@@ -63,12 +67,17 @@ def get_user_profile(*, user_id):
 
     try:
         docs = AppwriteProxy().list_documents("users", user_id=uid, limit=1)
-        rows = docs.get("documents") or docs.get("items") or [] if isinstance(docs, dict) else docs or []
+        rows = (
+            docs.get("documents") or docs.get("items") or []
+            if isinstance(docs, dict)
+            else docs or []
+        )
         if rows and isinstance(rows[0], dict):
             return _ahvi_strip_appwrite_meta(rows[0])
     except Exception:
         pass
 
     return {}
+
 
 # ================= AHVI STYLE PROFILE PATCH V2 END =================

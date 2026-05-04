@@ -40,7 +40,10 @@ def _load_local_env() -> None:
                     key, value = line.split("=", 1)
                     key = key.strip()
                     value = value.strip().strip('"').strip("'")
-                    if key and (key not in os.environ or not str(os.environ.get(key, "")).strip()):
+                    if key and (
+                        key not in os.environ
+                        or not str(os.environ.get(key, "")).strip()
+                    ):
                         os.environ[key] = value
         except Exception:
             continue
@@ -50,14 +53,30 @@ class R2Storage:
     def __init__(self) -> None:
         _load_local_env()
         self.s3_url = _env("R2_S3_API_URL") or _env("EXPO_PUBLIC_R2_S3_API_URL")
-        self.access_key = _env("R2_ACCESS_KEY_ID") or _env("EXPO_PUBLIC_R2_ACCESS_KEY_ID")
-        self.secret_key = _env("R2_SECRET_ACCESS_KEY") or _env("EXPO_PUBLIC_R2_SECRET_ACCESS_KEY")
-        self.raw_bucket = _env("R2_BUCKET_RAW_IMAGES") or _env("EXPO_PUBLIC_R2_BUCKET_RAW_IMAGES")
-        self.raw_public_url = _env("R2_URL_RAW_IMAGES") or _env("EXPO_PUBLIC_R2_URL_RAW_IMAGES")
-        self.wardrobe_bucket = _env("R2_BUCKET_WARDROBE") or _env("EXPO_PUBLIC_R2_BUCKET_WARDROBE")
-        self.wardrobe_public_url = _env("R2_URL_WARDROBE") or _env("EXPO_PUBLIC_R2_URL_WARDROBE")
-        self.style_boards_bucket = _env("R2_BUCKET_STYLE_BOARDS") or _env("EXPO_PUBLIC_R2_BUCKET_STYLE_BOARDS")
-        self.style_boards_public_url = _env("R2_URL_STYLE_BOARDS") or _env("EXPO_PUBLIC_R2_URL_STYLE_BOARDS")
+        self.access_key = _env("R2_ACCESS_KEY_ID") or _env(
+            "EXPO_PUBLIC_R2_ACCESS_KEY_ID"
+        )
+        self.secret_key = _env("R2_SECRET_ACCESS_KEY") or _env(
+            "EXPO_PUBLIC_R2_SECRET_ACCESS_KEY"
+        )
+        self.raw_bucket = _env("R2_BUCKET_RAW_IMAGES") or _env(
+            "EXPO_PUBLIC_R2_BUCKET_RAW_IMAGES"
+        )
+        self.raw_public_url = _env("R2_URL_RAW_IMAGES") or _env(
+            "EXPO_PUBLIC_R2_URL_RAW_IMAGES"
+        )
+        self.wardrobe_bucket = _env("R2_BUCKET_WARDROBE") or _env(
+            "EXPO_PUBLIC_R2_BUCKET_WARDROBE"
+        )
+        self.wardrobe_public_url = _env("R2_URL_WARDROBE") or _env(
+            "EXPO_PUBLIC_R2_URL_WARDROBE"
+        )
+        self.style_boards_bucket = _env("R2_BUCKET_STYLE_BOARDS") or _env(
+            "EXPO_PUBLIC_R2_BUCKET_STYLE_BOARDS"
+        )
+        self.style_boards_public_url = _env("R2_URL_STYLE_BOARDS") or _env(
+            "EXPO_PUBLIC_R2_URL_STYLE_BOARDS"
+        )
 
     def _client(self):
         if Minio is None:

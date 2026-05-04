@@ -18,7 +18,9 @@ class StyleLanguageEngine:
     def _stable_choice(self, options: List[str], *, seed: str) -> str:
         if not options:
             return ""
-        digest = hashlib.sha256(str(seed or "").encode("utf-8", errors="ignore")).digest()
+        digest = hashlib.sha256(
+            str(seed or "").encode("utf-8", errors="ignore")
+        ).digest()
         idx = int.from_bytes(digest[:4], "big") % len(options)
         return str(options[idx])
 
@@ -80,9 +82,7 @@ class StyleLanguageEngine:
         style_dna = context.get("style_dna", {}) or {}
 
         aesthetic = (
-            style_dna.get("primary_aesthetic")
-            or context.get("aesthetic")
-            or "modern"
+            style_dna.get("primary_aesthetic") or context.get("aesthetic") or "modern"
         ).lower()
 
         occasion = str(context.get("occasion", "")).lower()
@@ -114,10 +114,14 @@ class StyleLanguageEngine:
             parts.append(", ".join(core))
 
         if layers:
-            parts.append(f"{self._layer_connector(context=context)} {', '.join(layers)}")
+            parts.append(
+                f"{self._layer_connector(context=context)} {', '.join(layers)}"
+            )
 
         if extras:
-            parts.append(f"{self._finish_connector(context=context)} {', '.join(extras)}")
+            parts.append(
+                f"{self._finish_connector(context=context)} {', '.join(extras)}"
+            )
 
         base = ", ".join(parts)
 
@@ -169,12 +173,17 @@ class StyleLanguageEngine:
 
         for key, phrases in occasion_map.items():
             if key in occasion:
-                return self._stable_choice(phrases, seed=self._seed(context, f"occasion:{key}"))
+                return self._stable_choice(
+                    phrases, seed=self._seed(context, f"occasion:{key}")
+                )
 
-        return self._stable_choice([
-            "Everything comes together effortlessly.",
-            "It all feels balanced and intentional.",
-        ], seed=self._seed(context, "occasion:default"))
+        return self._stable_choice(
+            [
+                "Everything comes together effortlessly.",
+                "It all feels balanced and intentional.",
+            ],
+            seed=self._seed(context, "occasion:default"),
+        )
 
     # =========================
     # 🔥 AESTHETIC OPENERS
@@ -210,13 +219,18 @@ class StyleLanguageEngine:
 
         for key, options in tone_map.items():
             if key in aesthetic:
-                return self._stable_choice(options, seed=self._seed(context, f"opener:{key}"))
+                return self._stable_choice(
+                    options, seed=self._seed(context, f"opener:{key}")
+                )
 
-        return self._stable_choice([
-            "Well-balanced and considered —",
-            "Cleanly put together —",
-            "Sharp without trying too hard —",
-        ], seed=self._seed(context, "opener:default"))
+        return self._stable_choice(
+            [
+                "Well-balanced and considered —",
+                "Cleanly put together —",
+                "Sharp without trying too hard —",
+            ],
+            seed=self._seed(context, "opener:default"),
+        )
 
     # =========================
     # CONNECTORS (VARIATION)

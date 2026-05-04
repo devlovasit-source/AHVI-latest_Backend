@@ -69,11 +69,7 @@ def list_boards(user_id: str, occasion: Optional[str] = None, limit: int = 100):
             limit=limit,
         )
 
-        return {
-            "success": True,
-            "count": len(docs),
-            "documents": docs
-        }
+        return {"success": True, "count": len(docs), "documents": docs}
 
     except AppwriteProxyError as exc:
         print(f"[boards.list] user_id={user_id} occasion={occasion} error={exc}")
@@ -126,10 +122,7 @@ def save_board(request: SaveBoardRequest):
         # except Exception as e:
         #     print(f"[embedding] failed: {e}")
 
-        return {
-            "success": True,
-            "document": created
-        }
+        return {"success": True, "document": created}
 
     except R2StorageError as exc:
         raise HTTPException(status_code=500, detail=f"R2 upload failed: {exc}")
@@ -147,11 +140,7 @@ def list_life_boards_api(user_id: str, limit: int = 100):
     try:
         docs = list_life_boards(user_id=user_id, limit=limit)
 
-        return {
-            "success": True,
-            "count": len(docs),
-            "documents": docs
-        }
+        return {"success": True, "count": len(docs), "documents": docs}
 
     except AppwriteProxyError as exc:
         print(f"[boards.life.list] user_id={user_id} error={exc}")
@@ -169,10 +158,7 @@ def save_life_board(request: SaveLifeBoardRequest):
             payload=request.payload,
         )
 
-        return {
-            "success": True,
-            "document": created
-        }
+        return {"success": True, "document": created}
 
     except AppwriteProxyError as exc:
         print(f"[boards.life.save] user_id={request.user_id} error={exc}")
@@ -187,10 +173,7 @@ def delete_board(document_id: str):
     try:
         delete_saved_board(document_id=document_id)
 
-        return {
-            "success": True,
-            "deleted": document_id
-        }
+        return {"success": True, "deleted": document_id}
 
     except AppwriteProxyError as exc:
         print(f"[boards.delete] document_id={document_id} error={exc}")

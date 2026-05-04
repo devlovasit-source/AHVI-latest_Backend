@@ -52,28 +52,31 @@ class StyleExplainer:
 
         if any(c in global_colors for c in colors):
             reasoning_parts.append(
-                self._tone(emotion,
+                self._tone(
+                    emotion,
                     "It aligns with current style trends.",
                     "It taps into what’s trending right now.",
-                    "It reflects a strong, current aesthetic direction."
+                    "It reflects a strong, current aesthetic direction.",
                 )
             )
 
         if unique_colors == 1:
             reasoning_parts.append(
-                self._tone(emotion,
+                self._tone(
+                    emotion,
                     "The palette stays clean and controlled.",
                     "Keeps everything tight and intentional.",
-                    "The palette feels refined and commanding."
+                    "The palette feels refined and commanding.",
                 )
             )
 
         elif unique_colors >= 3:
             reasoning_parts.append(
-                self._tone(emotion,
+                self._tone(
+                    emotion,
                     "The contrast adds dimension.",
                     "The mix brings energy and edge.",
-                    "The contrast builds presence."
+                    "The contrast builds presence.",
                 )
             )
 
@@ -82,10 +85,11 @@ class StyleExplainer:
         # =========================
         if self._has_balance(fits):
             reasoning_parts.append(
-                self._tone(emotion,
+                self._tone(
+                    emotion,
                     "The silhouette stays balanced.",
                     "The fit contrast gives it movement.",
-                    "The proportions feel structured and deliberate."
+                    "The proportions feel structured and deliberate.",
                 )
             )
 
@@ -94,19 +98,21 @@ class StyleExplainer:
         # =========================
         if confidence < 0.4:
             reasoning_parts.append(
-                self._tone(emotion,
+                self._tone(
+                    emotion,
                     "It’s a safe, widely appealing choice.",
                     "Easy to wear and broadly styled.",
-                    "A reliable and widely accepted direction."
+                    "A reliable and widely accepted direction.",
                 )
             )
 
         elif confidence > 0.7:
             reasoning_parts.append(
-                self._tone(emotion,
+                self._tone(
+                    emotion,
                     "It reflects your personal style strongly.",
                     "This feels very aligned with your style.",
-                    "It’s clearly tailored to your aesthetic."
+                    "It’s clearly tailored to your aesthetic.",
                 )
             )
 

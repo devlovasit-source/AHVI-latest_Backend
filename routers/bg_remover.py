@@ -33,4 +33,3 @@ def get_bg_runtime_metrics() -> Dict[str, Any]:
     Avoids importing the full router to keep dependency surface small.
     """
     return {"available": True, "backend": "hf+redis-cache", "mode": "sync_helper"}
-

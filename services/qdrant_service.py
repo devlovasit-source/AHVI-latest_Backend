@@ -26,12 +26,16 @@ class QdrantService:
     def __init__(self):
         self.url = os.getenv("QDRANT_URL")
         self.api_key = os.getenv("QDRANT_API_KEY")
-        self.timeout_seconds = float(os.getenv("QDRANT_TIMEOUT_SECONDS", "2.5") or "2.5")
+        self.timeout_seconds = float(
+            os.getenv("QDRANT_TIMEOUT_SECONDS", "2.5") or "2.5"
+        )
 
         self.collection = os.getenv("QDRANT_COLLECTION", "wardrobe")
         self.image_collection = os.getenv("QDRANT_IMAGE_COLLECTION", "wardrobe_images")
         self.memory_collection = os.getenv("QDRANT_MEMORY_COLLECTION", "outfit_memory")
-        self.user_memory_collection = os.getenv("QDRANT_USER_MEMORY_COLLECTION", "user_memory")
+        self.user_memory_collection = os.getenv(
+            "QDRANT_USER_MEMORY_COLLECTION", "user_memory"
+        )
 
         self.vector_size = 512
         self.memory_vector_size = int(os.getenv("QDRANT_MEMORY_VECTOR_SIZE", "8"))
@@ -64,7 +68,9 @@ class QdrantService:
         self._create_collection(self.collection, self.vector_size)
         self._create_collection(self.image_collection, self.vector_size)
         self._create_collection(self.memory_collection, self.memory_vector_size)
-        self._create_collection(self.user_memory_collection, self.user_memory_vector_size)
+        self._create_collection(
+            self.user_memory_collection, self.user_memory_vector_size
+        )
 
         self._initialized = True
 
@@ -125,7 +131,11 @@ class QdrantService:
 
         vector = self._fit_vector(vector)
         if len(vector) != self.vector_size:
-            logger.warning("Qdrant vector size mismatch: got %s, expected %s", len(vector) if vector else 0, self.vector_size)
+            logger.warning(
+                "Qdrant vector size mismatch: got %s, expected %s",
+                len(vector) if vector else 0,
+                self.vector_size,
+            )
             return
 
         vector = self._normalize(vector)
@@ -187,19 +197,21 @@ class QdrantService:
     # =========================
     # 🔥 SEARCH (WITH THRESHOLD)
     # =========================
-    def search_similar(self, vector, user_id, category=None, limit=5, score_threshold=0.6):
+    def search_similar(
+        self, vector, user_id, category=None, limit=5, score_threshold=0.6
+    ):
         if not self._ensure() or not vector:
             return []
 
         vector = self._normalize(vector)
 
         try:
-            must = [
-                FieldCondition(key="userId", match=MatchValue(value=str(user_id)))
-            ]
+            must = [FieldCondition(key="userId", match=MatchValue(value=str(user_id)))]
 
             if category:
-                must.append(FieldCondition(key="category", match=MatchValue(value=category)))
+                must.append(
+                    FieldCondition(key="category", match=MatchValue(value=category))
+                )
 
             query_filter = Filter(must=must)
 
@@ -224,13 +236,19 @@ class QdrantService:
             logger.exception("Qdrant search failed")
             return []
 
-    def _search_collection(self, collection_name, vector, user_id, limit=5, score_threshold=0.6):
+    def _search_collection(
+        self, collection_name, vector, user_id, limit=5, score_threshold=0.6
+    ):
         if not self._ensure() or not vector:
             return []
 
         vector = self._fit_vector(vector)
         if len(vector) != self.vector_size:
-            logger.warning("Qdrant vector size mismatch: got %s, expected %s", len(vector), self.vector_size)
+            logger.warning(
+                "Qdrant vector size mismatch: got %s, expected %s",
+                len(vector),
+                self.vector_size,
+            )
             return []
 
         vector = self._normalize(vector)
@@ -241,7 +259,11 @@ class QdrantService:
                 query_vector=vector,
                 limit=limit,
                 query_filter=Filter(
-                    must=[FieldCondition(key="userId", match=MatchValue(value=str(user_id)))]
+                    must=[
+                        FieldCondition(
+                            key="userId", match=MatchValue(value=str(user_id))
+                        )
+                    ]
                 ),
             )
             return [
@@ -254,7 +276,9 @@ class QdrantService:
                 if r.score >= score_threshold
             ]
         except Exception:
-            logger.exception("Qdrant duplicate search failed collection=%s", collection_name)
+            logger.exception(
+                "Qdrant duplicate search failed collection=%s", collection_name
+            )
             return []
 
     def find_duplicate(self, vector, user_id, threshold=0.97):
@@ -305,7 +329,11 @@ class QdrantService:
 
         vector = self._fit_vector(vector)
         if not vector or len(vector) != self.vector_size:
-            logger.warning("Qdrant image vector size mismatch: got %s, expected %s", len(vector) if vector else 0, self.vector_size)
+            logger.warning(
+                "Qdrant image vector size mismatch: got %s, expected %s",
+                len(vector) if vector else 0,
+                self.vector_size,
+            )
             return
 
         vector = self._normalize(vector)
@@ -370,7 +398,11 @@ class QdrantService:
                 limit=100,
                 with_payload=True,
                 scroll_filter=Filter(
-                    must=[FieldCondition(key="userId", match=MatchValue(value=str(user_id)))]
+                    must=[
+                        FieldCondition(
+                            key="userId", match=MatchValue(value=str(user_id))
+                        )
+                    ]
                 ),
             )
 

@@ -28,14 +28,22 @@ except Exception:
 # =========================
 # CONFIG
 # =========================
-_device = torch.device("cuda" if (torch and torch.cuda.is_available()) else "cpu") if torch else "cpu"
+_device = (
+    torch.device("cuda" if (torch and torch.cuda.is_available()) else "cpu")
+    if torch
+    else "cpu"
+)
 
 _IMAGE_MODEL = None
 _IMAGE_PROCESSOR = None
 _TEXT_MODEL = None
 
-_IMAGE_MODEL_NAME = os.getenv("IMAGE_EMBEDDING_MODEL_NAME", "openai/clip-vit-base-patch32")
-_TEXT_MODEL_NAME = os.getenv("TEXT_EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
+_IMAGE_MODEL_NAME = os.getenv(
+    "IMAGE_EMBEDDING_MODEL_NAME", "openai/clip-vit-base-patch32"
+)
+_TEXT_MODEL_NAME = os.getenv(
+    "TEXT_EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2"
+)
 
 _URL_CACHE: dict[str, list] = {}
 _URL_CACHE_MAX = 512
@@ -158,25 +166,18 @@ def _combine(image_vec, text_vec, alpha=0.7):
     # ensure same length
     min_len = min(len(image_vec), len(text_vec))
 
-    return [
-        alpha * image_vec[i] + (1 - alpha) * text_vec[i]
-        for i in range(min_len)
-    ]
+    return [alpha * image_vec[i] + (1 - alpha) * text_vec[i] for i in range(min_len)]
 
 
 async def encode_hybrid(
-    *,
-    image_bytes: bytes,
-    metadata: dict,
-    alpha: float = 0.7
+    *, image_bytes: bytes, metadata: dict, alpha: float = 0.7
 ) -> List[float]:
     """
     🔥 MAIN FUNCTION (USE THIS EVERYWHERE)
     """
 
     image_vec, text_vec = await asyncio.gather(
-        encode_image_bytes(image_bytes),
-        encode_text(metadata)
+        encode_image_bytes(image_bytes), encode_text(metadata)
     )
 
     return _combine(image_vec, text_vec, alpha)

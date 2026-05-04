@@ -27,8 +27,12 @@ class LifeEngine:
     # =========================
     def get_budget_plan(self, income: float, template_key="50_30_20"):
         template = next(
-            (t for t in self.expenses.get("budget_templates", []) if t["key"] == template_key),
-            None
+            (
+                t
+                for t in self.expenses.get("budget_templates", [])
+                if t["key"] == template_key
+            ),
+            None,
         )
 
         if not template:
@@ -37,11 +41,13 @@ class LifeEngine:
         result = []
         for part in template["split"]:
             amount = income * (part["pct"] / 100)
-            result.append({
-                "category": part["name"],
-                "percentage": part["pct"],
-                "amount": round(amount, 2)
-            })
+            result.append(
+                {
+                    "category": part["name"],
+                    "percentage": part["pct"],
+                    "amount": round(amount, 2),
+                }
+            )
 
         return result
 
@@ -55,19 +61,13 @@ class LifeEngine:
     # 💊 MEDICINE SCHEDULE
     # =========================
     def get_medicine_schedule(self, key="daily_meds_basic"):
-        return next(
-            (m for m in self.meds if m["key"] == key),
-            None
-        )
+        return next((m for m in self.meds if m["key"] == key), None)
 
     # =========================
     # 🏠 ROUTINES
     # =========================
     def get_weekly_routine(self, key="home_reset_sunday_90min"):
-        return next(
-            (r for r in self.routines if r["key"] == key),
-            None
-        )
+        return next((r for r in self.routines if r["key"] == key), None)
 
     # =========================
     # 🔥 MASTER RESPONSE

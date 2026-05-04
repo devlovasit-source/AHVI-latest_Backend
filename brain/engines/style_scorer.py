@@ -1,4 +1,3 @@
-
 from typing import Any, Dict, List
 
 from brain.engines.style_graph_engine import style_graph_engine
@@ -48,15 +47,14 @@ class UnifiedStyleScorer:
         # =========================
         rules = style_engine.get_scoring_rules(style_dna, context)
 
-        palette = palette_engine.select_palette({
-            "event": context.get("occasion"),
-            "microtheme": style_dna.get("primary_aesthetic")
-        })
+        palette = palette_engine.select_palette(
+            {
+                "event": context.get("occasion"),
+                "microtheme": style_dna.get("primary_aesthetic"),
+            }
+        )
 
-        palette_colors = [
-            color_normalizer.normalize(c)
-            for c in palette.get("hex", [])
-        ]
+        palette_colors = [color_normalizer.normalize(c) for c in palette.get("hex", [])]
 
         # =========================
         # 1. GRAPH COMPATIBILITY
@@ -162,7 +160,7 @@ class UnifiedStyleScorer:
         return {
             "score": round(score, 3),
             "label": label,
-            "reasons": list(set(reasons))[:3]
+            "reasons": list(set(reasons))[:3],
         }
 
     # =========================
@@ -216,10 +214,12 @@ class UnifiedStyleScorer:
     # =========================
     def _build_outfit_embedding(self, items):
 
-        text = " ".join([
-            f"{i.get('type','')} {i.get('color','')} {i.get('style','')}"
-            for i in items
-        ])
+        text = " ".join(
+            [
+                f"{i.get('type','')} {i.get('color','')} {i.get('style','')}"
+                for i in items
+            ]
+        )
 
         try:
             return encode_metadata({"text": text}) or []
@@ -257,8 +257,7 @@ class UnifiedStyleScorer:
     def _aesthetic_score(self, items):
 
         colors = [
-            color_normalizer.normalize(i.get("color"))
-            for i in items if i.get("color")
+            color_normalizer.normalize(i.get("color")) for i in items if i.get("color")
         ]
 
         unique = len(set(colors))

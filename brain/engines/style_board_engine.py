@@ -34,7 +34,9 @@ class StyleBoardEngine:
     - Personalized boards
     """
 
-    def build_board(self, outfit: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+    def build_board(
+        self, outfit: Dict[str, Any], context: Dict[str, Any]
+    ) -> Dict[str, Any]:
 
         items = outfit.get("items", [])
         if not items:
@@ -48,10 +50,9 @@ class StyleBoardEngine:
 
         dominant = primary or (secondary[0] if secondary else None)
 
-        palette = palette_engine.select_palette({
-            "event": context.get("occasion"),
-            "microtheme": dominant
-        })
+        palette = palette_engine.select_palette(
+            {"event": context.get("occasion"), "microtheme": dominant}
+        )
 
         aesthetic = self._derive_aesthetic(items, style_dna, palette)
         vibe = self._derive_vibe(context, aesthetic)
@@ -68,7 +69,7 @@ class StyleBoardEngine:
             "color_story": color_story,
             "layout": layout,
             "items": items,
-            "score": outfit.get("score", 0)
+            "score": outfit.get("score", 0),
         }
 
     # =========================
@@ -76,7 +77,9 @@ class StyleBoardEngine:
     # =========================
     def _derive_aesthetic(self, items, dna, palette):
 
-        colors = [color_normalizer.normalize(i.get("color")) for i in items if i.get("color")]
+        colors = [
+            color_normalizer.normalize(i.get("color")) for i in items if i.get("color")
+        ]
         fits = [str(i.get("fit", "")).lower() for i in items]
 
         if len(set(colors)) == 1:
@@ -106,7 +109,7 @@ class StyleBoardEngine:
         vibe_map = {
             "office": "quiet authority",
             "date": "soft allure",
-            "party": "elevated presence"
+            "party": "elevated presence",
         }
 
         if occasion in vibe_map:
@@ -136,21 +139,42 @@ class StyleBoardEngine:
 
         for item in items:
             score = 0
-            t = str(item.get("type") or item.get("category") or item.get("sub_category") or "").lower()
+            t = str(
+                item.get("type")
+                or item.get("category")
+                or item.get("sub_category")
+                or ""
+            ).lower()
             name = str(item.get("name", "")).lower()
             text = f"{t} {name}"
             color = color_normalizer.normalize(item.get("color"))
 
             # type priority
-            if any(k in text for k in ["dress", "saree", "lehenga", "suit", "blazer", "jacket", "coat"]):
+            if any(
+                k in text
+                for k in [
+                    "dress",
+                    "saree",
+                    "lehenga",
+                    "suit",
+                    "blazer",
+                    "jacket",
+                    "coat",
+                ]
+            ):
                 score += 3.0
             elif any(k in text for k in ["top", "shirt", "kurta", "blouse", "tee"]):
                 score += 2.4
             elif any(k in text for k in ["bottom", "jean", "trouser", "pant", "skirt"]):
                 score += 2.0
-            elif any(k in text for k in ["shoe", "sneaker", "heel", "boot", "sandal", "bag"]):
+            elif any(
+                k in text for k in ["shoe", "sneaker", "heel", "boot", "sandal", "bag"]
+            ):
                 score += 1.5
-            elif any(k in text for k in ["watch", "necklace", "earring", "bracelet", "belt", "scarf"]):
+            elif any(
+                k in text
+                for k in ["watch", "necklace", "earring", "bracelet", "belt", "scarf"]
+            ):
                 score += 0.8
 
             # contrast colors
@@ -170,7 +194,9 @@ class StyleBoardEngine:
     # =========================
     def _build_editorial_layout(self, items, importance, aesthetic):
 
-        sorted_items = sorted(items, key=lambda x: importance.get(x.get("id"), 0), reverse=True)
+        sorted_items = sorted(
+            items, key=lambda x: importance.get(x.get("id"), 0), reverse=True
+        )
 
         hero = sorted_items[0]
         supporting = sorted_items[1:]
@@ -178,7 +204,7 @@ class StyleBoardEngine:
         return {
             "composition": self._composition_type(len(items), aesthetic),
             "layers": self._build_layers(hero, supporting),
-            "placements": self._build_placements(hero, supporting)
+            "placements": self._build_placements(hero, supporting),
         }
 
     # =========================
@@ -189,7 +215,7 @@ class StyleBoardEngine:
         return {
             "foreground": [hero],
             "midground": supporting[:2],
-            "background": supporting[2:]
+            "background": supporting[2:],
         }
 
     # =========================
@@ -204,10 +230,16 @@ class StyleBoardEngine:
             "y": 0.44,
             "scale": 1.35,
             "rotation": 0,
-            "z": 3
+            "z": 3,
         }
 
-        positions = [(0.76, 0.72), (0.78, 0.35), (0.23, 0.76), (0.24, 0.23), (0.84, 0.18)]
+        positions = [
+            (0.76, 0.72),
+            (0.78, 0.35),
+            (0.23, 0.76),
+            (0.24, 0.23),
+            (0.84, 0.18),
+        ]
 
         for i, item in enumerate(supporting):
             item_id = str(item.get("id") or "")
@@ -215,9 +247,11 @@ class StyleBoardEngine:
                 "x": positions[i % len(positions)][0],
                 "y": positions[i % len(positions)][1],
                 # Deterministic placements: stable per item id (Pinterest-style but not random each request).
-                "scale": round(_stable_uniform(0.6, 0.85, seed=f"scale:{item_id}:{i}"), 2),
+                "scale": round(
+                    _stable_uniform(0.6, 0.85, seed=f"scale:{item_id}:{i}"), 2
+                ),
                 "rotation": _stable_choice([-15, -5, 5, 15], seed=f"rot:{item_id}:{i}"),
-                "z": 2 if i < 2 else 1
+                "z": 2 if i < 2 else 1,
             }
 
         return placements

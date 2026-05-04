@@ -2,7 +2,6 @@ import re
 import logging
 from typing import Any, Dict
 
-
 _CODE_FENCE_RE = re.compile(r"```(?:json|python|text)?|```", re.IGNORECASE)
 _TAG_RE = re.compile(r"<[^>]+>")
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
@@ -130,4 +129,3 @@ def validate_orchestrator_response(
         pass
 
     return row
-

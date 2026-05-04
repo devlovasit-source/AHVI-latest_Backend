@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, File, UploadFile, HTTPException
 from PIL import Image
 from transformers import pipeline
@@ -14,13 +13,12 @@ from services.image_embedding_service import encode_image_bytes
 # =========================
 # ROUTER
 # =========================
-router = APIRouter(
-    prefix="/garment",
-    tags=["Garment Analyzer"]
-)
+router = APIRouter(prefix="/garment", tags=["Garment Analyzer"])
 
 print("Loading Garment Classification Model (CLIP)...")
-classifier = pipeline("zero-shot-image-classification", model="openai/clip-vit-base-patch32")
+classifier = pipeline(
+    "zero-shot-image-classification", model="openai/clip-vit-base-patch32"
+)
 print("Garment Model loaded successfully!")
 
 # =========================
@@ -32,16 +30,65 @@ MAIN_CATEGORIES = [
     "bottom wear",
     "dresses and jumpsuits",
     "outerwear and winter wear",
-    "footwear"
+    "footwear",
 ]
 
 SUB_CATEGORIES = {
-    "traditional indian wear": ["saree", "salwar kameez", "anarkali suit", "kurti", "lehenga choli", "sherwani", "dhoti"],
-    "top wear": ["t-shirt", "polo shirt", "formal shirt", "casual shirt", "crop top", "peplum top", "tunic"],
-    "bottom wear": ["skinny jeans", "straight jeans", "formal trousers", "cargo pants", "palazzo pants", "shorts", "skirt", "joggers"],
-    "dresses and jumpsuits": ["maxi dress", "midi dress", "bodycon dress", "wrap dress", "full length jumpsuit", "romper"],
-    "outerwear and winter wear": ["blazer", "denim jacket", "leather jacket", "trench coat", "woolen sweater", "hoodie", "cardigan", "coat"],
-    "footwear": ["sneakers", "oxford formal shoes", "loafers", "high heels", "flat sandals", "boots", "slippers"]
+    "traditional indian wear": [
+        "saree",
+        "salwar kameez",
+        "anarkali suit",
+        "kurti",
+        "lehenga choli",
+        "sherwani",
+        "dhoti",
+    ],
+    "top wear": [
+        "t-shirt",
+        "polo shirt",
+        "formal shirt",
+        "casual shirt",
+        "crop top",
+        "peplum top",
+        "tunic",
+    ],
+    "bottom wear": [
+        "skinny jeans",
+        "straight jeans",
+        "formal trousers",
+        "cargo pants",
+        "palazzo pants",
+        "shorts",
+        "skirt",
+        "joggers",
+    ],
+    "dresses and jumpsuits": [
+        "maxi dress",
+        "midi dress",
+        "bodycon dress",
+        "wrap dress",
+        "full length jumpsuit",
+        "romper",
+    ],
+    "outerwear and winter wear": [
+        "blazer",
+        "denim jacket",
+        "leather jacket",
+        "trench coat",
+        "woolen sweater",
+        "hoodie",
+        "cardigan",
+        "coat",
+    ],
+    "footwear": [
+        "sneakers",
+        "oxford formal shoes",
+        "loafers",
+        "high heels",
+        "flat sandals",
+        "boots",
+        "slippers",
+    ],
 }
 
 APP_CATEGORY_MAP = {
@@ -50,8 +97,9 @@ APP_CATEGORY_MAP = {
     "footwear": "Footwear",
     "outerwear and winter wear": "Outerwear",
     "dresses and jumpsuits": "Dresses",
-    "traditional indian wear": "Dresses"
+    "traditional indian wear": "Dresses",
 }
+
 
 # =========================
 # COLOR EXTRACTION
@@ -77,6 +125,7 @@ def get_dominant_color(cv_image, k=4):
 
     hex_color = "#{:02x}{:02x}{:02x}".format(*dominant_rgb)
     return hex_color, dominant_rgb
+
 
 # =========================
 # MAIN API
@@ -116,7 +165,7 @@ def analyze_garment(image_file: UploadFile = File(...)):
         main_results = classifier(
             pil_image,
             candidate_labels=MAIN_CATEGORIES,
-            hypothesis_template="a fashion catalog photo showing a {}"
+            hypothesis_template="a fashion catalog photo showing a {}",
         )
 
         winning_main_category = main_results[0]["label"]
@@ -129,7 +178,7 @@ def analyze_garment(image_file: UploadFile = File(...)):
         sub_results = classifier(
             pil_image,
             candidate_labels=specific_labels,
-            hypothesis_template="a piece of clothing, specifically a {}, isolated on a background"
+            hypothesis_template="a piece of clothing, specifically a {}, isolated on a background",
         )
 
         winning_sub_category = sub_results[0]["label"]
@@ -149,7 +198,6 @@ def analyze_garment(image_file: UploadFile = File(...)):
         return {
             "status": "success",
             "filename": image_file.filename,
-
             # classification
             "item_name": item_name,
             "main_category": winning_main_category,
@@ -157,16 +205,13 @@ def analyze_garment(image_file: UploadFile = File(...)):
             "main_category_confidence": main_confidence,
             "sub_category": winning_sub_category,
             "sub_category_confidence": sub_confidence,
-
             # color
             "dominant_color_hex": hex_code,
             "dominant_color_rgb": rgb_val,
-
             # 🔥 NEW: embedding
             "image_embedding": image_embedding,
-
             # metadata
-            "pipeline": "clip_with_embedding_v2"
+            "pipeline": "clip_with_embedding_v2",
         }
 
     except HTTPException:

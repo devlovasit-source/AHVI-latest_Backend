@@ -12,6 +12,7 @@ def format_time(iso: str):
 # SECTIONS
 # =========================
 
+
 def build_critical_section(results):
     lines = [
         f"{r['classifiedEvent']['title']} at {format_time(r['classifiedEvent']['startAtISO'])}"
@@ -39,7 +40,9 @@ def build_leave_by_section(results):
     for r in results:
         leave = r.get("predictiveOutput", {}).get("bufferPlan", {}).get("leaveByISO")
         if leave:
-            lines.append(f"{r['classifiedEvent']['title']} · leave by {format_time(leave)}")
+            lines.append(
+                f"{r['classifiedEvent']['title']} · leave by {format_time(leave)}"
+            )
 
     return {"label": "Leave by", "lines": lines}
 
@@ -66,7 +69,7 @@ def build_style_section(results):
                 "label": "Style hint",
                 "lines": [
                     f"{r['classifiedEvent']['title']} · {', '.join(outfit.get('outfitKeywords', []))}"
-                ]
+                ],
             }
     return {"label": "Style hint", "lines": []}
 
@@ -77,9 +80,7 @@ def build_carry_section(results):
         if items:
             return {
                 "label": "Carry hint",
-                "lines": [
-                    f"{r['classifiedEvent']['title']} · {', '.join(items[:4])}"
-                ]
+                "lines": [f"{r['classifiedEvent']['title']} · {', '.join(items[:4])}"],
             }
     return {"label": "Carry hint", "lines": []}
 
@@ -99,6 +100,7 @@ def build_prep_section(results):
 # MAIN BUILDERS
 # =========================
 
+
 def build_morning_briefing(results):
     sections = [
         build_critical_section(results),
@@ -109,10 +111,7 @@ def build_morning_briefing(results):
         build_carry_section(results),
     ]
 
-    return {
-        "type": "morning_brief",
-        "sections": [s for s in sections if s["lines"]]
-    }
+    return {"type": "morning_brief", "sections": [s for s in sections if s["lines"]]}
 
 
 def build_evening_briefing(results):
@@ -126,7 +125,7 @@ def build_evening_briefing(results):
 
     return {
         "type": "evening_prep_brief",
-        "sections": [s for s in sections if s["lines"]]
+        "sections": [s for s in sections if s["lines"]],
     }
 
 
@@ -134,7 +133,7 @@ def build_busy_day_rescue(results):
     sorted_results = sorted(
         results,
         key=lambda r: r.get("predictiveOutput", {}).get("stressLoadScore", 0),
-        reverse=True
+        reverse=True,
     )
 
     return {
@@ -145,7 +144,7 @@ def build_busy_day_rescue(results):
                 "lines": [
                     f"{r['classifiedEvent']['title']} at {format_time(r['classifiedEvent']['startAtISO'])}"
                     for r in sorted_results[:3]
-                ]
+                ],
             },
             {
                 "label": "Prep first",
@@ -153,14 +152,16 @@ def build_busy_day_rescue(results):
                     f"{r['classifiedEvent']['title']} · {task}"
                     for r in sorted_results[:2]
                     for task in r.get("predictiveOutput", {}).get("prepTasks", [])[:2]
-                ]
-            }
-        ]
+                ],
+            },
+        ],
     }
 
 
 def build_best_day_briefing(results):
-    stress = sum(r.get("predictiveOutput", {}).get("stressLoadScore", 0) for r in results)
+    stress = sum(
+        r.get("predictiveOutput", {}).get("stressLoadScore", 0) for r in results
+    )
 
     if stress >= 140 or len(results) >= 5:
         return build_busy_day_rescue(results)

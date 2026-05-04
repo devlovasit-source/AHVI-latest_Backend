@@ -39,7 +39,9 @@ class WardrobeUploadRequest(BaseModel):
 def anthropic_messages(request: AnthropicRequest):
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
-        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY is not configured")
+        raise HTTPException(
+            status_code=500, detail="ANTHROPIC_API_KEY is not configured"
+        )
 
     payload: Dict[str, Any] = {
         "model": request.model,
@@ -111,7 +113,9 @@ def upload_wardrobe_images(request: WardrobeUploadRequest):
     except R2StorageError as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid wardrobe upload payload: {exc}")
+        raise HTTPException(
+            status_code=400, detail=f"Invalid wardrobe upload payload: {exc}"
+        )
 
 
 @router.get("/api/qdrant/status")

@@ -57,7 +57,7 @@ class ShoppingEngine:
             "verdict": verdict,
             "reasons": reasons[:2],
             "message": message,
-            "next_step": "Want me to style it or find better alternatives?"
+            "next_step": "Want me to style it or find better alternatives?",
         }
 
     # =========================
@@ -71,7 +71,7 @@ class ShoppingEngine:
         combos = [
             f"• Casual: white tee + blue jeans + {item} + sneakers",
             f"• Smart: shirt + tailored trousers + {item} + loafers",
-            f"• Elevated: blazer + structured pants + {item} + heels"
+            f"• Elevated: blazer + structured pants + {item} + heels",
         ]
 
         return {
@@ -79,7 +79,7 @@ class ShoppingEngine:
             "combos": combos,
             "why": "This works because it integrates easily with staple pieces you already wear.",
             "confidence": "This is a smart buy if you want maximum wear.",
-            "question": "Want me to tailor this for work or weekend?"
+            "question": "Want me to tailor this for work or weekend?",
         }
 
     # =========================
@@ -105,7 +105,7 @@ class ShoppingEngine:
         # fallback
         return {
             "type": "shopping_fallback",
-            "message": "Tell me what you're looking for — I’ll help you decide."
+            "message": "Tell me what you're looking for — I’ll help you decide.",
         }
 
 

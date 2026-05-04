@@ -7,7 +7,6 @@ from appwrite.services.account import Account
 from appwrite.services.databases import Databases
 from dotenv import load_dotenv
 
-
 # =========================
 # LOAD ENV (ONCE)
 # =========================

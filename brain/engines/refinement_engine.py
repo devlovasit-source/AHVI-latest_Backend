@@ -1,4 +1,3 @@
-
 from typing import Dict, Any, List
 import copy
 
@@ -44,8 +43,16 @@ class RefinementEngine:
             if not isinstance(items, list):
                 items = []
 
-            score_meta = new_outfit.get("score_meta", {}) if isinstance(new_outfit.get("score_meta"), dict) else {}
-            reasons = score_meta.get("reasons", []) if isinstance(score_meta.get("reasons"), list) else []
+            score_meta = (
+                new_outfit.get("score_meta", {})
+                if isinstance(new_outfit.get("score_meta"), dict)
+                else {}
+            )
+            reasons = (
+                score_meta.get("reasons", [])
+                if isinstance(score_meta.get("reasons"), list)
+                else []
+            )
             score = new_outfit.get("score", 0)
             try:
                 score = float(score or 0.0)
@@ -96,10 +103,19 @@ class RefinementEngine:
             )
 
             # Weather-triggered practical fix.
-            if str((context.get("signals") or {}).get("weather_mode") or "").strip().lower() in ("hot", "summer", "heat", "warm"):
+            if str(
+                (context.get("signals") or {}).get("weather_mode") or ""
+            ).strip().lower() in ("hot", "summer", "heat", "warm"):
                 items = self._make_breathable(items)
                 # remove heavy fabrics if explicit (best-effort)
-                items = [i for i in items if not (isinstance(i, dict) and str(i.get("fabric") or "").strip().lower() == "heavy")]
+                items = [
+                    i
+                    for i in items
+                    if not (
+                        isinstance(i, dict)
+                        and str(i.get("fabric") or "").strip().lower() == "heavy"
+                    )
+                ]
 
             # -------------------------
             # 5. REAL WARDROBE SWAP
@@ -116,7 +132,11 @@ class RefinementEngine:
 
             if after + 0.10 < before:
                 # Revert when we made it worse.
-                items = new_outfit.get("items", []) if isinstance(new_outfit.get("items"), list) else items
+                items = (
+                    new_outfit.get("items", [])
+                    if isinstance(new_outfit.get("items"), list)
+                    else items
+                )
                 final_snapshot = base_snapshot
 
             new_outfit["items"] = items
@@ -136,7 +156,14 @@ class RefinementEngine:
             if c and c not in neutrals:
                 # Hint for selector: keep the same base type but bias toward neutral colors.
                 i["preferred_replacement"] = self._base_type(i) or "top"
-                i["preferred_colors"] = ["black", "white", "beige", "grey", "navy", "cream"]
+                i["preferred_colors"] = [
+                    "black",
+                    "white",
+                    "beige",
+                    "grey",
+                    "navy",
+                    "cream",
+                ]
         return items
 
     def _fix_silhouette(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -161,7 +188,12 @@ class RefinementEngine:
             out.append(it)
         return out
 
-    def _unified_snapshot(self, items: List[Dict[str, Any]], context: Dict[str, Any], graph: Dict[str, Any]) -> Dict[str, Any]:
+    def _unified_snapshot(
+        self,
+        items: List[Dict[str, Any]],
+        context: Dict[str, Any],
+        graph: Dict[str, Any],
+    ) -> Dict[str, Any]:
         try:
             return style_scorer.score_outfit(items=items, context=context, graph=graph)
         except Exception:
@@ -177,24 +209,40 @@ class RefinementEngine:
             return "outerwear"
         if any(x in t for x in ["pant", "jean", "trouser", "chino", "skirt", "bottom"]):
             return "bottom"
-        if any(x in t for x in ["shirt", "tshirt", "t-shirt", "tee", "top", "hoodie", "sweater"]):
+        if any(
+            x in t
+            for x in ["shirt", "tshirt", "t-shirt", "tee", "top", "hoodie", "sweater"]
+        ):
             return "top"
         return ""
 
-    def _preferred_colors(self, context: Dict[str, Any], style_dna: Dict[str, Any]) -> List[str]:
+    def _preferred_colors(
+        self, context: Dict[str, Any], style_dna: Dict[str, Any]
+    ) -> List[str]:
         occasion = str(context.get("occasion") or "").strip().lower()
         palette_hexes: List[str] = []
         try:
             palette = palette_engine.select_palette(
-                {"event": occasion or None, "microtheme": style_dna.get("primary_aesthetic")}
+                {
+                    "event": occasion or None,
+                    "microtheme": style_dna.get("primary_aesthetic"),
+                }
             )
-            palette_hexes = [str(x).strip() for x in (palette.get("hex") or []) if str(x).strip()]
+            palette_hexes = [
+                str(x).strip() for x in (palette.get("hex") or []) if str(x).strip()
+            ]
         except Exception:
             palette_hexes = []
 
         preferred = []
         if isinstance(style_dna.get("preferred_colors"), list):
-            preferred.extend([str(x).strip() for x in style_dna.get("preferred_colors") if str(x).strip()])
+            preferred.extend(
+                [
+                    str(x).strip()
+                    for x in style_dna.get("preferred_colors")
+                    if str(x).strip()
+                ]
+            )
         preferred.extend(palette_hexes)
         # Normalize for matching.
         return [color_normalizer.normalize(c) for c in preferred if c]
@@ -209,8 +257,14 @@ class RefinementEngine:
                 pats.append(p)
         return pats
 
-    def _detect_weakness(self, outfit: Dict[str, Any], items: List[Dict[str, Any]]) -> str:
-        breakdown = outfit.get("score_breakdown") if isinstance(outfit.get("score_breakdown"), dict) else {}
+    def _detect_weakness(
+        self, outfit: Dict[str, Any], items: List[Dict[str, Any]]
+    ) -> str:
+        breakdown = (
+            outfit.get("score_breakdown")
+            if isinstance(outfit.get("score_breakdown"), dict)
+            else {}
+        )
         try:
             color_intel = float(breakdown.get("color_intelligence") or 0.0)
         except Exception:
@@ -238,7 +292,14 @@ class RefinementEngine:
             return "layering"
         return ""
 
-    def _apply_targeted_corrections(self, *, items: List[Dict[str, Any]], outfit: Dict[str, Any], context: Dict[str, Any], style_dna: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _apply_targeted_corrections(
+        self,
+        *,
+        items: List[Dict[str, Any]],
+        outfit: Dict[str, Any],
+        context: Dict[str, Any],
+        style_dna: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
         wardrobe = context.get("wardrobe", [])
         if not isinstance(wardrobe, list) or not wardrobe:
             return items
@@ -257,8 +318,14 @@ class RefinementEngine:
 
         if weakness == "layering":
             # If cold and no outerwear, try to add an outerwear piece.
-            has_outer = any(self._base_type(it) == "outerwear" for it in items if isinstance(it, dict))
-            if not has_outer and str((context.get("signals") or {}).get("weather_mode") or "").strip().lower() in ("cold", "winter", "chilly"):
+            has_outer = any(
+                self._base_type(it) == "outerwear"
+                for it in items
+                if isinstance(it, dict)
+            )
+            if not has_outer and str(
+                (context.get("signals") or {}).get("weather_mode") or ""
+            ).strip().lower() in ("cold", "winter", "chilly"):
                 candidate = wardrobe_selector.find_best_match(
                     "outerwear",
                     context,
@@ -293,8 +360,15 @@ class RefinementEngine:
                 continue
 
             if weakness == "color":
-                c = color_normalizer.normalize(str(it.get("color") or it.get("color_code") or ""))
-                if preferred_colors and c and c not in preferred_colors and c not in neutrals:
+                c = color_normalizer.normalize(
+                    str(it.get("color") or it.get("color_code") or "")
+                )
+                if (
+                    preferred_colors
+                    and c
+                    and c not in preferred_colors
+                    and c not in neutrals
+                ):
                     swap_index = idx
                     swap_target_type = base
                     break
@@ -305,8 +379,16 @@ class RefinementEngine:
         candidate = wardrobe_selector.find_best_match(
             swap_target_type,
             context,
-            reference_embedding=items[swap_index].get("embedding") if isinstance(items[swap_index], dict) else None,
-            preferred_colors=(preferred_colors or neutrals) if weakness in ("color", "pattern", "occasion") else None,
+            reference_embedding=(
+                items[swap_index].get("embedding")
+                if isinstance(items[swap_index], dict)
+                else None
+            ),
+            preferred_colors=(
+                (preferred_colors or neutrals)
+                if weakness in ("color", "pattern", "occasion")
+                else None
+            ),
             require_occasion=occasion if weakness == "occasion" else None,
         )
         if not candidate:
@@ -439,7 +521,11 @@ class RefinementEngine:
         for i in items:
 
             replacement_type = i.get("preferred_replacement")
-            preferred_colors = i.get("preferred_colors") if isinstance(i, dict) and isinstance(i.get("preferred_colors"), list) else None
+            preferred_colors = (
+                i.get("preferred_colors")
+                if isinstance(i, dict) and isinstance(i.get("preferred_colors"), list)
+                else None
+            )
 
             if not replacement_type:
                 swapped.append(i)
@@ -451,7 +537,8 @@ class RefinementEngine:
                 context,
                 reference_embedding=i.get("embedding") if isinstance(i, dict) else None,
                 preferred_colors=preferred_colors,
-                require_occasion=str(context.get("occasion") or "").strip().lower() or None,
+                require_occasion=str(context.get("occasion") or "").strip().lower()
+                or None,
             )
 
             if candidate:

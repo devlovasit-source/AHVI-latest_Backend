@@ -56,7 +56,9 @@ def decode_image_base64(value: str) -> tuple[bytes, str]:
 # =========================
 # READ APIs
 # =========================
-def list_saved_boards(*, user_id: str, occasion: Optional[str] = None, limit: int = 100):
+def list_saved_boards(
+    *, user_id: str, occasion: Optional[str] = None, limit: int = 100
+):
     proxy = AppwriteProxy()
     return proxy.list_documents(
         "saved_boards",
@@ -122,21 +124,16 @@ def save_board(
         "occasion": clean_occasion(occasion),
         "imageUrl": final_image_url,
         "itemIds": item_ids,
-
         # 🔥 NEW INTELLIGENCE LAYER
         "aesthetic": payload.get("aesthetic"),
         "vibe": payload.get("vibe"),
         "colorStory": payload.get("color_story", []),
-
         # layout for pinterest-style rendering
         "layout": payload.get("layout", {}),
-
         # full item metadata (optional but powerful)
         "items": payload.get("items", []),
-
         # scoring (optional)
         "styleScore": payload.get("score"),
-
         # timestamps
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "updatedAt": datetime.now(timezone.utc).isoformat(),

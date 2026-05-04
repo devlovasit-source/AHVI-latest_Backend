@@ -11,7 +11,9 @@ class AppwriteProxyError(Exception):
 
 
 def _load_local_env() -> None:
-    allow_local = str(os.getenv("APPWRITE_PROXY_LOAD_LOCAL_ENV", "false")).strip().lower()
+    allow_local = (
+        str(os.getenv("APPWRITE_PROXY_LOAD_LOCAL_ENV", "false")).strip().lower()
+    )
     if allow_local not in {"1", "true", "yes", "on"}:
         return
 
@@ -50,44 +52,59 @@ class AppwriteProxy:
             os.getenv("APPWRITE_ENDPOINT", "")
             or os.getenv("EXPO_PUBLIC_APPWRITE_ENDPOINT", "")
         ).rstrip("/")
-        self.project_id = (
-            os.getenv("APPWRITE_PROJECT_ID", "")
-            or os.getenv("EXPO_PUBLIC_APPWRITE_PROJECT_ID", "")
+        self.project_id = os.getenv("APPWRITE_PROJECT_ID", "") or os.getenv(
+            "EXPO_PUBLIC_APPWRITE_PROJECT_ID", ""
         )
-        self.database_id = (
-            os.getenv("APPWRITE_DATABASE_ID", "")
-            or os.getenv("EXPO_PUBLIC_APPWRITE_DATABASE_ID", "")
+        self.database_id = os.getenv("APPWRITE_DATABASE_ID", "") or os.getenv(
+            "EXPO_PUBLIC_APPWRITE_DATABASE_ID", ""
         )
-        self.api_key = (
-            os.getenv("APPWRITE_API_KEY", "")
-            or os.getenv("APPWRITE_KEY", "")
+        self.api_key = os.getenv("APPWRITE_API_KEY", "") or os.getenv(
+            "APPWRITE_KEY", ""
         )
 
         self.collection_map = {
-            "outfits": os.getenv("APPWRITE_COLLECTION_OUTFITS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_OUTFITS", ""),
-            "users": os.getenv("APPWRITE_COLLECTION_USERS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_USERS", ""),
-            "plans": os.getenv("APPWRITE_COLLECTION_PLANS", "") or os.getenv("PLANS_COLLECTION_ID", ""),
-            "saved_boards": os.getenv("APPWRITE_COLLECTION_SAVED_BOARDS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_SAVED_BOARDS", ""),
-            "skincare": os.getenv("APPWRITE_COLLECTION_SKINCARE", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_SKINCARE", ""),
+            "outfits": os.getenv("APPWRITE_COLLECTION_OUTFITS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_OUTFITS", ""),
+            "users": os.getenv("APPWRITE_COLLECTION_USERS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_USERS", ""),
+            "plans": os.getenv("APPWRITE_COLLECTION_PLANS", "")
+            or os.getenv("PLANS_COLLECTION_ID", ""),
+            "saved_boards": os.getenv("APPWRITE_COLLECTION_SAVED_BOARDS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_SAVED_BOARDS", ""),
+            "skincare": os.getenv("APPWRITE_COLLECTION_SKINCARE", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_SKINCARE", ""),
             "skincare_profiles": (
                 os.getenv("APPWRITE_COLLECTION_SKINCARE_PROFILES", "")
                 or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_SKINCARE_PROFILES", "")
                 or os.getenv("APPWRITE_COLLECTION_SKINCARE", "")
                 or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_SKINCARE", "")
             ),
-            "contacts": os.getenv("APPWRITE_COLLECTION_CONTACTS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CONTACTS", ""),
-            "workout_outfits": os.getenv("APPWRITE_COLLECTION_WORKOUT_OUTFITS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_WORKOUT_OUTFITS", ""),
-            "bills": os.getenv("APPWRITE_COLLECTION_BILLS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_BILLS", ""),
-            "coupons": os.getenv("APPWRITE_COLLECTION_COUPONS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_COUPONS", ""),
-            "meds": os.getenv("APPWRITE_COLLECTION_MEDS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_MEDS", ""),
-            "med_logs": os.getenv("APPWRITE_COLLECTION_MED_LOGS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_MED_LOGS", ""),
-            "meal_plans": os.getenv("APPWRITE_COLLECTION_MEAL_PLANS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_MEAL_PLANS", ""),
-            "life_goals": os.getenv("APPWRITE_COLLECTION_LIFE_GOALS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_LIFE_GOALS", ""),
-            "life_boards": os.getenv("APPWRITE_COLLECTION_LIFE_BOARDS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_LIFE_BOARDS", ""),
-            "chat_threads": os.getenv("APPWRITE_COLLECTION_CHAT_THREADS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CHAT_THREADS", ""),
-            "chat_messages": os.getenv("APPWRITE_COLLECTION_CHAT_MESSAGES", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CHAT_MESSAGES", ""),
-            "memories": os.getenv("APPWRITE_COLLECTION_MEMORIES", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_MEMORIES", ""),
-            "jobs": os.getenv("APPWRITE_COLLECTION_JOBS", "") or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_JOBS", ""),
+            "contacts": os.getenv("APPWRITE_COLLECTION_CONTACTS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CONTACTS", ""),
+            "workout_outfits": os.getenv("APPWRITE_COLLECTION_WORKOUT_OUTFITS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_WORKOUT_OUTFITS", ""),
+            "bills": os.getenv("APPWRITE_COLLECTION_BILLS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_BILLS", ""),
+            "coupons": os.getenv("APPWRITE_COLLECTION_COUPONS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_COUPONS", ""),
+            "meds": os.getenv("APPWRITE_COLLECTION_MEDS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_MEDS", ""),
+            "med_logs": os.getenv("APPWRITE_COLLECTION_MED_LOGS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_MED_LOGS", ""),
+            "meal_plans": os.getenv("APPWRITE_COLLECTION_MEAL_PLANS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_MEAL_PLANS", ""),
+            "life_goals": os.getenv("APPWRITE_COLLECTION_LIFE_GOALS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_LIFE_GOALS", ""),
+            "life_boards": os.getenv("APPWRITE_COLLECTION_LIFE_BOARDS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_LIFE_BOARDS", ""),
+            "chat_threads": os.getenv("APPWRITE_COLLECTION_CHAT_THREADS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CHAT_THREADS", ""),
+            "chat_messages": os.getenv("APPWRITE_COLLECTION_CHAT_MESSAGES", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CHAT_MESSAGES", ""),
+            "memories": os.getenv("APPWRITE_COLLECTION_MEMORIES", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_MEMORIES", ""),
+            "jobs": os.getenv("APPWRITE_COLLECTION_JOBS", "")
+            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_JOBS", ""),
             "notification_devices": (
                 os.getenv("APPWRITE_COLLECTION_NOTIFICATION_DEVICES", "")
                 or os.getenv("APPWRITE_RESOURCE_NOTIFICATION_DEVICES", "")
@@ -97,7 +114,9 @@ class AppwriteProxy:
             "notification_reminders": (
                 os.getenv("APPWRITE_COLLECTION_NOTIFICATION_REMINDERS", "")
                 or os.getenv("APPWRITE_RESOURCE_NOTIFICATION_REMINDERS", "")
-                or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_NOTIFICATION_REMINDERS", "")
+                or os.getenv(
+                    "EXPO_PUBLIC_APPWRITE_COLLECTION_NOTIFICATION_REMINDERS", ""
+                )
                 or "notification_reminders"
             ),
         }
@@ -165,7 +184,10 @@ class AppwriteProxy:
             "chat_messages": {"method": "orderDesc", "attribute": "$createdAt"},
             "memories": {"method": "orderDesc", "attribute": "$updatedAt"},
             "jobs": {"method": "orderDesc", "attribute": "$createdAt"},
-            "notification_devices": {"method": "orderDesc", "attribute": "updatedAtISO"},
+            "notification_devices": {
+                "method": "orderDesc",
+                "attribute": "updatedAtISO",
+            },
             "notification_reminders": {"method": "orderAsc", "attribute": "sendAtISO"},
         }
 
@@ -202,10 +224,9 @@ class AppwriteProxy:
         collection_id = self.collection_map.get(resource, "")
         if not collection_id:
             env_suffix = resource.upper()
-            collection_id = (
-                os.getenv(f"APPWRITE_COLLECTION_{env_suffix}", "")
-                or os.getenv(f"EXPO_PUBLIC_APPWRITE_COLLECTION_{env_suffix}", "")
-            )
+            collection_id = os.getenv(
+                f"APPWRITE_COLLECTION_{env_suffix}", ""
+            ) or os.getenv(f"EXPO_PUBLIC_APPWRITE_COLLECTION_{env_suffix}", "")
         if not collection_id:
             collection_id = resource
         if not collection_id:
@@ -255,7 +276,9 @@ class AppwriteProxy:
         try:
             return response.json()
         except Exception as exc:
-            raise AppwriteProxyError("Appwrite returned invalid JSON response.") from exc
+            raise AppwriteProxyError(
+                "Appwrite returned invalid JSON response."
+            ) from exc
 
     def _list_documents_page(
         self,
@@ -273,7 +296,9 @@ class AppwriteProxy:
             ]
         )
 
-        serialized_tokens = [self._serialize_query_token(token) for token in query_tokens]
+        serialized_tokens = [
+            self._serialize_query_token(token) for token in query_tokens
+        ]
 
         indexed_queries: Dict[str, Any] = {}
         for idx, token in enumerate(serialized_tokens):
@@ -298,7 +323,9 @@ class AppwriteProxy:
                     return {
                         "documents": docs,
                         "total": data.get("total"),
-                        "used_query_syntax": ("queries[]" in params or "queries" in params),
+                        "used_query_syntax": (
+                            "queries[]" in params or "queries" in params
+                        ),
                     }
             except AppwriteProxyError:
                 continue
@@ -384,7 +411,9 @@ class AppwriteProxy:
         return {"method": "equal", "attribute": str(field), "values": [str(value)]}
 
     @staticmethod
-    def _matches_user(doc: Dict[str, Any], user_field: Optional[str], user_id: Optional[str]) -> bool:
+    def _matches_user(
+        doc: Dict[str, Any], user_field: Optional[str], user_id: Optional[str]
+    ) -> bool:
         if user_id is None or str(user_id) == "":
             return True
         expected = str(user_id)
@@ -439,8 +468,12 @@ class AppwriteProxy:
         used_query_syntax = bool(page.get("used_query_syntax"))
 
         filters_requested = bool((user_field and user_id) or occasion)
-        low_result_with_filter = filters_requested and safe_offset == 0 and len(docs) <= 1
-        fallback_needed = ((not used_query_syntax) and (filters_requested or bool(order_query))) or low_result_with_filter
+        low_result_with_filter = (
+            filters_requested and safe_offset == 0 and len(docs) <= 1
+        )
+        fallback_needed = (
+            (not used_query_syntax) and (filters_requested or bool(order_query))
+        ) or low_result_with_filter
 
         if fallback_needed:
             fallback = self._list_documents_local_filtered(
@@ -455,7 +488,7 @@ class AppwriteProxy:
             docs = fallback.get("documents", [])
             has_more = bool(fallback.get("has_more"))
             next_offset = fallback.get("next_offset")
-            
+
             # --- DEBUG BLOCK FOR FALLBACK SCAN ---
             if resource == "outfits":
                 print("\n=== WARDROBE FETCH DEBUG (FALLBACK MODE) ===")
@@ -463,10 +496,12 @@ class AppwriteProxy:
                 print(f"Collection ID Used: {collection_id}")
                 print(f"Total Items Found For You: {len(docs)}")
                 if len(docs) > 0:
-                    print(f"Sample Item Found: {docs[0].get('name')} - {docs[0].get('category')}")
+                    print(
+                        f"Sample Item Found: {docs[0].get('name')} - {docs[0].get('category')}"
+                    )
                 print("============================================\n")
             # -------------------------------------
-            
+
             payload = {
                 "documents": docs,
                 "meta": {
@@ -500,7 +535,9 @@ class AppwriteProxy:
             print(f"Collection ID Used: {collection_id}")
             print(f"Total Items Found For You: {len(docs)}")
             if len(docs) > 0:
-                print(f"Sample Item Found: {docs[0].get('name')} - {docs[0].get('category')}")
+                print(
+                    f"Sample Item Found: {docs[0].get('name')} - {docs[0].get('category')}"
+                )
             print("=============================================\n")
         # --------------------------------------
 
@@ -522,17 +559,23 @@ class AppwriteProxy:
         collection_id = self._collection_id(resource)
         return self._request("GET", self._url(collection_id, document_id))
 
-    def create_document(self, resource: str, data: Dict[str, Any], document_id: str = "unique()") -> Dict[str, Any]:
+    def create_document(
+        self, resource: str, data: Dict[str, Any], document_id: str = "unique()"
+    ) -> Dict[str, Any]:
         resource = self._normalize_resource(resource)
         collection_id = self._collection_id(resource)
         payload = {"documentId": document_id, "data": data}
         return self._request("POST", self._url(collection_id), payload=payload)
 
-    def update_document(self, resource: str, document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    def update_document(
+        self, resource: str, document_id: str, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         resource = self._normalize_resource(resource)
         collection_id = self._collection_id(resource)
         payload = {"data": data}
-        return self._request("PATCH", self._url(collection_id, document_id), payload=payload)
+        return self._request(
+            "PATCH", self._url(collection_id, document_id), payload=payload
+        )
 
     def delete_document(self, resource: str, document_id: str) -> None:
         resource = self._normalize_resource(resource)

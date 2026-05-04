@@ -75,7 +75,9 @@ def process_text(req: CalendarTextRequest, user=Depends(get_current_user)):
 
 
 @router.post("/process/async", status_code=status.HTTP_202_ACCEPTED)
-def process_text_async(http_request: Request, req: CalendarTextRequest, user=Depends(get_current_user)):
+def process_text_async(
+    http_request: Request, req: CalendarTextRequest, user=Depends(get_current_user)
+):
     if calendar_runtime_task is None:
         raise HTTPException(status_code=503, detail="Worker not configured")
 
@@ -97,14 +99,18 @@ def process_text_async(http_request: Request, req: CalendarTextRequest, user=Dep
 def daily_runtime(req: CalendarDailyRequest, user=Depends(get_current_user)):
     try:
         user_id = str((user or {}).get("user_id") or "")
-        return [run_calendar_runtime(event, user_id=user_id) for event in (req.events or [])]
+        return [
+            run_calendar_runtime(event, user_id=user_id) for event in (req.events or [])
+        ]
     except Exception:
         print("❌ /calendar/daily error:\n", traceback.format_exc())
         raise HTTPException(status_code=500, detail="Calendar daily processing failed")
 
 
 @router.post("/daily/async", status_code=status.HTTP_202_ACCEPTED)
-def daily_runtime_async(http_request: Request, req: CalendarDailyRequest, user=Depends(get_current_user)):
+def daily_runtime_async(
+    http_request: Request, req: CalendarDailyRequest, user=Depends(get_current_user)
+):
     if calendar_daily_task is None:
         raise HTTPException(status_code=503, detail="Worker not configured")
 
@@ -124,4 +130,9 @@ def daily_runtime_async(http_request: Request, req: CalendarDailyRequest, user=D
 
 @router.get("/health")
 def calendar_health():
-    return {"status": "ok", "engine": "calendar_runtime_v1", "auth": "enabled", "ready": True}
+    return {
+        "status": "ok",
+        "engine": "calendar_runtime_v1",
+        "auth": "enabled",
+        "ready": True,
+    }

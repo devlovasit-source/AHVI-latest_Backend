@@ -18,7 +18,13 @@ class ToneEngine:
     # =========================
     # MAIN ENTRY
     # =========================
-    def apply(self, text: str, user_profile: dict = None, signals: dict = None, context: dict = None):
+    def apply(
+        self,
+        text: str,
+        user_profile: dict = None,
+        signals: dict = None,
+        context: dict = None,
+    ):
 
         if not text:
             return text
@@ -35,11 +41,17 @@ class ToneEngine:
         generation = self._detect_generation(user_profile)
         context_mode = signals.get("context_mode", "general")
         emotion = signals.get("emotion_state", "neutral")
-        user_message_style = signals.get("user_message_style", {}) if isinstance(signals.get("user_message_style"), dict) else {}
+        user_message_style = (
+            signals.get("user_message_style", {})
+            if isinstance(signals.get("user_message_style"), dict)
+            else {}
+        )
 
         context_rules = self.config.get("context_modes", {}).get(context_mode, {})
         emotion_rules = self.config.get("emotion_overrides", {}).get(emotion, {})
-        generation_rules = self.config.get("generation_defaults", {}).get(generation, {})
+        generation_rules = self.config.get("generation_defaults", {}).get(
+            generation, {}
+        )
         limits = self._resolve_limits(
             generation_rules=generation_rules,
             context_rules=context_rules,
@@ -60,7 +72,12 @@ class ToneEngine:
         # -------------------------
         # 4. APPLY BASE CONSTRAINTS
         # -------------------------
-        text = self._apply_constraints(text, limits=limits, context_rules=context_rules, emotion_rules=emotion_rules)
+        text = self._apply_constraints(
+            text,
+            limits=limits,
+            context_rules=context_rules,
+            emotion_rules=emotion_rules,
+        )
 
         # -------------------------
         # 5. APPLY OUTFIT TONE
@@ -88,18 +105,22 @@ class ToneEngine:
 
         return text
 
-
     def build_prompt_tone(self, user_profile: dict = None, signals: dict = None):
         """Compatibility shim for older services that ask for prompt-level tone."""
         user_profile = user_profile or {}
         signals = signals or {}
         generation = self._detect_generation(user_profile)
         context_mode = signals.get("context_mode", "general")
-        rules = self.config.get("context_modes", {}).get(context_mode, {}) if isinstance(self.config, dict) else {}
+        rules = (
+            self.config.get("context_modes", {}).get(context_mode, {})
+            if isinstance(self.config, dict)
+            else {}
+        )
         return {
             "generation": generation,
             "context_mode": context_mode,
-            "tone_instruction": rules.get("instruction") or "Warm, concise, practical AHVI styling tone.",
+            "tone_instruction": rules.get("instruction")
+            or "Warm, concise, practical AHVI styling tone.",
         }
 
     # =========================
@@ -108,10 +129,9 @@ class ToneEngine:
     def _update_learning(self, memory, signals, aesthetic):
 
         memory = memory or {}
-        prefs = memory.get("tone_preferences", {
-            "energy": "balanced",
-            "style": "neutral"
-        })
+        prefs = memory.get(
+            "tone_preferences", {"energy": "balanced", "style": "neutral"}
+        )
 
         feedback = signals.get("feedback")
         engagement = signals.get("engagement_level")
@@ -189,10 +209,18 @@ class ToneEngine:
         return {
             "energy": "bold" if dark_score > light_score else "soft",
             "vibe": "street" if "street" in styles else "minimal",
-            "structure": "sharp" if "formal" in styles else "relaxed"
+            "structure": "sharp" if "formal" in styles else "relaxed",
         }
 
-    def _apply_outfit_tone(self, text, aesthetic, context_mode: str = "general", generation: str = "other", context_rules: dict = None, limits: dict = None):
+    def _apply_outfit_tone(
+        self,
+        text,
+        aesthetic,
+        context_mode: str = "general",
+        generation: str = "other",
+        context_rules: dict = None,
+        limits: dict = None,
+    ):
         context_rules = context_rules or {}
         limits = limits or {}
 
@@ -208,10 +236,17 @@ class ToneEngine:
             and int(limits.get("sass", 0) or 0) >= 10
         )
 
-        if aesthetic.get("vibe") == "street" and allow_expressive and generation == "gen_z":
+        if (
+            aesthetic.get("vibe") == "street"
+            and allow_expressive
+            and generation == "gen_z"
+        ):
             text += " This lands with confident street energy."
 
-        if aesthetic.get("vibe") == "minimal" and int(limits.get("slang", 0) or 0) <= 25:
+        if (
+            aesthetic.get("vibe") == "minimal"
+            and int(limits.get("slang", 0) or 0) <= 25
+        ):
             text += " The finish stays clean and intentional."
 
         return text
@@ -233,18 +268,31 @@ class ToneEngine:
         if int(limits.get("slang", 0) or 0) <= 0:
             text = self._remove_slang(text)
 
-        max_exc = int(self.config.get("global_output_constraints", {}).get("grammar_and_punctuation", {}).get("max_exclamation_marks", 1) or 1)
+        max_exc = int(
+            self.config.get("global_output_constraints", {})
+            .get("grammar_and_punctuation", {})
+            .get("max_exclamation_marks", 1)
+            or 1
+        )
         text = self._enforce_max_exclamations(text, max_exc=max(0, max_exc))
         return text
 
     def _remove_slang(self, text):
-        slang_list = self.config.get("slang_libraries", {}).get("gen_z", {}).get("approved_tokens", [])
+        slang_list = (
+            self.config.get("slang_libraries", {})
+            .get("gen_z", {})
+            .get("approved_tokens", [])
+        )
         for s in slang_list:
             text = text.replace(s, "")
         return text.strip()
 
     def _remove_disallowed_slang(self, text: str) -> str:
-        disallowed = self.config.get("slang_libraries", {}).get("gen_z", {}).get("disallowed_tokens", [])
+        disallowed = (
+            self.config.get("slang_libraries", {})
+            .get("gen_z", {})
+            .get("disallowed_tokens", [])
+        )
         out = text
         for token in disallowed:
             out = out.replace(token, "")
@@ -264,7 +312,13 @@ class ToneEngine:
                 out.append(ch)
         return "".join(out)
 
-    def _resolve_limits(self, generation_rules: dict, context_rules: dict, emotion_rules: dict, user_message_style: dict) -> dict:
+    def _resolve_limits(
+        self,
+        generation_rules: dict,
+        context_rules: dict,
+        emotion_rules: dict,
+        user_message_style: dict,
+    ) -> dict:
         generation_rules = generation_rules or {}
         context_rules = context_rules or {}
         emotion_rules = emotion_rules or {}
@@ -301,16 +355,30 @@ class ToneEngine:
         sass += int(emotion_rules.get("sass_boost", 0) or 0)
         emoji += int(emotion_rules.get("emoji_boost", 0) or 0)
 
-        mirror_slang_map = self.config.get("mirroring_rules", {}).get("slang_presence", {})
+        mirror_slang_map = self.config.get("mirroring_rules", {}).get(
+            "slang_presence", {}
+        )
         slang_bucket = str(user_message_style.get("slang_presence") or "").lower()
         if slang_bucket in mirror_slang_map:
-            mirror_max = int((mirror_slang_map.get(slang_bucket) or {}).get("assistant_slang_tokens_max", 0) or 0)
+            mirror_max = int(
+                (mirror_slang_map.get(slang_bucket) or {}).get(
+                    "assistant_slang_tokens_max", 0
+                )
+                or 0
+            )
             slang = min(slang, mirror_max * 25)
 
-        mirror_emoji_map = self.config.get("mirroring_rules", {}).get("emoji_density", {})
+        mirror_emoji_map = self.config.get("mirroring_rules", {}).get(
+            "emoji_density", {}
+        )
         emoji_bucket = str(user_message_style.get("emoji_density") or "").lower()
         if emoji_bucket in mirror_emoji_map:
-            mirror_emoji = int((mirror_emoji_map.get(emoji_bucket) or {}).get("assistant_max_emojis", 0) or 0)
+            mirror_emoji = int(
+                (mirror_emoji_map.get(emoji_bucket) or {}).get(
+                    "assistant_max_emojis", 0
+                )
+                or 0
+            )
             emoji = min(emoji, mirror_emoji)
 
         return {
@@ -351,4 +419,3 @@ class ToneEngine:
 
 # Singleton
 tone_engine = ToneEngine()
-

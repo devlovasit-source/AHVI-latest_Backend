@@ -1,4 +1,3 @@
-
 from typing import Dict, List, Any
 import time
 from services.qdrant_service import qdrant_service
@@ -98,17 +97,11 @@ class MemoryScorer:
 
         try:
             liked = qdrant_service.search_user_memory(
-                user_id=user_id,
-                vector=embedding,
-                memory_type="liked",
-                limit=5
+                user_id=user_id, vector=embedding, memory_type="liked", limit=5
             )
 
             disliked = qdrant_service.search_user_memory(
-                user_id=user_id,
-                vector=embedding,
-                memory_type="disliked",
-                limit=5
+                user_id=user_id, vector=embedding, memory_type="disliked", limit=5
             )
 
             score = 0.0

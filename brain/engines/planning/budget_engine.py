@@ -17,7 +17,9 @@ class BudgetEngine:
     # GET TIER
     # =========================
     def get_tier(self, tier_key):
-        return next((t for t in self.data.get("tiers", []) if t["key"] == tier_key), None)
+        return next(
+            (t for t in self.data.get("tiers", []) if t["key"] == tier_key), None
+        )
 
     # =========================
     # SIMPLE ESTIMATE
@@ -45,7 +47,7 @@ class BudgetEngine:
         day_part="evening",
         guest_band="81_200",
         event_type="wedding",
-        function_type="wedding_day"
+        function_type="wedding_day",
     ):
         base = self.estimate_simple(guest_count, tier_key, venue_type)
 
@@ -57,7 +59,11 @@ class BudgetEngine:
         guest_m = multipliers.get("guest_count_band_multiplier", {}).get(guest_band, 1)
 
         event_m = self.data.get("event_type_multiplier", {}).get(event_type, 1)
-        func_m = self.data.get("rules", {}).get("wedding_functions_multiplier", {}).get(function_type, 1)
+        func_m = (
+            self.data.get("rules", {})
+            .get("wedding_functions_multiplier", {})
+            .get(function_type, 1)
+        )
 
         total = base * city_m * season_m * day_m * guest_m * event_m * func_m
 
@@ -74,11 +80,13 @@ class BudgetEngine:
             avg_pct = (b["min_pct"] + b["max_pct"]) / 2
             amount = total_cost * (avg_pct / 100)
 
-            result.append({
-                "category": b["label"],
-                "percentage": avg_pct,
-                "amount": round(amount, 2)
-            })
+            result.append(
+                {
+                    "category": b["label"],
+                    "percentage": avg_pct,
+                    "amount": round(amount, 2),
+                }
+            )
 
         return result
 
@@ -92,7 +100,7 @@ class BudgetEngine:
         return {
             "total_estimate": total,
             "currency": self.data.get("currency", "INR"),
-            "breakdown": breakdown
+            "breakdown": breakdown,
         }
 
 

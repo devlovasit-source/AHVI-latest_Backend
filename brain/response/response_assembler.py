@@ -1,4 +1,3 @@
-
 import logging
 import os
 from typing import Dict, Any, List
@@ -46,7 +45,7 @@ class ResponseAssembler:
             return self._wrap_response(
                 "I need a bit more to work with — want me to refine it?",
                 context,
-                chips=["Show outfit ideas", "Try different vibe"]
+                chips=["Show outfit ideas", "Try different vibe"],
             )
 
         user_profile = context.get("user_profile", {})
@@ -84,12 +83,14 @@ class ResponseAssembler:
         # -------------------------
         # FINAL MESSAGE (PERSONALITY RESTORED)
         # -------------------------
-        message = self._compose([
-            self._proactive_prefix(signals),
-            self._reaction(outfits[0]),
-            base_text,
-            self._closer()
-        ])
+        message = self._compose(
+            [
+                self._proactive_prefix(signals),
+                self._reaction(outfits[0]),
+                base_text,
+                self._closer(),
+            ]
+        )
 
         message = tone_engine.apply(
             message,
@@ -103,11 +104,7 @@ class ResponseAssembler:
         chips = self._safe_actions(context)
 
         return self._wrap_response(
-            message,
-            context,
-            chips=chips,
-            cards=boards,
-            data={"outfits": outfits}
+            message, context, chips=chips, cards=boards, data={"outfits": outfits}
         )
 
     # =========================
@@ -134,11 +131,7 @@ class ResponseAssembler:
             except Exception as e:
                 logger.warning("LLM multi-domain failed: %s", e)
 
-        message = self._compose([
-            self._reaction(),
-            base_text,
-            self._closer()
-        ])
+        message = self._compose([self._reaction(), base_text, self._closer()])
 
         message = tone_engine.apply(
             message,
@@ -147,10 +140,7 @@ class ResponseAssembler:
         )
 
         return self._wrap_response(
-            message,
-            context,
-            chips=self._safe_actions(context),
-            data=data
+            message, context, chips=self._safe_actions(context), data=data
         )
 
     # =========================
@@ -162,18 +152,15 @@ class ResponseAssembler:
         context: dict,
         chips: List[str] = None,
         cards: List[dict] = None,
-        data: Dict[str, Any] = None
+        data: Dict[str, Any] = None,
     ) -> dict:
 
         return {
-            "message": {
-                "role": "assistant",
-                "content": text.strip()
-            },
+            "message": {"role": "assistant", "content": text.strip()},
             "chips": chips or [],
             "cards": cards or [],
             "data": data or {},
-            "meta": context.get("intent_meta", {})
+            "meta": context.get("intent_meta", {}),
         }
 
     # =========================
@@ -196,7 +183,11 @@ class ResponseAssembler:
         score_meta = outfit.get("score_meta", {}) if isinstance(outfit, dict) else {}
         if not isinstance(score_meta, dict):
             score_meta = {}
-        reasons = score_meta.get("reasons", []) if isinstance(score_meta.get("reasons"), list) else []
+        reasons = (
+            score_meta.get("reasons", [])
+            if isinstance(score_meta.get("reasons"), list)
+            else []
+        )
 
         parts = []
 
@@ -234,13 +225,25 @@ class ResponseAssembler:
             outfit = outfit if isinstance(outfit, dict) else {}
             stable_key = str(outfit.get("combo_id") or outfit.get("id") or "outfit")
 
-            items = outfit.get("refined_items") if isinstance(outfit.get("refined_items"), list) else outfit.get("items")
+            items = (
+                outfit.get("refined_items")
+                if isinstance(outfit.get("refined_items"), list)
+                else outfit.get("items")
+            )
             if not isinstance(items, list):
                 items = []
 
-            patterns = [str((i or {}).get("pattern") or "").strip().lower() for i in items if isinstance(i, dict)]
+            patterns = [
+                str((i or {}).get("pattern") or "").strip().lower()
+                for i in items
+                if isinstance(i, dict)
+            ]
 
-            breakdown = outfit.get("score_breakdown") if isinstance(outfit.get("score_breakdown"), dict) else {}
+            breakdown = (
+                outfit.get("score_breakdown")
+                if isinstance(outfit.get("score_breakdown"), dict)
+                else {}
+            )
             try:
                 color_hint = float(breakdown.get("color_intelligence") or 0.0)
             except Exception:
@@ -251,20 +254,52 @@ class ResponseAssembler:
                 silhouette_hint = 0.0
 
             signals = context.get("signals", {}) or {}
-            weather_mode = str(signals.get("weather_mode") or context.get("weather") or "").strip().lower()
+            weather_mode = (
+                str(signals.get("weather_mode") or context.get("weather") or "")
+                .strip()
+                .lower()
+            )
 
             harmony_line = color_harmony_snippet(color_hint, key=stable_key)
             print_line = print_pattern_snippet(patterns, key=stable_key)
             silhouette_line = silhouette_snippet(silhouette_hint, key=stable_key)
-            weather_line = weather_overlay_snippet(weather_mode, key=stable_key) if weather_mode else ""
+            weather_line = (
+                weather_overlay_snippet(weather_mode, key=stable_key)
+                if weather_mode
+                else ""
+            )
 
-            unified = outfit.get("unified_style") if isinstance(outfit.get("unified_style"), dict) else {}
-            reasons = unified.get("reasons") if isinstance(unified.get("reasons"), list) else []
+            unified = (
+                outfit.get("unified_style")
+                if isinstance(outfit.get("unified_style"), dict)
+                else {}
+            )
+            reasons = (
+                unified.get("reasons")
+                if isinstance(unified.get("reasons"), list)
+                else []
+            )
             reason_line = ""
             if reasons:
-                reason_line = "Why it works: " + ", ".join([str(r).strip() for r in reasons if str(r).strip()][:2]) + "."
+                reason_line = (
+                    "Why it works: "
+                    + ", ".join([str(r).strip() for r in reasons if str(r).strip()][:2])
+                    + "."
+                )
 
-            return " ".join([x for x in [harmony_line, print_line, silhouette_line, weather_line, reason_line] if x]).strip()
+            return " ".join(
+                [
+                    x
+                    for x in [
+                        harmony_line,
+                        print_line,
+                        silhouette_line,
+                        weather_line,
+                        reason_line,
+                    ]
+                    if x
+                ]
+            ).strip()
         except Exception:
             return ""
 

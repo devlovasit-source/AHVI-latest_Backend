@@ -7,7 +7,6 @@ import httpx
 from PIL import Image
 import io
 
-
 # =========================
 # CACHE (LRU STYLE)
 # =========================

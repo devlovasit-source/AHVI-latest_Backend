@@ -30,10 +30,7 @@ def match_items_to_roles(template, wardrobe, outfit_data):
             item_name = item.get("name", "")
 
             if selected_name and selected_name == item_name:
-                matched.append({
-                    "role": role_id,
-                    "item": item
-                })
+                matched.append({"role": role_id, "item": item})
                 break
 
     return matched
@@ -46,8 +43,4 @@ def build_board(outfit_data, wardrobe):
     template = select_template(outfit_data)
     items = match_items_to_roles(template, wardrobe, outfit_data)
 
-    return {
-        "template_id": template["id"],
-        "layout": template["layout"],
-        "items": items
-    }
+    return {"template_id": template["id"], "layout": template["layout"], "items": items}

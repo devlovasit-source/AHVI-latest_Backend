@@ -39,7 +39,9 @@ class AppSettings(BaseModel):
     cors_allowed_methods: list[str] = Field(default_factory=lambda: ["*"])
     cors_allowed_headers: list[str] = Field(default_factory=lambda: ["*"])
     strict_router_loading: bool = Field(default=True)
-    required_routers: list[str] = Field(default_factory=lambda: ["routers.chat", "routers.data"])
+    required_routers: list[str] = Field(
+        default_factory=lambda: ["routers.chat", "routers.data"]
+    )
 
     @model_validator(mode="after")
     def validate_ranges(self) -> Self:

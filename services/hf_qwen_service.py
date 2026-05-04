@@ -88,7 +88,9 @@ def _gradio_call_infer(
     init_payload = {
         "data": [image_data_uri, prompt],
     }
-    init_resp = requests.post(post_url, json=init_payload, headers=headers, timeout=timeout_seconds)
+    init_resp = requests.post(
+        post_url, json=init_payload, headers=headers, timeout=timeout_seconds
+    )
     if init_resp.status_code >= 400:
         return None, {
             "enabled": True,
@@ -114,7 +116,11 @@ def _gradio_call_infer(
             "reason": f"gradio stream failed: {stream_resp.text[:300]}",
         }
 
-    data_lines = [line.strip() for line in (stream_resp.text or "").splitlines() if line.strip().startswith("data:")]
+    data_lines = [
+        line.strip()
+        for line in (stream_resp.text or "").splitlines()
+        if line.strip().startswith("data:")
+    ]
     for line in reversed(data_lines):
         raw = line[5:].strip()
         if not raw:
@@ -132,7 +138,9 @@ def _gradio_call_infer(
         if image_url:
             if image_url.startswith("/"):
                 image_url = urljoin(f"{base}/", image_url.lstrip("/"))
-            downloaded_b64 = _download_image_as_base64(image_url, timeout_seconds=timeout_seconds)
+            downloaded_b64 = _download_image_as_base64(
+                image_url, timeout_seconds=timeout_seconds
+            )
             if downloaded_b64:
                 return downloaded_b64, {"enabled": True, "reason": "ok_gradio_url"}
 
@@ -186,17 +194,29 @@ def regenerate_image(
     }
 
     try:
-        response = requests.post(endpoint, json=payload, headers=headers, timeout=timeout_seconds)
+        response = requests.post(
+            endpoint, json=payload, headers=headers, timeout=timeout_seconds
+        )
         if response.status_code < 400:
             data = response.json() if response.text else {}
             edited = _extract_image_base64(data)
             if edited:
-                return edited, {"enabled": True, "status_code": response.status_code, "reason": "ok_http_json"}
+                return edited, {
+                    "enabled": True,
+                    "status_code": response.status_code,
+                    "reason": "ok_http_json",
+                }
             image_url = _extract_image_url(data)
             if image_url:
-                downloaded = _download_image_as_base64(image_url, timeout_seconds=timeout_seconds)
+                downloaded = _download_image_as_base64(
+                    image_url, timeout_seconds=timeout_seconds
+                )
                 if downloaded:
-                    return downloaded, {"enabled": True, "status_code": response.status_code, "reason": "ok_http_url"}
+                    return downloaded, {
+                        "enabled": True,
+                        "status_code": response.status_code,
+                        "reason": "ok_http_url",
+                    }
 
         base_endpoint = endpoint
         if "/gradio_api/call/" in base_endpoint:
@@ -214,7 +234,14 @@ def regenerate_image(
         reason = str((meta2 or {}).get("reason", "") or "").strip()
         if response.status_code >= 400:
             reason = reason or f"qwen endpoint error: {response.text[:300]}"
-            return None, {"enabled": True, "status_code": response.status_code, "reason": reason}
-        return None, {"enabled": True, "reason": reason or "qwen response missing image"}
+            return None, {
+                "enabled": True,
+                "status_code": response.status_code,
+                "reason": reason,
+            }
+        return None, {
+            "enabled": True,
+            "reason": reason or "qwen response missing image",
+        }
     except Exception as exc:
         return None, {"enabled": True, "reason": f"qwen request failed: {exc}"}

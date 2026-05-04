@@ -100,7 +100,9 @@ def _validate_vision_contract(payload: dict[str, Any]) -> dict[str, Any]:
         "meta.tone_engine_used",
         "meta.visual_intelligence_enabled",
     ]
-    missing_fields = [path for path in required_paths if _read_path(payload, path) is None]
+    missing_fields = [
+        path for path in required_paths if _read_path(payload, path) is None
+    ]
 
     invalid_fields = []
     style_tone = _read_path(payload, "style.tone")

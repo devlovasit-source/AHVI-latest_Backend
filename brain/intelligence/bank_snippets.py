@@ -3,7 +3,6 @@ import json
 import os
 from typing import Any, Dict, List
 
-
 _CACHE: Dict[str, Dict[str, Any]] = {}
 
 
@@ -46,8 +45,8 @@ def _sanitize_bank_text(text: str) -> str:
     replacements = {
         "â€™": "'",
         "â€˜": "'",
-        "â€œ": "\"",
-        "â€": "\"",
+        "â€œ": '"',
+        "â€": '"',
         "â€”": " - ",
         "â€“": "-",
         "â€¦": "...",
@@ -62,7 +61,12 @@ def _sanitize_bank_text(text: str) -> str:
 def pick_bank_phrase(*, bank_path: str, category: str, key: str) -> str:
     bank = _get_bank(bank_path)
     cats = (
-        (((bank.get("styling_intelligence") or {}) or {}).get(os.path.basename(bank_path).replace(".json", "")) or {})
+        (
+            ((bank.get("styling_intelligence") or {}) or {}).get(
+                os.path.basename(bank_path).replace(".json", "")
+            )
+            or {}
+        )
         if isinstance(bank.get("styling_intelligence"), dict)
         else {}
     )
@@ -85,13 +89,19 @@ def pick_bank_phrase(*, bank_path: str, category: str, key: str) -> str:
 
 
 def color_harmony_snippet(score_hint: float, *, key: str) -> str:
-    bank_path = os.path.join(_brain_dir(), "banks", "foundational", "color_harmony_bank.json")
-    category = "positive_harmony" if score_hint >= 0.6 else "constructive_flat_or_clashing"
+    bank_path = os.path.join(
+        _brain_dir(), "banks", "foundational", "color_harmony_bank.json"
+    )
+    category = (
+        "positive_harmony" if score_hint >= 0.6 else "constructive_flat_or_clashing"
+    )
     return pick_bank_phrase(bank_path=bank_path, category=category, key=key)
 
 
 def weather_overlay_snippet(weather_mode: str, *, key: str) -> str:
-    bank_path = os.path.join(_brain_dir(), "banks", "contextual", "season_weather_overlays_bank_v1.json")
+    bank_path = os.path.join(
+        _brain_dir(), "banks", "contextual", "season_weather_overlays_bank_v1.json"
+    )
     weather_mode = str(weather_mode or "").strip().lower()
     if weather_mode in ("hot", "summer", "heat", "warm"):
         category = "summer_heat"
@@ -103,8 +113,12 @@ def weather_overlay_snippet(weather_mode: str, *, key: str) -> str:
 
 
 def print_pattern_snippet(patterns: List[str], *, key: str) -> str:
-    bank_path = os.path.join(_brain_dir(), "banks", "foundational", "print_pattern_bank_v1.json")
-    pats = [str(p or "").strip().lower() for p in (patterns or []) if str(p or "").strip()]
+    bank_path = os.path.join(
+        _brain_dir(), "banks", "foundational", "print_pattern_bank_v1.json"
+    )
+    pats = [
+        str(p or "").strip().lower() for p in (patterns or []) if str(p or "").strip()
+    ]
     non_plain = [p for p in pats if p not in ("plain", "solid", "none")]
     unique = sorted(set(non_plain))
     if not unique:
@@ -117,6 +131,8 @@ def print_pattern_snippet(patterns: List[str], *, key: str) -> str:
 
 
 def silhouette_snippet(score_hint: float, *, key: str) -> str:
-    bank_path = os.path.join(_brain_dir(), "banks", "foundational", "silhouette_proportion_bank.json")
+    bank_path = os.path.join(
+        _brain_dir(), "banks", "foundational", "silhouette_proportion_bank.json"
+    )
     category = "positive_balanced" if score_hint >= 0.6 else "constructive_slightly_off"
     return pick_bank_phrase(bank_path=bank_path, category=category, key=key)

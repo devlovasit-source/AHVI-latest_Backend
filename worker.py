@@ -24,6 +24,7 @@ except Exception:
 def _has_redis_client() -> bool:
     try:
         import redis  # noqa
+
         return True
     except Exception:
         return False
@@ -50,7 +51,10 @@ if _sentry_dsn and not _sentry_client_ready:
 # =========================
 # CELERY INIT
 # =========================
-redis_url = str(getattr(settings, "redis_url", "") or os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+redis_url = str(
+    getattr(settings, "redis_url", "")
+    or os.getenv("REDIS_URL", "redis://localhost:6379/0")
+)
 logger = logging.getLogger("ahvi.worker")
 
 celery_app = Celery(
@@ -71,13 +75,17 @@ celery_app.conf.update(
 )
 
 
-def _retry_or_fail(task, exc: Exception, *, max_retries: int = 2, request_id: str | None = None):
+def _retry_or_fail(
+    task, exc: Exception, *, max_retries: int = 2, request_id: str | None = None
+):
     retries = int(getattr(task.request, "retries", 0))
     if request_id:
         set_request_id(request_id)
     if retries >= max_retries:
         try:
-            job_tracker.mark_failed(str(getattr(task.request, "id", "")), error=str(exc))
+            job_tracker.mark_failed(
+                str(getattr(task.request, "id", "")), error=str(exc)
+            )
         except Exception:
             pass
         raise exc
@@ -94,7 +102,9 @@ def _retry_or_fail(task, exc: Exception, *, max_retries: int = 2, request_id: st
     raise task.retry(exc=exc, countdown=countdown, max_retries=max_retries)
 
 
-def _mark_started(task, *, request_id: str | None = None, user_id: str | None = None) -> None:
+def _mark_started(
+    task, *, request_id: str | None = None, user_id: str | None = None
+) -> None:
     try:
         if request_id:
             set_request_id(request_id)
@@ -111,11 +121,15 @@ def _mark_started(task, *, request_id: str | None = None, user_id: str | None = 
         pass
 
 
-def _mark_succeeded(task, result_meta: dict | None = None, *, request_id: str | None = None) -> None:
+def _mark_succeeded(
+    task, result_meta: dict | None = None, *, request_id: str | None = None
+) -> None:
     try:
         if request_id:
             set_request_id(request_id)
-        job_tracker.mark_succeeded(str(getattr(task.request, "id", "")), result_meta=result_meta or {})
+        job_tracker.mark_succeeded(
+            str(getattr(task.request, "id", "")), result_meta=result_meta or {}
+        )
     except Exception:
         pass
 
@@ -130,7 +144,11 @@ def run_heavy_audio_task(self, text_to_clone, lang, request_id: str = ""):
     _mark_started(self, request_id=request_id)
     try:
         audio_base64 = audio_service.generate_cloned_audio(text_to_clone, lang)
-        _mark_succeeded(self, {"task": "generate_audio", "request_id": request_id}, request_id=request_id)
+        _mark_succeeded(
+            self,
+            {"task": "generate_audio", "request_id": request_id},
+            request_id=request_id,
+        )
         return {"status": "success", "audio_base64": audio_base64}
     except Exception as e:
         logger.exception("AUDIO TASK ERROR")
@@ -147,7 +165,11 @@ def bg_remove_task(self, image_base64: str, request_id: str = ""):
     _mark_started(self, request_id=request_id)
     try:
         result = remove_background_sync(image_base64)
-        _mark_succeeded(self, {"task": "bg_remove_task", "request_id": request_id}, request_id=request_id)
+        _mark_succeeded(
+            self,
+            {"task": "bg_remove_task", "request_id": request_id},
+            request_id=request_id,
+        )
         return {"status": "success", "result": result}
     except Exception as e:
         logger.exception("BG TASK ERROR")
@@ -196,7 +218,11 @@ def calendar_daily_task(self, payload: dict, user_id: str = "", request_id: str 
             results.append(run_calendar_runtime(parsed, user_id=user_id).model_dump())
         _mark_succeeded(
             self,
-            {"task": "calendar_daily_task", "request_id": request_id, "events": len(results)},
+            {
+                "task": "calendar_daily_task",
+                "request_id": request_id,
+                "events": len(results),
+            },
             request_id=request_id,
         )
         return {"status": "success", "result": results}
@@ -229,25 +255,45 @@ def dispatch_due_reminders_task(self, window_seconds: int = 60, request_id: str 
             title = "AHVI"
 
             devices = notification_store.list_devices(user_id=user_id)
-            tokens = [str(d.get("token") or "").strip() for d in devices if str(d.get("token") or "").strip()]
-            resp = firebase_push_service.send_to_tokens(tokens=tokens, title=title, body=message, data={"type": "reminder"})
+            tokens = [
+                str(d.get("token") or "").strip()
+                for d in devices
+                if str(d.get("token") or "").strip()
+            ]
+            resp = firebase_push_service.send_to_tokens(
+                tokens=tokens, title=title, body=message, data={"type": "reminder"}
+            )
             if resp.get("success") and int(resp.get("sent") or 0) > 0:
                 sent += int(resp.get("sent") or 0)
                 if doc_id:
-                    notification_store.mark_reminder(reminder_doc_id=doc_id, status="sent")
+                    notification_store.mark_reminder(
+                        reminder_doc_id=doc_id, status="sent"
+                    )
             else:
                 failed += int(resp.get("failed") or 1)
                 if doc_id:
-                    notification_store.mark_reminder(reminder_doc_id=doc_id, status="failed", error=str(resp.get("error") or ""))
+                    notification_store.mark_reminder(
+                        reminder_doc_id=doc_id,
+                        status="failed",
+                        error=str(resp.get("error") or ""),
+                    )
 
         _mark_succeeded(
             self,
-            {"task": "dispatch_due_reminders_task", "processed": processed, "sent": sent, "failed": failed},
+            {
+                "task": "dispatch_due_reminders_task",
+                "processed": processed,
+                "sent": sent,
+                "failed": failed,
+            },
             request_id=request_id,
         )
-        return {"status": "success", "processed": processed, "sent": sent, "failed": failed}
+        return {
+            "status": "success",
+            "processed": processed,
+            "sent": sent,
+            "failed": failed,
+        }
     except Exception as e:
         logger.exception("NOTIFICATIONS DISPATCH ERROR")
         _retry_or_fail(self, e, request_id=request_id)
-
-

@@ -20,7 +20,9 @@ class StyleDNAEngine:
     def __init__(self) -> None:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self._dna_path = os.path.join(base_dir, "data", "style_dna_memory.json")
-        self._feedback_memory_path = os.path.join(base_dir, "data", "outfit_memory.json")
+        self._feedback_memory_path = os.path.join(
+            base_dir, "data", "outfit_memory.json"
+        )
         self._lock = Lock()
 
     def build(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -31,13 +33,19 @@ class StyleDNAEngine:
 
         with self._lock:
             dna_state = self._load_json(self._dna_path, fallback={"users": {}})
-            feedback_memory = self._load_json(self._feedback_memory_path, fallback={"users": {}})
+            feedback_memory = self._load_json(
+                self._feedback_memory_path, fallback={"users": {}}
+            )
 
             learned_dna = self._build_dna(
                 profile=profile,
                 history=history,
-                previous_dna=((dna_state.get("users", {}) or {}).get(user_id, {}) or {}),
-                feedback_user=((feedback_memory.get("users", {}) or {}).get(user_id, {}) or {}),
+                previous_dna=(
+                    (dna_state.get("users", {}) or {}).get(user_id, {}) or {}
+                ),
+                feedback_user=(
+                    (feedback_memory.get("users", {}) or {}).get(user_id, {}) or {}
+                ),
                 memory=memory,  # 🔥 NEW
             )
 
@@ -86,13 +94,20 @@ class StyleDNAEngine:
                 item = outfit.get(part, {}) if isinstance(outfit, dict) else {}
 
                 liked_colors.update([str(item.get("color", "")).lower()] * int(weight))
-                liked_fabrics.update([str(item.get("fabric", "")).lower()] * int(weight))
-                liked_types.update([str(item.get("type") or item.get("category") or "").lower()] * int(weight))
+                liked_fabrics.update(
+                    [str(item.get("fabric", "")).lower()] * int(weight)
+                )
+                liked_types.update(
+                    [str(item.get("type") or item.get("category") or "").lower()]
+                    * int(weight)
+                )
 
         for outfit in disliked[:80]:
             for part in ("top", "bottom", "shoes"):
                 item = outfit.get(part, {}) if isinstance(outfit, dict) else {}
-                disliked_types.update([str(item.get("type") or item.get("category") or "").lower()])
+                disliked_types.update(
+                    [str(item.get("type") or item.get("category") or "").lower()]
+                )
 
         # =========================
         # HISTORY
@@ -145,13 +160,10 @@ class StyleDNAEngine:
         aesthetic_counter = Counter(preferred_styles)
 
         primary_aesthetic = (
-            aesthetic_counter.most_common(1)[0][0]
-            if aesthetic_counter else "casual"
+            aesthetic_counter.most_common(1)[0][0] if aesthetic_counter else "casual"
         )
 
-        secondary_aesthetics = [
-            k for k, _ in aesthetic_counter.most_common(3)
-        ][1:]
+        secondary_aesthetics = [k for k, _ in aesthetic_counter.most_common(3)][1:]
 
         # =========================
         # 🔥 CONFIDENCE
@@ -164,7 +176,6 @@ class StyleDNAEngine:
             "preferred_styles": preferred_styles[:8],
             "preferred_types": preferred_types[:10],
             "disliked_items": disliked_items[:10],
-
             # 🔥 NEW
             "primary_aesthetic": primary_aesthetic,
             "secondary_aesthetics": secondary_aesthetics,
@@ -222,12 +233,14 @@ style_dna_engine = StyleDNAEngine()
 
 # ================= AHVI STYLE DNA PATCH V2 BEGIN =================
 
+
 def _ahvi_dna_coerce_dict(value):
     if isinstance(value, dict):
         return value
     if isinstance(value, str) and value.strip():
         try:
             import json as _json
+
             parsed = _json.loads(value)
             return parsed if isinstance(parsed, dict) else {}
         except Exception:
@@ -252,8 +265,7 @@ def _ahvi_gender_from_profile(profile, previous_dna=None):
 
     prefs = _ahvi_dna_coerce_dict(profile.get("preferences"))
     style_prefs = _ahvi_dna_coerce_dict(
-        profile.get("style_preferences")
-        or profile.get("stylePreference")
+        profile.get("style_preferences") or profile.get("stylePreference")
     )
 
     candidates = [
@@ -287,7 +299,9 @@ except Exception:
     _AHVI_ORIGINAL_STYLE_DNA_ENRICH_CONTEXT = None
 
 
-if _AHVI_ORIGINAL_STYLE_DNA_ENRICH_CONTEXT and not getattr(StyleDNAEngine.enrich_context, "_ahvi_gender_patch_v2", False):
+if _AHVI_ORIGINAL_STYLE_DNA_ENRICH_CONTEXT and not getattr(
+    StyleDNAEngine.enrich_context, "_ahvi_gender_patch_v2", False
+):
 
     def _ahvi_style_dna_enrich_context(self, context):
         ctx = _AHVI_ORIGINAL_STYLE_DNA_ENRICH_CONTEXT(self, context) or context or {}
@@ -295,8 +309,12 @@ if _AHVI_ORIGINAL_STYLE_DNA_ENRICH_CONTEXT and not getattr(StyleDNAEngine.enrich
         if not isinstance(ctx, dict):
             ctx = {}
 
-        profile = ctx.get("user_profile") if isinstance(ctx.get("user_profile"), dict) else {}
-        style_dna = ctx.get("style_dna") if isinstance(ctx.get("style_dna"), dict) else {}
+        profile = (
+            ctx.get("user_profile") if isinstance(ctx.get("user_profile"), dict) else {}
+        )
+        style_dna = (
+            ctx.get("style_dna") if isinstance(ctx.get("style_dna"), dict) else {}
+        )
 
         gender = _ahvi_gender_from_profile(profile, style_dna)
 

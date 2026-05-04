@@ -44,10 +44,7 @@ class ArchetypeEngine:
             total = sum(v for _, v in sorted_arcs) or 1.0
 
             return [
-                {
-                    "type": arc,
-                    "weight": round(score / total, 3)
-                }
+                {"type": arc, "weight": round(score / total, 3)}
                 for arc, score in sorted_arcs
                 if arc in self.config
             ]

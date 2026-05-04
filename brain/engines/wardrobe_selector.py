@@ -1,4 +1,3 @@
-
 from typing import List, Dict, Any, Optional
 
 from brain.engines.color_normalizer import color_normalizer
@@ -29,12 +28,10 @@ class WardrobeSelector:
         "shirt": "top",
         "tee": "top",
         "top": "top",
-
         "jeans": "bottom",
         "pants": "bottom",
         "trousers": "bottom",
         "bottom": "bottom",
-
         "shoes": "footwear",
         "sneakers": "footwear",
         "loafers": "footwear",
@@ -42,7 +39,6 @@ class WardrobeSelector:
         "boots": "footwear",
         "sandals": "footwear",
         "footwear": "footwear",
-
         "dress": "dress",
         "dresses": "dress",
         "outerwear": "outerwear",
@@ -56,12 +52,19 @@ class WardrobeSelector:
         t = t.lower().strip()
         return self.TYPE_MAP.get(t, t)
 
-    def _context_score(self, item: Dict[str, Any], context: Dict[str, Any], outfit: List[Dict[str, Any]]) -> float:
+    def _context_score(
+        self,
+        item: Dict[str, Any],
+        context: Dict[str, Any],
+        outfit: List[Dict[str, Any]],
+    ) -> float:
         score = 0.0
 
         style_dna = context.get("style_dna", {}) or {}
         preferred_styles = style_dna.get("preferred_styles", []) or []
-        preferred_styles = [str(x).strip().lower() for x in preferred_styles if str(x).strip()]
+        preferred_styles = [
+            str(x).strip().lower() for x in preferred_styles if str(x).strip()
+        ]
 
         item_style = str(item.get("style") or "").strip().lower()
         if item_style and item_style in preferred_styles:
@@ -76,7 +79,9 @@ class WardrobeSelector:
                 if c:
                     outfit_colors.append(color_normalizer.normalize(c))
 
-        item_color = color_normalizer.normalize(str(item.get("color") or item.get("color_code") or ""))
+        item_color = color_normalizer.normalize(
+            str(item.get("color") or item.get("color_code") or "")
+        )
         if item_color and outfit_colors and item_color in outfit_colors:
             score += 0.5
 
@@ -100,7 +105,9 @@ class WardrobeSelector:
             return None
 
         target_type = self.normalize_type(target_type)
-        occasion = str(require_occasion or context.get("occasion") or "").strip().lower()
+        occasion = (
+            str(require_occasion or context.get("occasion") or "").strip().lower()
+        )
 
         # Palette-aware preferred colors (deterministic).
         palette_colors: List[str] = []
@@ -108,21 +115,33 @@ class WardrobeSelector:
             palette = palette_engine.select_palette(
                 {
                     "event": occasion or None,
-                    "microtheme": (context.get("style_dna") or {}).get("primary_aesthetic"),
+                    "microtheme": (context.get("style_dna") or {}).get(
+                        "primary_aesthetic"
+                    ),
                 }
             )
-            palette_colors = [color_normalizer.normalize(c) for c in (palette.get("hex") or []) if c]
+            palette_colors = [
+                color_normalizer.normalize(c) for c in (palette.get("hex") or []) if c
+            ]
         except Exception:
             palette_colors = []
 
-        preferred_norm = [color_normalizer.normalize(c) for c in (preferred_colors or []) if c]
-        current_outfit = context.get("current_outfit", []) if isinstance(context.get("current_outfit"), list) else []
+        preferred_norm = [
+            color_normalizer.normalize(c) for c in (preferred_colors or []) if c
+        ]
+        current_outfit = (
+            context.get("current_outfit", [])
+            if isinstance(context.get("current_outfit"), list)
+            else []
+        )
 
         # -------------------------
         # FILTER BY TYPE (SMART)
         # -------------------------
         def _get_item_type(row: Dict[str, Any]) -> str:
-            return self.normalize_type(str(row.get("type") or row.get("sub_category") or ""))
+            return self.normalize_type(
+                str(row.get("type") or row.get("sub_category") or "")
+            )
 
         def _get_item_category(row: Dict[str, Any]) -> str:
             return self.normalize_type(str(row.get("category") or ""))
@@ -144,7 +163,9 @@ class WardrobeSelector:
                     continue
                 item_type = _get_item_type(w)
                 item_cat = _get_item_category(w)
-                if target_type and (target_type in item_type or target_type in item_cat):
+                if target_type and (
+                    target_type in item_type or target_type in item_cat
+                ):
                     candidates.append(w)
 
         if not candidates:
@@ -163,8 +184,7 @@ class WardrobeSelector:
             if reference_embedding and item.get("embedding"):
                 try:
                     sim = qdrant_service.cosine_similarity(
-                        reference_embedding,
-                        item["embedding"]
+                        reference_embedding, item["embedding"]
                     )
                     score += sim * 0.8
                 except Exception:
@@ -209,10 +229,7 @@ class WardrobeSelector:
                 except Exception:
                     pass
 
-            scored.append({
-                "item": item,
-                "score": score
-            })
+            scored.append({"item": item, "score": score})
 
         # -------------------------
         # SORT

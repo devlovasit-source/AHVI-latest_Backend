@@ -16,7 +16,6 @@ from services import ai_gateway
 from services.auth_service import get_current_user
 from services.security_limits import get_redis_client
 
-
 router = APIRouter()
 
 # 🔥 CONFIG
@@ -111,14 +110,10 @@ async def _detect(image: Image.Image):
 async def _batch_embeddings(items):
     loop = asyncio.get_running_loop()
 
-    text_tasks = [
-        loop.run_in_executor(None, encode_metadata, i)
-        for i in items
-    ]
+    text_tasks = [loop.run_in_executor(None, encode_metadata, i) for i in items]
 
     image_tasks = [
-        loop.run_in_executor(None, encode_image_url, i["masked_url"])
-        for i in items
+        loop.run_in_executor(None, encode_image_url, i["masked_url"]) for i in items
     ]
 
     tvs = await asyncio.gather(*text_tasks)
@@ -128,7 +123,7 @@ async def _batch_embeddings(items):
 
     for tv, iv in zip(tvs, ivs):
         if tv and iv:
-            vec = [(0.6*i + 0.4*t) for i, t in zip(iv, tv)]
+            vec = [(0.6 * i + 0.4 * t) for i, t in zip(iv, tv)]
         else:
             vec = iv or tv or []
         vectors.append(vec)
@@ -149,23 +144,27 @@ async def process_items(image: Image.Image, user_id: str):
     # prepare items
     items = []
     for d in detections:
-        items.append({
-            "category": d.get("label"),
-            "image_url": d.get("raw_url"),
-            "masked_url": d.get("masked_url"),
-            "user_id": user_id,
-            "image_id": d.get("item_id"),
-        })
+        items.append(
+            {
+                "category": d.get("label"),
+                "image_url": d.get("raw_url"),
+                "masked_url": d.get("masked_url"),
+                "user_id": user_id,
+                "image_id": d.get("item_id"),
+            }
+        )
 
     # 🔴 AI (parallel + cached)
     async def enrich(item):
         if item["category"] not in ["ring", "earring", "bracelet"]:
             ai = await _get_ai(item["masked_url"])
-            item.update({
-                "pattern": ai.get("pattern"),
-                "occasions": ai.get("occasions"),
-                "style": ai.get("style"),
-            })
+            item.update(
+                {
+                    "pattern": ai.get("pattern"),
+                    "occasions": ai.get("occasions"),
+                    "style": ai.get("style"),
+                }
+            )
         return item
 
     items = await asyncio.gather(*[enrich(i) for i in items])
@@ -188,18 +187,17 @@ async def process_items(image: Image.Image, user_id: str):
                 ),
             )
 
-        results.append({
-            "item_id": item["image_id"],
-            "category": item["category"],
-            "image_url": item["image_url"],
-            "masked_url": item["masked_url"],
-            "similar_items": similar,
-        })
+        results.append(
+            {
+                "item_id": item["image_id"],
+                "category": item["category"],
+                "image_url": item["image_url"],
+                "masked_url": item["masked_url"],
+                "similar_items": similar,
+            }
+        )
 
-    return {
-        "items": results,
-        "meta": {"detection": "success"}
-    }
+    return {"items": results, "meta": {"detection": "success"}}
 
 
 # =========================

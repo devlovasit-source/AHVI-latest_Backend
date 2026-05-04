@@ -36,10 +36,7 @@ async def remove_background(request: BGRemoveRequest):
         # encode response
         result_base64 = base64.b64encode(result_bytes).decode()
 
-        return {
-            "success": True,
-            "image_base64": result_base64
-        }
+        return {"success": True, "image_base64": result_base64}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"BG removal failed: {e}")

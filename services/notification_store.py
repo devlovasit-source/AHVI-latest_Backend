@@ -32,9 +32,19 @@ class NotificationStore:
 
     def __init__(self) -> None:
         self._appwrite = AppwriteProxy()
-        self.devices_resource = (os.getenv("APPWRITE_COLLECTION_NOTIFICATION_DEVICES", "") or os.getenv("APPWRITE_RESOURCE_NOTIFICATION_DEVICES", "") or "notification_devices")
-        self.reminders_resource = (os.getenv("APPWRITE_COLLECTION_NOTIFICATION_REMINDERS", "") or os.getenv("APPWRITE_RESOURCE_NOTIFICATION_REMINDERS", "") or "notification_reminders")
-        self.max_scan = max(50, int(os.getenv("NOTIFICATION_REMINDER_SCAN_LIMIT", "500")))
+        self.devices_resource = (
+            os.getenv("APPWRITE_COLLECTION_NOTIFICATION_DEVICES", "")
+            or os.getenv("APPWRITE_RESOURCE_NOTIFICATION_DEVICES", "")
+            or "notification_devices"
+        )
+        self.reminders_resource = (
+            os.getenv("APPWRITE_COLLECTION_NOTIFICATION_REMINDERS", "")
+            or os.getenv("APPWRITE_RESOURCE_NOTIFICATION_REMINDERS", "")
+            or "notification_reminders"
+        )
+        self.max_scan = max(
+            50, int(os.getenv("NOTIFICATION_REMINDER_SCAN_LIMIT", "500"))
+        )
 
     # -------------------------
     # Devices
@@ -57,7 +67,9 @@ class NotificationStore:
             self._appwrite.update_document(self.devices_resource, doc_id, data)
         except Exception:
             try:
-                self._appwrite.create_document(self.devices_resource, data, document_id=doc_id)
+                self._appwrite.create_document(
+                    self.devices_resource, data, document_id=doc_id
+                )
             except Exception:
                 return None
         return doc_id
@@ -78,7 +90,9 @@ class NotificationStore:
         if not uid:
             return []
         try:
-            rows = self._appwrite.list_documents(self.devices_resource, user_id=uid, limit=200)
+            rows = self._appwrite.list_documents(
+                self.devices_resource, user_id=uid, limit=200
+            )
             return [r for r in rows if isinstance(r, dict)]
         except Exception:
             return []
@@ -127,21 +141,27 @@ class NotificationStore:
                 scheduled += 1
             except Exception:
                 try:
-                    self._appwrite.create_document(self.reminders_resource, data, document_id=doc_id)
+                    self._appwrite.create_document(
+                        self.reminders_resource, data, document_id=doc_id
+                    )
                     scheduled += 1
                 except Exception:
                     continue
 
         return {"success": True, "scheduled": scheduled}
 
-    def list_due_reminders(self, *, now: Optional[datetime] = None, window_seconds: int = 60) -> List[Dict[str, Any]]:
+    def list_due_reminders(
+        self, *, now: Optional[datetime] = None, window_seconds: int = 60
+    ) -> List[Dict[str, Any]]:
         now_dt = now or _utcnow()
         cutoff = now_dt.timestamp() + float(max(5, int(window_seconds)))
 
         # MVP: scan recent scheduled reminders per user on demand.
         # For scale, use a real indexed query (or store reminders in Redis sorted sets).
         try:
-            rows = self._appwrite.list_documents(self.reminders_resource, limit=self.max_scan)
+            rows = self._appwrite.list_documents(
+                self.reminders_resource, limit=self.max_scan
+            )
         except Exception:
             return []
 
@@ -160,7 +180,9 @@ class NotificationStore:
                 due.append(r)
         return due
 
-    def mark_reminder(self, *, reminder_doc_id: str, status: str, error: str | None = None) -> None:
+    def mark_reminder(
+        self, *, reminder_doc_id: str, status: str, error: str | None = None
+    ) -> None:
         rid = _safe_text(reminder_doc_id)
         if not rid:
             return
@@ -174,8 +196,3 @@ class NotificationStore:
 
 
 notification_store = NotificationStore()
-
-
-
-
-

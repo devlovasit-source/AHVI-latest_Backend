@@ -28,7 +28,6 @@ from services.appwrite_proxy import AppwriteProxy
 logger = logging.getLogger("ahvi.orchestrator")
 
 
-
 def _ahvi_orchestrator_merge_card_accessories(cards):
     if not isinstance(cards, list):
         return cards
@@ -46,7 +45,14 @@ def _ahvi_orchestrator_merge_card_accessories(cards):
             accessories = []
 
         seen = {
-            str(x.get("id") or x.get("$id") or x.get("item_id") or x.get("name") or x.get("label") or "").lower()
+            str(
+                x.get("id")
+                or x.get("$id")
+                or x.get("item_id")
+                or x.get("name")
+                or x.get("label")
+                or ""
+            ).lower()
             for x in items
             if isinstance(x, dict)
         }
@@ -54,7 +60,14 @@ def _ahvi_orchestrator_merge_card_accessories(cards):
         for acc in accessories:
             if not isinstance(acc, dict):
                 continue
-            key = str(acc.get("id") or acc.get("$id") or acc.get("item_id") or acc.get("name") or acc.get("label") or "").lower()
+            key = str(
+                acc.get("id")
+                or acc.get("$id")
+                or acc.get("item_id")
+                or acc.get("name")
+                or acc.get("label")
+                or ""
+            ).lower()
             if key and key not in seen:
                 items.append(acc)
                 seen.add(key)
@@ -107,7 +120,9 @@ def _render_style_boards_for_chat(
                 context,
             )
             image_bytes = style_board_renderer.render(board)
-            image_base64 = base64.b64encode(image_bytes).decode("ascii") if image_bytes else None
+            image_base64 = (
+                base64.b64encode(image_bytes).decode("ascii") if image_bytes else None
+            )
         except Exception as exc:
             logger.warning("style board render failed: %s", exc)
             board = {}
@@ -201,16 +216,26 @@ def _normalize_weather_context(context: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _resolve_organize_module(text: str, slots: Dict[str, Any], context: Dict[str, Any]) -> str:
+def _resolve_organize_module(
+    text: str, slots: Dict[str, Any], context: Dict[str, Any]
+) -> str:
     slot_module = _safe_text(slots.get("module")).lower()
     if slot_module:
         return slot_module
 
     module_context = _safe_text(context.get("module_context")).lower()
     if module_context:
-        if "meal" in module_context or "diet" in module_context or "nutrition" in module_context:
+        if (
+            "meal" in module_context
+            or "diet" in module_context
+            or "nutrition" in module_context
+        ):
             return "meal_planner"
-        if "workout" in module_context or "fitness" in module_context or "gym" in module_context:
+        if (
+            "workout" in module_context
+            or "fitness" in module_context
+            or "gym" in module_context
+        ):
             return "workout"
         if "skin" in module_context:
             return "skincare"
@@ -243,7 +268,9 @@ def _resolve_organize_module(text: str, slots: Dict[str, Any], context: Dict[str
     return "life_boards"
 
 
-def _extract_duration_minutes(text: str, context: Dict[str, Any], default: int = 20) -> int:
+def _extract_duration_minutes(
+    text: str, context: Dict[str, Any], default: int = 20
+) -> int:
     raw = context.get("duration")
     try:
         if raw:
@@ -271,10 +298,28 @@ def _wardrobe_from_appwrite(user_id: str) -> List[Dict[str, Any]]:
             {
                 "id": d.get("$id") or d.get("id"),
                 "name": d.get("name"),
-                "image_url": d.get("image_url") or d.get("imageUrl") or d.get("raw_image_url") or d.get("url"),
-                "imageUrl": d.get("imageUrl") or d.get("image_url") or d.get("raw_image_url") or d.get("url"),
-                "masked_url": d.get("masked_url") or d.get("maskedUrl") or d.get("sticker_url") or d.get("cutout_url") or d.get("image_url") or d.get("imageUrl") or d.get("url"),
-                "maskedUrl": d.get("maskedUrl") or d.get("masked_url") or d.get("sticker_url") or d.get("cutout_url") or d.get("imageUrl") or d.get("image_url") or d.get("url"),
+                "image_url": d.get("image_url")
+                or d.get("imageUrl")
+                or d.get("raw_image_url")
+                or d.get("url"),
+                "imageUrl": d.get("imageUrl")
+                or d.get("image_url")
+                or d.get("raw_image_url")
+                or d.get("url"),
+                "masked_url": d.get("masked_url")
+                or d.get("maskedUrl")
+                or d.get("sticker_url")
+                or d.get("cutout_url")
+                or d.get("image_url")
+                or d.get("imageUrl")
+                or d.get("url"),
+                "maskedUrl": d.get("maskedUrl")
+                or d.get("masked_url")
+                or d.get("sticker_url")
+                or d.get("cutout_url")
+                or d.get("imageUrl")
+                or d.get("image_url")
+                or d.get("url"),
                 "category": d.get("category") or d.get("main_category"),
                 "sub_category": d.get("sub_category") or d.get("subcategory"),
                 "color": d.get("color") or d.get("color_code"),
@@ -289,35 +334,85 @@ def _wardrobe_from_appwrite(user_id: str) -> List[Dict[str, Any]]:
     return rows
 
 
-def _safe_list_documents(collection: str, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+def _safe_list_documents(
+    collection: str, user_id: str, limit: int = 50
+) -> List[Dict[str, Any]]:
     try:
         rows = AppwriteProxy().list_documents(collection, user_id=user_id, limit=limit)
     except Exception:
         return []
-    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    return (
+        [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+    )
 
 
-def _organize_hub_response(*, uid: str, query: str, module_key: str, context: Dict[str, Any], user_profile: Dict[str, Any]) -> Dict[str, Any]:
+def _organize_hub_response(
+    *,
+    uid: str,
+    query: str,
+    module_key: str,
+    context: Dict[str, Any],
+    user_profile: Dict[str, Any],
+) -> Dict[str, Any]:
     module = _safe_text(module_key).lower() or "life_boards"
 
     if module == "meal_planner":
         plans = _safe_list_documents("meal_plans", uid, limit=25)
-        latest_name = _safe_text((plans[0] if plans else {}).get("name") or (plans[0] if plans else {}).get("title")) if plans else ""
+        latest_name = (
+            _safe_text(
+                (plans[0] if plans else {}).get("name")
+                or (plans[0] if plans else {}).get("title")
+            )
+            if plans
+            else ""
+        )
         msg = f"You have {len(plans)} meal plans. I can help you build a diet-focused weekly flow."
         if latest_name:
             msg = f"You have {len(plans)} meal plans. Latest plan: {latest_name}."
-        toned = tone_engine.apply(msg, user_profile=user_profile, signals={"context_mode": "planning", **_dict(context.get("signals"))}, context=context)
+        toned = tone_engine.apply(
+            msg,
+            user_profile=user_profile,
+            signals={"context_mode": "planning", **_dict(context.get("signals"))},
+            context=context,
+        )
         return {
             "success": True,
             "message": toned,
             "board": "meal_planner",
             "type": "cards",
             "cards": [
-                {"id": "meal_count", "title": "Meal Plans", "kind": "stat", "value": len(plans)},
-                {"id": "meal_open", "title": "Open Meal Planner", "kind": "action", "action": {"type": "open_module", "module": "meal_planner", "route": "/organize/meal-planner"}},
-                {"id": "meal_new", "title": "Create Diet Week", "kind": "action", "action": {"type": "open_module", "module": "meal_planner", "route": "/organize/meal-planner?create=1"}},
+                {
+                    "id": "meal_count",
+                    "title": "Meal Plans",
+                    "kind": "stat",
+                    "value": len(plans),
+                },
+                {
+                    "id": "meal_open",
+                    "title": "Open Meal Planner",
+                    "kind": "action",
+                    "action": {
+                        "type": "open_module",
+                        "module": "meal_planner",
+                        "route": "/organize/meal-planner",
+                    },
+                },
+                {
+                    "id": "meal_new",
+                    "title": "Create Diet Week",
+                    "kind": "action",
+                    "action": {
+                        "type": "open_module",
+                        "module": "meal_planner",
+                        "route": "/organize/meal-planner?create=1",
+                    },
+                },
             ],
-            "data": {"module": module, "total_plans": len(plans), "latest_plan": latest_name or None},
+            "data": {
+                "module": module,
+                "total_plans": len(plans),
+                "latest_plan": latest_name or None,
+            },
         }
 
     if module == "workout":
@@ -325,33 +420,79 @@ def _organize_hub_response(*, uid: str, query: str, module_key: str, context: Di
         duration = _extract_duration_minutes(query, context)
         fitness_input = {
             "goal": "general_fitness",
-            "gender": _safe_text(user_profile.get("gender") or "universal").lower() or "universal",
+            "gender": _safe_text(user_profile.get("gender") or "universal").lower()
+            or "universal",
             "duration": duration,
             "location": _safe_text(context.get("location") or "home").lower() or "home",
-            "equipment": _safe_text(context.get("equipment") or "none").lower() or "none",
+            "equipment": _safe_text(context.get("equipment") or "none").lower()
+            or "none",
         }
         rec = fitness_engine.recommend_workout(fitness_input)
-        rec_items = rec.get("recommendations") if isinstance(rec, dict) and isinstance(rec.get("recommendations"), list) else []
-        if not rec_items and isinstance(rec, dict) and isinstance(rec.get("fallback"), list):
+        rec_items = (
+            rec.get("recommendations")
+            if isinstance(rec, dict) and isinstance(rec.get("recommendations"), list)
+            else []
+        )
+        if (
+            not rec_items
+            and isinstance(rec, dict)
+            and isinstance(rec.get("fallback"), list)
+        ):
             rec_items = rec.get("fallback") or []
-        rec_items = sorted([x for x in rec_items if isinstance(x, dict)], key=lambda r: _safe_text(r.get("title")))[:3]
+        rec_items = sorted(
+            [x for x in rec_items if isinstance(x, dict)],
+            key=lambda r: _safe_text(r.get("title")),
+        )[:3]
         msg = f"Here's a {duration}-minute workout plan with warmup, main work, and cooldown."
-        toned = tone_engine.apply(msg, user_profile=user_profile, signals={"context_mode": "workout", **_dict(context.get("signals"))}, context=context)
+        toned = tone_engine.apply(
+            msg,
+            user_profile=user_profile,
+            signals={"context_mode": "workout", **_dict(context.get("signals"))},
+            context=context,
+        )
         cards: List[Dict[str, Any]] = [
-            {"id": "workout_meta", "title": f"{duration} min", "kind": "stat", "value": duration, "label": "Duration"},
-            {"id": "workout_equipment", "title": "Equipment", "kind": "stat", "value": fitness_input["equipment"]},
-            {"id": "workout_open", "title": "Open Fitness", "kind": "action", "action": {"type": "open_module", "module": "workout", "route": "/organize/workout"}},
+            {
+                "id": "workout_meta",
+                "title": f"{duration} min",
+                "kind": "stat",
+                "value": duration,
+                "label": "Duration",
+            },
+            {
+                "id": "workout_equipment",
+                "title": "Equipment",
+                "kind": "stat",
+                "value": fitness_input["equipment"],
+            },
+            {
+                "id": "workout_open",
+                "title": "Open Fitness",
+                "kind": "action",
+                "action": {
+                    "type": "open_module",
+                    "module": "workout",
+                    "route": "/organize/workout",
+                },
+            },
         ]
         for idx, row in enumerate(rec_items, start=1):
-            source_cards = row.get("cards", []) if isinstance(row.get("cards"), list) else []
+            source_cards = (
+                row.get("cards", []) if isinstance(row.get("cards"), list) else []
+            )
             checklist_items: List[str] = []
             for source_card in source_cards:
                 if isinstance(source_card, dict):
                     section = _safe_text(source_card.get("title"))
                     for item in source_card.get("items", []) or []:
-                        checklist_items.append(f"{section}: {item}" if section else str(item))
+                        checklist_items.append(
+                            f"{section}: {item}" if section else str(item)
+                        )
             if not checklist_items:
-                checklist_items = ["Warmup: 3 minutes easy mobility", "Main circuit: 12 minutes steady effort", "Cooldown: 5 minutes stretch and breathing"]
+                checklist_items = [
+                    "Warmup: 3 minutes easy mobility",
+                    "Main circuit: 12 minutes steady effort",
+                    "Cooldown: 5 minutes stretch and breathing",
+                ]
             cards.append(
                 {
                     "id": f"workout_rec_{idx}",
@@ -388,14 +529,24 @@ def _organize_hub_response(*, uid: str, query: str, module_key: str, context: Di
     }
     route, board = route_map.get(module, ("/organize/life-boards", "organize"))
     msg = f"I routed this to {module.replace('_', ' ')} so you can continue in the right board."
-    toned = tone_engine.apply(msg, user_profile=user_profile, signals={"context_mode": "planning", **_dict(context.get("signals"))}, context=context)
+    toned = tone_engine.apply(
+        msg,
+        user_profile=user_profile,
+        signals={"context_mode": "planning", **_dict(context.get("signals"))},
+        context=context,
+    )
     return {
         "success": True,
         "message": toned,
         "board": board,
         "type": "cards",
         "cards": [
-            {"id": "organize_open", "title": f"Open {module.replace('_', ' ').title()}", "kind": "action", "action": {"type": "open_module", "module": module, "route": route}}
+            {
+                "id": "organize_open",
+                "title": f"Open {module.replace('_', ' ').title()}",
+                "kind": "action",
+                "action": {"type": "open_module", "module": module, "route": route},
+            }
         ],
         "data": {"module": module},
     }
@@ -408,22 +559,40 @@ def _visual_intelligence_from_outfit(outfit: Dict[str, Any]) -> Dict[str, Any]:
         _dict(outfit.get("dress")),
         _dict(outfit.get("shoes")),
     ] + [x for x in (outfit.get("accessories") or []) if isinstance(x, dict)]
-    colors = [_safe_text(p.get("color")).lower() for p in parts if _safe_text(p.get("color"))]
-    patterns = [_safe_text(p.get("pattern")).lower() for p in parts if _safe_text(p.get("pattern"))]
-    styles = [_safe_text(p.get("style")).lower() for p in parts if _safe_text(p.get("style"))]
+    colors = [
+        _safe_text(p.get("color")).lower() for p in parts if _safe_text(p.get("color"))
+    ]
+    patterns = [
+        _safe_text(p.get("pattern")).lower()
+        for p in parts
+        if _safe_text(p.get("pattern"))
+    ]
+    styles = [
+        _safe_text(p.get("style")).lower() for p in parts if _safe_text(p.get("style"))
+    ]
     return {
         "dominant_palette": sorted(set(colors))[:4],
         "pattern_mix": sorted(set(patterns))[:4],
         "style_signals": sorted(set(styles))[:4],
         "composition_score": float(outfit.get("score") or 0.0),
-        "story": _safe_text(_dict(outfit.get("story")).get("subtitle") or outfit.get("explanation")),
+        "story": _safe_text(
+            _dict(outfit.get("story")).get("subtitle") or outfit.get("explanation")
+        ),
     }
 
 
 class AhviOrchestrator:
-    def run(self, *, text: str, user_id: str | None = None, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    def run(
+        self,
+        *,
+        text: str,
+        user_id: str | None = None,
+        context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
         query = _safe_text(text)
-        uid = _safe_text(user_id) or _safe_text(_dict(context).get("user_id")) or "user_1"
+        uid = (
+            _safe_text(user_id) or _safe_text(_dict(context).get("user_id")) or "user_1"
+        )
         ctx = _normalize_weather_context(_dict(context))
         ctx["user_id"] = uid  # used by memory scoring + downstream engines
         user_profile = _dict(ctx.get("user_profile"))
@@ -452,7 +621,11 @@ class AhviOrchestrator:
                 signals={"context_mode": "planning", **_dict(ctx.get("signals"))},
                 context=ctx,
             )
-            out["meta"] = {**_dict(out.get("meta")), "intent": intent, "confidence": float(intent_row.get("confidence", 0.0))}
+            out["meta"] = {
+                **_dict(out.get("meta")),
+                "intent": intent,
+                "confidence": float(intent_row.get("confidence", 0.0)),
+            }
             return out
 
         if intent == "plan_pack":
@@ -464,7 +637,11 @@ class AhviOrchestrator:
                 signals={"context_mode": "travel", **_dict(ctx.get("signals"))},
                 context=ctx,
             )
-            out["meta"] = {**_dict(out.get("meta")), "intent": intent, "confidence": float(intent_row.get("confidence", 0.0))}
+            out["meta"] = {
+                **_dict(out.get("meta")),
+                "intent": intent,
+                "confidence": float(intent_row.get("confidence", 0.0)),
+            }
             return out
 
         if intent == "wardrobe_query":
@@ -482,19 +659,44 @@ class AhviOrchestrator:
                 "type": "stats",
                 "cards": [],
                 "data": {"total_items": len(docs)},
-                "meta": {"intent": intent, "confidence": float(intent_row.get("confidence", 0.0))},
+                "meta": {
+                    "intent": intent,
+                    "confidence": float(intent_row.get("confidence", 0.0)),
+                },
             }
 
         if intent == "organize_hub":
             module_key = _resolve_organize_module(query, slots, ctx)
-            out = _organize_hub_response(uid=uid, query=query, module_key=module_key, context=ctx, user_profile=user_profile)
-            out["meta"] = {**_dict(out.get("meta")), "intent": intent, "module": module_key, "confidence": float(intent_row.get("confidence", 0.0))}
+            out = _organize_hub_response(
+                uid=uid,
+                query=query,
+                module_key=module_key,
+                context=ctx,
+                user_profile=user_profile,
+            )
+            out["meta"] = {
+                **_dict(out.get("meta")),
+                "intent": intent,
+                "module": module_key,
+                "confidence": float(intent_row.get("confidence", 0.0)),
+            }
             return out
 
         module_key = _resolve_organize_module(query, slots, ctx)
         if module_key == "workout":
-            out = _organize_hub_response(uid=uid, query=query, module_key=module_key, context=ctx, user_profile=user_profile)
-            out["meta"] = {**_dict(out.get("meta")), "intent": intent, "module": module_key, "confidence": float(intent_row.get("confidence", 0.0))}
+            out = _organize_hub_response(
+                uid=uid,
+                query=query,
+                module_key=module_key,
+                context=ctx,
+                user_profile=user_profile,
+            )
+            out["meta"] = {
+                **_dict(out.get("meta")),
+                "intent": intent,
+                "module": module_key,
+                "confidence": float(intent_row.get("confidence", 0.0)),
+            }
             return out
 
         # If the user mentioned a clothing-relevant occasion (date night,
@@ -502,7 +704,10 @@ class AhviOrchestrator:
         # outfit query even when the intent classifier didn't tag it as one.
         # Without this, "I have a date tonight — what should I wear?" falls
         # through to the generic fallback and the chat returns no cards.
-        if intent not in {"daily_outfit", "occasion_outfit", "explore_styles"} and occasion:
+        if (
+            intent not in {"daily_outfit", "occasion_outfit", "explore_styles"}
+            and occasion
+        ):
             intent = "occasion_outfit"
 
         if intent in {"daily_outfit", "occasion_outfit", "explore_styles"}:
@@ -525,7 +730,12 @@ class AhviOrchestrator:
                     }
                 )
             except Exception as exc:
-                logger.exception("get_daily_outfits failed uid=%s intent=%s error=%s", uid, intent, str(exc))
+                logger.exception(
+                    "get_daily_outfits failed uid=%s intent=%s error=%s",
+                    uid,
+                    intent,
+                    str(exc),
+                )
                 toned = tone_engine.apply(
                     "I hit a temporary issue while generating outfits. Please try again in a moment.",
                     user_profile=user_profile,
@@ -548,12 +758,25 @@ class AhviOrchestrator:
                     },
                 }
 
-            outfits = outfit_result.get("outfits") if isinstance(outfit_result.get("outfits"), list) else []
-            visual_intel = _visual_intelligence_from_outfit(_first_dict(outfits)) if outfits else {}
+            outfits = (
+                outfit_result.get("outfits")
+                if isinstance(outfit_result.get("outfits"), list)
+                else []
+            )
+            visual_intel = (
+                _visual_intelligence_from_outfit(_first_dict(outfits))
+                if outfits
+                else {}
+            )
 
-            message = _safe_text(outfit_result.get("context") or outfit_result.get("message"))
+            message = _safe_text(
+                outfit_result.get("context") or outfit_result.get("message")
+            )
             if outfits and not message:
-                message = _safe_text(_dict(_dict(outfits[0]).get("story")).get("subtitle") or _dict(outfits[0]).get("explanation"))
+                message = _safe_text(
+                    _dict(_dict(outfits[0]).get("story")).get("subtitle")
+                    or _dict(outfits[0]).get("explanation")
+                )
             if not message:
                 message = "Your visual intelligence result is ready."
 
@@ -561,32 +784,76 @@ class AhviOrchestrator:
             # Make the surface layer reflect the real intelligence:
             # pull deterministic bank snippets + scorer reasons into the message.
             try:
-                board_item_ids_for_key = outfit_result.get("board_item_ids") if isinstance(outfit_result.get("board_item_ids"), list) else []
-                stable_key = "|".join([str(x).strip() for x in board_item_ids_for_key if str(x).strip()]) or str(first_outfit.get("combo_id") or "outfit")
+                board_item_ids_for_key = (
+                    outfit_result.get("board_item_ids")
+                    if isinstance(outfit_result.get("board_item_ids"), list)
+                    else []
+                )
+                stable_key = "|".join(
+                    [str(x).strip() for x in board_item_ids_for_key if str(x).strip()]
+                ) or str(first_outfit.get("combo_id") or "outfit")
 
                 breakdown = _dict(first_outfit.get("score_breakdown"))
                 color_hint = float(breakdown.get("color_intelligence") or 0.0)
                 silhouette_hint = float(breakdown.get("style_graph") or 0.0)
-                weather_mode = _safe_text(_dict(ctx.get("signals")).get("weather_mode") or ctx.get("weather") or "")
+                weather_mode = _safe_text(
+                    _dict(ctx.get("signals")).get("weather_mode")
+                    or ctx.get("weather")
+                    or ""
+                )
 
                 harmony_line = color_harmony_snippet(color_hint, key=stable_key)
-                weather_line = weather_overlay_snippet(weather_mode, key=stable_key) if weather_mode else ""
+                weather_line = (
+                    weather_overlay_snippet(weather_mode, key=stable_key)
+                    if weather_mode
+                    else ""
+                )
 
                 # Print + silhouette banks
-                items_for_patterns = first_outfit.get("refined_items") if isinstance(first_outfit.get("refined_items"), list) else first_outfit.get("items")
+                items_for_patterns = (
+                    first_outfit.get("refined_items")
+                    if isinstance(first_outfit.get("refined_items"), list)
+                    else first_outfit.get("items")
+                )
                 patterns = []
                 if isinstance(items_for_patterns, list):
-                    patterns = [str(_dict(x).get("pattern") or "").strip().lower() for x in items_for_patterns if _dict(x)]
+                    patterns = [
+                        str(_dict(x).get("pattern") or "").strip().lower()
+                        for x in items_for_patterns
+                        if _dict(x)
+                    ]
                 print_line = print_pattern_snippet(patterns, key=stable_key)
                 silhouette_line = silhouette_snippet(silhouette_hint, key=stable_key)
 
                 unified = _dict(first_outfit.get("unified_style"))
-                reasons = unified.get("reasons") if isinstance(unified.get("reasons"), list) else []
+                reasons = (
+                    unified.get("reasons")
+                    if isinstance(unified.get("reasons"), list)
+                    else []
+                )
                 reason_line = ""
                 if reasons:
-                    reason_line = "Why it works: " + ", ".join([_safe_text(r) for r in reasons if _safe_text(r)][:2]) + "."
+                    reason_line = (
+                        "Why it works: "
+                        + ", ".join(
+                            [_safe_text(r) for r in reasons if _safe_text(r)][:2]
+                        )
+                        + "."
+                    )
 
-                extra_lines = " ".join([x for x in [harmony_line, print_line, silhouette_line, weather_line, reason_line] if x])
+                extra_lines = " ".join(
+                    [
+                        x
+                        for x in [
+                            harmony_line,
+                            print_line,
+                            silhouette_line,
+                            weather_line,
+                            reason_line,
+                        ]
+                        if x
+                    ]
+                )
                 if extra_lines:
                     message = (message.rstrip(".") + ". " + extra_lines).strip()
             except Exception:
@@ -597,27 +864,35 @@ class AhviOrchestrator:
                 signals={"context_mode": "styling", **_dict(ctx.get("signals"))},
                 context={
                     "aesthetic": first_outfit.get("aesthetic"),
-                    "outfit_data": {"items": [x for x in first_outfit.values() if isinstance(x, dict)]},
+                    "outfit_data": {
+                        "items": [
+                            x for x in first_outfit.values() if isinstance(x, dict)
+                        ]
+                    },
                 },
             )
 
             # ================= AHVI CLEAN STYLE RETURN V1 BEGIN =================
-            board_item_ids = outfit_result.get("board_item_ids") if isinstance(outfit_result.get("board_item_ids"), list) else []
+            board_item_ids = (
+                outfit_result.get("board_item_ids")
+                if isinstance(outfit_result.get("board_item_ids"), list)
+                else []
+            )
             board_item_ids = [str(x).strip() for x in board_item_ids if str(x).strip()]
             primary_board_id = board_item_ids[0] if board_item_ids else ""
 
-            cards = outfit_result.get("cards") if isinstance(outfit_result.get("cards"), list) else []
+            cards = (
+                outfit_result.get("cards")
+                if isinstance(outfit_result.get("cards"), list)
+                else []
+            )
             cards = _ahvi_orchestrator_merge_card_accessories(cards)
 
             try:
                 logger.info(
                     "style card detail uid=%s card_item_counts=%s accessory_counts=%s first_card_items=%s",
                     uid,
-                    [
-                        len(c.get("items") or [])
-                        for c in cards
-                        if isinstance(c, dict)
-                    ],
+                    [len(c.get("items") or []) for c in cards if isinstance(c, dict)],
                     [
                         len(c.get("accessories") or [])
                         for c in cards
@@ -625,7 +900,14 @@ class AhviOrchestrator:
                     ],
                     [
                         str((i or {}).get("name") or (i or {}).get("label") or "")
-                        for i in ((cards[0].get("items") if cards and isinstance(cards[0], dict) else []) or [])
+                        for i in (
+                            (
+                                cards[0].get("items")
+                                if cards and isinstance(cards[0], dict)
+                                else []
+                            )
+                            or []
+                        )
                         if isinstance(i, dict)
                     ][:8],
                 )
@@ -684,7 +966,10 @@ class AhviOrchestrator:
             "message": "Tell me what you need: outfit, planning, or organizing help.",
             "data": {},
         }
-        fallback = response_assembler.assemble(merged_output=merged, context={"user_profile": user_profile, "signals": {"context_mode": "home"}})
+        fallback = response_assembler.assemble(
+            merged_output=merged,
+            context={"user_profile": user_profile, "signals": {"context_mode": "home"}},
+        )
         return {
             "success": True,
             "message": fallback,
@@ -692,7 +977,10 @@ class AhviOrchestrator:
             "type": "text",
             "cards": [],
             "data": {},
-            "meta": {"intent": intent, "confidence": float(intent_row.get("confidence", 0.0))},
+            "meta": {
+                "intent": intent,
+                "confidence": float(intent_row.get("confidence", 0.0)),
+            },
         }
 
 
@@ -707,7 +995,9 @@ except Exception:
     _AHVI_ORIGINAL_ORCHESTRATOR_RUN = None
 
 
-if _AHVI_ORIGINAL_ORCHESTRATOR_RUN and not getattr(AhviOrchestrator.run, "_ahvi_style_dna_preflight_v2", False):
+if _AHVI_ORIGINAL_ORCHESTRATOR_RUN and not getattr(
+    AhviOrchestrator.run, "_ahvi_style_dna_preflight_v2", False
+):
 
     def _ahvi_orchestrator_run_with_style_dna(self, text, user_id=None, context=None):
         ctx = dict(context or {})
@@ -716,24 +1006,39 @@ if _AHVI_ORIGINAL_ORCHESTRATOR_RUN and not getattr(AhviOrchestrator.run, "_ahvi_
             ctx["user_id"] = user_id
 
         try:
-            from services.data_access_service import get_user_profile, merge_user_profiles
-            stored_profile = get_user_profile(user_id=str(user_id or ctx.get("user_id") or "").strip())
-            request_profile = ctx.get("user_profile") if isinstance(ctx.get("user_profile"), dict) else {}
+            from services.data_access_service import (
+                get_user_profile,
+                merge_user_profiles,
+            )
+
+            stored_profile = get_user_profile(
+                user_id=str(user_id or ctx.get("user_id") or "").strip()
+            )
+            request_profile = (
+                ctx.get("user_profile")
+                if isinstance(ctx.get("user_profile"), dict)
+                else {}
+            )
             ctx["user_profile"] = merge_user_profiles(stored_profile, request_profile)
         except Exception as exc:
             try:
-                logger.warning("user profile merge failed uid=%s error=%s", user_id, str(exc))
+                logger.warning(
+                    "user profile merge failed uid=%s error=%s", user_id, str(exc)
+                )
             except Exception:
                 pass
 
         try:
             from brain.personalization.style_dna_engine import style_dna_engine
+
             enriched = style_dna_engine.enrich_context(ctx)
             if isinstance(enriched, dict):
                 ctx = enriched
         except Exception as exc:
             try:
-                logger.warning("style_dna preflight failed uid=%s error=%s", user_id, str(exc))
+                logger.warning(
+                    "style_dna preflight failed uid=%s error=%s", user_id, str(exc)
+                )
             except Exception:
                 pass
 

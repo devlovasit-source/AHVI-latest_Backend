@@ -38,13 +38,12 @@ class ShoppingSystem:
         wardrobe_raw = context.get("wardrobe", [])
 
         wardrobe_index = [
-            wardrobe_normalizer.normalize_item(item)
-            for item in wardrobe_raw
+            wardrobe_normalizer.normalize_item(item) for item in wardrobe_raw
         ]
 
         context["wardrobe_index"] = {
             "items": wardrobe_index,
-            "coverage_score": self._calculate_coverage(wardrobe_index)
+            "coverage_score": self._calculate_coverage(wardrobe_index),
         }
 
         # 🔥 STEP 2: ROUTE
@@ -82,7 +81,11 @@ class ShoppingSystem:
         # Example check
         if mode == "purchase_conviction_mode":
             if "combos" not in output:
-                output["combos"] = ["Fallback combo 1", "Fallback combo 2", "Fallback combo 3"]
+                output["combos"] = [
+                    "Fallback combo 1",
+                    "Fallback combo 2",
+                    "Fallback combo 3",
+                ]
 
         return output
 

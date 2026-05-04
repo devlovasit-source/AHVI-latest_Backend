@@ -7,7 +7,9 @@ import json
 class PlanEngine:
 
     def __init__(self):
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        base_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
         file_path = os.path.join(base_dir, "data", "plan_data.json")
 
         try:
@@ -51,7 +53,7 @@ class PlanEngine:
         return {
             "type": "trip_board",
             "title": f"{template['label']} - {destination}",
-            "sections": template.get("sections", [])
+            "sections": template.get("sections", []),
         }
 
     # =========================
@@ -76,7 +78,7 @@ class PlanEngine:
         return {
             "type": "event_board",
             "title": f"{template['label']} - {event_name}",
-            "sections": template.get("sections", [])
+            "sections": template.get("sections", []),
         }
 
     # =========================

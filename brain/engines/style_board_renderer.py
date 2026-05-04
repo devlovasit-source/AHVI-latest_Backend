@@ -9,6 +9,7 @@ from PIL import Image, ImageFilter, ImageDraw, ImageFont
 # NEW ✅
 from services.bg_service import remove_bg_external_sync as remove_background_sync
 
+
 class StyleBoardRenderer:
     """
     🔥 FINAL ELITE RENDERER
@@ -48,7 +49,11 @@ class StyleBoardRenderer:
             for item in layers.get(layer_name, []):
                 self._place_item(canvas, item, placements.get(item.get("id"), {}))
 
-        if str(os.getenv("STYLE_BOARD_INCLUDE_TEXT", "false")).lower() in {"1", "true", "yes"}:
+        if str(os.getenv("STYLE_BOARD_INCLUDE_TEXT", "false")).lower() in {
+            "1",
+            "true",
+            "yes",
+        }:
             canvas = self._add_text(canvas, board)
 
         buffer = io.BytesIO()
@@ -78,7 +83,9 @@ class StyleBoardRenderer:
 
         for y in range(0, self.CANVAS_SIZE[1], 4):
             alpha = int(30 * (y / self.CANVAS_SIZE[1]))
-            draw.rectangle([(0, y), (self.CANVAS_SIZE[0], y + 4)], fill=(255, 255, 255, alpha))
+            draw.rectangle(
+                [(0, y), (self.CANVAS_SIZE[0], y + 4)], fill=(255, 255, 255, alpha)
+            )
 
         img.paste(overlay, (0, 0), overlay)
         return img
@@ -116,7 +123,7 @@ class StyleBoardRenderer:
         layers = {
             "foreground": [hero],
             "midground": supporting[:2],
-            "background": supporting[2:]
+            "background": supporting[2:],
         }
 
         placements = {}
@@ -126,7 +133,7 @@ class StyleBoardRenderer:
             "y": 0.45,
             "scale": 1.1,
             "rotation": 0,
-            "z": 3
+            "z": 3,
         }
 
         positions = [(0.25, 0.75), (0.75, 0.75), (0.25, 0.2), (0.75, 0.2)]
@@ -137,7 +144,7 @@ class StyleBoardRenderer:
                 "y": positions[i % len(positions)][1],
                 "scale": 0.7,
                 "rotation": 0,
-                "z": 2
+                "z": 2,
             }
 
         return {"layers": layers, "placements": placements}
@@ -193,11 +200,34 @@ class StyleBoardRenderer:
             return 420
         if any(x in text for x in ["bottom", "jean", "trouser", "pant", "skirt"]):
             return 360
-        if any(x in text for x in ["top", "shirt", "kurta", "blouse", "tee", "jacket", "blazer", "coat"]):
+        if any(
+            x in text
+            for x in [
+                "top",
+                "shirt",
+                "kurta",
+                "blouse",
+                "tee",
+                "jacket",
+                "blazer",
+                "coat",
+            ]
+        ):
             return 380
         if any(x in text for x in ["shoe", "sneaker", "heel", "boot", "sandal", "bag"]):
             return 300
-        if any(x in text for x in ["watch", "necklace", "earring", "bracelet", "belt", "scarf", "sunglass"]):
+        if any(
+            x in text
+            for x in [
+                "watch",
+                "necklace",
+                "earring",
+                "bracelet",
+                "belt",
+                "scarf",
+                "sunglass",
+            ]
+        ):
             return 220
         return 320
 
@@ -237,7 +267,11 @@ class StyleBoardRenderer:
 
             # Optional fallback only for raw images.
             # Keep this disabled by default to avoid re-segmenting already clean assets.
-            if str(os.getenv("STYLE_BOARD_APPLY_BG_REMOVAL", "false")).lower() not in {"1", "true", "yes"}:
+            if str(os.getenv("STYLE_BOARD_APPLY_BG_REMOVAL", "false")).lower() not in {
+                "1",
+                "true",
+                "yes",
+            }:
                 return base
 
             result = remove_background_sync(res.content)
@@ -292,10 +326,10 @@ class StyleBoardRenderer:
         padding = 20
 
         return not (
-            b1["x2"] + padding < b2["x1"] or
-            b1["x1"] - padding > b2["x2"] or
-            b1["y2"] + padding < b2["y1"] or
-            b1["y1"] - padding > b2["y2"]
+            b1["x2"] + padding < b2["x1"]
+            or b1["x1"] - padding > b2["x2"]
+            or b1["y2"] + padding < b2["y1"]
+            or b1["y1"] - padding > b2["y2"]
         )
 
     def _resolve_collisions(self, placements):

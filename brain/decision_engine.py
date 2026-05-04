@@ -32,9 +32,15 @@ class DecisionEngine:
                 score += 8.0
 
             # Persona-aware nudge.
-            if persona == "busy_parent" and card.get("type") in {"family_prep", "key_reminder"}:
+            if persona == "busy_parent" and card.get("type") in {
+                "family_prep",
+                "key_reminder",
+            }:
                 score += 6.0
-            if persona == "student" and card.get("type") in {"study_priority", "task_focus"}:
+            if persona == "student" and card.get("type") in {
+                "study_priority",
+                "task_focus",
+            }:
                 score += 5.0
 
             # Stable tie-break by original order.
@@ -58,4 +64,3 @@ class DecisionEngine:
 
 
 decision_engine = DecisionEngine()
-

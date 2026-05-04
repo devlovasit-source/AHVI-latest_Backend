@@ -23,13 +23,11 @@ _processor = None
 
 _DEVICE = (
     torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if torch is not None else "cpu"
+    if torch is not None
+    else "cpu"
 )
 
-_MODEL_NAME = os.getenv(
-    "IMAGE_EMBEDDING_MODEL_NAME",
-    "openai/clip-vit-base-patch32"
-)
+_MODEL_NAME = os.getenv("IMAGE_EMBEDDING_MODEL_NAME", "openai/clip-vit-base-patch32")
 
 
 def _get_model():

@@ -49,7 +49,10 @@ class WeatherEngine:
 
                 def _hour_distance(index: int) -> float:
                     try:
-                        return abs(datetime.fromisoformat(str(times[index])).timestamp() - now_epoch)
+                        return abs(
+                            datetime.fromisoformat(str(times[index])).timestamp()
+                            - now_epoch
+                        )
                     except Exception:
                         return float("inf")
 
@@ -133,7 +136,7 @@ class WeatherEngine:
                 "prefer_light_colors": temp >= 30,
                 "prefer_dark_colors": weather_type in ["cloudy", "storm"],
                 "outdoor_friendly": weather_type in ["clear", "partly_cloudy"],
-                "sweat_risk": sweat_risk
+                "sweat_risk": sweat_risk,
             }
 
             return {
@@ -143,10 +146,7 @@ class WeatherEngine:
                 "wind_level": wind_level,
                 "time_of_day": time_of_day,
                 "signals": signals,
-                "raw": {
-                    "code": code,
-                    "wind_speed": wind
-                }
+                "raw": {"code": code, "wind_speed": wind},
             }
 
         except Exception as e:
@@ -166,13 +166,14 @@ class WeatherEngine:
                     "prefer_light_colors": True,
                     "prefer_dark_colors": False,
                     "outdoor_friendly": True,
-                    "sweat_risk": "low"
+                    "sweat_risk": "low",
                 },
-                "raw": {}
+                "raw": {},
             }
 
 
 weather_engine = WeatherEngine()
+
 
 def get_hourly_weather(lat: float, lon: float):
     return weather_engine.get_weather_context(lat, lon)

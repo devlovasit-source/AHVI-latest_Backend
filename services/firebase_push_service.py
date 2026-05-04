@@ -92,7 +92,12 @@ class FirebasePushService:
         data: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         if not self.ready():
-            return {"success": False, "error": self._init_error or "not ready", "sent": 0, "failed": len(tokens)}
+            return {
+                "success": False,
+                "error": self._init_error or "not ready",
+                "sent": 0,
+                "failed": len(tokens),
+            }
 
         safe_tokens = [str(t).strip() for t in (tokens or []) if str(t).strip()]
         if not safe_tokens:
@@ -107,7 +112,9 @@ class FirebasePushService:
 
         message = messaging.MulticastMessage(
             tokens=safe_tokens,
-            notification=messaging.Notification(title=str(title or ""), body=str(body or "")),
+            notification=messaging.Notification(
+                title=str(title or ""), body=str(body or "")
+            ),
             data=safe_data or None,
         )
         try:
@@ -121,15 +128,20 @@ class FirebasePushService:
                 "sent": int(resp.success_count),
                 "failed": int(resp.failure_count),
                 "responses": [
-                    {"success": bool(r.success), "exception": str(r.exception) if r.exception else None}
+                    {
+                        "success": bool(r.success),
+                        "exception": str(r.exception) if r.exception else None,
+                    }
                     for r in (resp.responses or [])
                 ],
             }
         except Exception as exc:
-            return {"success": False, "error": str(exc), "sent": 0, "failed": len(safe_tokens)}
+            return {
+                "success": False,
+                "error": str(exc),
+                "sent": 0,
+                "failed": len(safe_tokens),
+            }
 
 
 firebase_push_service = FirebasePushService()
-
-
-

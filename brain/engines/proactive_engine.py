@@ -1,4 +1,3 @@
-
 from typing import Dict, Any
 from datetime import datetime
 
@@ -72,27 +71,15 @@ class ProactiveEngine:
     def _time_signals(self, hour):
 
         if 6 <= hour <= 11:
-            return {
-                "suggestion_type": "morning_outfit",
-                "energy": "fresh"
-            }
+            return {"suggestion_type": "morning_outfit", "energy": "fresh"}
 
         if 12 <= hour <= 17:
-            return {
-                "suggestion_type": "day_outfit",
-                "energy": "balanced"
-            }
+            return {"suggestion_type": "day_outfit", "energy": "balanced"}
 
         if 18 <= hour <= 22:
-            return {
-                "suggestion_type": "evening_outfit",
-                "energy": "elevated"
-            }
+            return {"suggestion_type": "evening_outfit", "energy": "elevated"}
 
-        return {
-            "suggestion_type": "casual_outfit",
-            "energy": "relaxed"
-        }
+        return {"suggestion_type": "casual_outfit", "energy": "relaxed"}
 
     # =========================
     # WEATHER SIGNALS
@@ -108,20 +95,12 @@ class ProactiveEngine:
             return {}
 
         if temp >= 32:
-            return {
-                "weather_mode": "hot",
-                "fabric_preference": "lightweight"
-            }
+            return {"weather_mode": "hot", "fabric_preference": "lightweight"}
 
         if temp <= 15:
-            return {
-                "weather_mode": "cold",
-                "fabric_preference": "layered"
-            }
+            return {"weather_mode": "cold", "fabric_preference": "layered"}
 
-        return {
-            "weather_mode": "mild"
-        }
+        return {"weather_mode": "mild"}
 
     # =========================
     # STYLE DNA SIGNALS

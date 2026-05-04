@@ -10,7 +10,6 @@ from services.appwrite_service import build_account_for_jwt
 from services.security_limits import get_redis_client
 from services.settings import settings
 
-
 # =========================
 # IN-MEMORY CACHE (FALLBACK)
 # =========================
@@ -69,7 +68,9 @@ async def _cache_get(token: str) -> Optional[Dict[str, Any]]:
 # =========================
 # CACHE SET
 # =========================
-async def _cache_set(token: str, payload: Dict[str, Any], negative: bool = False) -> None:
+async def _cache_set(
+    token: str, payload: Dict[str, Any], negative: bool = False
+) -> None:
     key = _token_cache_key(token)
     ttl = int(settings.auth_cache_ttl_seconds)
 
@@ -141,8 +142,13 @@ async def get_current_user(request: Request):
     except Exception as e:
         error_str = str(e).lower()
 
-        if any(x in error_str for x in ["timeout", "connection", "name or service not known"]):
-            raise HTTPException(status_code=503, detail="Auth service temporarily unavailable")
+        if any(
+            x in error_str
+            for x in ["timeout", "connection", "name or service not known"]
+        ):
+            raise HTTPException(
+                status_code=503, detail="Auth service temporarily unavailable"
+            )
 
         # 🔥 negative caching
         await _cache_set(token, {"invalid": True}, negative=True)

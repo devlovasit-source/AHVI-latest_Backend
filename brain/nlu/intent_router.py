@@ -1,4 +1,3 @@
-
 # backend/brain/nlu/intent_router.py
 
 import re
@@ -21,40 +20,55 @@ class IntentRouter:
         # -------------------------
         # STYLING KEYWORDS
         # -------------------------
-        self.styling_patterns = self._compile_patterns([
-            "wear", "outfit", "dress", "clothes", "style",
-            "look", "matching", "fit", "what should i wear"
-        ])
+        self.styling_patterns = self._compile_patterns(
+            [
+                "wear",
+                "outfit",
+                "dress",
+                "clothes",
+                "style",
+                "look",
+                "matching",
+                "fit",
+                "what should i wear",
+            ]
+        )
 
         # -------------------------
         # OCCASIONS
         # -------------------------
-        self.occasions = self._compile_dict_patterns({
-            "party": ["party", "club", "birthday", "pub"],
-            "office": ["office", "work", "interview", "meeting", "corporate"],
-            "vacation": ["vacation", "trip", "holiday", "beach", "travel", "goa"],
-            "wedding": ["wedding", "reception", "festival", "event", "pooja"],
-            "casual": ["casual", "daily", "everyday", "grocery"]
-        })
+        self.occasions = self._compile_dict_patterns(
+            {
+                "party": ["party", "club", "birthday", "pub"],
+                "office": ["office", "work", "interview", "meeting", "corporate"],
+                "vacation": ["vacation", "trip", "holiday", "beach", "travel", "goa"],
+                "wedding": ["wedding", "reception", "festival", "event", "pooja"],
+                "casual": ["casual", "daily", "everyday", "grocery"],
+            }
+        )
 
         # -------------------------
         # WEATHER
         # -------------------------
-        self.weather_conditions = self._compile_dict_patterns({
-            "rainy": ["rain", "rainy", "monsoon"],
-            "summer": ["hot", "summer", "sunny"],
-            "winter": ["cold", "winter", "freezing"]
-        })
+        self.weather_conditions = self._compile_dict_patterns(
+            {
+                "rainy": ["rain", "rainy", "monsoon"],
+                "summer": ["hot", "summer", "sunny"],
+                "winter": ["cold", "winter", "freezing"],
+            }
+        )
 
         # -------------------------
         # LIFE MODULES
         # -------------------------
-        self.life_keywords = self._compile_dict_patterns({
-            "meal_planner": ["meal", "diet", "food", "protein", "recipe"],
-            "life_goals": ["goal", "habit", "progress"],
-            "health_wellness": ["workout", "gym", "skincare", "fitness"],
-            "finance_home": ["bill", "budget", "expense", "savings"]
-        })
+        self.life_keywords = self._compile_dict_patterns(
+            {
+                "meal_planner": ["meal", "diet", "food", "protein", "recipe"],
+                "life_goals": ["goal", "habit", "progress"],
+                "health_wellness": ["workout", "gym", "skincare", "fitness"],
+                "finance_home": ["bill", "budget", "expense", "savings"],
+            }
+        )
 
     # =========================
     # HELPERS
@@ -78,11 +92,7 @@ class IntentRouter:
 
         text = self.normalize_text(text)
 
-        slots = {
-            "occasion": None,
-            "weather": None,
-            "life_category": None
-        }
+        slots = {"occasion": None, "weather": None, "life_category": None}
 
         # Occasion
         for occasion, patterns in self.occasions.items():
@@ -142,7 +152,7 @@ class IntentRouter:
                 "intent": slots["life_category"],
                 "slots": slots,
                 "confidence": 0.95,
-                "source": "router"
+                "source": "router",
             }
 
         # -------------------------
@@ -156,7 +166,7 @@ class IntentRouter:
                 "intent": "styling",
                 "slots": slots,
                 "confidence": min(0.5 + styling_score, 0.9),
-                "source": "router"
+                "source": "router",
             }
 
         # -------------------------
@@ -168,7 +178,7 @@ class IntentRouter:
                 "intent": "styling",
                 "slots": slots,
                 "confidence": 0.4,
-                "source": "router_partial"
+                "source": "router_partial",
             }
 
         # -------------------------
@@ -179,7 +189,7 @@ class IntentRouter:
             "intent": "general",
             "slots": slots,
             "confidence": 0.2,
-            "source": "router_none"
+            "source": "router_none",
         }
 
 

@@ -25,7 +25,9 @@ def _parse_iso_utc(value: Any) -> datetime | None:
     if not text:
         return None
     try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(timezone.utc)
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(
+            timezone.utc
+        )
     except Exception:
         return None
 
@@ -76,7 +78,9 @@ class JobTracker:
         return f"{self._redis_prefix}{job_id}"
 
     def _to_appwrite_job(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        created_at = _parse_iso_utc(payload.get("created_at")) or datetime.now(timezone.utc)
+        created_at = _parse_iso_utc(payload.get("created_at")) or datetime.now(
+            timezone.utc
+        )
         updated_at = _parse_iso_utc(payload.get("updated_at")) or created_at
         duration_ms = int(payload.get("duration_ms") or 0)
         if duration_ms <= 0:
@@ -125,7 +129,8 @@ class JobTracker:
             "request_id": str(raw.get("request_id") or ""),
             "source": "",
             "status": str(raw.get("status") or "queued"),
-            "state": str(raw.get("state") or "").strip() or {
+            "state": str(raw.get("state") or "").strip()
+            or {
                 "queued": "PENDING",
                 "processing": "STARTED",
                 "retrying": "RETRY",
@@ -159,7 +164,9 @@ class JobTracker:
         try:
             client.create_document("jobs", row, document_id=job_id)
         except Exception as exc:
-            logger.warning("job_tracker.appwrite_persist_failed job_id=%s error=%s", job_id, exc)
+            logger.warning(
+                "job_tracker.appwrite_persist_failed job_id=%s error=%s", job_id, exc
+            )
 
     def _write(self, payload: Dict[str, Any]) -> None:
         job_id = str(payload.get("job_id") or "").strip()
@@ -171,7 +178,11 @@ class JobTracker:
         if client is not None:
             try:
                 ts = datetime.now(timezone.utc).timestamp()
-                client.setex(self._redis_key(job_id), 7 * 24 * 3600, json.dumps(payload, ensure_ascii=True))
+                client.setex(
+                    self._redis_key(job_id),
+                    7 * 24 * 3600,
+                    json.dumps(payload, ensure_ascii=True),
+                )
                 client.zadd(self._redis_recent_global, {job_id: ts})
                 client.expire(self._redis_recent_global, 7 * 24 * 3600)
                 uid = str(payload.get("user_id") or "").strip()
@@ -263,12 +274,29 @@ class JobTracker:
         return current
 
     def mark_started(self, job_id: str, *, attempt: int = 1) -> None:
-        current = self.get(job_id) or {"job_id": job_id, "created_at": _now_iso(), "meta": {}}
-        current.update({"status": "processing", "state": "STARTED", "attempt": int(attempt), "retry_count": max(0, int(attempt) - 1)})
+        current = self.get(job_id) or {
+            "job_id": job_id,
+            "created_at": _now_iso(),
+            "meta": {},
+        }
+        current.update(
+            {
+                "status": "processing",
+                "state": "STARTED",
+                "attempt": int(attempt),
+                "retry_count": max(0, int(attempt) - 1),
+            }
+        )
         self._write(current)
 
-    def mark_retrying(self, job_id: str, *, error: str, attempt: int, max_retries: int) -> None:
-        current = self.get(job_id) or {"job_id": job_id, "created_at": _now_iso(), "meta": {}}
+    def mark_retrying(
+        self, job_id: str, *, error: str, attempt: int, max_retries: int
+    ) -> None:
+        current = self.get(job_id) or {
+            "job_id": job_id,
+            "created_at": _now_iso(),
+            "meta": {},
+        }
         current.update(
             {
                 "status": "retrying",
@@ -280,10 +308,20 @@ class JobTracker:
         )
         self._write(current)
 
-    def mark_succeeded(self, job_id: str, *, result_meta: Dict[str, Any] | None = None) -> None:
-        current = self.get(job_id) or {"job_id": job_id, "created_at": _now_iso(), "meta": {}}
-        created = _parse_iso_utc(current.get("created_at")) or datetime.now(timezone.utc)
-        duration_ms = max(0, int((datetime.now(timezone.utc) - created).total_seconds() * 1000))
+    def mark_succeeded(
+        self, job_id: str, *, result_meta: Dict[str, Any] | None = None
+    ) -> None:
+        current = self.get(job_id) or {
+            "job_id": job_id,
+            "created_at": _now_iso(),
+            "meta": {},
+        }
+        created = _parse_iso_utc(current.get("created_at")) or datetime.now(
+            timezone.utc
+        )
+        duration_ms = max(
+            0, int((datetime.now(timezone.utc) - created).total_seconds() * 1000)
+        )
         current.update(
             {
                 "status": "completed",
@@ -297,9 +335,17 @@ class JobTracker:
         self._write(current)
 
     def mark_failed(self, job_id: str, *, error: str) -> None:
-        current = self.get(job_id) or {"job_id": job_id, "created_at": _now_iso(), "meta": {}}
-        created = _parse_iso_utc(current.get("created_at")) or datetime.now(timezone.utc)
-        duration_ms = max(0, int((datetime.now(timezone.utc) - created).total_seconds() * 1000))
+        current = self.get(job_id) or {
+            "job_id": job_id,
+            "created_at": _now_iso(),
+            "meta": {},
+        }
+        created = _parse_iso_utc(current.get("created_at")) or datetime.now(
+            timezone.utc
+        )
+        duration_ms = max(
+            0, int((datetime.now(timezone.utc) - created).total_seconds() * 1000)
+        )
         current.update(
             {
                 "status": "failed",
@@ -325,7 +371,11 @@ class JobTracker:
         client = self._redis_client()
         if client is not None:
             try:
-                key = f"{self._redis_recent_user_prefix}{uid}" if uid else self._redis_recent_global
+                key = (
+                    f"{self._redis_recent_user_prefix}{uid}"
+                    if uid
+                    else self._redis_recent_global
+                )
                 job_ids = client.zrevrange(key, 0, safe_limit - 1)
                 rows: List[Dict[str, Any]] = []
                 for jid in job_ids:
@@ -333,7 +383,9 @@ class JobTracker:
                     if isinstance(row, dict):
                         rows.append(row)
                 if rid:
-                    rows = [row for row in rows if str(row.get("request_id") or "") == rid]
+                    rows = [
+                        row for row in rows if str(row.get("request_id") or "") == rid
+                    ]
                 return rows
             except Exception:
                 pass
@@ -351,10 +403,18 @@ class JobTracker:
         client = self._appwrite_client()
         if client is not None:
             try:
-                docs = client.list_documents("jobs", user_id=uid or None, limit=safe_limit)
-                rows = [self._from_appwrite_job(doc) for doc in (docs or []) if isinstance(doc, dict)]
+                docs = client.list_documents(
+                    "jobs", user_id=uid or None, limit=safe_limit
+                )
+                rows = [
+                    self._from_appwrite_job(doc)
+                    for doc in (docs or [])
+                    if isinstance(doc, dict)
+                ]
                 if rid:
-                    rows = [row for row in rows if str(row.get("request_id") or "") == rid]
+                    rows = [
+                        row for row in rows if str(row.get("request_id") or "") == rid
+                    ]
                 return rows[:safe_limit]
             except Exception:
                 pass

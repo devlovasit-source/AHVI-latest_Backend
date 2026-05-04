@@ -9,7 +9,9 @@ class PaletteEngine:
         # Keep the engine data-driven and avoid hard paths that drift from the repo layout.
         here = os.path.dirname(os.path.abspath(__file__))  # brain/engines/styling
         brain_dir = os.path.abspath(os.path.join(here, "..", ".."))  # brain/
-        file_path = os.path.join(brain_dir, "banks", "events", "color_palette_bank_v1.json")
+        file_path = os.path.join(
+            brain_dir, "banks", "events", "color_palette_bank_v1.json"
+        )
 
         try:
             with open(file_path, "r", encoding="utf-8") as f:
@@ -34,8 +36,7 @@ class PaletteEngine:
     # =========================
     def get_palette_by_microtheme(self, microtheme: str):
         override = next(
-            (m for m in self.microthemes if m["microtheme"] == microtheme),
-            None
+            (m for m in self.microthemes if m["microtheme"] == microtheme), None
         )
 
         if not override:
@@ -83,7 +84,7 @@ class PaletteEngine:
             "palette_key": palette.get("key"),
             "name": palette.get("name"),
             "colors": palette.get("hex", []),
-            "tags": palette.get("tags", [])
+            "tags": palette.get("tags", []),
         }
 
 

@@ -49,21 +49,45 @@ def _infer_group_subtype_priority(title: str) -> Tuple[str, str, float, List[str
     priority = "light"
     conf = 0.55
 
-    if any(hit(w) for w in ["flight", "airport", "train", "bus", "trip", "travel", "boarding"]):
+    if any(
+        hit(w)
+        for w in ["flight", "airport", "train", "bus", "trip", "travel", "boarding"]
+    ):
         group, subtype, priority, conf = "travel", "travel_prep", "important", 0.78
-    elif any(hit(w) for w in ["interview", "presentation", "meeting", "client", "office", "work"]):
+    elif any(
+        hit(w)
+        for w in ["interview", "presentation", "meeting", "client", "office", "work"]
+    ):
         group, subtype, priority, conf = "work", "work_event", "important", 0.72
         if "interview" in t:
             subtype, conf = "interview", 0.8
         elif "presentation" in t:
             subtype, conf = "presentation", 0.78
-    elif any(hit(w) for w in ["doctor", "appointment", "clinic", "hospital", "dentist", "lab", "checkup"]):
-        group, subtype, priority, conf = "health", "doctor_appointment", "important", 0.74
+    elif any(
+        hit(w)
+        for w in [
+            "doctor",
+            "appointment",
+            "clinic",
+            "hospital",
+            "dentist",
+            "lab",
+            "checkup",
+        ]
+    ):
+        group, subtype, priority, conf = (
+            "health",
+            "doctor_appointment",
+            "important",
+            0.74,
+        )
         if "lab" in t or "test" in t:
             subtype, conf = "lab_test", 0.76
     elif any(hit(w) for w in ["gym", "workout", "yoga", "run", "training", "pilates"]):
         group, subtype, priority, conf = "fitness", "gym_class", "light", 0.7
-    elif any(hit(w) for w in ["wedding", "party", "birthday", "dinner", "date", "event"]):
+    elif any(
+        hit(w) for w in ["wedding", "party", "birthday", "dinner", "date", "event"]
+    ):
         group, subtype, priority, conf = "social", "social_event", "important", 0.7
         if "wedding" in t:
             subtype, conf = "wedding", 0.82
@@ -73,7 +97,9 @@ def _infer_group_subtype_priority(title: str) -> Tuple[str, str, float, List[str
             subtype, conf = "date", 0.74
         elif "dinner" in t:
             subtype, conf = "dinner", 0.74
-    elif any(hit(w) for w in ["payment", "bill", "emi", "rent", "tax", "invoice", "due"]):
+    elif any(
+        hit(w) for w in ["payment", "bill", "emi", "rent", "tax", "invoice", "due"]
+    ):
         group, subtype, priority, conf = "finance", "payment", "important", 0.7
 
     return group, subtype, float(conf), matched, priority
@@ -82,7 +108,9 @@ def _infer_group_subtype_priority(title: str) -> Tuple[str, str, float, List[str
 def _prep_tasks(group: str, subtype: str, dress_code: str | None = None) -> List[str]:
     tasks = set()
     if group == "travel":
-        tasks.update(["check documents", "pack essentials", "set alarm", "leave with buffer"])
+        tasks.update(
+            ["check documents", "pack essentials", "set alarm", "leave with buffer"]
+        )
     elif group == "social":
         tasks.update(["decide outfit", "confirm venue/time"])
         if subtype in {"wedding", "birthday_party"}:
@@ -123,10 +151,26 @@ def _packing_list(subtype: str) -> List[str]:
 
 def _outfit_prompt(subtype: str) -> Optional[OutfitPrompt]:
     rules = {
-        "presentation": (["structured", "clean", "confident"], ["smart footwear"], ["minimal accessory"]),
-        "interview": (["sharp", "clean", "confident"], ["smart footwear"], ["minimal accessory"]),
-        "wedding": (["occasionwear", "event-ready"], ["comfortable dress shoes"], ["small bag / watch"]),
-        "birthday_party": (["elevated casual", "confident"], ["clean sneakers"], ["statement accent"]),
+        "presentation": (
+            ["structured", "clean", "confident"],
+            ["smart footwear"],
+            ["minimal accessory"],
+        ),
+        "interview": (
+            ["sharp", "clean", "confident"],
+            ["smart footwear"],
+            ["minimal accessory"],
+        ),
+        "wedding": (
+            ["occasionwear", "event-ready"],
+            ["comfortable dress shoes"],
+            ["small bag / watch"],
+        ),
+        "birthday_party": (
+            ["elevated casual", "confident"],
+            ["clean sneakers"],
+            ["statement accent"],
+        ),
         "gym_class": (["activewear", "breathable"], ["training shoes"], ["none"]),
         "doctor_appointment": (["comfortable", "neat"], ["easy slip-ons"], ["none"]),
         "travel_prep": (["comfortable", "layerable"], ["sneakers"], ["travel pouch"]),
@@ -179,7 +223,9 @@ def _followups(subtype: str) -> List[str]:
     return out
 
 
-def _default_reminders(start_at: datetime | None, priority: str, tone_profile: str = "gentle") -> List[Reminder]:
+def _default_reminders(
+    start_at: datetime | None, priority: str, tone_profile: str = "gentle"
+) -> List[Reminder]:
     if start_at is None:
         return []
 
@@ -198,7 +244,9 @@ def _default_reminders(start_at: datetime | None, priority: str, tone_profile: s
                 id=f"rem_{idx}",
                 offsetMinutes=int(minutes),
                 message=f"Reminder: {minutes} min until your event.",
-                priority="important" if priority in {"important", "critical"} else "light",
+                priority=(
+                    "important" if priority in {"important", "critical"} else "light"
+                ),
                 toneProfile=tone_profile,
                 sendAtISO=send_at.isoformat(),
             )
@@ -207,12 +255,22 @@ def _default_reminders(start_at: datetime | None, priority: str, tone_profile: s
 
 
 def _checklists(prep_tasks: List[str], packing_list: List[str]) -> ChecklistBundle:
-    carry = ChecklistSection(title="Carry", items=packing_list[:12]) if packing_list else None
-    prep = ChecklistSection(title="Prep Tonight", items=prep_tasks[:12]) if prep_tasks else None
+    carry = (
+        ChecklistSection(title="Carry", items=packing_list[:12])
+        if packing_list
+        else None
+    )
+    prep = (
+        ChecklistSection(title="Prep Tonight", items=prep_tasks[:12])
+        if prep_tasks
+        else None
+    )
     return ChecklistBundle(carry=carry, prepTonight=prep)
 
 
-def run_calendar_runtime(event: CalendarEventInput, *, user_id: str | None = None) -> CalendarRuntimeResult:
+def run_calendar_runtime(
+    event: CalendarEventInput, *, user_id: str | None = None
+) -> CalendarRuntimeResult:
     title = _safe_text(event.title)
     group, subtype, confidence, matched, priority = _infer_group_subtype_priority(title)
 
@@ -256,4 +314,3 @@ def run_calendar_runtime(event: CalendarEventInput, *, user_id: str | None = Non
         reminders=reminders,
         dayBriefingHint=[f"{group.title()} event: {title}"],
     )
-

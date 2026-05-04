@@ -17,7 +17,9 @@ class OutfitRanker:
         self._state_path = os.path.join(base_dir, "data", "ranker_state.json")
         self._lock = Lock()
 
-    def rank(self, user_id: str, outfits: List[Dict[str, Any]], top_n: int = 3) -> List[Dict[str, Any]]:
+    def rank(
+        self, user_id: str, outfits: List[Dict[str, Any]], top_n: int = 3
+    ) -> List[Dict[str, Any]]:
         if not outfits:
             return []
         state = self._load_state()
@@ -27,19 +29,27 @@ class OutfitRanker:
 
         scored: List[Dict[str, Any]] = []
         for outfit in outfits:
-            feature_map = outfit.get("ml_features", {}) if isinstance(outfit, dict) else {}
-            linear = bias + sum(float(feature_map.get(k, 0.0)) * float(v) for k, v in weights.items())
+            feature_map = (
+                outfit.get("ml_features", {}) if isinstance(outfit, dict) else {}
+            )
+            linear = bias + sum(
+                float(feature_map.get(k, 0.0)) * float(v) for k, v in weights.items()
+            )
             ml_score = self._sigmoid(linear)
 
             item = dict(outfit)
             item["ml_score"] = round(ml_score, 4)
-            item["rank_score"] = round((ml_score * 100.0) + float(item.get("score", 0.0)), 3)
+            item["rank_score"] = round(
+                (ml_score * 100.0) + float(item.get("score", 0.0)), 3
+            )
             scored.append(item)
 
         scored.sort(key=lambda x: float(x.get("rank_score", 0.0)), reverse=True)
         return scored[: max(1, int(top_n))]
 
-    def learn_from_feedback(self, user_id: str, features: Dict[str, Any], feedback: str) -> None:
+    def learn_from_feedback(
+        self, user_id: str, features: Dict[str, Any], feedback: str
+    ) -> None:
         label = 1.0 if str(feedback).lower() in ("up", "like", "liked") else 0.0
         with self._lock:
             state = self._load_state()
@@ -48,7 +58,9 @@ class OutfitRanker:
             bias = float(profile.get("bias", 0.0))
 
             x = {k: float(v) for k, v in (features or {}).items()}
-            pred = self._sigmoid(bias + sum(float(weights.get(k, 0.0)) * v for k, v in x.items()))
+            pred = self._sigmoid(
+                bias + sum(float(weights.get(k, 0.0)) * v for k, v in x.items())
+            )
             err = label - pred
 
             lr = 0.08
@@ -78,7 +90,9 @@ class OutfitRanker:
         with open(self._state_path, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=True, indent=2)
 
-    def _ensure_user_profile(self, state: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+    def _ensure_user_profile(
+        self, state: Dict[str, Any], user_id: str
+    ) -> Dict[str, Any]:
         users = state.setdefault("users", {})
         profile = users.setdefault(
             str(user_id),
@@ -108,11 +122,12 @@ class OutfitRanker:
     def _trim_weights(weights: Dict[str, Any], limit: int = 24) -> None:
         if len(weights) <= limit:
             return
-        by_importance = sorted(weights.items(), key=lambda kv: abs(float(kv[1])), reverse=True)
+        by_importance = sorted(
+            weights.items(), key=lambda kv: abs(float(kv[1])), reverse=True
+        )
         keep = dict(by_importance[:limit])
         weights.clear()
         weights.update(keep)
 
 
 outfit_ranker = OutfitRanker()
-

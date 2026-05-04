@@ -4,6 +4,7 @@ import re
 from deep_translator import GoogleTranslator
 from functools import lru_cache
 
+
 # =========================
 # FAST LANGUAGE DETECTION (NO LLM)
 # =========================
@@ -14,10 +15,10 @@ def dynamic_nlp_language_detector(text: str) -> str:
     text = text.strip()
 
     # Native script detection (FAST)
-    if re.search(r'[\u0C00-\u0C7F]', text):
+    if re.search(r"[\u0C00-\u0C7F]", text):
         return "telugu_script"
 
-    if re.search(r'[\u0900-\u097F]', text):
+    if re.search(r"[\u0900-\u097F]", text):
         return "hindi_script"
 
     # Romanized detection heuristics
@@ -51,7 +52,7 @@ def transliterate_and_translate(text: str, target_lang_code: str) -> str:
         if not text or len(text) > 2000:
             return text
 
-        translator = get_translator(target_lang_code, 'en')
+        translator = get_translator(target_lang_code, "en")
         return translator.translate(text)
 
     except Exception as e:
@@ -67,20 +68,14 @@ def translate_to_script_and_romanized(english_text: str, target_lang_code: str) 
         if not english_text:
             return {"native_script": "", "romanized": ""}
 
-        translator = get_translator('en', target_lang_code)
+        translator = get_translator("en", target_lang_code)
         native_script = translator.translate(english_text[:2000])
 
-        return {
-            "native_script": native_script,
-            "romanized": native_script  # fallback
-        }
+        return {"native_script": native_script, "romanized": native_script}  # fallback
 
     except Exception as e:
         print(f"⚠️ Script Translation Error: {e}")
-        return {
-            "native_script": english_text,
-            "romanized": english_text
-        }
+        return {"native_script": english_text, "romanized": english_text}
 
 
 # =========================
@@ -94,7 +89,7 @@ def generate_natural_romanized(english_text: str, style: str) -> str:
     # 🔥 Avoid LLM for simple cases (speed boost)
     basic_map = {
         "hinglish": lambda t: t.replace("you", "tum").replace("are", "ho"),
-        "tanglish": lambda t: t.replace("you", "nee").replace("are", "irukka")
+        "tanglish": lambda t: t.replace("you", "nee").replace("are", "irukka"),
     }
 
     try:

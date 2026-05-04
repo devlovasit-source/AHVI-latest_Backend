@@ -32,17 +32,17 @@ class AgentSystem:
         try:
             # FIX: Use extract_json to handle both arrays and wrapped objects safely
             parsed = extract_json(str(response))
-            
+
             # Scenario A: The AI correctly returned a list
             if isinstance(parsed, list):
                 return parsed
-                
+
             # Scenario B: The AI wrapped the list in a dict (e.g. {"steps": [...]})
             if isinstance(parsed, dict):
                 for key, value in parsed.items():
                     if isinstance(value, list):
                         return value
-                        
+
         except Exception:
             logging.exception("Invalid LLM plan JSON")
 

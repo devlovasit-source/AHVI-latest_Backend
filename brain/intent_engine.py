@@ -182,13 +182,27 @@ def _validate_intent_row(row: Any, *, fallback: Dict[str, Any]) -> Dict[str, Any
 
     # If model claims a specific intent but isn't confident, fall back.
     if intent != "general" and conf < 0.55:
-        return {**fallback, "slots": {**_normalize_slots(fallback.get("slots")), **slots}}
+        return {
+            **fallback,
+            "slots": {**_normalize_slots(fallback.get("slots")), **slots},
+        }
 
     # If model disagrees with heuristic and isn't very confident, prefer heuristic.
     heuristic_intent = _norm_key(fallback.get("intent")) or "general"
-    if heuristic_intent in _ALLOWED_INTENTS and intent != heuristic_intent and conf < 0.75:
-        merged_slots = {**_normalize_slots(base.get("slots")), **_normalize_slots(fallback.get("slots"))}
-        return {"intent": heuristic_intent, "slots": merged_slots, "confidence": max(float(fallback.get("confidence", 0.0) or 0.0), conf)}
+    if (
+        heuristic_intent in _ALLOWED_INTENTS
+        and intent != heuristic_intent
+        and conf < 0.75
+    ):
+        merged_slots = {
+            **_normalize_slots(base.get("slots")),
+            **_normalize_slots(fallback.get("slots")),
+        }
+        return {
+            "intent": heuristic_intent,
+            "slots": merged_slots,
+            "confidence": max(float(fallback.get("confidence", 0.0) or 0.0), conf),
+        }
 
     return {"intent": intent, "slots": slots, "confidence": conf}
 
@@ -217,18 +231,40 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
     elif "night" in t:
         slots["time"] = "night"
 
-    if any(x in t for x in ["wear", "outfit", "style me", "recommend look", "what should i wear", "dress me"]):
+    if any(
+        x in t
+        for x in [
+            "wear",
+            "outfit",
+            "style me",
+            "recommend look",
+            "what should i wear",
+            "dress me",
+        ]
+    ):
         return {"intent": "daily_outfit", "slots": slots, "confidence": 0.68}
 
     daily_words = [
-        "daily plan", "daily cards", "morning flow", "midday flow", "afternoon flow",
-        "evening flow", "night flow", "tomorrow preview", "day planner", "daily dependency",
+        "daily plan",
+        "daily cards",
+        "morning flow",
+        "midday flow",
+        "afternoon flow",
+        "evening flow",
+        "night flow",
+        "tomorrow preview",
+        "day planner",
+        "daily dependency",
     ]
     if any(x in t for x in daily_words):
         return {"intent": "daily_dependency", "slots": slots, "confidence": 0.8}
 
     if any(x in t for x in ["wedding", "party", "event"]):
-        return {"intent": "occasion_outfit", "slots": slots or {"occasion": "event"}, "confidence": 0.7}
+        return {
+            "intent": "occasion_outfit",
+            "slots": slots or {"occasion": "event"},
+            "confidence": 0.7,
+        }
 
     if any(x in t for x in ["try", "try on", "virtual try", "preview this"]):
         return {"intent": "try_on", "slots": slots, "confidence": 0.72}
@@ -238,17 +274,50 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
 
     count_words = ["how many", "count", "number of", "total", "do i have"]
     wardrobe_words = [
-        "wardrobe", "closet", "outfit", "outfits", "tops", "top", "shirts", "shirt",
-        "tshirt", "t-shirt", "pants", "trousers", "jeans", "bottoms", "shoes",
-        "footwear", "dress", "dresses", "accessories", "jewelry", "bags", "bag",
+        "wardrobe",
+        "closet",
+        "outfit",
+        "outfits",
+        "tops",
+        "top",
+        "shirts",
+        "shirt",
+        "tshirt",
+        "t-shirt",
+        "pants",
+        "trousers",
+        "jeans",
+        "bottoms",
+        "shoes",
+        "footwear",
+        "dress",
+        "dresses",
+        "accessories",
+        "jewelry",
+        "bags",
+        "bag",
     ]
     if any(x in t for x in count_words) and any(x in t for x in wardrobe_words):
         return {"intent": "wardrobe_query", "slots": slots, "confidence": 0.8}
 
     organize_words = [
-        "organize", "life board", "meal planner", "meal", "diet", "nutrition",
-        "medicine", "meds", "bills", "calendar", "workout", "fitness", "gym",
-        "skincare", "contacts", "life goals", "goals"
+        "organize",
+        "life board",
+        "meal planner",
+        "meal",
+        "diet",
+        "nutrition",
+        "medicine",
+        "meds",
+        "bills",
+        "calendar",
+        "workout",
+        "fitness",
+        "gym",
+        "skincare",
+        "contacts",
+        "life goals",
+        "goals",
     ]
     if any(x in t for x in organize_words):
         if "life board" in t:
@@ -272,9 +341,17 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
         return {"intent": "organize_hub", "slots": slots, "confidence": 0.75}
 
     plan_pack_words = [
-        "plan trip", "trip plan", "travel plan", "packing list", "pack for",
-        "pack my", "business travel", "wedding checklist", "checklist for trip",
-        "goa trip", "vacation packing"
+        "plan trip",
+        "trip plan",
+        "travel plan",
+        "packing list",
+        "pack for",
+        "pack my",
+        "business travel",
+        "wedding checklist",
+        "checklist for trip",
+        "goa trip",
+        "vacation packing",
     ]
     if any(x in t for x in plan_pack_words):
         return {"intent": "plan_pack", "slots": slots, "confidence": 0.78}
@@ -282,7 +359,9 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
     return {"intent": "general", "slots": slots, "confidence": 0.4}
 
 
-def detect_intent(user_text: str, history=None, model: str | None = None) -> Dict[str, Any]:
+def detect_intent(
+    user_text: str, history=None, model: str | None = None
+) -> Dict[str, Any]:
     if not user_text:
         return {"intent": "general", "slots": {}, "confidence": 0.0}
 
@@ -311,6 +390,8 @@ def detect_intent(user_text: str, history=None, model: str | None = None) -> Dic
             last_intent = _norm_key(last.get("intent"))
             if last_intent in _ALLOWED_INTENTS and last_intent != "general":
                 parsed["intent"] = last_intent
-                parsed["confidence"] = max(float(parsed.get("confidence", 0.0) or 0.0), 0.6)
+                parsed["confidence"] = max(
+                    float(parsed.get("confidence", 0.0) or 0.0), 0.6
+                )
 
     return parsed

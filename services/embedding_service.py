@@ -13,8 +13,7 @@ except Exception:
 _model = None
 
 _MODEL_NAME = os.getenv(
-    "EMBEDDING_MODEL_NAME",
-    "sentence-transformers/all-MiniLM-L6-v2"
+    "EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2"
 )
 
 
@@ -55,14 +54,7 @@ def _build_text(data: dict) -> str:
     else:
         occasions = str(occasions_raw or "")
 
-    return " ".join([
-        category,
-        sub_category,
-        color,
-        pattern,
-        style,
-        occasions
-    ]).strip()
+    return " ".join([category, sub_category, color, pattern, style, occasions]).strip()
 
 
 # =========================

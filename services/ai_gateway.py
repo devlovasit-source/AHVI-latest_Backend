@@ -27,10 +27,17 @@ _POLICIES: Dict[str, GatewayPolicy] = {
     "general": GatewayPolicy(timeout_seconds=35, model=None),
     "styling": GatewayPolicy(timeout_seconds=45, model=None),
     "intent": GatewayPolicy(timeout_seconds=20, model=None),
-    "vision": GatewayPolicy(timeout_seconds=int(os.getenv("OLLAMA_VISION_TIMEOUT_SECONDS", "45")), model=None),
+    "vision": GatewayPolicy(
+        timeout_seconds=int(os.getenv("OLLAMA_VISION_TIMEOUT_SECONDS", "45")),
+        model=None,
+    ),
 }
-_BREAKER_FAIL_THRESHOLD = max(1, int(os.getenv("AI_GATEWAY_BREAKER_FAIL_THRESHOLD", "4")))
-_BREAKER_COOLDOWN_SECONDS = max(3, int(os.getenv("AI_GATEWAY_BREAKER_COOLDOWN_SECONDS", "20")))
+_BREAKER_FAIL_THRESHOLD = max(
+    1, int(os.getenv("AI_GATEWAY_BREAKER_FAIL_THRESHOLD", "4"))
+)
+_BREAKER_COOLDOWN_SECONDS = max(
+    3, int(os.getenv("AI_GATEWAY_BREAKER_COOLDOWN_SECONDS", "20"))
+)
 _breaker_lock = Lock()
 _breaker_state: Dict[str, Dict[str, float]] = {}
 
@@ -66,7 +73,14 @@ def _breaker_mark_success(key: str) -> None:
         _breaker_state[key] = {"failures": 0.0, "opened_until": 0.0}
 
 
-def _trace(event: str, *, request_id: str, usecase: str, op: str, details: Dict[str, Any] | None = None) -> None:
+def _trace(
+    event: str,
+    *,
+    request_id: str,
+    usecase: str,
+    op: str,
+    details: Dict[str, Any] | None = None,
+) -> None:
     payload = {
         "event": event,
         "request_id": request_id,
@@ -85,7 +99,13 @@ def log_control_event(
     usecase: str = "general",
     details: Dict[str, Any] | None = None,
 ) -> None:
-    _trace(event, request_id=str(request_id or ""), usecase=str(usecase or "general"), op="control_plane", details=details)
+    _trace(
+        event,
+        request_id=str(request_id or ""),
+        usecase=str(usecase or "general"),
+        op="control_plane",
+        details=details,
+    )
 
 
 def generate_text(
@@ -193,7 +213,11 @@ def extract_json(text: str) -> Any:
     if not raw:
         raise ValueError("empty response")
 
-    clean = re.sub(r"```(?:json|python|text)?", "", raw, flags=re.IGNORECASE).replace("```", "").strip()
+    clean = (
+        re.sub(r"```(?:json|python|text)?", "", raw, flags=re.IGNORECASE)
+        .replace("```", "")
+        .strip()
+    )
     clean = clean.strip()
 
     try:
@@ -319,7 +343,9 @@ def chat_json_object(
 
 
 def _vision_model_candidates() -> List[str]:
-    preferred = str(os.getenv("OLLAMA_VISION_MODEL", "llama3.2-vision:latest") or "").strip()
+    preferred = str(
+        os.getenv("OLLAMA_VISION_MODEL", "llama3.2-vision:latest") or ""
+    ).strip()
     fallback_raw = str(
         os.getenv(
             "OLLAMA_VISION_MODEL_FALLBACKS",
@@ -336,7 +362,17 @@ def _vision_model_candidates() -> List[str]:
 
 def _ollama_generate_url() -> str:
     # Vision can run on a dedicated Ollama instance/port.
-    base = str(os.getenv("OLLAMA_VISION_URL", os.getenv("OLLAMA_URL", "http://localhost:11434/api")) or "").strip().rstrip("/")
+    base = (
+        str(
+            os.getenv(
+                "OLLAMA_VISION_URL",
+                os.getenv("OLLAMA_URL", "http://localhost:11434/api"),
+            )
+            or ""
+        )
+        .strip()
+        .rstrip("/")
+    )
     return f"{base}/generate" if base.endswith("/api") else f"{base}/api/generate"
 
 
@@ -359,7 +395,11 @@ def ollama_vision_json(
     rid = str(request_id or get_request_id() or "")
     case = str(usecase or "vision")
     p = _policy(case)
-    timeout = int(timeout_seconds or p.timeout_seconds or int(os.getenv("OLLAMA_VISION_TIMEOUT_SECONDS", "45")))
+    timeout = int(
+        timeout_seconds
+        or p.timeout_seconds
+        or int(os.getenv("OLLAMA_VISION_TIMEOUT_SECONDS", "45"))
+    )
     vision_num_ctx = max(256, int(os.getenv("OLLAMA_VISION_NUM_CTX", "512")))
     normalized_image = _normalize_vision_image_base64(image_base64)
     payload = {

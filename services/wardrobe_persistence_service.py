@@ -8,7 +8,6 @@ import requests
 from services.embedding_service import embedding_service
 from services.qdrant_service import qdrant_service
 
-
 # =========================
 # ENV CONFIG
 # =========================
@@ -47,11 +46,7 @@ def _appwrite_ready() -> bool:
 
 
 def _tokens(value: str) -> List[str]:
-    return (
-        re.sub(r"[^a-z0-9]+", " ", str(value or "").lower())
-        .strip()
-        .split()
-    )
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip().split()
 
 
 def _has_any(tokens: List[str], words: List[str]) -> bool:
@@ -307,7 +302,9 @@ def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
     if _has_any(t, ["jacket", "coat", "blazer", "outerwear", "cardigan", "overshirt"]):
         return "Outerwear"
 
-    if _has_any(t, ["dress", "dresses", "gown", "jumpsuit", "saree", "lehenga", "sherwani"]):
+    if _has_any(
+        t, ["dress", "dresses", "gown", "jumpsuit", "saree", "lehenga", "sherwani"]
+    ):
         return "Dresses"
 
     return "Accessories"
@@ -330,17 +327,13 @@ def _build_appwrite_doc(
     )
 
     name = _safe_text(
-        item.get("name")
-        or item.get("label")
-        or sub_category,
+        item.get("name") or item.get("label") or sub_category,
         "Item",
     )
 
     category = normalize_category(item.get("category"), name, sub_category)
     color = _normalize_hex_color(
-        item.get("color_code")
-        or item.get("color")
-        or item.get("hex")
+        item.get("color_code") or item.get("color") or item.get("hex")
     )
     pattern = _safe_text(item.get("pattern"), "plain").lower()
     occasions = _normalize_list(item.get("occasions") or item.get("occasion_tags"))
@@ -383,7 +376,9 @@ def persist_selected_items(
     if not user_id:
         raise ValueError("user_id is required")
 
-    selected_ids = {str(x).strip() for x in (selected_item_ids or []) if str(x or "").strip()}
+    selected_ids = {
+        str(x).strip() for x in (selected_item_ids or []) if str(x or "").strip()
+    }
 
     saved_items: List[Dict[str, Any]] = []
     errors: List[str] = []
@@ -408,15 +403,11 @@ def persist_selected_items(
             file_id = _safe_document_id(item_id or uuid.uuid4())
 
             raw_url = _safe_text(
-                item.get("raw_url")
-                or item.get("image_url")
-                or item.get("imageUrl")
+                item.get("raw_url") or item.get("image_url") or item.get("imageUrl")
             )
 
             masked_url = _safe_text(
-                item.get("masked_url")
-                or item.get("maskedUrl")
-                or raw_url
+                item.get("masked_url") or item.get("maskedUrl") or raw_url
             )
 
             if not raw_url and not masked_url:

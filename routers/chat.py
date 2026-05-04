@@ -21,6 +21,7 @@ from brain.orchestrator import ahvi_orchestrator
 from brain.tone.tone_engine import tone_engine
 from brain.outfit_pipeline import save_feedback
 from services.appwrite_proxy import AppwriteProxy
+
 try:
     from services.job_tracker import job_tracker
 except Exception:
@@ -123,6 +124,7 @@ def shutdown_chat_resources(wait_seconds: float = 5.0) -> None:
     except Exception:
         logger.exception("orchestrator executor shutdown failed")
 
+
 def _build_history(messages: List["Message"]) -> List[Dict[str, Any]]:
     history: List[Dict[str, Any]] = []
     for msg in messages[-8:]:
@@ -159,11 +161,30 @@ def _is_fast_wardrobe_count_query(text: str) -> bool:
     lowered = str(text or "").lower()
     count_words = ["how many", "count", "number of", "total", "do i have"]
     wardrobe_words = [
-        "wardrobe", "closet", "outfit", "outfits", "tops", "top", "shirts", "shirt",
-        "pants", "trousers", "jeans", "bottoms", "shoes", "footwear", "dress",
-        "dresses", "accessories", "jewelry", "bags", "bag",
+        "wardrobe",
+        "closet",
+        "outfit",
+        "outfits",
+        "tops",
+        "top",
+        "shirts",
+        "shirt",
+        "pants",
+        "trousers",
+        "jeans",
+        "bottoms",
+        "shoes",
+        "footwear",
+        "dress",
+        "dresses",
+        "accessories",
+        "jewelry",
+        "bags",
+        "bag",
     ]
-    return any(k in lowered for k in count_words) and any(k in lowered for k in wardrobe_words)
+    return any(k in lowered for k in count_words) and any(
+        k in lowered for k in wardrobe_words
+    )
 
 
 def _chat_tokens(value: Any) -> List[str]:
@@ -178,7 +199,11 @@ def _infer_chat_category(item: Dict[str, Any]) -> str:
     if not isinstance(item, dict):
         return "Accessories"
 
-    explicit = str(item.get("category") or item.get("cat") or item.get("type") or "").strip().lower()
+    explicit = (
+        str(item.get("category") or item.get("cat") or item.get("type") or "")
+        .strip()
+        .lower()
+    )
     explicit_map = {
         "top": "Tops",
         "tops": "Tops",
@@ -229,39 +254,109 @@ def _infer_chat_category(item: Dict[str, Any]) -> str:
     tokens = _chat_tokens(joined)
 
     # Tops first: Short-Sleeved Shirt must be Tops.
-    if _chat_has_any(tokens, [
-        "shirt", "shirts", "tee", "tshirt", "tshirts", "top", "tops",
-        "blouse", "blouses", "hoodie", "hoodies", "sweater", "sweaters",
-        "kurta", "kurtas", "polo", "polos",
-    ]):
+    if _chat_has_any(
+        tokens,
+        [
+            "shirt",
+            "shirts",
+            "tee",
+            "tshirt",
+            "tshirts",
+            "top",
+            "tops",
+            "blouse",
+            "blouses",
+            "hoodie",
+            "hoodies",
+            "sweater",
+            "sweaters",
+            "kurta",
+            "kurtas",
+            "polo",
+            "polos",
+        ],
+    ):
         return "Tops"
 
     # Only shorts, never short.
-    if _chat_has_any(tokens, [
-        "pants", "pant", "trousers", "trouser", "jeans", "jean",
-        "shorts", "skirt", "skirts", "legging", "leggings", "chino", "chinos",
-    ]):
+    if _chat_has_any(
+        tokens,
+        [
+            "pants",
+            "pant",
+            "trousers",
+            "trouser",
+            "jeans",
+            "jean",
+            "shorts",
+            "skirt",
+            "skirts",
+            "legging",
+            "leggings",
+            "chino",
+            "chinos",
+        ],
+    ):
         return "Bottoms"
 
-    if _chat_has_any(tokens, [
-        "shoe", "shoes", "boot", "boots", "sneaker", "sneakers",
-        "heel", "heels", "sandal", "sandals", "loafer", "loafers",
-        "slipper", "slippers",
-    ]):
+    if _chat_has_any(
+        tokens,
+        [
+            "shoe",
+            "shoes",
+            "boot",
+            "boots",
+            "sneaker",
+            "sneakers",
+            "heel",
+            "heels",
+            "sandal",
+            "sandals",
+            "loafer",
+            "loafers",
+            "slipper",
+            "slippers",
+        ],
+    ):
         return "Footwear"
 
-    if _chat_has_any(tokens, [
-        "watch", "watches", "bag", "bags", "belt", "belts",
-        "scarf", "scarves", "jewelry", "jewellery", "ring", "rings",
-        "necklace", "bracelet", "earring", "earrings", "accessory",
-        "accessories", "hat", "cap", "sunglass", "sunglasses",
-    ]):
+    if _chat_has_any(
+        tokens,
+        [
+            "watch",
+            "watches",
+            "bag",
+            "bags",
+            "belt",
+            "belts",
+            "scarf",
+            "scarves",
+            "jewelry",
+            "jewellery",
+            "ring",
+            "rings",
+            "necklace",
+            "bracelet",
+            "earring",
+            "earrings",
+            "accessory",
+            "accessories",
+            "hat",
+            "cap",
+            "sunglass",
+            "sunglasses",
+        ],
+    ):
         return "Accessories"
 
-    if _chat_has_any(tokens, ["jacket", "coat", "blazer", "outerwear", "cardigan", "overshirt"]):
+    if _chat_has_any(
+        tokens, ["jacket", "coat", "blazer", "outerwear", "cardigan", "overshirt"]
+    ):
         return "Outerwear"
 
-    if _chat_has_any(tokens, ["dress", "dresses", "gown", "jumpsuit", "saree", "lehenga", "sherwani"]):
+    if _chat_has_any(
+        tokens, ["dress", "dresses", "gown", "jumpsuit", "saree", "lehenga", "sherwani"]
+    ):
         return "Dresses"
 
     return "Accessories"
@@ -289,11 +384,27 @@ def _fast_wardrobe_count_response(user_id: str, query_text: str) -> Dict[str, An
             counts["accessories"] += 1
 
     lowered = str(query_text or "").lower()
-    if any(k in lowered for k in ["top", "tops", "shirt", "shirts", "blouse", "blouses"]):
+    if any(
+        k in lowered for k in ["top", "tops", "shirt", "shirts", "blouse", "blouses"]
+    ):
         message = f"You have {counts['tops']} tops in your wardrobe."
-    elif any(k in lowered for k in ["bottom", "bottoms", "pant", "pants", "trouser", "trousers", "jean", "jeans"]):
+    elif any(
+        k in lowered
+        for k in [
+            "bottom",
+            "bottoms",
+            "pant",
+            "pants",
+            "trouser",
+            "trousers",
+            "jean",
+            "jeans",
+        ]
+    ):
         message = f"You have {counts['bottoms']} bottoms in your wardrobe."
-    elif any(k in lowered for k in ["shoe", "shoes", "footwear", "sneaker", "sneakers"]):
+    elif any(
+        k in lowered for k in ["shoe", "shoes", "footwear", "sneaker", "sneakers"]
+    ):
         message = f"You have {counts['shoes']} shoes in your wardrobe."
     else:
         total = len(docs)
@@ -309,16 +420,30 @@ def _fast_wardrobe_count_response(user_id: str, query_text: str) -> Dict[str, An
         "type": "stats",
         "cards": [
             {"id": "tops", "title": "Tops", "kind": "stat", "value": counts["tops"]},
-            {"id": "bottoms", "title": "Bottoms", "kind": "stat", "value": counts["bottoms"]},
+            {
+                "id": "bottoms",
+                "title": "Bottoms",
+                "kind": "stat",
+                "value": counts["bottoms"],
+            },
             {"id": "shoes", "title": "Shoes", "kind": "stat", "value": counts["shoes"]},
-            {"id": "dresses", "title": "Dresses", "kind": "stat", "value": counts["dresses"]},
-            {"id": "accessories", "title": "Accessories", "kind": "stat", "value": counts["accessories"]},
+            {
+                "id": "dresses",
+                "title": "Dresses",
+                "kind": "stat",
+                "value": counts["dresses"],
+            },
+            {
+                "id": "accessories",
+                "title": "Accessories",
+                "kind": "stat",
+                "value": counts["accessories"],
+            },
         ],
         "data": {"counts": counts, "total_items": len(docs)},
         "meta": {"intent": "wardrobe_query", "domain": "wardrobe", "fast_path": True},
         "audio_job_id": "offline",
     }
-
 
 
 # ================= AHVI CLEAN CHAT STYLE V2 BEGIN =================
@@ -332,17 +457,41 @@ def _fast_wardrobe_count_response(user_id: str, query_text: str) -> Dict[str, An
 # - fallback still works if orchestrator times out
 
 _AHVI_MALE_STYLE_GENDERS = {"m", "male", "man", "men", "mens", "boy"}
-_AHVI_FEMALE_STYLE_GENDERS = {"f", "female", "woman", "women", "womens", "girl", "ladies"}
+_AHVI_FEMALE_STYLE_GENDERS = {
+    "f",
+    "female",
+    "woman",
+    "women",
+    "womens",
+    "girl",
+    "ladies",
+}
 _AHVI_UNISEX_STYLE_GENDERS = {"unisex", "neutral", "genderless", "any"}
 
 _AHVI_FEMININE_ONLY_GARMENTS = {
-    "saree", "sari", "lehenga", "gown", "skirt", "skirts", "blouse", "kurti"
+    "saree",
+    "sari",
+    "lehenga",
+    "gown",
+    "skirt",
+    "skirts",
+    "blouse",
+    "kurti",
 }
 _AHVI_MALE_TRADITIONAL_GARMENTS = {"sherwani", "achkan"}
 
 _AHVI_EXPLICIT_FEMININE_REQUEST = {
-    "saree", "sari", "lehenga", "gown", "skirt", "skirts",
-    "female", "women", "woman", "ladies", "feminine",
+    "saree",
+    "sari",
+    "lehenga",
+    "gown",
+    "skirt",
+    "skirts",
+    "female",
+    "women",
+    "woman",
+    "ladies",
+    "feminine",
 }
 
 
@@ -352,6 +501,7 @@ def _ahvi_coerce_dict(value):
     if isinstance(value, str) and value.strip():
         try:
             import json as _json
+
             parsed = _json.loads(value)
             return parsed if isinstance(parsed, dict) else {}
         except Exception:
@@ -381,12 +531,14 @@ def _ahvi_profile_style_gender(profile):
 
     for key in ("preferences", "style_preferences", "stylePreference", "profile"):
         nested = _ahvi_coerce_dict(profile.get(key))
-        candidates.extend([
-            nested.get("style_gender"),
-            nested.get("gender"),
-            nested.get("preferred_gender"),
-            nested.get("target_gender"),
-        ])
+        candidates.extend(
+            [
+                nested.get("style_gender"),
+                nested.get("gender"),
+                nested.get("preferred_gender"),
+                nested.get("target_gender"),
+            ]
+        )
 
     for value in candidates:
         gender = _ahvi_normalize_style_gender(value)
@@ -400,6 +552,7 @@ def _ahvi_resolve_effective_user_profile(user_id, request_profile=None):
     request_profile = request_profile if isinstance(request_profile, dict) else {}
     try:
         from services.data_access_service import get_user_profile, merge_user_profiles
+
         stored = get_user_profile(user_id=str(user_id or "").strip())
         merged = merge_user_profiles(stored, request_profile)
         merged.setdefault("user_id", user_id)
@@ -419,11 +572,25 @@ def _ahvi_item_tokens(item):
     blob = " ".join(
         str(item.get(k, "") or "")
         for k in (
-            "slot", "role", "type", "category", "cat", "category_group",
-            "sub_category", "subcategory", "subCategory",
-            "name", "label", "description", "gender",
-            "style_gender", "target_gender", "audience",
-            "department", "intended_for", "wearer",
+            "slot",
+            "role",
+            "type",
+            "category",
+            "cat",
+            "category_group",
+            "sub_category",
+            "subcategory",
+            "subCategory",
+            "name",
+            "label",
+            "description",
+            "gender",
+            "style_gender",
+            "target_gender",
+            "audience",
+            "department",
+            "intended_for",
+            "wearer",
         )
     )
     return set(_chat_tokens(blob))
@@ -446,8 +613,13 @@ def _ahvi_item_allowed_for_user_profile(item, user_profile=None, query_text=""):
     audience_blob = " ".join(
         str(item.get(k, "") or "")
         for k in (
-            "gender", "style_gender", "target_gender",
-            "audience", "department", "intended_for", "wearer",
+            "gender",
+            "style_gender",
+            "target_gender",
+            "audience",
+            "department",
+            "intended_for",
+            "wearer",
         )
     )
     audience_tokens = set(_chat_tokens(audience_blob))
@@ -458,13 +630,17 @@ def _ahvi_item_allowed_for_user_profile(item, user_profile=None, query_text=""):
     if tokens.intersection(_AHVI_FEMININE_ONLY_GARMENTS):
         return False
 
-    if _infer_chat_category(item) == "Dresses" and not tokens.intersection(_AHVI_MALE_TRADITIONAL_GARMENTS):
+    if _infer_chat_category(item) == "Dresses" and not tokens.intersection(
+        _AHVI_MALE_TRADITIONAL_GARMENTS
+    ):
         return False
 
     return True
 
 
-def _fetch_wardrobe_for_style(user_id: str, request_wardrobe: Any) -> List[Dict[str, Any]]:
+def _fetch_wardrobe_for_style(
+    user_id: str, request_wardrobe: Any
+) -> List[Dict[str, Any]]:
     if isinstance(request_wardrobe, list):
         return [dict(i) for i in request_wardrobe if isinstance(i, dict)]
 
@@ -490,7 +666,10 @@ def _ahvi_style_occasion(query_text):
         return "party"
     if any(k in q for k in ["travel", "airport", "trip"]):
         return "travel"
-    if any(k in q for k in ["coffee", "casual", "outing", "weekend", "street", "sport", "outdoor"]):
+    if any(
+        k in q
+        for k in ["coffee", "casual", "outing", "weekend", "street", "sport", "outdoor"]
+    ):
         return "casual outing"
     return "today"
 
@@ -517,9 +696,21 @@ def _ahvi_style_blob(item):
     return " ".join(
         str(item.get(k, "") or "")
         for k in (
-            "role", "slot", "type", "category", "cat", "category_group",
-            "sub_category", "subcategory", "subCategory",
-            "name", "label", "description", "pattern", "color", "color_name",
+            "role",
+            "slot",
+            "type",
+            "category",
+            "cat",
+            "category_group",
+            "sub_category",
+            "subcategory",
+            "subCategory",
+            "name",
+            "label",
+            "description",
+            "pattern",
+            "color",
+            "color_name",
         )
     ).lower()
 
@@ -542,39 +733,113 @@ def _ahvi_style_key(item):
 def _ahvi_style_role(item):
     tokens = set(_chat_tokens(_ahvi_style_blob(item)))
 
-    if tokens.intersection({
-        "shoe", "shoes", "sneaker", "sneakers", "boot", "boots",
-        "heel", "heels", "sandal", "sandals", "loafer", "loafers",
-        "slipper", "slippers", "slider", "sliders", "footwear"
-    }):
+    if tokens.intersection(
+        {
+            "shoe",
+            "shoes",
+            "sneaker",
+            "sneakers",
+            "boot",
+            "boots",
+            "heel",
+            "heels",
+            "sandal",
+            "sandals",
+            "loafer",
+            "loafers",
+            "slipper",
+            "slippers",
+            "slider",
+            "sliders",
+            "footwear",
+        }
+    ):
         return "footwear"
 
-    if tokens.intersection({
-        "watch", "watches", "belt", "belts", "cap", "caps", "hat", "hats",
-        "sunglass", "sunglasses", "eyewear", "glasses", "bag", "bags",
-        "purse", "handbag", "clutch", "tote", "jewelry", "jewellery",
-        "ring", "rings", "necklace", "necklaces", "bracelet", "bracelets",
-        "earring", "earrings", "scarf", "scarves", "accessory", "accessories"
-    }):
+    if tokens.intersection(
+        {
+            "watch",
+            "watches",
+            "belt",
+            "belts",
+            "cap",
+            "caps",
+            "hat",
+            "hats",
+            "sunglass",
+            "sunglasses",
+            "eyewear",
+            "glasses",
+            "bag",
+            "bags",
+            "purse",
+            "handbag",
+            "clutch",
+            "tote",
+            "jewelry",
+            "jewellery",
+            "ring",
+            "rings",
+            "necklace",
+            "necklaces",
+            "bracelet",
+            "bracelets",
+            "earring",
+            "earrings",
+            "scarf",
+            "scarves",
+            "accessory",
+            "accessories",
+        }
+    ):
         return "accessory"
 
-    if tokens.intersection({
-        "dress", "dresses", "saree", "sari", "lehenga", "gown", "jumpsuit", "sherwani"
-    }):
+    if tokens.intersection(
+        {"dress", "dresses", "saree", "sari", "lehenga", "gown", "jumpsuit", "sherwani"}
+    ):
         return "dress"
 
     # Tops before bottoms: short-sleeved shirt must not become shorts.
-    if tokens.intersection({
-        "top", "tops", "shirt", "shirts", "tee", "tshirt", "tshirts",
-        "polo", "polos", "jacket", "blazer", "sweater", "hoodie",
-        "kurta", "kurti", "tunic", "tunics"
-    }):
+    if tokens.intersection(
+        {
+            "top",
+            "tops",
+            "shirt",
+            "shirts",
+            "tee",
+            "tshirt",
+            "tshirts",
+            "polo",
+            "polos",
+            "jacket",
+            "blazer",
+            "sweater",
+            "hoodie",
+            "kurta",
+            "kurti",
+            "tunic",
+            "tunics",
+        }
+    ):
         return "top"
 
-    if tokens.intersection({
-        "bottom", "bottoms", "pant", "pants", "trouser", "trousers",
-        "jean", "jeans", "shorts", "skirt", "skirts", "chino", "chinos"
-    }):
+    if tokens.intersection(
+        {
+            "bottom",
+            "bottoms",
+            "pant",
+            "pants",
+            "trouser",
+            "trousers",
+            "jean",
+            "jeans",
+            "shorts",
+            "skirt",
+            "skirts",
+            "chino",
+            "chinos",
+        }
+    ):
         return "bottom"
 
     return "unknown"
@@ -625,7 +890,10 @@ def _ahvi_style_accessory_type(item):
         return "headwear"
     if "bag" in blob:
         return "bag"
-    if any(k in blob for k in ["ring", "necklace", "bracelet", "earring", "jewelry", "jewellery"]):
+    if any(
+        k in blob
+        for k in ["ring", "necklace", "bracelet", "earring", "jewelry", "jewellery"]
+    ):
         return "jewelry"
     if "sunglass" in blob or "eyewear" in blob or "glasses" in blob:
         return "eyewear"
@@ -685,10 +953,22 @@ def _ahvi_style_pick(pool, used, fallback=None):
 
 def _ahvi_style_clean_accessories(accessories, query_text):
     q = str(query_text or "").lower()
-    headwear_allowed = any(k in q for k in [
-        "casual", "street", "travel", "airport", "sport", "gym",
-        "sun", "beach", "outdoor", "college", "weekend"
-    ])
+    headwear_allowed = any(
+        k in q
+        for k in [
+            "casual",
+            "street",
+            "travel",
+            "airport",
+            "sport",
+            "gym",
+            "sun",
+            "beach",
+            "outdoor",
+            "college",
+            "weekend",
+        ]
+    )
 
     out = []
     seen_types = set()
@@ -726,15 +1006,24 @@ def _ahvi_style_clean_accessories(accessories, query_text):
 
 def _ahvi_style_names(items):
     return [
-        str((i or {}).get("name") or (i or {}).get("label") or (i or {}).get("category") or "")
+        str(
+            (i or {}).get("name")
+            or (i or {}).get("label")
+            or (i or {}).get("category")
+            or ""
+        )
         for i in items or []
         if isinstance(i, dict)
     ]
 
 
-
 def _ahvi_router_style_fallback_enabled():
-    return os.getenv("AHVI_ENABLE_ROUTER_STYLE_FALLBACK", "0").strip().lower() in {"1", "true", "yes", "on"}
+    return os.getenv("AHVI_ENABLE_ROUTER_STYLE_FALLBACK", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _ahvi_style_card_roles(card):
@@ -792,7 +1081,9 @@ def _ahvi_filter_complete_style_cards(cards, user_id):
     return complete
 
 
-def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None, user_profile=None):
+def _ahvi_sanitize_style_cards(
+    cards, user_id, query_text, request_wardrobe=None, user_profile=None
+):
     if not isinstance(cards, list):
         return []
 
@@ -811,7 +1102,15 @@ def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None
                 pass
             return []
         # Dev/demo only: build empty shells; sanitizer will fill from wardrobe pools.
-        cards = [{"id": f"style_card_{i}", "title": f"Look {i + 1} · Styled Fit", "items": [], "accessories": []} for i in range(3)]
+        cards = [
+            {
+                "id": f"style_card_{i}",
+                "title": f"Look {i + 1} · Styled Fit",
+                "items": [],
+                "accessories": [],
+            }
+            for i in range(3)
+        ]
 
     used_top = set()
     used_bottom = set()
@@ -831,9 +1130,13 @@ def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None
                 source_items.extend([x for x in value if isinstance(x, dict)])
 
         top = next((x for x in source_items if _ahvi_style_role(x) == "top"), None)
-        bottom = next((x for x in source_items if _ahvi_style_role(x) == "bottom"), None)
+        bottom = next(
+            (x for x in source_items if _ahvi_style_role(x) == "bottom"), None
+        )
         dress = next((x for x in source_items if _ahvi_style_role(x) == "dress"), None)
-        footwear = next((x for x in source_items if _ahvi_style_role(x) == "footwear"), None)
+        footwear = next(
+            (x for x in source_items if _ahvi_style_role(x) == "footwear"), None
+        )
         accessories = [x for x in source_items if _ahvi_style_role(x) == "accessory"]
 
         final_items = []
@@ -855,15 +1158,40 @@ def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None
         if chosen_footwear:
             final_items.append(_ahvi_style_norm(chosen_footwear, "footwear"))
 
-        final_items.extend(_ahvi_style_clean_accessories(accessories or buckets["accessory"], query_text))
+        final_items.extend(
+            _ahvi_style_clean_accessories(
+                accessories or buckets["accessory"], query_text
+            )
+        )
 
         fixed = dict(card)
         fixed["items"] = final_items
         fixed["accessories"] = []
 
-        top_name = next((str(i.get("name") or i.get("label") or "top") for i in final_items if _ahvi_style_role(i) in {"top", "dress"}), "")
-        bottom_name = next((str(i.get("name") or i.get("label") or "bottom") for i in final_items if _ahvi_style_role(i) == "bottom"), "")
-        footwear_name = next((str(i.get("name") or i.get("label") or "footwear") for i in final_items if _ahvi_style_role(i) == "footwear"), "")
+        top_name = next(
+            (
+                str(i.get("name") or i.get("label") or "top")
+                for i in final_items
+                if _ahvi_style_role(i) in {"top", "dress"}
+            ),
+            "",
+        )
+        bottom_name = next(
+            (
+                str(i.get("name") or i.get("label") or "bottom")
+                for i in final_items
+                if _ahvi_style_role(i) == "bottom"
+            ),
+            "",
+        )
+        footwear_name = next(
+            (
+                str(i.get("name") or i.get("label") or "footwear")
+                for i in final_items
+                if _ahvi_style_role(i) == "footwear"
+            ),
+            "",
+        )
         core = ", ".join([x for x in [top_name, bottom_name, footwear_name] if x])
 
         q = str(query_text or "").lower()
@@ -892,7 +1220,16 @@ def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None
             user_id,
             len(cleaned),
             [" | ".join(_ahvi_style_names(c.get("items") or [])) for c in cleaned],
-            [len([i for i in (c.get("items") or []) if isinstance(i, dict) and _ahvi_style_role(i) == "accessory"]) for c in cleaned],
+            [
+                len(
+                    [
+                        i
+                        for i in (c.get("items") or [])
+                        if isinstance(i, dict) and _ahvi_style_role(i) == "accessory"
+                    ]
+                )
+                for c in cleaned
+            ],
         )
     except Exception:
         pass
@@ -904,7 +1241,8 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
     profile = _ahvi_resolve_effective_user_profile(user_id, user_profile or {})
     wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
     wardrobe = [
-        item for item in wardrobe
+        item
+        for item in wardrobe
         if _ahvi_item_allowed_for_user_profile(item, profile, query_text)
     ]
 
@@ -913,26 +1251,32 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
     try:
         from brain.outfit_pipeline import get_daily_outfits
 
-        result = get_daily_outfits({
-            "user_id": user_id,
-            "wardrobe": wardrobe,
-            "context": {
-                "occasion": occasion,
-                "query": query_text,
-                "user_profile": profile,
-                "style_gender": _ahvi_profile_style_gender(profile),
-                "signals": {
-                    "source": "routers.chat.clean_style_adapter_v2",
+        result = get_daily_outfits(
+            {
+                "user_id": user_id,
+                "wardrobe": wardrobe,
+                "context": {
+                    "occasion": occasion,
+                    "query": query_text,
+                    "user_profile": profile,
                     "style_gender": _ahvi_profile_style_gender(profile),
+                    "signals": {
+                        "source": "routers.chat.clean_style_adapter_v2",
+                        "style_gender": _ahvi_profile_style_gender(profile),
+                    },
                 },
-            },
-        })
+            }
+        )
 
         if not isinstance(result, dict):
             result = {}
 
     except Exception as exc:
-        logger.warning("ahvi.clean_chat_style_adapter_v2 pipeline_failed user_id=%s error=%s", user_id, str(exc)[:180])
+        logger.warning(
+            "ahvi.clean_chat_style_adapter_v2 pipeline_failed user_id=%s error=%s",
+            user_id,
+            str(exc)[:180],
+        )
         result = {}
 
     raw_cards = result.get("cards") if isinstance(result.get("cards"), list) else []
@@ -956,9 +1300,21 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
             "cards": [],
             "board_ids": "",
             "data": {
-                "outfits": result.get("outfits") if isinstance(result.get("outfits"), list) else [],
-                "rendered_boards": result.get("rendered_boards") if isinstance(result.get("rendered_boards"), list) else [],
-                "board_item_ids": result.get("board_item_ids") if isinstance(result.get("board_item_ids"), list) else [],
+                "outfits": (
+                    result.get("outfits")
+                    if isinstance(result.get("outfits"), list)
+                    else []
+                ),
+                "rendered_boards": (
+                    result.get("rendered_boards")
+                    if isinstance(result.get("rendered_boards"), list)
+                    else []
+                ),
+                "board_item_ids": (
+                    result.get("board_item_ids")
+                    if isinstance(result.get("board_item_ids"), list)
+                    else []
+                ),
             },
             "meta": {
                 "mode": "router_style_fallback_disabled",
@@ -970,7 +1326,9 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
             },
         }
 
-    cards = _ahvi_sanitize_style_cards(raw_cards, user_id, query_text, wardrobe, profile)
+    cards = _ahvi_sanitize_style_cards(
+        raw_cards, user_id, query_text, wardrobe, profile
+    )
 
     if not _ahvi_router_style_fallback_enabled():
         cards = _ahvi_filter_complete_style_cards(cards, user_id)
@@ -993,9 +1351,21 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
                 "cards": [],
                 "board_ids": "",
                 "data": {
-                    "outfits": result.get("outfits") if isinstance(result.get("outfits"), list) else [],
-                    "rendered_boards": result.get("rendered_boards") if isinstance(result.get("rendered_boards"), list) else [],
-                    "board_item_ids": result.get("board_item_ids") if isinstance(result.get("board_item_ids"), list) else [],
+                    "outfits": (
+                        result.get("outfits")
+                        if isinstance(result.get("outfits"), list)
+                        else []
+                    ),
+                    "rendered_boards": (
+                        result.get("rendered_boards")
+                        if isinstance(result.get("rendered_boards"), list)
+                        else []
+                    ),
+                    "board_item_ids": (
+                        result.get("board_item_ids")
+                        if isinstance(result.get("board_item_ids"), list)
+                        else []
+                    ),
                 },
                 "meta": {
                     "mode": "router_incomplete_cards_blocked",
@@ -1008,10 +1378,16 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
                 },
             }
 
-    board_item_ids = result.get("board_item_ids") if isinstance(result.get("board_item_ids"), list) else []
+    board_item_ids = (
+        result.get("board_item_ids")
+        if isinstance(result.get("board_item_ids"), list)
+        else []
+    )
     board_ids = ",".join([str(x) for x in board_item_ids if str(x).strip()])
 
-    first_names = ", ".join(_ahvi_style_names((cards[0].get("items") if cards else []) or [])[:5])
+    first_names = ", ".join(
+        _ahvi_style_names((cards[0].get("items") if cards else []) or [])[:5]
+    )
     message = (
         result.get("message")
         or result.get("context")
@@ -1041,7 +1417,11 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
             "outfits": cards,
             "rendered_boards": [],
             "board_item_ids": board_item_ids,
-            "pipeline": result.get("pipeline") if isinstance(result.get("pipeline"), dict) else {},
+            "pipeline": (
+                result.get("pipeline")
+                if isinstance(result.get("pipeline"), dict)
+                else {}
+            ),
             "style_gender": _ahvi_profile_style_gender(profile),
         },
         "meta": {
@@ -1055,8 +1435,13 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
     }
 
 
-def _ahvi_final_response_style_guard(cards, user_id, query_text, request_wardrobe=None, user_profile=None):
-    return _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe, user_profile)
+def _ahvi_final_response_style_guard(
+    cards, user_id, query_text, request_wardrobe=None, user_profile=None
+):
+    return _ahvi_sanitize_style_cards(
+        cards, user_id, query_text, request_wardrobe, user_profile
+    )
+
 
 # ================= AHVI CLEAN CHAT STYLE V2 END =================
 
@@ -1064,13 +1449,19 @@ def _ahvi_final_response_style_guard(cards, user_id, query_text, request_wardrob
 def _detect_mode(text: str) -> str:
     t = text.lower().strip()
 
-    if any(k in t for k in ["wear","outfit","dress","style","clothes","wardrobe","look"]):
+    if any(
+        k in t
+        for k in ["wear", "outfit", "dress", "style", "clothes", "wardrobe", "look"]
+    ):
         return "fashion"
 
-    if t in ["hi","hello","hey"]:
+    if t in ["hi", "hello", "hey"]:
         return "greeting"
 
-    if any(k in t for k in ["how are","what is","who is","tell me","why","joke","explain"]):
+    if any(
+        k in t
+        for k in ["how are", "what is", "who is", "tell me", "why", "joke", "explain"]
+    ):
         return "casual"
 
     return "fashion"
@@ -1114,6 +1505,7 @@ def _infer_user_message_style(text: str) -> Dict[str, str]:
         "emoji_density": emoji_density,
         "slang_presence": slang_presence,
     }
+
 
 # -------------------------
 # MODELS
@@ -1169,6 +1561,7 @@ class DailyCardsRequest(BaseModel):
     user_profile: Dict[str, Any] = Field(default_factory=dict)
     current_memory: Any = Field(default_factory=dict)
 
+
 @router.post("/text")
 def text_chat(request: TextChatRequest, http_request: Request):
 
@@ -1191,7 +1584,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
     auth_user_id = ""
     state_user = getattr(http_request.state, "user", None)
     if isinstance(state_user, dict):
-        auth_user_id = str(state_user.get("user_id") or state_user.get("$id") or "").strip()
+        auth_user_id = str(
+            state_user.get("user_id") or state_user.get("$id") or ""
+        ).strip()
     profile_user_id = ""
     if isinstance(request.user_profile, dict):
         profile_user_id = str(request.user_profile.get("user_id") or "").strip()
@@ -1221,9 +1616,27 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # CACHE
     # -------------------------
     cache_key = _cache_key(user_input, user_id)
-    style_query = any(k in user_input.lower() for k in ["wear", "outfit", "dress", "style", "clothes", "wardrobe", "look", "casual", "date night"])
-    visual_context = str(request.module_context or "").lower() in {"style", "wardrobe"} or style_query
-    cache_visual_boards = bool((request.include_base64 or style_query) and visual_context)
+    style_query = any(
+        k in user_input.lower()
+        for k in [
+            "wear",
+            "outfit",
+            "dress",
+            "style",
+            "clothes",
+            "wardrobe",
+            "look",
+            "casual",
+            "date night",
+        ]
+    )
+    visual_context = (
+        str(request.module_context or "").lower() in {"style", "wardrobe"}
+        or style_query
+    )
+    cache_visual_boards = bool(
+        (request.include_base64 or style_query) and visual_context
+    )
     cached = None if cache_visual_boards else _CHAT_CACHE.get(cache_key)
     if cached is not None:
         return cached
@@ -1235,7 +1648,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
         preferred_lang = (request.language or "en").lower()
 
         if preferred_lang in ("te", "hi"):
-            english_input = GoogleTranslator(source=preferred_lang, target="en").translate(user_input)
+            english_input = GoogleTranslator(
+                source=preferred_lang, target="en"
+            ).translate(user_input)
             target_lang = preferred_lang
         else:
             english_input = user_input
@@ -1250,7 +1665,10 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # -------------------------
     mode = _detect_mode(english_input)
 
-    general_chat_prompt = any(k in english_input.lower() for k in ["joke", "how are you", "how r you", "what are you doing"])
+    general_chat_prompt = any(
+        k in english_input.lower()
+        for k in ["joke", "how are you", "how r you", "what are you doing"]
+    )
     if general_chat_prompt:
         try:
             casual_message = lightweight_chat(english_input)
@@ -1261,7 +1679,10 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "message": tone_engine.apply(
                 casual_message,
                 user_profile=request.user_profile,
-                signals={"context_mode": "home", "user_message_style": user_message_style},
+                signals={
+                    "context_mode": "home",
+                    "user_message_style": user_message_style,
+                },
                 context={},
             ),
             "cards": [],
@@ -1275,7 +1696,10 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "message": tone_engine.apply(
                 "Hey, I can help you style outfits or just chat.",
                 user_profile=request.user_profile,
-                signals={"context_mode": "home", "user_message_style": user_message_style},
+                signals={
+                    "context_mode": "home",
+                    "user_message_style": user_message_style,
+                },
                 context={},
             ),
             "cards": [],
@@ -1283,14 +1707,20 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "audio_job_id": "offline",
         }
 
-    if mode == "casual" and str(request.module_context or "").lower() not in {"style", "wardrobe"}:
+    if mode == "casual" and str(request.module_context or "").lower() not in {
+        "style",
+        "wardrobe",
+    }:
         try:
             return {
                 "success": True,
                 "message": tone_engine.apply(
                     lightweight_chat(english_input),
                     user_profile=request.user_profile,
-                    signals={"context_mode": "home", "user_message_style": user_message_style},
+                    signals={
+                        "context_mode": "home",
+                        "user_message_style": user_message_style,
+                    },
                     context={},
                 ),
                 "cards": [],
@@ -1318,7 +1748,11 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # ORCHESTRATOR (TIMEOUT SAFE)
     # -------------------------
     history = _build_history(request.messages[:-1]) if len(request.messages) > 1 else []
-    memory_history = request.current_memory.get("history", []) if isinstance(request.current_memory, dict) else []
+    memory_history = (
+        request.current_memory.get("history", [])
+        if isinstance(request.current_memory, dict)
+        else []
+    )
     merged_history = _normalize_memory_history(memory_history) + history
 
     def run():
@@ -1327,7 +1761,14 @@ def text_chat(request: TextChatRequest, http_request: Request):
             user_id=user_id,
             context={
                 "memory": request.current_memory,
-                "user_profile": _ahvi_resolve_effective_user_profile(user_id, request.user_profile if isinstance(request.user_profile, dict) else {}),
+                "user_profile": _ahvi_resolve_effective_user_profile(
+                    user_id,
+                    (
+                        request.user_profile
+                        if isinstance(request.user_profile, dict)
+                        else {}
+                    ),
+                ),
                 "module_context": request.module_context,
                 "include_base64": bool(request.include_base64),
                 "wardrobe": request.wardrobe,
@@ -1339,9 +1780,15 @@ def text_chat(request: TextChatRequest, http_request: Request):
         )
 
     try:
-        result = _ORCHESTRATOR_EXECUTOR.submit(run).result(timeout=_ORCH_TIMEOUT_SECONDS)
+        result = _ORCHESTRATOR_EXECUTOR.submit(run).result(
+            timeout=_ORCH_TIMEOUT_SECONDS
+        )
     except concurrent.futures.TimeoutError:
-        style_payload = _demo_style_board_payload(user_id, english_input, request.wardrobe) if visual_context else {}
+        style_payload = (
+            _demo_style_board_payload(user_id, english_input, request.wardrobe)
+            if visual_context
+            else {}
+        )
         fallback_message = style_payload.get("message") or (
             "AHVI is still warming the styling engine, but here is a safe look: keep one hero piece, pair it with a clean neutral base, and add one polished accessory."
             if visual_context
@@ -1352,18 +1799,29 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "message": tone_engine.apply(
                 fallback_message,
                 user_profile=request.user_profile,
-                signals={"context_mode": request.module_context or "style", "user_message_style": user_message_style},
+                signals={
+                    "context_mode": request.module_context or "style",
+                    "user_message_style": user_message_style,
+                },
                 context={"module_context": request.module_context},
             ),
             "type": style_payload.get("type") or "style_fallback",
             "cards": style_payload.get("cards") or [],
             "board_ids": style_payload.get("board_ids") or "",
             "data": style_payload.get("data") or {"outfits": [], "rendered_boards": []},
-            "meta": {"mode": "timeout_fallback", "timeout_seconds": _ORCH_TIMEOUT_SECONDS, **(style_payload.get("meta") or {})},
+            "meta": {
+                "mode": "timeout_fallback",
+                "timeout_seconds": _ORCH_TIMEOUT_SECONDS,
+                **(style_payload.get("meta") or {}),
+            },
             "audio_job_id": "offline",
         }
     except Exception as exc:
-        style_payload = _demo_style_board_payload(user_id, english_input, request.wardrobe) if visual_context else {}
+        style_payload = (
+            _demo_style_board_payload(user_id, english_input, request.wardrobe)
+            if visual_context
+            else {}
+        )
         fallback_message = style_payload.get("message") or (
             lightweight_chat(english_input)
             if not visual_context
@@ -1374,14 +1832,21 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "message": tone_engine.apply(
                 fallback_message,
                 user_profile=request.user_profile,
-                signals={"context_mode": request.module_context or "style", "user_message_style": user_message_style},
+                signals={
+                    "context_mode": request.module_context or "style",
+                    "user_message_style": user_message_style,
+                },
                 context={"module_context": request.module_context},
             ),
             "type": style_payload.get("type") or "style_fallback",
             "cards": style_payload.get("cards") or [],
             "board_ids": style_payload.get("board_ids") or "",
             "data": style_payload.get("data") or {"outfits": [], "rendered_boards": []},
-            "meta": {"mode": "error_fallback", "error": str(exc)[:160], **(style_payload.get("meta") or {})},
+            "meta": {
+                "mode": "error_fallback",
+                "error": str(exc)[:160],
+                **(style_payload.get("meta") or {}),
+            },
             "audio_job_id": "offline",
         }
 
@@ -1400,7 +1865,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
             if lower_msg in ("hi", "hello", "hey", "hi there", "hello there"):
                 pass
             else:
-                message = GoogleTranslator(source="en", target=target_lang).translate(message)
+                message = GoogleTranslator(source="en", target=target_lang).translate(
+                    message
+                )
     except Exception:
         pass
 
@@ -1449,28 +1916,44 @@ def text_chat(request: TextChatRequest, http_request: Request):
         result["board_ids"] = ""
     else:
         has_visual_board = bool(
-            isinstance(cards_payload, list)
-            and cards_payload
+            isinstance(cards_payload, list) and cards_payload
         ) or bool(
             isinstance(data_payload, dict)
             and (data_payload.get("rendered_boards") or data_payload.get("outfits"))
         )
         if visual_context and not has_visual_board:
-            style_payload = _demo_style_board_payload(user_id, english_input, request.wardrobe)
+            style_payload = _demo_style_board_payload(
+                user_id, english_input, request.wardrobe
+            )
             if style_payload.get("cards"):
                 cards_payload = style_payload.get("cards") or []
                 data_payload = style_payload.get("data") or {}
                 result["type"] = style_payload.get("type") or result.get("type")
-                result["board_ids"] = style_payload.get("board_ids") or result.get("board_ids") or ""
-            result["meta"] = {**(result.get("meta") or {}), **(style_payload.get("meta") or {})}
+                result["board_ids"] = (
+                    style_payload.get("board_ids") or result.get("board_ids") or ""
+                )
+            result["meta"] = {
+                **(result.get("meta") or {}),
+                **(style_payload.get("meta") or {}),
+            }
         lower_message = (message or "").lower()
-        if not message or "clarification" in lower_message or "balance isn't quite" in lower_message:
-            replacement = style_payload.get("message") or "I will assume smart casual for today: start with a clean hero piece, add a neutral base, and finish with footwear or one accessory. Once your wardrobe has saved items, I will pick the exact pieces from it."
+        if (
+            not message
+            or "clarification" in lower_message
+            or "balance isn't quite" in lower_message
+        ):
+            replacement = (
+                style_payload.get("message")
+                or "I will assume smart casual for today: start with a clean hero piece, add a neutral base, and finish with footwear or one accessory. Once your wardrobe has saved items, I will pick the exact pieces from it."
+            )
             try:
                 message = tone_engine.apply(
                     replacement,
                     user_profile=request.user_profile,
-                    signals={"context_mode": request.module_context or "style", "user_message_style": user_message_style},
+                    signals={
+                        "context_mode": request.module_context or "style",
+                        "user_message_style": user_message_style,
+                    },
                     context={"module_context": request.module_context},
                 )
             except Exception:
@@ -1484,13 +1967,18 @@ def text_chat(request: TextChatRequest, http_request: Request):
             enqueue_task(
                 task_func=run_heavy_audio_task,
                 args=[message, target_lang],
-                kwargs={"request_id": str(getattr(http_request.state, "request_id", "") or "")},
+                kwargs={
+                    "request_id": str(
+                        getattr(http_request.state, "request_id", "") or ""
+                    )
+                },
                 kind="chat_audio",
                 user_id=user_id,
                 source="routers.chat.text",
                 request_id=str(getattr(http_request.state, "request_id", "") or ""),
             )
-            if run_heavy_audio_task else "offline"
+            if run_heavy_audio_task
+            else "offline"
         )
     except Exception:
         audio_job_id = "offline"
@@ -1531,7 +2019,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
         "meta": {
             **(result.get("meta") or {}),
             "weather": weather_data,
-            "history_used": len(merged_history[-20:])
+            "history_used": len(merged_history[-20:]),
         },
         "audio_job_id": audio_job_id,
     }

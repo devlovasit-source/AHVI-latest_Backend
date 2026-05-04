@@ -10,20 +10,17 @@ class ArchetypeLearningEngine:
         # -------------------------
         # 🔥 INIT DEFAULTS
         # -------------------------
-        scores = memory.get("archetype_scores", {
-            "stylist": 0.34,
-            "best_friend": 0.33,
-            "advisor": 0.33
-        })
+        scores = memory.get(
+            "archetype_scores", {"stylist": 0.34, "best_friend": 0.33, "advisor": 0.33}
+        )
 
-        interaction_style = memory.get("interaction_style", {
-            "likes_slang": False,
-            "likes_short": True,
-            "likes_hype": False
-        })
+        interaction_style = memory.get(
+            "interaction_style",
+            {"likes_slang": False, "likes_short": True, "likes_hype": False},
+        )
 
-        feedback = signals.get("feedback")              # like / dislike
-        engagement = signals.get("engagement_level")    # low / medium / high
+        feedback = signals.get("feedback")  # like / dislike
+        engagement = signals.get("engagement_level")  # low / medium / high
         last_archetype = signals.get("last_archetype")
 
         message_length = signals.get("response_length")  # short / long

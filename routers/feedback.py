@@ -4,6 +4,7 @@ from typing import Dict, Any
 
 from services.qdrant_service import qdrant_service
 from services.embedding_service import encode_metadata
+
 router = APIRouter(prefix="/api/feedback")
 
 
@@ -26,10 +27,7 @@ def feedback_item(request: ItemFeedbackRequest):
     try:
         qdrant_service.update_feedback(request.item_id, fb)
 
-        return {
-            "success": True,
-            "message": "Item feedback recorded"
-        }
+        return {"success": True, "message": "Item feedback recorded"}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

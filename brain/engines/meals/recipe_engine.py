@@ -46,8 +46,7 @@ class RecipeEngine:
 
         if c.get("avoid"):
             card["ingredients"] = [
-                i for i in card["ingredients"]
-                if i not in c["avoid"]
+                i for i in card["ingredients"] if i not in c["avoid"]
             ]
 
         if c.get("note"):
@@ -130,7 +129,7 @@ class RecipeEngine:
                 "difficulty": self.difficulty(time_min),
                 "ingredients": base.get("ingredients", []),
                 "steps": base.get("steps", []),
-                "notes": base.get("notes", [])[:3]
+                "notes": base.get("notes", [])[:3],
             }
 
             recipes.append(card)
@@ -172,7 +171,7 @@ class RecipeEngine:
         return {
             "version": config.get("version", "v1"),
             "count": len(recipes[:target]),
-            "recipes": recipes[:target]
+            "recipes": recipes[:target],
         }
 
 

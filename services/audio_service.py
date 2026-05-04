@@ -6,7 +6,6 @@ import edge_tts
 
 from brain.tone.tone_engine import tone_engine
 
-
 # -------------------------
 # VOICE MAP (MULTI-LANG)
 # -------------------------
@@ -77,11 +76,7 @@ async def _generate_audio_async(text: str, voice: str, rate: str, pitch: str) ->
     ssml = _build_ssml(text, voice)
 
     communicator = edge_tts.Communicate(
-        ssml,
-        voice,
-        rate=rate,
-        pitch=pitch,
-        method="ssml"
+        ssml, voice, rate=rate, pitch=pitch, method="ssml"
     )
 
     audio_bytes = b""
@@ -97,10 +92,7 @@ async def _generate_audio_async(text: str, voice: str, rate: str, pitch: str) ->
 # MAIN FUNCTION
 # -------------------------
 def generate_cloned_audio(
-    text_to_clone: str,
-    lang: Optional[str] = "en",
-    user_profile=None,
-    signals=None
+    text_to_clone: str, lang: Optional[str] = "en", user_profile=None, signals=None
 ) -> str:
     """
     🔥 AHVI Voice Engine (Edge TTS)

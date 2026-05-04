@@ -56,11 +56,15 @@ def extract_client_ip(headers, client_host: str | None) -> str:
     return str(client_host or "unknown")
 
 
-async def _check_local_window(key: str, max_requests: int, window_seconds: int) -> Tuple[bool, int]:
+async def _check_local_window(
+    key: str, max_requests: int, window_seconds: int
+) -> Tuple[bool, int]:
     now = time.time()
     async with _local_lock:
         if len(_local_windows) > _LOCAL_WINDOW_MAX_BUCKETS:
-            expired = [k for k, (_, reset_at) in _local_windows.items() if now >= reset_at]
+            expired = [
+                k for k, (_, reset_at) in _local_windows.items() if now >= reset_at
+            ]
             for k in expired:
                 _local_windows.pop(k, None)
             if len(_local_windows) > _LOCAL_WINDOW_MAX_BUCKETS:

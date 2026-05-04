@@ -4,7 +4,6 @@ from fastapi import HTTPException
 from PIL import Image
 from services.r2_storage import R2Storage
 
-
 # =========================
 # CONFIG
 # =========================
@@ -24,7 +23,7 @@ def _validate_image(image_bytes: bytes, max_size: int, field_name: str):
     if len(image_bytes) > max_size:
         raise HTTPException(
             status_code=413,
-            detail=f"{field_name} too large (max {max_size // (1024 * 1024)}MB)"
+            detail=f"{field_name} too large (max {max_size // (1024 * 1024)}MB)",
         )
 
     try:
@@ -40,7 +39,7 @@ def _validate_image(image_bytes: bytes, max_size: int, field_name: str):
     if img_type not in ALLOWED_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"{field_name} must be jpeg/png/webp (got {img_type})"
+            detail=f"{field_name} must be jpeg/png/webp (got {img_type})",
         )
 
 
@@ -56,8 +55,7 @@ def _base64_to_bytes(value: str, field_name: str) -> bytes:
         return base64.b64decode(text, validate=True)
     except Exception as exc:
         raise HTTPException(
-            status_code=400,
-            detail=f"{field_name} invalid base64: {exc}"
+            status_code=400, detail=f"{field_name} invalid base64: {exc}"
         )
 
 

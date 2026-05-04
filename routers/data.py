@@ -14,7 +14,11 @@ import requests
 
 from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
 from services.embedding_service import encode_metadata
-from services.image_embedding_service import encode_image_base64, encode_image_url, encode_image_bytes
+from services.image_embedding_service import (
+    encode_image_base64,
+    encode_image_url,
+    encode_image_bytes,
+)
 from services.image_fingerprint import (
     compute_pixel_hash_from_base64,
     compute_pixel_hash_from_url,
@@ -27,8 +31,12 @@ from services import data_access_service
 router = APIRouter(prefix="/api/data", tags=["data"])
 proxy = AppwriteProxy()
 
-_DUPLICATE_ONE_SHOT_TTL_SECONDS = max(10, int(os.getenv("OUTFIT_DUPLICATE_ONE_SHOT_TTL_SECONDS", "90")))
-_DUPLICATE_ONE_SHOT_MAX = max(32, int(os.getenv("OUTFIT_DUPLICATE_ONE_SHOT_MAX", "512")))
+_DUPLICATE_ONE_SHOT_TTL_SECONDS = max(
+    10, int(os.getenv("OUTFIT_DUPLICATE_ONE_SHOT_TTL_SECONDS", "90"))
+)
+_DUPLICATE_ONE_SHOT_MAX = max(
+    32, int(os.getenv("OUTFIT_DUPLICATE_ONE_SHOT_MAX", "512"))
+)
 _DUPLICATE_ONE_SHOT_CACHE: Dict[str, Dict[str, Any]] = {}
 _DUPLICATE_ONE_SHOT_LOCK = Lock()
 
@@ -68,7 +76,9 @@ def _authenticated_user_id(http_request: Request) -> str:
     raise HTTPException(status_code=401, detail="Authenticated user is required")
 
 
-def _assert_user_match(auth_user_id: str, supplied_user_id: Any, *, field: str = "user_id") -> None:
+def _assert_user_match(
+    auth_user_id: str, supplied_user_id: Any, *, field: str = "user_id"
+) -> None:
     supplied = str(supplied_user_id or "").strip()
     if supplied and supplied != str(auth_user_id):
         raise HTTPException(
@@ -83,9 +93,13 @@ def _assert_payload_user_matches(auth_user_id: str, payload: Dict[str, Any]) -> 
             _assert_user_match(auth_user_id, payload.get(field), field=field)
 
 
-def _enforce_document_owner(resource: str, doc: Dict[str, Any], auth_user_id: str) -> None:
+def _enforce_document_owner(
+    resource: str, doc: Dict[str, Any], auth_user_id: str
+) -> None:
     if not isinstance(doc, dict):
-        raise HTTPException(status_code=403, detail="Document owner could not be verified")
+        raise HTTPException(
+            status_code=403, detail="Document owner could not be verified"
+        )
     if resource == "users":
         doc_id = str(doc.get("$id") or doc.get("id") or doc.get("userId") or "").strip()
         if doc_id:
@@ -96,11 +110,15 @@ def _enforce_document_owner(resource: str, doc: Dict[str, Any], auth_user_id: st
         return
     owner = str(doc.get(user_field) or doc.get("userId") or "").strip()
     if not owner:
-        raise HTTPException(status_code=403, detail="Document owner could not be verified")
+        raise HTTPException(
+            status_code=403, detail="Document owner could not be verified"
+        )
     _assert_user_match(auth_user_id, owner, field="document owner")
 
 
-def _stamp_authenticated_user(resource: str, payload: Dict[str, Any], auth_user_id: str) -> Dict[str, Any]:
+def _stamp_authenticated_user(
+    resource: str, payload: Dict[str, Any], auth_user_id: str
+) -> Dict[str, Any]:
     _assert_payload_user_matches(auth_user_id, payload)
     user_field = proxy.user_field_map.get(resource)
     if user_field:
@@ -203,7 +221,15 @@ _CATEGORY_FALLBACK_SUB = {
 
 def _build_sources(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     sources: List[Dict[str, Any]] = [payload]
-    for key in ("analysis", "vision", "ai", "detected", "detected_item", "detectedItem", "data"):
+    for key in (
+        "analysis",
+        "vision",
+        "ai",
+        "detected",
+        "detected_item",
+        "detectedItem",
+        "data",
+    ):
         value = payload.get(key)
         if isinstance(value, dict):
             sources.append(value)
@@ -298,7 +324,9 @@ def _guess_sub_category(name: str, category: str) -> str:
     return _CATEGORY_FALLBACK_SUB.get(cat_key, "")
 
 
-def _normalize_outfit_payload(payload: Dict[str, Any], request_user_id: Optional[str]) -> Dict[str, Any]:
+def _normalize_outfit_payload(
+    payload: Dict[str, Any], request_user_id: Optional[str]
+) -> Dict[str, Any]:
     normalized = dict(payload)
     sources = _build_sources(normalized)
 
@@ -326,16 +354,26 @@ def _normalize_outfit_payload(payload: Dict[str, Any], request_user_id: Optional
         "processed_image_url",
         "processedImageUrl",
     )
-    image_id = _first_text(sources, "image_id", "imageId", "raw_id", "rawId", "file_id", "fileId")
-    masked_id = _first_text(sources, "masked_id", "maskedId", "masked_file_id", "maskedFileId")
+    image_id = _first_text(
+        sources, "image_id", "imageId", "raw_id", "rawId", "file_id", "fileId"
+    )
+    masked_id = _first_text(
+        sources, "masked_id", "maskedId", "masked_file_id", "maskedFileId"
+    )
     category = _first_text(sources, "category", "type")
-    sub_category = _first_text(sources, "sub_category", "subCategory", "subcategory", "subType")
+    sub_category = _first_text(
+        sources, "sub_category", "subCategory", "subcategory", "subType"
+    )
     color_code = _first_text(sources, "color_code", "colorCode", "colour_code")
     pattern = _first_text(sources, "pattern", "fabric_pattern")
-    name = _first_text(sources, "name", "title", "item_name", "itemName", "garment_name")
+    name = _first_text(
+        sources, "name", "title", "item_name", "itemName", "garment_name"
+    )
     notes = _first_text(sources, "notes", "note", "description")
     occasions = _first_list(sources, "occasions", "occasion", "occasions_list", "tags")
-    qdrant_point_id = _first_text(sources, "qdrant_point_id", "qdrantPointId", "vector_id", "vectorId")
+    qdrant_point_id = _first_text(
+        sources, "qdrant_point_id", "qdrantPointId", "vector_id", "vectorId"
+    )
 
     parsed = _parse_notes_for_fields(notes)
     if not color_code and parsed["color_code"]:
@@ -481,19 +519,19 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
-def _normalize_meal_plan_payload(payload: Dict[str, Any], request_user_id: Optional[str]) -> Dict[str, Any]:
+def _normalize_meal_plan_payload(
+    payload: Dict[str, Any], request_user_id: Optional[str]
+) -> Dict[str, Any]:
     normalized = dict(payload or {})
 
     # userId (required)
-    user_id = (
-        str(
-            normalized.get("userId")
-            or normalized.get("user_id")
-            or normalized.get("userid")
-            or request_user_id
-            or ""
-        ).strip()
-    )
+    user_id = str(
+        normalized.get("userId")
+        or normalized.get("user_id")
+        or normalized.get("userid")
+        or request_user_id
+        or ""
+    ).strip()
     if user_id:
         normalized["userId"] = user_id
 
@@ -519,9 +557,11 @@ def _normalize_meal_plan_payload(payload: Dict[str, Any], request_user_id: Optio
         or "diet"
     ).strip()
     total_cal = _safe_int(
-        normalized.get("totalCal")
-        if normalized.get("totalCal") is not None
-        else normalized.get("total_cal", normalized.get("calories", 0)),
+        (
+            normalized.get("totalCal")
+            if normalized.get("totalCal") is not None
+            else normalized.get("total_cal", normalized.get("calories", 0))
+        ),
         default=0,
     )
 
@@ -533,7 +573,11 @@ def _normalize_meal_plan_payload(payload: Dict[str, Any], request_user_id: Optio
         meals_str = meals_value.strip()
     else:
         try:
-            meals_str = json.dumps(meals_value if meals_value is not None else [], ensure_ascii=False, separators=(",", ":"))
+            meals_str = json.dumps(
+                meals_value if meals_value is not None else [],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
         except Exception:
             meals_str = "[]"
 
@@ -618,7 +662,10 @@ def _collect_outfit_r2_candidates(doc: Dict[str, Any]) -> Dict[str, List[str]]:
     masked_id = doc.get("masked_id")
     image_url = doc.get("image_url")
     masked_url = doc.get("masked_url")
-    seed = str(doc.get("qdrant_point_id") or "").strip() or str(doc.get("$id") or "").strip()
+    seed = (
+        str(doc.get("qdrant_point_id") or "").strip()
+        or str(doc.get("$id") or "").strip()
+    )
 
     add_unique(raw_candidates, image_id)
     add_unique(masked_candidates, masked_id)
@@ -686,8 +733,14 @@ def _build_existing_preview_data_url(doc: Dict[str, Any]) -> Optional[str]:
             if res.status_code == 200 and res.content:
                 content = res.content[: max_preview_bytes + 1]
                 if len(content) <= max_preview_bytes:
-                    content_type = str(res.headers.get("Content-Type") or "").strip().lower()
-                    mime = content_type if content_type.startswith("image/") else _guess_mime_from_name(preview_url)
+                    content_type = (
+                        str(res.headers.get("Content-Type") or "").strip().lower()
+                    )
+                    mime = (
+                        content_type
+                        if content_type.startswith("image/")
+                        else _guess_mime_from_name(preview_url)
+                    )
                     encoded = base64.b64encode(content).decode("utf-8")
                     return f"data:{mime};base64,{encoded}"
         except Exception:
@@ -698,6 +751,7 @@ def _build_existing_preview_data_url(doc: Dict[str, Any]) -> Optional[str]:
 def _extract_preview_url(doc: Dict[str, Any]) -> str:
     if not isinstance(doc, dict):
         return ""
+
     def is_http_url(value: Any) -> bool:
         text = str(value or "").strip()
         return text.startswith("http://") or text.startswith("https://")
@@ -774,7 +828,9 @@ def _hydrate_existing_outfit_document(
                 break
             docs.extend([d for d in page_docs if isinstance(d, dict)])
 
-            meta = page.get("meta", {}) if isinstance(page.get("meta", {}), dict) else {}
+            meta = (
+                page.get("meta", {}) if isinstance(page.get("meta", {}), dict) else {}
+            )
             has_more = bool(meta.get("has_more"))
             next_offset = meta.get("next_offset")
             if not has_more or next_offset is None:
@@ -789,7 +845,9 @@ def _hydrate_existing_outfit_document(
     for doc in docs:
         if not isinstance(doc, dict):
             continue
-        doc_point_id = str(doc.get("qdrant_point_id") or doc.get("qdrantPointId") or "").strip()
+        doc_point_id = str(
+            doc.get("qdrant_point_id") or doc.get("qdrantPointId") or ""
+        ).strip()
         doc_id = str(doc.get("$id") or "").strip()
         if point_id and point_id in {doc_point_id, doc_id}:
             merged.update(doc)
@@ -808,8 +866,16 @@ def _hydrate_existing_outfit_document(
     hint_map = dict(hints or {})
     hint_name = str(hint_map.get("name") or "").strip().lower()
     hint_category = str(hint_map.get("category") or "").strip().lower()
-    hint_sub_category = str(hint_map.get("sub_category") or hint_map.get("subCategory") or "").strip().lower()
-    hint_color_code = str(hint_map.get("color_code") or hint_map.get("colorCode") or "").strip().lower()
+    hint_sub_category = (
+        str(hint_map.get("sub_category") or hint_map.get("subCategory") or "")
+        .strip()
+        .lower()
+    )
+    hint_color_code = (
+        str(hint_map.get("color_code") or hint_map.get("colorCode") or "")
+        .strip()
+        .lower()
+    )
 
     best_doc: Dict[str, Any] = {}
     best_score = -1
@@ -930,7 +996,13 @@ def _compute_payload_image_vector(payload: Dict[str, Any]) -> list:
     if vector:
         return vector
 
-    for key in ("masked_image_base64", "maskedImageBase64", "processed_image_base64", "image_base64", "imageBase64"):
+    for key in (
+        "masked_image_base64",
+        "maskedImageBase64",
+        "processed_image_base64",
+        "image_base64",
+        "imageBase64",
+    ):
         value = payload.get(key)
         if value:
             vector = encode_image_base64(value)
@@ -981,7 +1053,13 @@ def _compute_payload_pixel_hash(payload: Dict[str, Any]) -> str:
         if value:
             return value
 
-    for key in ("masked_image_base64", "maskedImageBase64", "processed_image_base64", "image_base64", "imageBase64"):
+    for key in (
+        "masked_image_base64",
+        "maskedImageBase64",
+        "processed_image_base64",
+        "image_base64",
+        "imageBase64",
+    ):
         value = payload.get(key)
         if value:
             pixel_hash = compute_pixel_hash_from_base64(value)
@@ -1067,7 +1145,9 @@ def _run_outfit_duplicate_check(
         }
 
     try:
-        payload_image_vector = incoming_image_vector or _compute_payload_image_vector(payload)
+        payload_image_vector = incoming_image_vector or _compute_payload_image_vector(
+            payload
+        )
         if payload_image_vector:
             image_duplicate = qdrant_service.find_image_duplicate(
                 payload_image_vector,
@@ -1082,7 +1162,9 @@ def _run_outfit_duplicate_check(
                 duplicate_meta["reason"] = "image_vector"
                 duplicate = dict(image_duplicate or {})
 
-        payload_pixel_hash = str(incoming_pixel_hash or "").strip().lower() or _compute_payload_pixel_hash(payload)
+        payload_pixel_hash = str(
+            incoming_pixel_hash or ""
+        ).strip().lower() or _compute_payload_pixel_hash(payload)
         duplicate_meta["pixel_hash"] = payload_pixel_hash or None
         if payload_pixel_hash and not duplicate_meta["is_duplicate"]:
             pixel_duplicate = qdrant_service.find_pixel_duplicate(
@@ -1103,9 +1185,11 @@ def _run_outfit_duplicate_check(
             "sub_category": payload.get("sub_category", ""),
             "color_code": payload.get("color_code", ""),
             "pattern": payload.get("pattern", ""),
-            "occasions": payload.get("occasions", [])
-            if isinstance(payload.get("occasions", []), list)
-            else [],
+            "occasions": (
+                payload.get("occasions", [])
+                if isinstance(payload.get("occasions", []), list)
+                else []
+            ),
         }
         if not duplicate_meta["is_duplicate"]:
             duplicate_vector = encode_metadata(duplicate_vector_input)
@@ -1114,7 +1198,9 @@ def _run_outfit_duplicate_check(
                 duplicate_user_id,
                 threshold=duplicate_meta["threshold"],
             )
-            duplicate_meta["is_duplicate"] = bool(semantic_duplicate.get("is_duplicate"))
+            duplicate_meta["is_duplicate"] = bool(
+                semantic_duplicate.get("is_duplicate")
+            )
             duplicate_meta["score"] = float(semantic_duplicate.get("score") or 0.0)
             duplicate_meta["point_id"] = semantic_duplicate.get("id")
             if duplicate_meta["is_duplicate"]:
@@ -1236,7 +1322,9 @@ def list_documents(
             },
         }
     except AppwriteProxyError as exc:
-        print(f"[data.list_documents] resource={resource} normalized={normalized_resource} user_id={auth_user_id} error={exc}")
+        print(
+            f"[data.list_documents] resource={resource} normalized={normalized_resource} user_id={auth_user_id} error={exc}"
+        )
         raise _http_error_from_proxy(exc)
 
 
@@ -1275,7 +1363,9 @@ def get_document(http_request: Request, resource: str, document_id: str):
                     f"create_on_missing error={create_exc}"
                 )
                 raise _http_error_from_proxy(create_exc)
-        print(f"[data.get_document] resource={resource} document_id={document_id} error={exc}")
+        print(
+            f"[data.get_document] resource={resource} document_id={document_id} error={exc}"
+        )
         raise _http_error_from_proxy(exc)
 
 
@@ -1299,11 +1389,15 @@ def check_outfit_duplicate(http_request: Request, request: OutfitDuplicateCheckR
         or _compute_payload_image_vector(raw_payload)
     )
     incoming_pixel_hash = (
-        str(raw_payload.get("pixel_hash") or "")
-        or str(raw_payload.get("pixelHash") or "")
-        or str(raw_payload.get("masked_pixel_hash") or "")
-        or str(raw_payload.get("maskedPixelHash") or "")
-    ).strip().lower()
+        (
+            str(raw_payload.get("pixel_hash") or "")
+            or str(raw_payload.get("pixelHash") or "")
+            or str(raw_payload.get("masked_pixel_hash") or "")
+            or str(raw_payload.get("maskedPixelHash") or "")
+        )
+        .strip()
+        .lower()
+    )
 
     payload = _normalize_outfit_payload(raw_payload, auth_user_id)
     payload["userId"] = auth_user_id
@@ -1375,11 +1469,15 @@ def create_document(http_request: Request, request: CreateRequest):
                 or _compute_payload_image_vector(payload)
             )
         incoming_pixel_hash = (
-            str(payload.get("pixel_hash") or "")
-            or str(payload.get("pixelHash") or "")
-            or str(payload.get("masked_pixel_hash") or "")
-            or str(payload.get("maskedPixelHash") or "")
-        ).strip().lower()
+            (
+                str(payload.get("pixel_hash") or "")
+                or str(payload.get("pixelHash") or "")
+                or str(payload.get("masked_pixel_hash") or "")
+                or str(payload.get("maskedPixelHash") or "")
+            )
+            .strip()
+            .lower()
+        )
         payload_image_vector: list = []
         payload_pixel_hash = ""
         duplicate_meta: Dict[str, Any] = {
@@ -1409,7 +1507,9 @@ def create_document(http_request: Request, request: CreateRequest):
             if duplicate_user_id and not request.force_save and qdrant_enabled:
                 duplicate_result = None
                 if incoming_pixel_hash:
-                    cached_key = _dup_cache_key(user_id=duplicate_user_id, pixel_hash=incoming_pixel_hash)
+                    cached_key = _dup_cache_key(
+                        user_id=duplicate_user_id, pixel_hash=incoming_pixel_hash
+                    )
                     duplicate_result = _dup_cache_pop(key=cached_key)
                 if not isinstance(duplicate_result, dict):
                     duplicate_result = _run_outfit_duplicate_check(
@@ -1419,11 +1519,21 @@ def create_document(http_request: Request, request: CreateRequest):
                         incoming_pixel_hash=incoming_pixel_hash,
                     )
                 else:
-                    print(f"[data.create_document] outfits duplicate_check cache_hit user={duplicate_user_id}")
-                duplicate_meta = dict(duplicate_result.get("duplicate_meta") or duplicate_meta)
+                    print(
+                        f"[data.create_document] outfits duplicate_check cache_hit user={duplicate_user_id}"
+                    )
+                duplicate_meta = dict(
+                    duplicate_result.get("duplicate_meta") or duplicate_meta
+                )
                 duplicate_meta["forced_save"] = bool(request.force_save)
-                payload_image_vector = list(duplicate_result.get("payload_image_vector") or [])
-                payload_pixel_hash = str(duplicate_result.get("payload_pixel_hash") or "").strip().lower()
+                payload_image_vector = list(
+                    duplicate_result.get("payload_image_vector") or []
+                )
+                payload_pixel_hash = (
+                    str(duplicate_result.get("payload_pixel_hash") or "")
+                    .strip()
+                    .lower()
+                )
                 duplicate = dict(duplicate_result.get("duplicate") or {})
 
                 if duplicate_meta.get("is_duplicate"):
@@ -1452,23 +1562,40 @@ def create_document(http_request: Request, request: CreateRequest):
 
                         add_unique(raw_candidates, payload.get("image_id"))
                         add_unique(masked_candidates, payload.get("masked_id"))
-                        add_unique(raw_candidates, _basename_from_url(payload.get("image_url")))
-                        add_unique(masked_candidates, _basename_from_url(payload.get("masked_url")))
-                        add_unique(raw_candidates, _derive_prefixed_png_name(payload.get("image_id"), "raw_"))
-                        add_unique(masked_candidates, _derive_prefixed_png_name(payload.get("masked_id"), "wardrobe_"))
+                        add_unique(
+                            raw_candidates, _basename_from_url(payload.get("image_url"))
+                        )
+                        add_unique(
+                            masked_candidates,
+                            _basename_from_url(payload.get("masked_url")),
+                        )
+                        add_unique(
+                            raw_candidates,
+                            _derive_prefixed_png_name(payload.get("image_id"), "raw_"),
+                        )
+                        add_unique(
+                            masked_candidates,
+                            _derive_prefixed_png_name(
+                                payload.get("masked_id"), "wardrobe_"
+                            ),
+                        )
 
                         if raw_candidates or masked_candidates:
                             cleanup_meta["r2_cleanup_attempted"] = True
                             storage = R2Storage()
 
                             for raw_name in raw_candidates:
-                                result = storage.delete_wardrobe_images(raw_file_name=raw_name)
+                                result = storage.delete_wardrobe_images(
+                                    raw_file_name=raw_name
+                                )
                                 if result.get("raw_deleted"):
                                     cleanup_meta["r2_raw_deleted"] = True
                                     break
 
                             for masked_name in masked_candidates:
-                                result = storage.delete_wardrobe_images(masked_file_name=masked_name)
+                                result = storage.delete_wardrobe_images(
+                                    masked_file_name=masked_name
+                                )
                                 if result.get("masked_deleted"):
                                     cleanup_meta["r2_masked_deleted"] = True
                                     break
@@ -1496,9 +1623,16 @@ def create_document(http_request: Request, request: CreateRequest):
                             "qdrant_saved": False,
                             "qdrant_error": None,
                             "qdrant_point_id": duplicate_meta.get("point_id"),
-                            "existing_document": existing_payload.get("existing_document") or {},
-                            "existing_preview_url": existing_payload.get("existing_preview_url"),
-                            "existing_preview_data_url": existing_payload.get("existing_preview_data_url"),
+                            "existing_document": existing_payload.get(
+                                "existing_document"
+                            )
+                            or {},
+                            "existing_preview_url": existing_payload.get(
+                                "existing_preview_url"
+                            ),
+                            "existing_preview_data_url": existing_payload.get(
+                                "existing_preview_data_url"
+                            ),
                         },
                     )
                 print(
@@ -1513,7 +1647,9 @@ def create_document(http_request: Request, request: CreateRequest):
                     f"reason={duplicate_meta.get('reason')}"
                 )
                 if duplicate_meta.get("error"):
-                    print(f"[data.create_document] outfits duplicate check failed: {duplicate_meta.get('error')}")
+                    print(
+                        f"[data.create_document] outfits duplicate check failed: {duplicate_meta.get('error')}"
+                    )
         elif resource == "meal_plans":
             payload = _normalize_meal_plan_payload(payload, auth_user_id)
 
@@ -1565,9 +1701,13 @@ def create_document(http_request: Request, request: CreateRequest):
         if resource == "outfits" and qdrant_enabled:
             try:
                 if not payload_image_vector:
-                    payload_image_vector = incoming_image_vector or _compute_payload_image_vector(payload)
+                    payload_image_vector = (
+                        incoming_image_vector or _compute_payload_image_vector(payload)
+                    )
                 if not payload_pixel_hash:
-                    payload_pixel_hash = incoming_pixel_hash or _compute_payload_pixel_hash(payload)
+                    payload_pixel_hash = (
+                        incoming_pixel_hash or _compute_payload_pixel_hash(payload)
+                    )
                 point_id = (
                     str(doc.get("qdrant_point_id") or "").strip()
                     or str(payload.get("qdrant_point_id") or "").strip()
@@ -1578,7 +1718,11 @@ def create_document(http_request: Request, request: CreateRequest):
                     "sub_category": doc.get("sub_category", ""),
                     "color_code": doc.get("color_code", ""),
                     "pattern": doc.get("pattern", ""),
-                    "occasions": doc.get("occasions", []) if isinstance(doc.get("occasions", []), list) else [],
+                    "occasions": (
+                        doc.get("occasions", [])
+                        if isinstance(doc.get("occasions", []), list)
+                        else []
+                    ),
                 }
                 vector = encode_metadata(vector_input)
                 qdrant_payload = dict(doc)
@@ -1594,14 +1738,24 @@ def create_document(http_request: Request, request: CreateRequest):
                         "category": doc.get("category", ""),
                         "sub_category": doc.get("sub_category", ""),
                         "color_code": doc.get("color_code", ""),
-                        "image_url": doc.get("masked_url") or doc.get("image_url") or payload.get("masked_url") or payload.get("image_url") or "",
+                        "image_url": doc.get("masked_url")
+                        or doc.get("image_url")
+                        or payload.get("masked_url")
+                        or payload.get("image_url")
+                        or "",
                         "pixel_hash": payload_pixel_hash or "",
                     }
-                    qdrant_service.upsert_image_vector(point_id, payload_image_vector, image_payload)
+                    qdrant_service.upsert_image_vector(
+                        point_id, payload_image_vector, image_payload
+                    )
                     image_qdrant_saved = True
 
                 # Persist the Qdrant point id if schema has this attribute.
-                if isinstance(doc, dict) and "qdrant_point_id" in doc and str(doc.get("qdrant_point_id") or "") != point_id:
+                if (
+                    isinstance(doc, dict)
+                    and "qdrant_point_id" in doc
+                    and str(doc.get("qdrant_point_id") or "") != point_id
+                ):
                     try:
                         doc = data_access_service.update_document(
                             resource="outfits",
@@ -1609,7 +1763,9 @@ def create_document(http_request: Request, request: CreateRequest):
                             payload={"qdrant_point_id": point_id},
                         )
                     except AppwriteProxyError as exc:
-                        print(f"[data.create_document] outfits qdrant_point_id update skipped: {exc}")
+                        print(
+                            f"[data.create_document] outfits qdrant_point_id update skipped: {exc}"
+                        )
             except Exception as exc:
                 qdrant_error = str(exc)
                 image_qdrant_error = str(exc)
@@ -1631,7 +1787,9 @@ def create_document(http_request: Request, request: CreateRequest):
     except HTTPException:
         raise
     except AppwriteProxyError as exc:
-        print(f"[data.create_document] resource={request.resource} normalized={resource} error={exc}")
+        print(
+            f"[data.create_document] resource={request.resource} normalized={resource} error={exc}"
+        )
         raise _http_error_from_proxy(exc)
 
 
@@ -1656,7 +1814,9 @@ def update_document(http_request: Request, document_id: str, request: UpdateRequ
         )
         return {"document": doc}
     except AppwriteProxyError as exc:
-        print(f"[data.update_document] resource={request.resource} normalized={resource} document_id={document_id} error={exc}")
+        print(
+            f"[data.update_document] resource={request.resource} normalized={resource} document_id={document_id} error={exc}"
+        )
         raise _http_error_from_proxy(exc)
 
 
@@ -1682,9 +1842,9 @@ def delete_document(http_request: Request, request: DeleteRequest):
             doc: Dict[str, Any] = existing_doc
 
             try:
-                point_id = str(doc.get("qdrant_point_id") or "").strip() or _to_uuid_point_id(
-                    doc.get("$id") or request.document_id
-                )
+                point_id = str(
+                    doc.get("qdrant_point_id") or ""
+                ).strip() or _to_uuid_point_id(doc.get("$id") or request.document_id)
                 qdrant_service.delete_item(point_id)
                 delete_meta["qdrant_deleted"] = True
                 delete_meta["qdrant_point_id"] = point_id
@@ -1708,7 +1868,9 @@ def delete_document(http_request: Request, request: DeleteRequest):
 
                     masked_deleted = False
                     for masked_name in candidates["masked"]:
-                        result = storage.delete_wardrobe_images(masked_file_name=masked_name)
+                        result = storage.delete_wardrobe_images(
+                            masked_file_name=masked_name
+                        )
                         if result.get("masked_deleted"):
                             masked_deleted = True
                             break
@@ -1728,7 +1890,9 @@ def delete_document(http_request: Request, request: DeleteRequest):
             response["meta"] = delete_meta
         return response
     except AppwriteProxyError as exc:
-        print(f"[data.delete_document] resource={request.resource} normalized={resource} document_id={request.document_id} error={exc}")
+        print(
+            f"[data.delete_document] resource={request.resource} normalized={resource} document_id={request.document_id} error={exc}"
+        )
         raise _http_error_from_proxy(exc)
 
 
