@@ -1,3 +1,4 @@
+# ================= AHVI CLEAN STYLE FLOW FIX V1 APPLIED =================
 import hashlib
 import json
 import os
@@ -29,12 +30,20 @@ def _ahvi_tokens(value):
 
 
 def _ahvi_slot_for_item(item):
+    """Return canonical role for an Appwrite wardrobe item.
+
+    Important safety rules:
+    - Unknown/non-dict items must stay unknown, never accessory.
+    - Shirt/top words win before bottom/dress words.
+    - "short" is not a bottom; only "shorts" is.
+    """
     if not isinstance(item, dict):
-        return "accessory"
+        return "unknown"
 
     raw = " ".join(
         str(item.get(k, "") or "")
         for k in (
+            "role",
             "slot",
             "type",
             "category",
@@ -43,17 +52,17 @@ def _ahvi_slot_for_item(item):
             "sub_category",
             "subcategory",
             "subCategory",
+            "garment_type",
             "name",
             "label",
+            "title",
             "description",
         )
     )
-    tokens = _ahvi_tokens(raw)
+    tokens = set(_ahvi_tokens(raw))
 
-    # Top first so "Short-Sleeved Shirt" never becomes shorts/bottom.
-    if any(
-        t in tokens
-        for t in [
+    if tokens.intersection(
+        {
             "top",
             "tops",
             "shirt",
@@ -62,18 +71,21 @@ def _ahvi_slot_for_item(item):
             "tshirt",
             "tshirts",
             "blouse",
+            "blouses",
             "hoodie",
+            "hoodies",
             "sweater",
+            "sweaters",
             "kurta",
+            "kurtas",
             "polo",
-        ]
+            "polos",
+        }
     ):
         return "top"
 
-    # Only shorts, never short.
-    if any(
-        t in tokens
-        for t in [
+    if tokens.intersection(
+        {
             "bottom",
             "bottoms",
             "pant",
@@ -87,13 +99,14 @@ def _ahvi_slot_for_item(item):
             "skirts",
             "chino",
             "chinos",
-        ]
+            "legging",
+            "leggings",
+        }
     ):
         return "bottom"
 
-    if any(
-        t in tokens
-        for t in [
+    if tokens.intersection(
+        {
             "footwear",
             "shoe",
             "shoes",
@@ -107,40 +120,55 @@ def _ahvi_slot_for_item(item):
             "sandals",
             "loafer",
             "loafers",
-        ]
+            "slipper",
+            "slippers",
+        }
     ):
         return "footwear"
 
-    if any(
-        t in tokens
-        for t in [
+    if tokens.intersection(
+        {
             "accessory",
             "accessories",
             "watch",
+            "watches",
             "bag",
+            "bags",
             "belt",
+            "belts",
             "jewelry",
             "jewellery",
             "ring",
+            "rings",
             "necklace",
+            "necklaces",
             "bracelet",
+            "bracelets",
             "earring",
+            "earrings",
             "hat",
+            "hats",
             "cap",
-        ]
+            "caps",
+            "sunglass",
+            "sunglasses",
+            "eyewear",
+            "glasses",
+        }
     ):
         return "accessory"
 
-    if any(t in tokens for t in ["jacket", "coat", "blazer", "outerwear", "cardigan"]):
+    if tokens.intersection(
+        {"jacket", "coat", "blazer", "outerwear", "cardigan", "overshirt"}
+    ):
         return "outerwear"
 
-    if any(
-        t in tokens
-        for t in ["dress", "dresses", "gown", "jumpsuit", "saree", "lehenga"]
+    if tokens.intersection(
+        {"dress", "dresses", "gown", "jumpsuit", "saree", "sari", "lehenga", "sherwani"}
     ):
         return "dress"
 
-    return "accessory"
+    return "unknown"
 
 
 def _ahvi_image_for_item(item):
@@ -212,46 +240,90 @@ def _infer_category(item: Dict[str, Any]) -> str:
     """
     Canonical category inference.
 
-    Critical demo cases:
-    - White Short-Sleeved Shirt -> Tops
-    - Khaki Shorts -> Bottoms
-    - Brown Boots -> Footwear
-    - Watch -> Accessories
+    Critical cases:
+    - Formal Dress Shirt -> Tops, not Dresses.
+    - White Short-Sleeved Shirt -> Tops.
+    - Khaki Shorts -> Bottoms.
+    - Brown Boots -> Footwear.
+    - Watch -> Accessories.
+    - Unknown/non-dict -> Unknown, never Accessories.
     """
     if not isinstance(item, dict):
-        return "Accessories"
+        return "Unknown"
 
     explicit = (
-        str(item.get("category") or item.get("cat") or _ahvi_slot_for_item(item) or "")
+        str(
+            item.get("role")
+            or item.get("slot")
+            or item.get("category")
+            or item.get("cat")
+            or item.get("type")
+            or item.get("category_group")
+            or item.get("sub_category")
+            or item.get("subcategory")
+            or item.get("subCategory")
+            or ""
+        )
         .strip()
         .lower()
     )
+
+    if not explicit:
+        explicit = _ahvi_slot_for_item(item)
+
     explicit_map = {
         "top": "Tops",
         "tops": "Tops",
         "shirt": "Tops",
+        "shirts": "Tops",
         "tshirt": "Tops",
+        "tshirts": "Tops",
         "t-shirt": "Tops",
+        "tee": "Tops",
+        "polo": "Tops",
+        "kurta": "Tops",
         "bottom": "Bottoms",
         "bottoms": "Bottoms",
         "pants": "Bottoms",
+        "pant": "Bottoms",
         "trousers": "Bottoms",
+        "trouser": "Bottoms",
         "jeans": "Bottoms",
+        "jean": "Bottoms",
         "shorts": "Bottoms",
+        "chinos": "Bottoms",
+        "chino": "Bottoms",
         "footwear": "Footwear",
         "shoe": "Footwear",
         "shoes": "Footwear",
+        "sneaker": "Footwear",
+        "sneakers": "Footwear",
+        "boot": "Footwear",
+        "boots": "Footwear",
+        "sandal": "Footwear",
+        "sandals": "Footwear",
         "accessory": "Accessories",
         "accessories": "Accessories",
         "bag": "Accessories",
         "bags": "Accessories",
+        "watch": "Accessories",
+        "watches": "Accessories",
+        "belt": "Accessories",
+        "belts": "Accessories",
         "jewelry": "Accessories",
         "jewellery": "Accessories",
         "outerwear": "Outerwear",
         "outer": "Outerwear",
+        "jacket": "Outerwear",
+        "coat": "Outerwear",
+        "blazer": "Outerwear",
         "dress": "Dresses",
         "dresses": "Dresses",
         "indian wear": "Dresses",
+        "saree": "Dresses",
+        "sari": "Dresses",
+        "lehenga": "Dresses",
+        "unknown": "Unknown",
     }
 
     if explicit in explicit_map:
@@ -260,11 +332,14 @@ def _infer_category(item: Dict[str, Any]) -> str:
     joined = " ".join(
         str(item.get(k, "") or "")
         for k in (
+            "role",
+            "slot",
             "category",
             "cat",
             "type",
             "name",
             "label",
+            "title",
             "sub_category",
             "subcategory",
             "subCategory",
@@ -273,7 +348,6 @@ def _infer_category(item: Dict[str, Any]) -> str:
     )
     parts = _tokens(joined)
 
-    # Tops first so "Short-Sleeved Shirt" never becomes Bottoms.
     if _has_any(
         parts,
         [
@@ -298,7 +372,6 @@ def _infer_category(item: Dict[str, Any]) -> str:
     ):
         return "Tops"
 
-    # Only "shorts", never "short".
     if _has_any(
         parts,
         [
@@ -315,6 +388,8 @@ def _infer_category(item: Dict[str, Any]) -> str:
             "leggings",
             "chino",
             "chinos",
+            "bottom",
+            "bottoms",
         ],
     ):
         return "Bottoms"
@@ -336,6 +411,7 @@ def _infer_category(item: Dict[str, Any]) -> str:
             "loafers",
             "slipper",
             "slippers",
+            "footwear",
         ],
     ):
         return "Footwear"
@@ -362,7 +438,9 @@ def _infer_category(item: Dict[str, Any]) -> str:
             "accessory",
             "accessories",
             "hat",
+            "hats",
             "cap",
+            "caps",
             "sunglass",
             "sunglasses",
         ],
@@ -375,11 +453,21 @@ def _infer_category(item: Dict[str, Any]) -> str:
         return "Outerwear"
 
     if _has_any(
-        parts, ["dress", "dresses", "gown", "jumpsuit", "saree", "lehenga", "sherwani"]
+        parts,
+        [
+            "dress",
+            "dresses",
+            "gown",
+            "jumpsuit",
+            "saree",
+            "sari",
+            "lehenga",
+            "sherwani",
+        ],
     ):
         return "Dresses"
 
-    return "Accessories"
+    return "Unknown"
 
 
 def _bucket_for_category(category: str) -> str:
@@ -390,18 +478,20 @@ def _bucket_for_category(category: str) -> str:
         "Accessories": "accessories",
         "Outerwear": "outerwear",
         "Dresses": "dresses",
-    }.get(str(category or ""), "accessories")
+        "Unknown": "unknown",
+    }.get(str(category or ""), "unknown")
 
 
 def _type_for_category(category: str) -> str:
     return {
         "Tops": "top",
         "Bottoms": "bottom",
-        "Footwear": "shoes",
+        "Footwear": "footwear",
         "Accessories": "accessory",
         "Outerwear": "outerwear",
         "Dresses": "dress",
-    }.get(str(category or ""), "accessory")
+        "Unknown": "unknown",
+    }.get(str(category or ""), "unknown")
 
 
 def _stable_offset(seed: str, size: int) -> int:
@@ -610,6 +700,8 @@ def _normalize_wardrobe(raw_wardrobe: Any) -> Dict[str, List[Dict[str, Any]]]:
 
         category_name = _infer_category(enriched)
         bucket = _bucket_for_category(category_name)
+        if bucket not in parts:
+            return
         parts[bucket].append(
             _normalize_item(enriched, _type_for_category(category_name))
         )
@@ -745,6 +837,9 @@ def _merge_wardrobe(
 
         category_name = _infer_category(item)
         bucket = _bucket_for_category(category_name)
+        if bucket not in merged:
+            seen.add(item_id)
+            continue
         merged[bucket].append(_normalize_item(item, _type_for_category(category_name)))
         seen.add(item_id)
 
@@ -3256,12 +3351,8 @@ def _ahvi_final_role(item):
     ):
         return "accessory"
 
-    if tokens.intersection(
-        {"dress", "dresses", "saree", "sari", "lehenga", "gown", "jumpsuit", "sherwani"}
-    ):
-        return "dress"
-
-    # Tops before bottoms so short-sleeved shirt never becomes shorts.
+    # Tops before dress/bottom so "Formal Dress Shirt" and "Short-Sleeved Shirt"
+    # are never treated as dresses or bottoms.
     if tokens.intersection(
         {
             "top",
@@ -3281,6 +3372,8 @@ def _ahvi_final_role(item):
             "kurti",
             "tunic",
             "tunics",
+            "blouse",
+            "blouses",
         }
     ):
         return "top"
@@ -3300,9 +3393,26 @@ def _ahvi_final_role(item):
             "skirts",
             "chino",
             "chinos",
+            "legging",
+            "leggings",
         }
     ):
         return "bottom"
+
+    # Dresses after top detection so "dress shirt" becomes top, not dress.
+    if tokens.intersection(
+        {
+            "dress",
+            "dresses",
+            "saree",
+            "sari",
+            "lehenga",
+            "gown",
+            "jumpsuit",
+            "sherwani",
+        }
+    ):
+        return "dress"
 
     return "unknown"
 
@@ -3511,7 +3621,14 @@ def _ahvi_final_roles_from_items(items):
 def _ahvi_final_has_required_slots(items):
     roles = _ahvi_final_roles_from_items(items)
 
-    if "dress" in roles and "footwear" in roles:
+    # One-piece path. Do not allow a top/dress-shirt misclassification to pass
+    # as dress + footwear when no bottom exists.
+    if (
+        "dress" in roles
+        and "footwear" in roles
+        and "top" not in roles
+        and "bottom" not in roles
+    ):
         return True
 
     return "top" in roles and "bottom" in roles and "footwear" in roles
@@ -3533,8 +3650,13 @@ def _ahvi_final_postprocess_cards(result, user):
     query = str(context.get("query") or context.get("occasion") or "")
 
     wardrobe = []
-    if isinstance(result.get("normalized_wardrobe"), list):
-        wardrobe = result.get("normalized_wardrobe") or []
+    normalized_wardrobe = result.get("normalized_wardrobe")
+    if isinstance(normalized_wardrobe, dict):
+        for values in normalized_wardrobe.values():
+            if isinstance(values, list):
+                wardrobe.extend([x for x in values if isinstance(x, dict)])
+    elif isinstance(normalized_wardrobe, list):
+        wardrobe = normalized_wardrobe or []
     elif isinstance(user, dict) and isinstance(user.get("wardrobe"), list):
         wardrobe = user.get("wardrobe") or []
 
