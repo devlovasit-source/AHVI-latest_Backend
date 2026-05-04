@@ -736,6 +736,62 @@ def _ahvi_style_names(items):
 def _ahvi_router_style_fallback_enabled():
     return os.getenv("AHVI_ENABLE_ROUTER_STYLE_FALLBACK", "0").strip().lower() in {"1", "true", "yes", "on"}
 
+
+def _ahvi_style_card_roles(card):
+    roles = set()
+
+    if not isinstance(card, dict):
+        return roles
+
+    def add_item_role(item):
+        if not isinstance(item, dict):
+            return
+        role = str(item.get("role") or item.get("slot") or "").strip().lower()
+        if not role:
+            role = _ahvi_style_role(item)
+        if role in {"top", "bottom", "footwear", "accessory", "dress"}:
+            roles.add(role)
+
+    for key in ("items", "accessories"):
+        value = card.get(key)
+        if isinstance(value, list):
+            for item in value:
+                add_item_role(item)
+
+    return roles
+
+
+def _ahvi_style_card_is_complete(card):
+    roles = _ahvi_style_card_roles(card)
+
+    # One-piece outfit path: dress/sherwani/etc + footwear is acceptable.
+    if "dress" in roles and "footwear" in roles:
+        return True
+
+    # Standard AHVI outfit path: top + bottom + footwear required.
+    return "top" in roles and "bottom" in roles and "footwear" in roles
+
+
+def _ahvi_filter_complete_style_cards(cards, user_id):
+    if not isinstance(cards, list):
+        return []
+
+    complete = [card for card in cards if _ahvi_style_card_is_complete(card)]
+
+    if len(complete) != len(cards):
+        try:
+            logger.info(
+                "ahvi.router_incomplete_style_cards_blocked user_id=%s before=%s after=%s",
+                user_id,
+                len(cards),
+                len(complete),
+            )
+        except Exception:
+            pass
+
+    return complete
+
+
 def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None, user_profile=None):
     if not isinstance(cards, list):
         return []
@@ -915,6 +971,42 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
         }
 
     cards = _ahvi_sanitize_style_cards(raw_cards, user_id, query_text, wardrobe, profile)
+
+    if not _ahvi_router_style_fallback_enabled():
+        cards = _ahvi_filter_complete_style_cards(cards, user_id)
+        if not cards:
+            try:
+                logger.info(
+                    "ahvi.router_style_fallback_disabled user_id=%s stage=incomplete_cards_blocked reason=missing_required_slots",
+                    user_id,
+                )
+            except Exception:
+                pass
+            return {
+                "success": False,
+                "message": (
+                    "I couldn't build a complete style board from your wardrobe yet. "
+                    "Please add at least one top, bottom, and footwear item."
+                ),
+                "board": "style",
+                "type": "missing_outfit_cards",
+                "cards": [],
+                "board_ids": "",
+                "data": {
+                    "outfits": result.get("outfits") if isinstance(result.get("outfits"), list) else [],
+                    "rendered_boards": result.get("rendered_boards") if isinstance(result.get("rendered_boards"), list) else [],
+                    "board_item_ids": result.get("board_item_ids") if isinstance(result.get("board_item_ids"), list) else [],
+                },
+                "meta": {
+                    "mode": "router_incomplete_cards_blocked",
+                    "fallback_used": False,
+                    "error": "missing_required_style_slots",
+                    "error_stage": "routers.chat",
+                    "occasion": occasion,
+                    "wardrobe_count": len(wardrobe),
+                    "required_slots": ["top", "bottom", "footwear"],
+                },
+            }
 
     board_item_ids = result.get("board_item_ids") if isinstance(result.get("board_item_ids"), list) else []
     board_ids = ",".join([str(x) for x in board_item_ids if str(x).strip()])
