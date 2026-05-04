@@ -732,6 +732,10 @@ def _ahvi_style_names(items):
     ]
 
 
+
+def _ahvi_router_style_fallback_enabled():
+    return os.getenv("AHVI_ENABLE_ROUTER_STYLE_FALLBACK", "0").strip().lower() in {"1", "true", "yes", "on"}
+
 def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None, user_profile=None):
     if not isinstance(cards, list):
         return []
@@ -741,7 +745,16 @@ def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None
     buckets = _ahvi_style_pools(wardrobe, query_text, profile)
 
     if not cards:
-        # Build empty shells; sanitizer will fill from wardrobe pools.
+        if not _ahvi_router_style_fallback_enabled():
+            try:
+                logger.info(
+                    "ahvi.router_style_fallback_disabled user_id=%s stage=sanitize_empty_cards reason=production_no_fake_boards",
+                    user_id,
+                )
+            except Exception:
+                pass
+            return []
+        # Dev/demo only: build empty shells; sanitizer will fill from wardrobe pools.
         cards = [{"id": f"style_card_{i}", "title": f"Look {i + 1} · Styled Fit", "items": [], "accessories": []} for i in range(3)]
 
     used_top = set()
@@ -867,6 +880,40 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
         result = {}
 
     raw_cards = result.get("cards") if isinstance(result.get("cards"), list) else []
+
+    if not raw_cards and not _ahvi_router_style_fallback_enabled():
+        try:
+            logger.info(
+                "ahvi.router_style_fallback_disabled user_id=%s stage=demo_payload_empty_raw_cards reason=production_no_fake_boards",
+                user_id,
+            )
+        except Exception:
+            pass
+        return {
+            "success": False,
+            "message": (
+                "I couldn't build a reliable style board from your wardrobe yet. "
+                "Please add at least one top, bottom, and footwear item."
+            ),
+            "board": "style",
+            "type": "missing_outfit_cards",
+            "cards": [],
+            "board_ids": "",
+            "data": {
+                "outfits": result.get("outfits") if isinstance(result.get("outfits"), list) else [],
+                "rendered_boards": result.get("rendered_boards") if isinstance(result.get("rendered_boards"), list) else [],
+                "board_item_ids": result.get("board_item_ids") if isinstance(result.get("board_item_ids"), list) else [],
+            },
+            "meta": {
+                "mode": "router_style_fallback_disabled",
+                "fallback_used": False,
+                "error": "router_deterministic_style_fallback_disabled",
+                "error_stage": "routers.chat",
+                "occasion": occasion,
+                "wardrobe_count": len(wardrobe),
+            },
+        }
+
     cards = _ahvi_sanitize_style_cards(raw_cards, user_id, query_text, wardrobe, profile)
 
     board_item_ids = result.get("board_item_ids") if isinstance(result.get("board_item_ids"), list) else []
