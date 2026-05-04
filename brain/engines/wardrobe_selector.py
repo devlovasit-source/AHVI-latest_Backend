@@ -94,56 +94,126 @@ class WardrobeSelector:
         return self.TYPE_MAP.get(t, t)
 
     def normalize_item_role(self, row: Dict[str, Any]) -> str:
-        if not isinstance(row, dict):
-            return ""
-
-        fields = (
-            "role",
-            "slot",
-            "type",
-            "category",
-            "cat",
-            "category_group",
-            "sub_category",
-            "subcategory",
-            "subCategory",
-            "garment_type",
-            "name",
-            "label",
-            "title",
-            "description",
-        )
-
-        for key in fields:
-            value = str(row.get(key) or "").strip().lower()
-            normalized = self.normalize_type(value)
-            if normalized in {
-                "top",
-                "bottom",
-                "footwear",
-                "accessory",
-                "dress",
-                "outerwear",
-            }:
-                return normalized
-
-        blob = " ".join(str(row.get(k) or "") for k in fields).lower()
-        tokens = re.sub(r"[^a-z0-9]+", " ", blob).split()
-
-        for token in tokens:
-            normalized = self.normalize_type(token)
-            if normalized in {
-                "top",
-                "bottom",
-                "footwear",
-                "accessory",
-                "dress",
-                "outerwear",
-            }:
-                return normalized
-
+    if not isinstance(row, dict):
         return ""
 
+    explicit_fields = (
+        "role",
+        "slot",
+        "type",
+        "category",
+        "cat",
+        "category_group",
+        "sub_category",
+        "subcategory",
+        "subCategory",
+        "garment_type",
+    )
+
+    # 1. Trust explicit structured fields first.
+    for key in explicit_fields:
+        value = str(row.get(key) or "").strip().lower()
+        normalized = self.normalize_type(value)
+        if normalized in {
+            "top",
+            "bottom",
+            "footwear",
+            "accessory",
+            "dress",
+            "outerwear",
+        }:
+            return normalized
+
+    # 2. Fallback to text fields, but use priority logic.
+    text_fields = (
+        "name",
+        "label",
+        "title",
+        "description",
+    )
+
+    blob = " ".join(str(row.get(k) or "") for k in text_fields).lower()
+    tokens = set(re.sub(r"[^a-z0-9]+", " ", blob).split())
+
+    # Important phrase guards.
+    if "dress shirt" in blob:
+        return "top"
+
+    # Tops should win over misleading words like "short" or "dress" in shirt names.
+    if {
+        "shirt",
+        "shirts",
+        "tshirt",
+        "tshirts",
+        "tee",
+        "top",
+        "tops",
+        "polo",
+        "polos",
+        "kurta",
+        "kurtas",
+        "hoodie",
+        "hoodies",
+    } & tokens:
+        return "top"
+
+    # Bottoms.
+    if {
+        "jeans",
+        "jean",
+        "pants",
+        "pant",
+        "trousers",
+        "trouser",
+        "chinos",
+        "chino",
+        "shorts",
+    } & tokens:
+        return "bottom"
+
+    # Footwear.
+    if {
+        "footwear",
+        "shoe",
+        "shoes",
+        "sneaker",
+        "sneakers",
+        "boot",
+        "boots",
+        "loafer",
+        "loafers",
+        "sandal",
+        "sandals",
+        "heels",
+    } & tokens:
+        return "footwear"
+
+    # Accessories.
+    if {
+        "watch",
+        "watches",
+        "belt",
+        "belts",
+        "bag",
+        "bags",
+        "cap",
+        "caps",
+        "jewelry",
+        "bracelet",
+        "necklace",
+        "sunglasses",
+    } & tokens:
+        return "accessory"
+
+    # Dress only after "dress shirt" and shirt/top checks.
+    if "dress" in tokens or "dresses" in tokens:
+        return "dress"
+
+    if {"jacket", "coat", "outerwear", "blazer"} & tokens:
+        return "outerwear"
+
+    return ""
+    
     def _context_score(
         self,
         item: Dict[str, Any],
