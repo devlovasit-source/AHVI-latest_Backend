@@ -17,3 +17,5 @@ Pillow==11.0.0
 firebase-admin==6.6.0
 mediapipe==0.10.14
 python-multipart>=0.0.18
+google-genai
+
