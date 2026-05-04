@@ -623,6 +623,12 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                 "bbox": item.get("bbox") or [],
                 "raw_url": item.get("raw_url"),
                 "masked_url": item.get("masked_url"),
+                "maskedUrl": item.get("masked_url"),
+
+                # Compatibility for frontend paths that still read image_url/imageUrl.
+                # These should show the background-removed asset first.
+                "image_url": item.get("masked_url") or item.get("raw_url"),
+                "imageUrl": item.get("masked_url") or item.get("raw_url"),
                 "raw_image_base64": item.get("raw_image_base64"),
                 "masked_image_base64": item.get("masked_image_base64"),
                 "upload_error": item.get("upload_error") or "",
