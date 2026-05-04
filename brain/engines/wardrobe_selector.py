@@ -1,3 +1,4 @@
+import re
 from typing import List, Dict, Any, Optional
 
 from brain.engines.color_normalizer import color_normalizer
@@ -44,6 +45,46 @@ class WardrobeSelector:
         "outerwear": "outerwear",
         "jacket": "outerwear",
         "coat": "outerwear",
+        "tops": "top",
+        "shirts": "top",
+        "t-shirt": "top",
+        "tshirts": "top",
+        "polo": "top",
+        "polos": "top",
+        "kurta": "top",
+        "kurtas": "top",
+        "hoodie": "top",
+        "hoodies": "top",
+        "bottoms": "bottom",
+        "pant": "bottom",
+        "pants": "bottom",
+        "trouser": "bottom",
+        "trousers": "bottom",
+        "jean": "bottom",
+        "jeans": "bottom",
+        "short": "bottom",
+        "shorts": "bottom",
+        "chino": "bottom",
+        "chinos": "bottom",
+        "footwear": "footwear",
+        "shoe": "footwear",
+        "shoes": "footwear",
+        "sneaker": "footwear",
+        "sneakers": "footwear",
+        "boot": "footwear",
+        "boots": "footwear",
+        "sandal": "footwear",
+        "sandals": "footwear",
+        "loafer": "footwear",
+        "loafers": "footwear",
+        "accessory": "accessory",
+        "accessories": "accessory",
+        "watch": "accessory",
+        "watches": "accessory",
+        "belt": "accessory",
+        "belts": "accessory",
+        "bag": "accessory",
+        "bags": "accessory",
     }
 
     def normalize_type(self, t: str) -> str:
@@ -51,6 +92,57 @@ class WardrobeSelector:
             return ""
         t = t.lower().strip()
         return self.TYPE_MAP.get(t, t)
+
+    def normalize_item_role(self, row: Dict[str, Any]) -> str:
+        if not isinstance(row, dict):
+            return ""
+
+        fields = (
+            "role",
+            "slot",
+            "type",
+            "category",
+            "cat",
+            "category_group",
+            "sub_category",
+            "subcategory",
+            "subCategory",
+            "garment_type",
+            "name",
+            "label",
+            "title",
+            "description",
+        )
+
+        for key in fields:
+            value = str(row.get(key) or "").strip().lower()
+            normalized = self.normalize_type(value)
+            if normalized in {
+                "top",
+                "bottom",
+                "footwear",
+                "accessory",
+                "dress",
+                "outerwear",
+            }:
+                return normalized
+
+        blob = " ".join(str(row.get(k) or "") for k in fields).lower()
+        tokens = re.sub(r"[^a-z0-9]+", " ", blob).split()
+
+        for token in tokens:
+            normalized = self.normalize_type(token)
+            if normalized in {
+                "top",
+                "bottom",
+                "footwear",
+                "accessory",
+                "dress",
+                "outerwear",
+            }:
+                return normalized
+
+        return ""
 
     def _context_score(
         self,
@@ -139,12 +231,10 @@ class WardrobeSelector:
         # FILTER BY TYPE (SMART)
         # -------------------------
         def _get_item_type(row: Dict[str, Any]) -> str:
-            return self.normalize_type(
-                str(row.get("type") or row.get("sub_category") or "")
-            )
+            return self.normalize_item_role(row)
 
         def _get_item_category(row: Dict[str, Any]) -> str:
-            return self.normalize_type(str(row.get("category") or ""))
+            return self.normalize_item_role(row)
 
         candidates = []
         for w in wardrobe:
@@ -246,16 +336,6 @@ class WardrobeSelector:
     # FALLBACK (SAFE)
     # =========================
     def fallback(self, wardrobe: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        if not wardrobe:
-            return None
-
-        # prefer items with embeddings
-        for item in wardrobe:
-            if item.get("embedding"):
-                return item
-
-        return wardrobe[0]
-
-
-# singleton
-wardrobe_selector = WardrobeSelector()
+        # Production-safe: do not fabricate a match by returning the first wardrobe item.
+        # Missing match should surface as missing data, not random outfit selection.
+        return None

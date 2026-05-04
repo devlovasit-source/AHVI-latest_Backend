@@ -3497,6 +3497,26 @@ def _ahvi_final_card_signature(card):
     return " | ".join(names)
 
 
+def _ahvi_final_roles_from_items(items):
+    roles = set()
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        role = _ahvi_final_role(item)
+        if role in {"top", "bottom", "footwear", "dress", "accessory"}:
+            roles.add(role)
+    return roles
+
+
+def _ahvi_final_has_required_slots(items):
+    roles = _ahvi_final_roles_from_items(items)
+
+    if "dress" in roles and "footwear" in roles:
+        return True
+
+    return "top" in roles and "bottom" in roles and "footwear" in roles
+
+
 def _ahvi_final_postprocess_cards(result, user):
     if not isinstance(result, dict):
         return result
@@ -3573,6 +3593,20 @@ def _ahvi_final_postprocess_cards(result, user):
             _ahvi_final_clean_accessories(accessories or pools["accessory"], query)
         )
 
+        if not _ahvi_final_has_required_slots(final_items):
+            try:
+                import logging as _ahvi_patch_logging
+
+                _ahvi_patch_logging.getLogger("ahvi.outfit_pipeline").info(
+                    "ahvi.pipeline_incomplete_card_blocked idx=%s roles=%s signature=%s",
+                    idx,
+                    sorted(_ahvi_final_roles_from_items(final_items)),
+                    _ahvi_final_card_signature({"items": final_items}),
+                )
+            except Exception:
+                pass
+            continue
+
         fixed = dict(card)
         fixed["items"] = final_items
         # Keep empty so orchestrator does not double-merge accessories back into items.
@@ -3629,6 +3663,30 @@ def _ahvi_final_postprocess_cards(result, user):
             fixed["name"] = fixed["title"]
 
         cleaned_cards.append(fixed)
+
+    if not cleaned_cards:
+        result["success"] = False
+        result["cards"] = []
+        result["boards"] = []
+        meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+        meta.update(
+            {
+                "fallback_used": False,
+                "error": "missing_required_style_slots",
+                "error_stage": "outfit_pipeline_finalizer",
+                "required_slots": ["top", "bottom", "footwear"],
+            }
+        )
+        result["meta"] = meta
+        try:
+            import logging as _ahvi_patch_logging
+
+            _ahvi_patch_logging.getLogger("ahvi.outfit_pipeline").info(
+                "ahvi.pipeline_finalizer_v3 cards=0 reason=missing_required_style_slots"
+            )
+        except Exception:
+            pass
+        return result
 
     result["cards"] = cleaned_cards
     result["boards"] = cleaned_cards
