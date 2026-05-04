@@ -2781,12 +2781,13 @@ def _ahvi_final_postprocess_cards(result, user):
         bottom_name = next((str(i.get("name") or i.get("label") or "bottom") for i in final_items if _ahvi_final_role(i) == "bottom"), "")
         footwear_name = next((str(i.get("name") or i.get("label") or "footwear") for i in final_items if _ahvi_final_role(i) == "footwear"), "")
 
+        core = ", ".join([x for x in [top_name, bottom_name, footwear_name] if x])
         if "date" in query.lower():
-            why = f"This works for date night because {top_name}, {bottom_name, and footwear_name if bottom_name else footwear_name} create a clean smart-casual balance without over-accessorizing."
+            why = f"This works for date night because {core} creates a clean smart-casual balance without over-accessorizing."
         elif "office" in query.lower() or "meeting" in query.lower() or "work" in query.lower():
-            why = f"This works for office because {top_name}, {bottom_name, and footwear_name if bottom_name else footwear_name} keep the look structured, neat, and wearable."
+            why = f"This works for office because {core} keeps the look structured, neat, and wearable."
         else:
-            why = f"This works because {top_name}, {bottom_name, and footwear_name if bottom_name else footwear_name} create a balanced top-bottom-footwear structure."
+            why = f"This works because {core} creates a balanced top-bottom-footwear structure."
 
         # Fix accidental tuple formatting from f-string expression above.
         why = why.replace("('", "").replace("', '", " and ").replace("')", "")
