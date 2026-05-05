@@ -1,4 +1,4 @@
-﻿# ================= AHVI CLEAN STYLE FLOW FIX V1 APPLIED =================
+# ================= AHVI CLEAN STYLE FLOW FIX V1 APPLIED =================
 import hashlib
 import json
 import os
@@ -1721,7 +1721,7 @@ def _different_enough(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
 
 
 def _diversify_outfits(
-    outfits: List[Dict[str, Any]], limit: int = 3
+    outfits: List[Dict[str, Any]], limit: int = 6
 ) -> List[Dict[str, Any]]:
     selected: List[Dict[str, Any]] = []
     seen: set[str] = set()
@@ -2059,7 +2059,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             reverse=True,
         )
 
-        ranked = _diversify_outfits(ranked, limit=3)
+        ranked = _diversify_outfits(ranked, limit=6)
 
         # AHVI editorial quality guard: remove weak/bad combinations before memory, indexing and card rendering.
         try:
@@ -3640,7 +3640,7 @@ def _ahvi_final_clean_accessories(accessories, query):
         seen_types.add(typ)
 
         # Keep editorial board clean: max 1 accessory for date/office, max 2 casual.
-        max_count = 2 if headwear_allowed else 1
+        max_count = 4
         if len(selected) >= max_count:
             break
 
@@ -3725,7 +3725,7 @@ def _ahvi_final_postprocess_cards(result, user):
     used_dresses = set()
     cleaned_cards = []
 
-    for idx, card in enumerate(cards[:3]):
+    for idx, card in enumerate(cards[:6]):
         if not isinstance(card, dict):
             continue
 
@@ -3838,7 +3838,7 @@ def _ahvi_final_postprocess_cards(result, user):
 
         title = str(fixed.get("title") or fixed.get("name") or "").strip()
         if not title or title.lower() in {"style board", "ahvi styled look"}:
-            fixed["title"] = f"Look {idx + 1} Â· Styled Fit"
+            fixed["title"] = f"Look {idx + 1} · Styled Fit"
             fixed["name"] = fixed["title"]
 
         cleaned_cards.append(fixed)
@@ -4186,3 +4186,8 @@ def _ahvi_final_clean_accessories(accessories, query):
 
 
 # ================= AHVI ACCESSORY RAIL V2 END =================
+
+# ================= AHVI MORE LOOKS V2 BEGIN =================
+# Backend style pipeline now allows up to 6 diversified final cards.
+AHVI_MORE_LOOKS_V2_ENABLED = True
+# ================= AHVI MORE LOOKS V2 END =================

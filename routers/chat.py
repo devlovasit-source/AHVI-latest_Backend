@@ -998,7 +998,7 @@ def _ahvi_style_clean_accessories(accessories, query_text):
             seen_ids.add(key)
         seen_types.add(typ)
 
-        max_count = 2 if headwear_allowed else 1
+        max_count = 4
         if len(out) >= max_count:
             break
 
@@ -1110,7 +1110,7 @@ def _ahvi_sanitize_style_cards(
                 "items": [],
                 "accessories": [],
             }
-            for i in range(3)
+            for i in range(6)
         ]
 
     used_top = set()
@@ -1120,7 +1120,7 @@ def _ahvi_sanitize_style_cards(
 
     cleaned = []
 
-    for idx, card in enumerate(cards[:3]):
+    for idx, card in enumerate(cards[:6]):
         if not isinstance(card, dict):
             continue
 
@@ -1210,7 +1210,7 @@ def _ahvi_sanitize_style_cards(
 
         title = str(fixed.get("title") or fixed.get("name") or "").strip()
         if not title or title.lower() in {"style board", "ahvi styled look"}:
-            fixed["title"] = f"Look {idx + 1} Â· Styled Fit"
+            fixed["title"] = f"Look {idx + 1} · Styled Fit"
             fixed["name"] = fixed["title"]
 
         cleaned.append(fixed)
@@ -1236,6 +1236,11 @@ def _ahvi_sanitize_style_cards(
         pass
 
     return cleaned
+
+
+
+def _ahvi_style_action_chips() -> List[str]:
+    return ["More looks", "Next best options", "Try different shoes"]
 
 
 def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profile=None):
@@ -1413,6 +1418,7 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
         "board": "style",
         "type": "cards",
         "cards": cards,
+        "chips": _ahvi_style_action_chips(),
         "board_ids": board_ids,
         "data": {
             "outfits": cards,
@@ -1457,6 +1463,25 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
     """
     q = str(text or "").lower().strip()
     module = str(module_context or "").lower().strip()
+
+    if any(
+        k in q
+        for k in [
+            "more looks",
+            "more look",
+            "next best",
+            "next option",
+            "next options",
+            "other options",
+            "other looks",
+            "show more",
+            "different shoes",
+            "different shoe",
+            "different footwear",
+            "try different shoes",
+        ]
+    ):
+        return True
 
     if module in {"style", "wardrobe"} and any(
         k in q
@@ -1988,6 +2013,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             ),
             "type": style_payload.get("type") or "style_fallback",
             "cards": style_payload.get("cards") or [],
+            "chips": style_payload.get("chips") or (_ahvi_style_action_chips() if style_payload.get("cards") else []),
             "board_ids": style_payload.get("board_ids") or "",
             "data": style_payload.get("data") or {"outfits": [], "rendered_boards": []},
             "meta": {
@@ -2021,6 +2047,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             ),
             "type": style_payload.get("type") or "style_fallback",
             "cards": style_payload.get("cards") or [],
+            "chips": style_payload.get("chips") or (_ahvi_style_action_chips() if style_payload.get("cards") else []),
             "board_ids": style_payload.get("board_ids") or "",
             "data": style_payload.get("data") or {"outfits": [], "rendered_boards": []},
             "meta": {
@@ -2195,6 +2222,15 @@ def text_chat(request: TextChatRequest, http_request: Request):
         "board": result.get("board"),
         "type": result.get("type"),
         "cards": cards_payload,
+        "chips": (
+            result.get("chips")
+            if isinstance(result.get("chips"), list)
+            else (
+                style_payload.get("chips")
+                if isinstance(style_payload.get("chips"), list)
+                else (_ahvi_style_action_chips() if visual_context and cards_payload else [])
+            )
+        ),
         "board_ids": board_ids_text,
         "data": data_payload if isinstance(data_payload, dict) else {},
         "meta": {
@@ -2373,7 +2409,7 @@ def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None
                 "items": [],
                 "accessories": [],
             }
-            for i in range(3)
+            for i in range(6)
         ]
 
     used_top = set()
@@ -2383,7 +2419,7 @@ def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None
 
     cleaned = []
 
-    for idx, card in enumerate(cards[:3]):
+    for idx, card in enumerate(cards[:6]):
         if not isinstance(card, dict):
             continue
 
@@ -2466,7 +2502,7 @@ def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None
 
         title = str(fixed.get("title") or fixed.get("name") or "").strip()
         if not title or title.lower() in {"style board", "ahvi styled look"}:
-            fixed["title"] = f"Look {idx + 1} Â· Styled Fit"
+            fixed["title"] = f"Look {idx + 1} · Styled Fit"
             fixed["name"] = fixed["title"]
 
         cleaned.append(fixed)
@@ -2499,3 +2535,9 @@ def _ahvi_final_response_style_guard(cards, user_id, query_text, request_wardrob
 
 # ================= AHVI ROUTER ACCESSORY RAIL V2 END =================
 
+
+
+# ================= AHVI MORE LOOKS V2 APPLIED =================
+# /api/text style responses now return More looks / Next best options / Try different shoes chips.
+# Sanitizer caps were lifted from 3 to 6 cards.
+# ================= AHVI MORE LOOKS V2 END =================
