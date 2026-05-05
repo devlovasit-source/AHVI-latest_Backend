@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Tuple
+
+logger = logging.getLogger("ahvi.outfit_quality_guard")
 
 LOUD_COLORS = {"yellow", "orange", "neon", "fluorescent", "bright yellow", "bright orange", "lime"}
 
 SMART_OCCASIONS = {
-    "smart casual", "date", "date night", "office", "business casual",
+    "smart casual", "date", "date night", "date_night", "office", "business casual",
     "evening", "evening casual", "dinner", "brunch",
 }
 
@@ -17,7 +20,7 @@ MALE_BLOCKED_CATEGORIES = {
 SMART_FOOTWEAR_GOOD = {
     "sneakers", "minimal sneakers", "minimal_sneakers", "white sneakers",
     "cream sneakers", "loafers", "chelsea boots", "chelsea_boots",
-    "formal shoes", "leather sneakers", "boots",
+    "formal shoes", "leather sneakers", "boots", "leather boots",
 }
 
 ATHLETIC_FOOTWEAR = {
@@ -63,6 +66,7 @@ def _item_text(item: Dict[str, Any]) -> str:
         item.get("name"), item.get("title"), item.get("label"),
         item.get("category"), item.get("sub_category"), item.get("subcategory"),
         item.get("type"), item.get("slot"), item.get("role"),
+        item.get("category_group"), item.get("garment_type"),
         item.get("color"), item.get("dominant_color"),
         item.get("style"), item.get("material"), item.get("fabric"),
     ]
@@ -93,6 +97,130 @@ def _has_any(text: str, terms: set[str]) -> bool:
     return any(term.replace("_", " ") in clean for term in terms)
 
 
+def _tokens(text: str) -> set[str]:
+    import re
+
+    return set(re.sub(r"[^a-z0-9]+", " ", _norm(text)).split())
+
+
+def _role_from_item(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return ""
+
+    explicit = (
+        item.get("role")
+        or item.get("slot")
+        or item.get("type")
+        or item.get("category_group")
+        or item.get("category")
+        or item.get("sub_category")
+        or item.get("subcategory")
+        or item.get("garment_type")
+    )
+    normalized = _norm(explicit).replace(" ", "_")
+    role_map = {
+        "tops": "top",
+        "top": "top",
+        "shirt": "top",
+        "shirts": "top",
+        "tshirt": "top",
+        "t_shirt": "top",
+        "tee": "top",
+        "bottoms": "bottom",
+        "bottom": "bottom",
+        "pant": "bottom",
+        "pants": "bottom",
+        "trouser": "bottom",
+        "trousers": "bottom",
+        "jean": "bottom",
+        "jeans": "bottom",
+        "footwear": "footwear",
+        "shoes": "footwear",
+        "shoe": "footwear",
+        "sneaker": "footwear",
+        "sneakers": "footwear",
+        "boot": "footwear",
+        "boots": "footwear",
+        "loafer": "footwear",
+        "loafers": "footwear",
+        "slipper": "footwear",
+        "slippers": "footwear",
+        "slider": "footwear",
+        "sliders": "footwear",
+        "sandal": "footwear",
+        "sandals": "footwear",
+        "dress": "dress",
+        "dresses": "dress",
+        "accessory": "accessory",
+        "accessories": "accessory",
+        "watch": "accessory",
+        "bag": "accessory",
+        "belt": "accessory",
+        "jewelry": "accessory",
+        "jewellery": "accessory",
+    }
+    if normalized in role_map:
+        return role_map[normalized]
+
+    blob = _item_text(item)
+    toks = _tokens(blob)
+
+    if "dress shirt" in blob:
+        return "top"
+    if toks & {"shirt", "shirts", "tshirt", "tee", "top", "tops", "polo", "kurta", "hoodie"}:
+        return "top"
+    if toks & {"pants", "pant", "trousers", "trouser", "jeans", "jean", "chinos", "chino", "shorts", "skirt"}:
+        return "bottom"
+    if toks & {"footwear", "shoe", "shoes", "sneaker", "sneakers", "boot", "boots", "loafer", "loafers", "sandal", "sandals", "slipper", "slippers", "slider", "sliders"}:
+        return "footwear"
+    if toks & {"watch", "watches", "bag", "belt", "jewelry", "jewellery", "ring", "bracelet", "necklace", "sunglasses", "cap"}:
+        return "accessory"
+    if toks & {"dress", "gown", "jumpsuit", "saree", "lehenga"}:
+        return "dress"
+
+    return ""
+
+
+def _extract_outfit_slots(outfit: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], List[Dict[str, Any]]]:
+    top = outfit.get("top") or outfit.get("shirt") or outfit.get("upper") or {}
+    bottom = outfit.get("bottom") or outfit.get("pants") or outfit.get("trouser") or {}
+    footwear = outfit.get("footwear") or outfit.get("shoes") or outfit.get("shoe") or {}
+    accessories = outfit.get("accessories") or []
+
+    if not isinstance(accessories, list):
+        accessories = []
+
+    # Important: many AHVI outfits/cards are item-list based, not top/bottom fields.
+    # Without this extraction, Tan Sliders in outfit["items"] will not be penalized.
+    items = outfit.get("items") if isinstance(outfit.get("items"), list) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        role = _role_from_item(item)
+        if role == "top" and not top:
+            top = item
+        elif role == "bottom" and not bottom:
+            bottom = item
+        elif role == "footwear" and not footwear:
+            footwear = item
+        elif role == "accessory":
+            key = str(item.get("id") or item.get("$id") or item.get("item_id") or item.get("name") or "")
+            existing = {
+                str(x.get("id") or x.get("$id") or x.get("item_id") or x.get("name") or "")
+                for x in accessories
+                if isinstance(x, dict)
+            }
+            if key not in existing:
+                accessories.append(item)
+
+    return (
+        top if isinstance(top, dict) else {},
+        bottom if isinstance(bottom, dict) else {},
+        footwear if isinstance(footwear, dict) else {},
+        accessories,
+    )
+
+
 def _is_male_user(user_profile: Dict[str, Any]) -> bool:
     text = " ".join(
         _norm(user_profile.get(k))
@@ -106,10 +234,7 @@ def _explicitly_requested_bold(intent: str, query: str) -> bool:
     text = f"{_norm(intent)} {_norm(query)}"
     return any(
         word in text
-        for word in [
-            "bold", "streetwear", "sporty", "sneakerhead",
-            "statement", "athletic", "gym",
-        ]
+        for word in ["bold", "streetwear", "sporty", "sneakerhead", "statement", "athletic", "gym"]
     )
 
 
@@ -130,7 +255,7 @@ def _is_male_blocked_item(item: Dict[str, Any]) -> bool:
 
 
 def _is_date_or_evening_context(context_text: str) -> bool:
-    return any(x in context_text for x in ["date", "date night", "dinner", "evening", "night out", "smart casual"])
+    return any(x in context_text for x in ["date", "date night", "date_night", "dinner", "evening", "night out", "smart casual"])
 
 
 def _is_office_context(context_text: str) -> bool:
@@ -283,14 +408,18 @@ def guard_outfit(
     reasons: List[str] = []
     penalty = 0
 
-    top = outfit.get("top") or outfit.get("shirt") or outfit.get("upper") or {}
-    bottom = outfit.get("bottom") or outfit.get("pants") or outfit.get("trouser") or {}
-    footwear = outfit.get("footwear") or outfit.get("shoes") or outfit.get("shoe") or {}
-    accessories = outfit.get("accessories") or []
+    top, bottom, footwear, accessories = _extract_outfit_slots(outfit)
 
-    occasion_text = _norm(intent or outfit.get("occasion") or outfit.get("use_case") or outfit.get("scenario"))
+    occasion_text = _norm(
+        intent
+        or outfit.get("occasion")
+        or outfit.get("use_case")
+        or outfit.get("scenario")
+    )
 
     outfit_text = " ".join([_item_text(top), _item_text(bottom), _item_text(footwear), occasion_text])
+    if query:
+        outfit_text = f"{outfit_text} {_norm(query)}"
 
     if _is_male_user(user_profile):
         for item in [top, bottom, footwear, *accessories]:
@@ -316,10 +445,10 @@ def guard_outfit(
             reasons.append("Footwear is not ideal for smart styling")
 
     contextual_delta, contextual_reasons = _contextual_occasion_weather_adjustment(
-        top=top if isinstance(top, dict) else {},
-        bottom=bottom if isinstance(bottom, dict) else {},
-        footwear=footwear if isinstance(footwear, dict) else {},
-        accessories=accessories if isinstance(accessories, list) else [],
+        top=top,
+        bottom=bottom,
+        footwear=footwear,
+        accessories=accessories,
         occasion_text=occasion_text,
         query=query,
         outfit=outfit if isinstance(outfit, dict) else {},
@@ -364,6 +493,14 @@ def filter_and_guard_outfits(
                 fixed["score"] = float(fixed.get("score") or 0) + penalty
             except Exception:
                 pass
+
+        logger.info(
+            "outfit_quality_editorial_rank score=%s delta=%s footwear=%s reasons=%s",
+            fixed.get("score"),
+            fixed.get("_editorial_rank_delta"),
+            _item_text(_extract_outfit_slots(fixed)[2])[:80],
+            fixed.get("_editorial_rank_reasons"),
+        )
 
         guarded.append(fixed)
 
