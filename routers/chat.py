@@ -2212,3 +2212,279 @@ def text_chat(request: TextChatRequest, http_request: Request):
         _CHAT_CACHE.set(cache_key, response)
 
     return response
+
+
+# ================= AHVI ROUTER ACCESSORY RAIL V1 BEGIN =================
+# Keeps backend card payload aligned with the Pinterest board:
+# top + bottom + footwear + right-rail accessories, with card["accessories"] preserved.
+
+def _ahvi_router_accessory_key(item):
+    if not isinstance(item, dict):
+        return ""
+    return str(
+        item.get("$id")
+        or item.get("id")
+        or item.get("item_id")
+        or item.get("itemId")
+        or item.get("image_id")
+        or item.get("name")
+        or item.get("label")
+        or id(item)
+    ).strip().lower()
+
+
+def _ahvi_router_accessory_type(item):
+    blob = _ahvi_style_blob(item)
+    tokens = set(_chat_tokens(blob))
+    if tokens.intersection({"watch", "watches"}):
+        return "watch"
+    if tokens.intersection({"sunglass", "sunglasses", "eyewear", "glasses"}):
+        return "eyewear"
+    if tokens.intersection({"bag", "bags", "purse", "handbag", "clutch", "tote"}):
+        return "bag"
+    if tokens.intersection({"bracelet", "bracelets"}):
+        return "bracelet"
+    if tokens.intersection({"ring", "rings"}):
+        return "ring"
+    if tokens.intersection({"necklace", "necklaces"}):
+        return "necklace"
+    if tokens.intersection({"earring", "earrings"}):
+        return "earring"
+    if tokens.intersection({"belt", "belts"}):
+        return "belt"
+    if tokens.intersection({"scarf", "scarves"}):
+        return "scarf"
+    if tokens.intersection({"cap", "caps", "hat", "hats"}):
+        return "headwear"
+    if tokens.intersection({"jewelry", "jewellery"}):
+        return "jewelry"
+    return "accessory"
+
+
+def _ahvi_style_clean_accessories(accessories, query_text):
+    q = str(query_text or "").lower()
+    headwear_allowed = any(
+        k in q
+        for k in [
+            "casual",
+            "street",
+            "travel",
+            "airport",
+            "sport",
+            "gym",
+            "sun",
+            "beach",
+            "outdoor",
+            "college",
+            "weekend",
+        ]
+    )
+
+    candidates = [x for x in (accessories or []) if isinstance(x, dict) and _ahvi_style_role(x) == "accessory"]
+
+    priority = {
+        "watch": 0,
+        "eyewear": 1,
+        "bag": 2,
+        "bracelet": 3,
+        "ring": 4,
+        "necklace": 5,
+        "earring": 6,
+        "belt": 7,
+        "scarf": 8,
+        "headwear": 9,
+        "jewelry": 10,
+        "accessory": 99,
+    }
+
+    def has_image(item):
+        return bool(_ahvi_style_image(item))
+
+    candidates.sort(
+        key=lambda item: (
+            priority.get(_ahvi_router_accessory_type(item), 99),
+            0 if has_image(item) else 1,
+            str(item.get("name") or item.get("label") or ""),
+        )
+    )
+
+    out = []
+    seen_types = set()
+    seen_ids = set()
+
+    for item in candidates:
+        typ = _ahvi_router_accessory_type(item)
+        if typ == "headwear" and not headwear_allowed:
+            continue
+        key = _ahvi_router_accessory_key(item)
+        if key in seen_ids or typ in seen_types:
+            continue
+        out.append(_ahvi_style_norm(item, "accessory"))
+        seen_ids.add(key)
+        seen_types.add(typ)
+        if len(out) >= 4:
+            return out
+
+    # Fill remaining slots with unique accessories if required.
+    for item in candidates:
+        key = _ahvi_router_accessory_key(item)
+        if key in seen_ids:
+            continue
+        out.append(_ahvi_style_norm(item, "accessory"))
+        seen_ids.add(key)
+        if len(out) >= 4:
+            break
+
+    return out[:4]
+
+
+def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None, user_profile=None):
+    if not isinstance(cards, list):
+        return []
+
+    profile = _ahvi_resolve_effective_user_profile(user_id, user_profile or {})
+    wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
+    buckets = _ahvi_style_pools(wardrobe, query_text, profile)
+
+    if not cards:
+        if not _ahvi_router_style_fallback_enabled():
+            try:
+                logger.info(
+                    "ahvi.router_style_fallback_disabled user_id=%s stage=sanitize_empty_cards reason=production_no_fake_boards",
+                    user_id,
+                )
+            except Exception:
+                pass
+            return []
+        cards = [
+            {
+                "id": f"style_card_{i}",
+                "title": f"Look {i + 1} · Styled Fit",
+                "items": [],
+                "accessories": [],
+            }
+            for i in range(3)
+        ]
+
+    used_top = set()
+    used_bottom = set()
+    used_dress = set()
+    used_footwear = set()
+
+    cleaned = []
+
+    for idx, card in enumerate(cards[:3]):
+        if not isinstance(card, dict):
+            continue
+
+        source_items = []
+        for key in ("items", "accessories"):
+            value = card.get(key)
+            if isinstance(value, list):
+                source_items.extend([x for x in value if isinstance(x, dict)])
+
+        top = next((x for x in source_items if _ahvi_style_role(x) == "top"), None)
+        bottom = next((x for x in source_items if _ahvi_style_role(x) == "bottom"), None)
+        dress = next((x for x in source_items if _ahvi_style_role(x) == "dress"), None)
+        footwear = next((x for x in source_items if _ahvi_style_role(x) == "footwear"), None)
+        accessories = [x for x in source_items if _ahvi_style_role(x) == "accessory"]
+
+        final_items = []
+
+        if dress and not (top and bottom):
+            chosen_dress = _ahvi_style_pick(buckets["dress"], used_dress, dress)
+            if chosen_dress:
+                final_items.append(_ahvi_style_norm(chosen_dress, "dress"))
+        else:
+            chosen_top = _ahvi_style_pick(buckets["top"], used_top, top)
+            chosen_bottom = _ahvi_style_pick(buckets["bottom"], used_bottom, bottom)
+            if chosen_top:
+                final_items.append(_ahvi_style_norm(chosen_top, "top"))
+            if chosen_bottom:
+                final_items.append(_ahvi_style_norm(chosen_bottom, "bottom"))
+
+        chosen_footwear = _ahvi_style_pick(buckets["footwear"], used_footwear, footwear)
+        if chosen_footwear:
+            final_items.append(_ahvi_style_norm(chosen_footwear, "footwear"))
+
+        final_accessories = _ahvi_style_clean_accessories(
+            accessories or buckets["accessory"], query_text
+        )
+
+        fixed = dict(card)
+        fixed["items"] = (final_items + final_accessories)[:8]
+        fixed["accessories"] = final_accessories
+
+        top_name = next(
+            (
+                str(i.get("name") or i.get("label") or "top")
+                for i in final_items
+                if _ahvi_style_role(i) in {"top", "dress"}
+            ),
+            "",
+        )
+        bottom_name = next(
+            (
+                str(i.get("name") or i.get("label") or "bottom")
+                for i in final_items
+                if _ahvi_style_role(i) == "bottom"
+            ),
+            "",
+        )
+        footwear_name = next(
+            (
+                str(i.get("name") or i.get("label") or "footwear")
+                for i in final_items
+                if _ahvi_style_role(i) == "footwear"
+            ),
+            "",
+        )
+        core = ", ".join([x for x in [top_name, bottom_name, footwear_name] if x])
+
+        q = str(query_text or "").lower()
+        if "date" in q:
+            why = f"This works for date night because {core} creates a clean smart-casual balance with polished accessories."
+        elif any(k in q for k in ["office", "meeting", "work"]):
+            why = f"This works for office because {core} keeps the outfit structured, neat, and wearable."
+        else:
+            why = f"This works because {core} creates a balanced top-bottom-footwear structure."
+
+        fixed["why_it_works"] = why
+        fixed["explanation"] = why
+        fixed["reason"] = why
+        fixed["style_reason"] = why
+
+        title = str(fixed.get("title") or fixed.get("name") or "").strip()
+        if not title or title.lower() in {"style board", "ahvi styled look"}:
+            fixed["title"] = f"Look {idx + 1} · Styled Fit"
+            fixed["name"] = fixed["title"]
+
+        cleaned.append(fixed)
+
+    try:
+        logger.info(
+            "ahvi.clean_chat_style_guard_v2 user_id=%s cards=%s signatures=%s accessory_counts=%s",
+            user_id,
+            len(cleaned),
+            [" | ".join(_ahvi_style_names(c.get("items") or [])) for c in cleaned],
+            [
+                len(
+                    [
+                        i
+                        for i in (c.get("accessories") or [])
+                        if isinstance(i, dict) and _ahvi_style_role(i) == "accessory"
+                    ]
+                )
+                for c in cleaned
+            ],
+        )
+    except Exception:
+        pass
+
+    return cleaned
+
+
+def _ahvi_final_response_style_guard(cards, user_id, query_text, request_wardrobe=None, user_profile=None):
+    return _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe, user_profile)
+
+# ================= AHVI ROUTER ACCESSORY RAIL V1 END =================
