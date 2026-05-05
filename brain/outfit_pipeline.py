@@ -2101,11 +2101,16 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     cards = _ahvi_demo_force_accessories_into_cards(
         cards, ranked, occasion_filtered, limit=2
     )
-    cards = _ahvi_finalize_style_cards(cards, ranked, occasion_filtered, limit=2)
+    cards = _ahvi_finalize_style_cards(cards, ranked, ranked, limit=2)
 
-    # AHVI V2.1: preserve quality-guard ordering after final card normalization.
+    # AHVI V2.2: final card-level editorial ordering.
+    # Some finalizers can rebuild/reinsert cards, so sort the actual returned cards
+    # by visible item content as the last backend ordering step.
     try:
-        cards.sort(key=lambda c: float((c or {}).get("score") or 0.0), reverse=True)
+        cards.sort(
+            key=lambda c: _ahvi_final_card_editorial_score(c, merged_context),
+            reverse=True,
+        )
     except Exception:
         pass
 
@@ -2607,6 +2612,52 @@ def _ahvi_finalize_style_cards(cards, outfits, wardrobe, limit=2):
 
     return cards
 
+
+
+def _ahvi_card_item_text(card: Dict[str, Any]) -> str:
+    if not isinstance(card, dict):
+        return ""
+    items = card.get("items") if isinstance(card.get("items"), list) else []
+    parts = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        parts.extend([
+            str(item.get("name") or ""),
+            str(item.get("title") or ""),
+            str(item.get("category") or ""),
+            str(item.get("type") or ""),
+            str(item.get("role") or ""),
+            str(item.get("slot") or ""),
+            str(item.get("color") or ""),
+        ])
+    return " ".join(parts).lower()
+
+
+def _ahvi_final_card_editorial_score(card: Dict[str, Any], context: Dict[str, Any]) -> float:
+    try:
+        score = float((card or {}).get("score") or 0.0)
+    except Exception:
+        score = 0.0
+
+    text = _ahvi_card_item_text(card)
+    occasion = str((context or {}).get("occasion") or "").lower()
+    query = str((context or {}).get("query") or "").lower()
+    joined = f"{occasion} {query}"
+
+    is_date = any(x in joined for x in ["date", "date night", "dinner", "evening", "night out", "smart casual"])
+
+    if is_date:
+        if any(x in text for x in ["slider", "sliders", "slipper", "slippers", "flip flop", "flip-flop"]):
+            score -= 100.0
+        if any(x in text for x in ["chelsea boots", "leather boots", "boots", "loafers", "formal shoes"]):
+            score += 30.0
+        if any(x in text for x in ["white sneakers", "cream sneakers", "leather sneakers", "minimal sneakers"]):
+            score += 12.0
+        if "watch" in text:
+            score += 4.0
+
+    return score
 
 def _ahvi_board_item_ids_from_cards(cards, fallback_ranked):
     ids = []
@@ -3847,4 +3898,6 @@ def get_daily_outfits(user):
 get_daily_outfits._ahvi_finalizer_v3 = True
 
 # ================= AHVI OUTFIT PIPELINE FINALIZER V3 END =================
+
+
 
