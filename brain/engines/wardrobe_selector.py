@@ -53,7 +53,6 @@ class WardrobeSelector:
         "trousers": "bottom",
         "jean": "bottom",
         "jeans": "bottom",
-        "short": "bottom",
         "shorts": "bottom",
         "chino": "bottom",
         "chinos": "bottom",
