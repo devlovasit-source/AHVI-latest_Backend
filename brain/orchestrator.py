@@ -77,6 +77,120 @@ def _ahvi_orchestrator_merge_card_accessories(cards):
     return cards
 
 
+def _ahvi_final_card_text_for_order(card: Dict[str, Any]) -> str:
+    """Text view of the actual final card returned to the app."""
+    if not isinstance(card, dict):
+        return ""
+
+    parts = [
+        str(card.get("title") or ""),
+        str(card.get("occasion") or ""),
+        str(card.get("badge") or ""),
+        str(card.get("why_it_works") or ""),
+        str(card.get("reason") or ""),
+        str(card.get("score") or ""),
+    ]
+
+    items = card.get("items") if isinstance(card.get("items"), list) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        parts.extend(
+            [
+                str(item.get("name") or ""),
+                str(item.get("title") or ""),
+                str(item.get("label") or ""),
+                str(item.get("category") or ""),
+                str(item.get("sub_category") or ""),
+                str(item.get("subcategory") or ""),
+                str(item.get("type") or ""),
+                str(item.get("role") or ""),
+                str(item.get("slot") or ""),
+                str(item.get("color") or ""),
+                str(item.get("dominant_color") or ""),
+            ]
+        )
+
+    accessories = card.get("accessories") if isinstance(card.get("accessories"), list) else []
+    for item in accessories:
+        if not isinstance(item, dict):
+            continue
+        parts.extend(
+            [
+                str(item.get("name") or ""),
+                str(item.get("title") or ""),
+                str(item.get("label") or ""),
+                str(item.get("category") or ""),
+                str(item.get("type") or ""),
+                str(item.get("role") or ""),
+                str(item.get("slot") or ""),
+                str(item.get("color") or ""),
+            ]
+        )
+
+    return " ".join(parts).lower()
+
+
+def _ahvi_final_card_order_score(card: Dict[str, Any], context: Dict[str, Any] | None = None) -> float:
+    """
+    Final safety ordering for the exact cards returned to chat.
+    """
+    try:
+        score = float((card or {}).get("score") or 0.0)
+    except Exception:
+        score = 0.0
+
+    text = _ahvi_final_card_text_for_order(card)
+    ctx = context if isinstance(context, dict) else {}
+    context_text = " ".join(
+        [
+            str(ctx.get("occasion") or ""),
+            str(ctx.get("query") or ""),
+            str(ctx.get("intent") or ""),
+            text,
+        ]
+    ).lower()
+
+    is_date = any(
+        x in context_text
+        for x in ["date night", "date", "dinner", "evening", "night out", "smart casual"]
+    )
+
+    if is_date:
+        if any(x in text for x in ["slider", "sliders", "slipper", "slippers", "flip flop", "flip-flop"]):
+            score -= 100.0
+
+        if any(x in text for x in ["chelsea boots", "leather boots", "dress boots", "boots", "loafers", "formal shoes"]):
+            score += 30.0
+
+        if any(x in text for x in ["white sneakers", "cream sneakers", "leather sneakers", "minimal sneakers", "clean sneakers"]):
+            score += 12.0
+
+        if "watch" in text:
+            score += 4.0
+
+    return score
+
+
+def _ahvi_sort_final_cards_for_editorial_order(
+    cards: List[Dict[str, Any]],
+    context: Dict[str, Any] | None = None,
+) -> List[Dict[str, Any]]:
+    """Sort final chat cards after accessory merge and before logging/return."""
+    if not isinstance(cards, list):
+        return cards
+
+    try:
+        cards.sort(
+            key=lambda card: _ahvi_final_card_order_score(card, context),
+            reverse=True,
+        )
+    except Exception:
+        pass
+
+    return cards
+
+
 def _safe_text(value: Any) -> str:
     return str(value or "").strip()
 
@@ -887,6 +1001,18 @@ class AhviOrchestrator:
                 else []
             )
             cards = _ahvi_orchestrator_merge_card_accessories(cards)
+
+            # AHVI final safety sort: preserve editorial/date-night quality
+            # after all card/accessory merging paths.
+            cards = _ahvi_sort_final_cards_for_editorial_order(
+                cards,
+                {
+                    **ctx,
+                    "query": query,
+                    "occasion": occasion or _safe_text(ctx.get("occasion")),
+                    "intent": intent,
+                },
+            )
 
             try:
                 logger.info(
