@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Tuple
@@ -494,6 +494,14 @@ def filter_and_guard_outfits(
             except Exception:
                 pass
 
+        # AHVI V2.1: keep rank_score aligned with editorial-adjusted score.
+        # _build_cards() prefers rank_score over score, so stale rank_score can
+        # otherwise let weak footwear looks appear first.
+        try:
+            fixed["rank_score"] = float(fixed.get("score") or fixed.get("rank_score") or 0.0)
+        except Exception:
+            fixed["rank_score"] = fixed.get("score", fixed.get("rank_score", 0.0))
+
         logger.info(
             "outfit_quality_editorial_rank score=%s delta=%s footwear=%s reasons=%s",
             fixed.get("score"),
@@ -506,3 +514,4 @@ def filter_and_guard_outfits(
 
     guarded.sort(key=lambda x: float(x.get("score") or 0), reverse=True)
     return guarded
+

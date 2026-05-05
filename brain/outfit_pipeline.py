@@ -1,4 +1,4 @@
-# ================= AHVI CLEAN STYLE FLOW FIX V1 APPLIED =================
+﻿# ================= AHVI CLEAN STYLE FLOW FIX V1 APPLIED =================
 import hashlib
 import json
 import os
@@ -2103,6 +2103,12 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     )
     cards = _ahvi_finalize_style_cards(cards, ranked, occasion_filtered, limit=2)
 
+    # AHVI V2.1: preserve quality-guard ordering after final card normalization.
+    try:
+        cards.sort(key=lambda c: float((c or {}).get("score") or 0.0), reverse=True)
+    except Exception:
+        pass
+
     board_item_ids: List[str] = _ahvi_board_item_ids_from_cards(cards, ranked)
 
     return {
@@ -3781,7 +3787,7 @@ def _ahvi_final_postprocess_cards(result, user):
 
         title = str(fixed.get("title") or fixed.get("name") or "").strip()
         if not title or title.lower() in {"style board", "ahvi styled look"}:
-            fixed["title"] = f"Look {idx + 1} · Styled Fit"
+            fixed["title"] = f"Look {idx + 1} Â· Styled Fit"
             fixed["name"] = fixed["title"]
 
         cleaned_cards.append(fixed)
@@ -3841,3 +3847,4 @@ def get_daily_outfits(user):
 get_daily_outfits._ahvi_finalizer_v3 = True
 
 # ================= AHVI OUTFIT PIPELINE FINALIZER V3 END =================
+
