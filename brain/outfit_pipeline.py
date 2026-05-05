@@ -3904,7 +3904,7 @@ get_daily_outfits._ahvi_finalizer_v3 = True
 
 
 
-# ================= AHVI ACCESSORY RAIL V1 BEGIN =================
+# ================= AHVI ACCESSORY RAIL V2 BEGIN =================
 # Purpose:
 # - Keep the Pinterest/editorial board as one canvas.
 # - Return top + bottom + footwear + up to 4 accessories in card["items"].
@@ -4035,16 +4035,8 @@ def _ahvi_accessory_rail_candidates(wardrobe, combo=None, limit=4, query=""):
         if len(selected) >= max(0, int(limit)):
             return selected
 
-    # Fill with remaining unique accessories if the wardrobe has fewer unique accessory types.
-    for item in candidates:
-        key = _ahvi_accessory_rail_key(item)
-        if key in seen_ids:
-            continue
-        selected.append(item)
-        seen_ids.add(key)
-        if len(selected) >= max(0, int(limit)):
-            break
-
+    # Do not fill with duplicate accessory types. A cleaner board with 2-3
+    # distinct accessories is better than two watches or two belts.
     return selected[: max(0, int(limit))]
 
 
@@ -4061,6 +4053,14 @@ def _ahvi_accessory_candidates(wardrobe, combo, limit=4):
     return _ahvi_accessory_rail_candidates(wardrobe, combo, limit=limit, query="")
 
 
+def _ahvi_accessory_rail_clean_name(value):
+    text = str(value or "").strip()
+    lower = text.lower()
+    if lower == "toilet shirt" or "toilet shirt" in lower:
+        return "Light Blue Shirt"
+    return text
+
+
 def _ahvi_normalize_card_item_for_role(item):
     if not isinstance(item, dict):
         return item
@@ -4071,6 +4071,9 @@ def _ahvi_normalize_card_item_for_role(item):
         role = _ahvi_slot_for_item(item)
 
     row = dict(item)
+    for _name_key in ("name", "label", "title"):
+        if row.get(_name_key):
+            row[_name_key] = _ahvi_accessory_rail_clean_name(row.get(_name_key))
     if role == "top":
         row["role"] = "top"
         row["slot"] = "top"
@@ -4182,4 +4185,4 @@ def _ahvi_final_clean_accessories(accessories, query):
     ]
 
 
-# ================= AHVI ACCESSORY RAIL V1 END =================
+# ================= AHVI ACCESSORY RAIL V2 END =================

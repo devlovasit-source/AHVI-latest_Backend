@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Request
+﻿from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any, Optional
 from collections import OrderedDict
@@ -29,7 +29,7 @@ except Exception:
     job_tracker = None
 from services.task_queue import enqueue_task
 
-# ðŸ”¥ NEW
+# Ã°Å¸â€Â¥ NEW
 from services.weather_service import get_hourly_weather
 
 router = APIRouter()
@@ -992,7 +992,7 @@ def _ahvi_style_clean_accessories(accessories, query_text):
         if typ in seen_types:
             continue
 
-        out.append(_ahvi_style_norm(item, "accessory"))
+        out.append(_ahvi_router_clean_item_names(_ahvi_style_norm(item, "accessory")))
 
         if key:
             seen_ids.add(key)
@@ -1106,7 +1106,7 @@ def _ahvi_sanitize_style_cards(
         cards = [
             {
                 "id": f"style_card_{i}",
-                "title": f"Look {i + 1} · Styled Fit",
+                "title": f"Look {i + 1} Â· Styled Fit",
                 "items": [],
                 "accessories": [],
             }
@@ -1145,19 +1145,19 @@ def _ahvi_sanitize_style_cards(
         if dress and not (top and bottom):
             chosen_dress = _ahvi_style_pick(buckets["dress"], used_dress, dress)
             if chosen_dress:
-                final_items.append(_ahvi_style_norm(chosen_dress, "dress"))
+                final_items.append(_ahvi_router_clean_item_names(_ahvi_style_norm(chosen_dress, "dress")))
         else:
             chosen_top = _ahvi_style_pick(buckets["top"], used_top, top)
             chosen_bottom = _ahvi_style_pick(buckets["bottom"], used_bottom, bottom)
 
             if chosen_top:
-                final_items.append(_ahvi_style_norm(chosen_top, "top"))
+                final_items.append(_ahvi_router_clean_item_names(_ahvi_style_norm(chosen_top, "top")))
             if chosen_bottom:
-                final_items.append(_ahvi_style_norm(chosen_bottom, "bottom"))
+                final_items.append(_ahvi_router_clean_item_names(_ahvi_style_norm(chosen_bottom, "bottom")))
 
         chosen_footwear = _ahvi_style_pick(buckets["footwear"], used_footwear, footwear)
         if chosen_footwear:
-            final_items.append(_ahvi_style_norm(chosen_footwear, "footwear"))
+            final_items.append(_ahvi_router_clean_item_names(_ahvi_style_norm(chosen_footwear, "footwear")))
 
         final_items.extend(
             _ahvi_style_clean_accessories(
@@ -1210,7 +1210,7 @@ def _ahvi_sanitize_style_cards(
 
         title = str(fixed.get("title") or fixed.get("name") or "").strip()
         if not title or title.lower() in {"style board", "ahvi styled look"}:
-            fixed["title"] = f"Look {idx + 1} · Styled Fit"
+            fixed["title"] = f"Look {idx + 1} Â· Styled Fit"
             fixed["name"] = fixed["title"]
 
         cleaned.append(fixed)
@@ -2214,9 +2214,27 @@ def text_chat(request: TextChatRequest, http_request: Request):
     return response
 
 
-# ================= AHVI ROUTER ACCESSORY RAIL V1 BEGIN =================
+# ================= AHVI ROUTER ACCESSORY RAIL V2 BEGIN =================
 # Keeps backend card payload aligned with the Pinterest board:
 # top + bottom + footwear + right-rail accessories, with card["accessories"] preserved.
+
+def _ahvi_router_clean_display_name(value):
+    text = str(value or "").strip()
+    lower = text.lower()
+    if lower == "toilet shirt" or "toilet shirt" in lower:
+        return "Light Blue Shirt"
+    return text
+
+
+def _ahvi_router_clean_item_names(item):
+    if not isinstance(item, dict):
+        return item
+    row = dict(item)
+    for key in ("name", "label", "title"):
+        if row.get(key):
+            row[key] = _ahvi_router_clean_display_name(row.get(key))
+    return row
+
 
 def _ahvi_router_accessory_key(item):
     if not isinstance(item, dict):
@@ -2319,22 +2337,14 @@ def _ahvi_style_clean_accessories(accessories, query_text):
         key = _ahvi_router_accessory_key(item)
         if key in seen_ids or typ in seen_types:
             continue
-        out.append(_ahvi_style_norm(item, "accessory"))
+        out.append(_ahvi_router_clean_item_names(_ahvi_style_norm(item, "accessory")))
         seen_ids.add(key)
         seen_types.add(typ)
         if len(out) >= 4:
             return out
 
-    # Fill remaining slots with unique accessories if required.
-    for item in candidates:
-        key = _ahvi_router_accessory_key(item)
-        if key in seen_ids:
-            continue
-        out.append(_ahvi_style_norm(item, "accessory"))
-        seen_ids.add(key)
-        if len(out) >= 4:
-            break
-
+    # Do not fill remaining slots with duplicate accessory types. A cleaner
+    # board with fewer distinct accessories is better than two watches/two belts.
     return out[:4]
 
 
@@ -2359,7 +2369,7 @@ def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None
         cards = [
             {
                 "id": f"style_card_{i}",
-                "title": f"Look {i + 1} · Styled Fit",
+                "title": f"Look {i + 1} Â· Styled Fit",
                 "items": [],
                 "accessories": [],
             }
@@ -2394,18 +2404,18 @@ def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None
         if dress and not (top and bottom):
             chosen_dress = _ahvi_style_pick(buckets["dress"], used_dress, dress)
             if chosen_dress:
-                final_items.append(_ahvi_style_norm(chosen_dress, "dress"))
+                final_items.append(_ahvi_router_clean_item_names(_ahvi_style_norm(chosen_dress, "dress")))
         else:
             chosen_top = _ahvi_style_pick(buckets["top"], used_top, top)
             chosen_bottom = _ahvi_style_pick(buckets["bottom"], used_bottom, bottom)
             if chosen_top:
-                final_items.append(_ahvi_style_norm(chosen_top, "top"))
+                final_items.append(_ahvi_router_clean_item_names(_ahvi_style_norm(chosen_top, "top")))
             if chosen_bottom:
-                final_items.append(_ahvi_style_norm(chosen_bottom, "bottom"))
+                final_items.append(_ahvi_router_clean_item_names(_ahvi_style_norm(chosen_bottom, "bottom")))
 
         chosen_footwear = _ahvi_style_pick(buckets["footwear"], used_footwear, footwear)
         if chosen_footwear:
-            final_items.append(_ahvi_style_norm(chosen_footwear, "footwear"))
+            final_items.append(_ahvi_router_clean_item_names(_ahvi_style_norm(chosen_footwear, "footwear")))
 
         final_accessories = _ahvi_style_clean_accessories(
             accessories or buckets["accessory"], query_text
@@ -2456,7 +2466,7 @@ def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None
 
         title = str(fixed.get("title") or fixed.get("name") or "").strip()
         if not title or title.lower() in {"style board", "ahvi styled look"}:
-            fixed["title"] = f"Look {idx + 1} · Styled Fit"
+            fixed["title"] = f"Look {idx + 1} Â· Styled Fit"
             fixed["name"] = fixed["title"]
 
         cleaned.append(fixed)
@@ -2487,4 +2497,5 @@ def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None
 def _ahvi_final_response_style_guard(cards, user_id, query_text, request_wardrobe=None, user_profile=None):
     return _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe, user_profile)
 
-# ================= AHVI ROUTER ACCESSORY RAIL V1 END =================
+# ================= AHVI ROUTER ACCESSORY RAIL V2 END =================
+
