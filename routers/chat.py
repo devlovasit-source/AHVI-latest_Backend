@@ -21,6 +21,7 @@ from brain.orchestrator import ahvi_orchestrator
 from brain.tone.tone_engine import tone_engine
 from brain.outfit_pipeline import save_feedback
 from services.appwrite_proxy import AppwriteProxy
+from services.llm_service import chat_completion
 
 try:
     from services.job_tracker import job_tracker
@@ -1446,25 +1447,245 @@ def _ahvi_final_response_style_guard(
 # ================= AHVI CLEAN CHAT STYLE V2 END =================
 
 
-def _detect_mode(text: str) -> str:
-    t = text.lower().strip()
+def _is_explicit_style_request(text: str, module_context: str | None = None) -> bool:
+    """
+    True only when user is clearly asking AHVI to build/style an outfit board.
 
-    if any(
-        k in t
-        for k in ["wear", "outfit", "dress", "style", "clothes", "wardrobe", "look"]
+    Important:
+    Generic words like "style" or "personal styling" alone must not force the
+    wardrobe pipeline. Otherwise normal chat gets misrouted to daily_outfit.
+    """
+    q = str(text or "").lower().strip()
+    module = str(module_context or "").lower().strip()
+
+    if module in {"style", "wardrobe"} and any(
+        k in q
+        for k in [
+            "wear",
+            "outfit",
+            "look",
+            "style me",
+            "style this",
+            "what should i wear",
+            "date night",
+            "office outfit",
+            "party outfit",
+            "build a board",
+            "style board",
+        ]
     ):
+        return True
+
+    explicit_phrases = [
+        "what should i wear",
+        "what to wear",
+        "what do i wear",
+        "help me choose an outfit",
+        "choose an outfit",
+        "suggest an outfit",
+        "show outfits",
+        "show me outfits",
+        "build an outfit",
+        "create an outfit",
+        "make an outfit",
+        "style me",
+        "style this",
+        "style my",
+        "style board",
+        "date night outfit",
+        "office outfit",
+        "party outfit",
+        "travel outfit",
+        "airport outfit",
+        "wedding outfit",
+        "brunch outfit",
+        "dinner outfit",
+        "gym outfit",
+    ]
+    if any(p in q for p in explicit_phrases):
+        return True
+
+    # Occasion chip support: "date night" alone should create boards.
+    occasion_only = {
+        "date night",
+        "office",
+        "party",
+        "travel",
+        "airport",
+        "wedding",
+        "brunch",
+        "dinner",
+        "night out",
+    }
+    if q in occasion_only:
+        return True
+
+    # "I have a date tonight..." is outfit intent only when paired with wear/outfit/look.
+    occasion_words = ["date", "dinner", "party", "office", "meeting", "wedding", "travel", "brunch"]
+    wardrobe_words = ["wear", "outfit", "look", "clothes", "dress up", "style board"]
+    if any(o in q for o in occasion_words) and any(w in q for w in wardrobe_words):
+        return True
+
+    return False
+
+
+def _is_general_chat_request(text: str, module_context: str | None = None) -> bool:
+    q = str(text or "").lower().strip()
+    module = str(module_context or "").lower().strip()
+
+    if module not in {"", "chat", "general", "home", "assistant", "style", "wardrobe"}:
+        return False
+
+    if _is_explicit_style_request(q, module_context):
+        return False
+
+    # Anything instructional/question-like that is not explicitly outfit-building
+    # should go to the LLM.
+    if q in {"hi", "hello", "hey", "chat", "talk", "talk to me"}:
+        return True
+
+    general_markers = [
+        "reply with",
+        "say ",
+        "explain",
+        "why ",
+        "what is",
+        "who is",
+        "how are",
+        "tell me",
+        "can you",
+        "do you",
+        "help me understand",
+        "summarize",
+        "write",
+        "draft",
+        "rephrase",
+        "just chat",
+        "not outfit",
+        "do not mention outfits",
+        "ai styling should feel personal",
+    ]
+    if any(k in q for k in general_markers):
+        return True
+
+    # If the user mentions fashion/styling conceptually but does not ask for a board,
+    # keep it as conversational LLM.
+    conceptual_style_markers = [
+        "why ai styling",
+        "personal styling",
+        "fashion advice",
+        "style advice",
+        "styling should",
+        "why style",
+    ]
+    if any(k in q for k in conceptual_style_markers):
+        return True
+
+    return False
+
+
+def _build_llm_messages(messages: List["Message"], english_input: str) -> List[Dict[str, str]]:
+    out: List[Dict[str, str]] = []
+    for msg in messages[-10:]:
+        role = str(getattr(msg, "role", "user") or "user").lower()
+        content = str(getattr(msg, "content", "") or "").strip()
+        if not content:
+            continue
+        out.append({"role": role, "content": content})
+    if not out or out[-1].get("content") != english_input:
+        out.append({"role": "user", "content": english_input})
+    return out
+
+
+def _llm_chat_response(
+    *,
+    messages: List["Message"],
+    english_input: str,
+    user_id: str,
+    user_profile: Dict[str, Any],
+    user_message_style: Dict[str, str],
+    module_context: str | None = None,
+) -> Dict[str, Any]:
+    """
+    General chat path. This is the path that reaches Gemini/Vertex.
+    It must not call outfit pipeline.
+    """
+    system_instruction = (
+        "You are AHVI, a warm premium AI companion. "
+        "For normal chat, answer directly and naturally. "
+        "Do not create outfit boards unless the user explicitly asks what to wear or asks for an outfit. "
+        "Keep replies concise, fresh, and helpful."
+    )
+
+    try:
+        message = chat_completion(
+            _build_llm_messages(messages, english_input),
+            system_instruction=system_instruction,
+            user_profile=user_profile,
+            signals={
+                "context_mode": module_context or "chat",
+                "user_message_style": user_message_style,
+            },
+            timeout_seconds=45,
+            options={"temperature": 0.65, "max_output_tokens": 320},
+            usecase="general_chat",
+        )
+        mode = "llm_chat"
+    except Exception as exc:
+        logger.warning("chat.llm_response_failed user_id=%s error=%s", user_id, str(exc)[:180])
+        message = lightweight_chat(english_input)
+        mode = "llm_chat_fallback"
+
+    try:
+        message = tone_engine.apply(
+            str(message or "").strip() or lightweight_chat(english_input),
+            user_profile=user_profile,
+            signals={
+                "context_mode": module_context or "chat",
+                "user_message_style": user_message_style,
+            },
+            context={"module_context": module_context},
+        )
+    except Exception:
+        pass
+
+    logger.info(
+        "chat.llm_response user_id=%s mode=%s provider=%s",
+        user_id,
+        mode,
+        os.getenv("AI_PROVIDER", ""),
+    )
+
+    return {
+        "success": True,
+        "message": message,
+        "board": "general",
+        "type": "text",
+        "cards": [],
+        "board_ids": "",
+        "data": {},
+        "meta": {
+            "mode": mode,
+            "intent": "general_chat",
+            "provider": os.getenv("AI_PROVIDER", ""),
+        },
+        "audio_job_id": "offline",
+    }
+
+
+def _detect_mode(text: str, module_context: str | None = None) -> str:
+    if _is_general_chat_request(text, module_context):
+        return "casual"
+    if _is_explicit_style_request(text, module_context):
         return "fashion"
 
+    t = text.lower().strip()
     if t in ["hi", "hello", "hey"]:
         return "greeting"
 
-    if any(
-        k in t
-        for k in ["how are", "what is", "who is", "tell me", "why", "joke", "explain"]
-    ):
-        return "casual"
-
-    return "fashion"
+    # Default must be casual/LLM, not fashion. Otherwise almost every ambiguous
+    # prompt falls into wardrobe boards and returns static style fallback.
+    return "casual"
 
 
 def _infer_user_message_style(text: str) -> Dict[str, str]:
@@ -1616,20 +1837,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # CACHE
     # -------------------------
     cache_key = _cache_key(user_input, user_id)
-    style_query = any(
-        k in user_input.lower()
-        for k in [
-            "wear",
-            "outfit",
-            "dress",
-            "style",
-            "clothes",
-            "wardrobe",
-            "look",
-            "casual",
-            "date night",
-        ]
-    )
+    style_query = _is_explicit_style_request(user_input, request.module_context)
     visual_context = (
         str(request.module_context or "").lower() in {"style", "wardrobe"}
         or style_query
@@ -1661,74 +1869,47 @@ def text_chat(request: TextChatRequest, http_request: Request):
         target_lang = "en"
 
     # -------------------------
+    # GENERAL CHAT / LLM ROUTE
+    # -------------------------
+    # Must happen before orchestrator, because orchestrator can classify broad
+    # style/fashion language as daily_outfit and return static wardrobe messages.
+    if _is_general_chat_request(english_input, request.module_context):
+        response = _llm_chat_response(
+            messages=request.messages,
+            english_input=english_input,
+            user_id=user_id,
+            user_profile=request.user_profile if isinstance(request.user_profile, dict) else {},
+            user_message_style=user_message_style,
+            module_context=request.module_context,
+        )
+        if not cache_visual_boards:
+            _CHAT_CACHE.set(cache_key, response)
+        return response
+
+    # -------------------------
     # HYBRID ROUTING
     # -------------------------
-    mode = _detect_mode(english_input)
-
-    general_chat_prompt = any(
-        k in english_input.lower()
-        for k in ["joke", "how are you", "how r you", "what are you doing"]
-    )
-    if general_chat_prompt:
-        try:
-            casual_message = lightweight_chat(english_input)
-        except Exception:
-            casual_message = "I am here and ready. I can chat, make you smile, or help style your next look."
-        return {
-            "success": True,
-            "message": tone_engine.apply(
-                casual_message,
-                user_profile=request.user_profile,
-                signals={
-                    "context_mode": "home",
-                    "user_message_style": user_message_style,
-                },
-                context={},
-            ),
-            "cards": [],
-            "meta": {"mode": "casual_fast"},
-            "audio_job_id": "offline",
-        }
+    mode = _detect_mode(english_input, request.module_context)
 
     if mode == "greeting":
-        return {
-            "success": True,
-            "message": tone_engine.apply(
-                "Hey, I can help you style outfits or just chat.",
-                user_profile=request.user_profile,
-                signals={
-                    "context_mode": "home",
-                    "user_message_style": user_message_style,
-                },
-                context={},
-            ),
-            "cards": [],
-            "meta": {"mode": "greeting"},
-            "audio_job_id": "offline",
-        }
+        return _llm_chat_response(
+            messages=request.messages,
+            english_input=english_input,
+            user_id=user_id,
+            user_profile=request.user_profile if isinstance(request.user_profile, dict) else {},
+            user_message_style=user_message_style,
+            module_context=request.module_context,
+        )
 
-    if mode == "casual" and str(request.module_context or "").lower() not in {
-        "style",
-        "wardrobe",
-    }:
-        try:
-            return {
-                "success": True,
-                "message": tone_engine.apply(
-                    lightweight_chat(english_input),
-                    user_profile=request.user_profile,
-                    signals={
-                        "context_mode": "home",
-                        "user_message_style": user_message_style,
-                    },
-                    context={},
-                ),
-                "cards": [],
-                "meta": {"mode": "casual"},
-                "audio_job_id": "offline",
-            }
-        except Exception:
-            pass
+    if mode == "casual" and not style_query:
+        return _llm_chat_response(
+            messages=request.messages,
+            english_input=english_input,
+            user_id=user_id,
+            user_profile=request.user_profile if isinstance(request.user_profile, dict) else {},
+            user_message_style=user_message_style,
+            module_context=request.module_context,
+        )
 
     # -------------------------
     # WEATHER

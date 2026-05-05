@@ -270,7 +270,9 @@ def generate_text(
             max_output_tokens=int((options or {}).get("max_output_tokens", 450)),
         )
         if gemini_text:
+            logger.info("llm.generate_text provider=gemini model=%s usecase=%s", GEMINI_MODEL, usecase)
             return gemini_text
+        logger.warning("llm.generate_text provider=gemini returned empty; falling back usecase=%s", usecase)
 
     tone = tone_engine.build_prompt_tone(user_profile, signals)
 
@@ -300,6 +302,7 @@ STRICT RULES:
 
     data = _call_ollama(payload, timeout=timeout_seconds)
     if not data:
+        logger.warning("llm.generate_text provider=ollama_unavailable usecase=%s", usecase)
         return "This looks well put together and balanced."
 
     response = str(data.get("response", "")).strip()
