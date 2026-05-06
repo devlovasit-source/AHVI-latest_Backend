@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any, Dict, List, Optional
 
@@ -8,6 +9,8 @@ from pydantic import BaseModel, Field
 from services.r2_storage import R2StorageError
 from services.qdrant_service import qdrant_service
 from services import upload_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["utilities"])
 
@@ -66,7 +69,15 @@ def anthropic_messages(request: AnthropicRequest):
         raise HTTPException(status_code=502, detail=f"Anthropic request failed: {exc}")
 
     if res.status_code >= 400:
-        raise HTTPException(status_code=res.status_code, detail=res.text)
+        logger.warning(
+            "anthropic_upstream_error status=%d body_len=%d",
+            res.status_code,
+            len(res.text or ""),
+        )
+        raise HTTPException(
+            status_code=502 if res.status_code >= 500 else 400,
+            detail="Upstream provider error",
+        )
     return res.json()
 
 
@@ -83,7 +94,15 @@ def weather(latitude: float, longitude: float):
         raise HTTPException(status_code=502, detail=f"Weather request failed: {exc}")
 
     if res.status_code >= 400:
-        raise HTTPException(status_code=res.status_code, detail=res.text)
+        logger.warning(
+            "weather_upstream_error status=%d body_len=%d",
+            res.status_code,
+            len(res.text or ""),
+        )
+        raise HTTPException(
+            status_code=502 if res.status_code >= 500 else 400,
+            detail="Upstream weather error",
+        )
     return res.json()
 
 

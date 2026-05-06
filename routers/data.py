@@ -1,4 +1,5 @@
 ﻿from typing import Any, Dict, List, Optional
+import logging
 import uuid
 import re
 import os
@@ -11,6 +12,8 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 import requests
+
+logger = logging.getLogger(__name__)
 
 from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
 from services.embedding_service import encode_metadata
@@ -728,8 +731,12 @@ def _build_existing_preview_data_url(doc: Dict[str, Any]) -> Optional[str]:
     # Fallback: fetch from public URL server-side and embed as data URL.
     preview_url = _extract_preview_url(doc)
     if preview_url.startswith("http://") or preview_url.startswith("https://"):
+        from services.auth_helpers import is_safe_outbound_url
+
+        if not is_safe_outbound_url(preview_url):
+            return ""
         try:
-            res = requests.get(preview_url, timeout=10)
+            res = requests.get(preview_url, timeout=(2, 8))
             if res.status_code == 200 and res.content:
                 content = res.content[: max_preview_bytes + 1]
                 if len(content) <= max_preview_bytes:
@@ -853,7 +860,7 @@ def _hydrate_existing_outfit_document(
             merged.update(doc)
             masked_url = str(doc.get("masked_url") or "").strip()
             image_url = str(doc.get("image_url") or "").strip()
-            print(
+            logger.info(
                 f"[data.duplicate_preview] appwrite_match point_id={point_id} "
                 f"doc_id={doc_id} masked_http={masked_url.startswith('http')} "
                 f"image_http={image_url.startswith('http')}"
@@ -911,7 +918,7 @@ def _hydrate_existing_outfit_document(
         merged.update(best_doc)
         masked_url = str(best_doc.get("masked_url") or "").strip()
         image_url = str(best_doc.get("image_url") or "").strip()
-        print(
+        logger.info(
             f"[data.duplicate_preview] appwrite_hint_match "
             f"doc_id={best_doc.get('$id')} masked_http={masked_url.startswith('http')} "
             f"image_http={image_url.startswith('http')}"
@@ -923,14 +930,14 @@ def _hydrate_existing_outfit_document(
             merged.update(doc)
             masked_url = str(doc.get("masked_url") or "").strip()
             image_url = str(doc.get("image_url") or "").strip()
-            print(
+            logger.info(
                 f"[data.duplicate_preview] appwrite_any_match "
                 f"doc_id={doc.get('$id')} masked_http={masked_url.startswith('http')} "
                 f"image_http={image_url.startswith('http')}"
             )
             return merged
 
-    print(
+    logger.info(
         f"[data.duplicate_preview] appwrite_no_preview point_id={point_id} user_id={user_id}"
     )
 
@@ -1242,7 +1249,7 @@ def _build_existing_duplicate_preview(
     )
     existing_preview_url = _extract_preview_url(existing_doc)
     existing_preview_data_url = _build_existing_preview_data_url(existing_doc)
-    print(
+    logger.info(
         f"[data.duplicate_preview] selected "
         f"doc_id={existing_doc.get('$id')} preview_url={'yes' if existing_preview_url else 'no'} "
         f"preview_http={str(existing_preview_url or '').startswith('http')} "
@@ -1305,7 +1312,7 @@ def list_documents(
         if isinstance(page, dict):
             docs = page.get("documents", [])
             meta = page.get("meta", {})
-            print(
+            logger.info(
                 f"[data.list_documents] resource={resource} normalized={normalized_resource} user_id={auth_user_id} "
                 f"offset={offset} limit={limit} returned={len(docs)} "
                 f"mode={meta.get('mode')} total={meta.get('total')}"
@@ -1322,7 +1329,7 @@ def list_documents(
             },
         }
     except AppwriteProxyError as exc:
-        print(
+        logger.info(
             f"[data.list_documents] resource={resource} normalized={normalized_resource} user_id={auth_user_id} error={exc}"
         )
         raise _http_error_from_proxy(exc)
@@ -1358,12 +1365,12 @@ def get_document(http_request: Request, resource: str, document_id: str):
                 )
                 return {"document": created}
             except AppwriteProxyError as create_exc:
-                print(
+                logger.info(
                     f"[data.get_document] resource={resource} document_id={document_id} "
                     f"create_on_missing error={create_exc}"
                 )
                 raise _http_error_from_proxy(create_exc)
-        print(
+        logger.info(
             f"[data.get_document] resource={resource} document_id={document_id} error={exc}"
         )
         raise _http_error_from_proxy(exc)
@@ -1415,7 +1422,7 @@ def check_outfit_duplicate(http_request: Request, request: OutfitDuplicateCheckR
     duplicate_meta = dict(result.get("duplicate_meta") or {})
     duplicate = dict(result.get("duplicate") or {})
 
-    print(
+    logger.info(
         f"[data.duplicate_check] outfits user={duplicate_user_id} "
         f"image_checked={duplicate_meta.get('image_checked')} "
         f"image_score={duplicate_meta.get('image_score')} "
@@ -1455,7 +1462,7 @@ def create_document(http_request: Request, request: CreateRequest):
             _assert_user_match(auth_user_id, request.document_id, field="document_id")
             document_id = auth_user_id
         if resource == "outfits":
-            print(
+            logger.info(
                 f"[data.create_document] outfits request "
                 f"force_save={bool(request.force_save)} "
                 f"user_id={auth_user_id}"
@@ -1519,7 +1526,7 @@ def create_document(http_request: Request, request: CreateRequest):
                         incoming_pixel_hash=incoming_pixel_hash,
                     )
                 else:
-                    print(
+                    logger.info(
                         f"[data.create_document] outfits duplicate_check cache_hit user={duplicate_user_id}"
                     )
                 duplicate_meta = dict(
@@ -1537,7 +1544,7 @@ def create_document(http_request: Request, request: CreateRequest):
                 duplicate = dict(duplicate_result.get("duplicate") or {})
 
                 if duplicate_meta.get("is_duplicate"):
-                    print(
+                    logger.info(
                         f"[data.create_document] outfits duplicate_detected "
                         f"user={duplicate_user_id} reason={duplicate_meta.get('reason')} "
                         f"point_id={duplicate_meta.get('point_id')} "
@@ -1601,7 +1608,7 @@ def create_document(http_request: Request, request: CreateRequest):
                                     break
                     except (R2StorageError, Exception) as cleanup_exc:
                         cleanup_meta["r2_cleanup_error"] = str(cleanup_exc)
-                    print(
+                    logger.info(
                         f"[data.create_document] outfits duplicate_cleanup "
                         f"raw_deleted={cleanup_meta.get('r2_raw_deleted')} "
                         f"masked_deleted={cleanup_meta.get('r2_masked_deleted')} "
@@ -1635,7 +1642,7 @@ def create_document(http_request: Request, request: CreateRequest):
                             ),
                         },
                     )
-                print(
+                logger.info(
                     f"[data.create_document] outfits duplicate_check "
                     f"user={duplicate_user_id} image_checked={duplicate_meta.get('image_checked')} "
                     f"image_score={duplicate_meta.get('image_score')} "
@@ -1647,7 +1654,7 @@ def create_document(http_request: Request, request: CreateRequest):
                     f"reason={duplicate_meta.get('reason')}"
                 )
                 if duplicate_meta.get("error"):
-                    print(
+                    logger.info(
                         f"[data.create_document] outfits duplicate check failed: {duplicate_meta.get('error')}"
                     )
         elif resource == "meal_plans":
@@ -1763,13 +1770,13 @@ def create_document(http_request: Request, request: CreateRequest):
                             payload={"qdrant_point_id": point_id},
                         )
                     except AppwriteProxyError as exc:
-                        print(
+                        logger.info(
                             f"[data.create_document] outfits qdrant_point_id update skipped: {exc}"
                         )
             except Exception as exc:
                 qdrant_error = str(exc)
                 image_qdrant_error = str(exc)
-                print(f"[data.create_document] outfits qdrant upsert failed: {exc}")
+                logger.info(f"[data.create_document] outfits qdrant upsert failed: {exc}")
 
         return {
             "document": doc,
@@ -1787,7 +1794,7 @@ def create_document(http_request: Request, request: CreateRequest):
     except HTTPException:
         raise
     except AppwriteProxyError as exc:
-        print(
+        logger.info(
             f"[data.create_document] resource={request.resource} normalized={resource} error={exc}"
         )
         raise _http_error_from_proxy(exc)
@@ -1814,7 +1821,7 @@ def update_document(http_request: Request, document_id: str, request: UpdateRequ
         )
         return {"document": doc}
     except AppwriteProxyError as exc:
-        print(
+        logger.info(
             f"[data.update_document] resource={request.resource} normalized={resource} document_id={document_id} error={exc}"
         )
         raise _http_error_from_proxy(exc)
@@ -1850,7 +1857,7 @@ def delete_document(http_request: Request, request: DeleteRequest):
                 delete_meta["qdrant_point_id"] = point_id
             except Exception as exc:
                 delete_meta["qdrant_error"] = str(exc)
-                print(f"[data.delete_document] outfits qdrant delete failed: {exc}")
+                logger.info(f"[data.delete_document] outfits qdrant delete failed: {exc}")
 
             try:
                 candidates = _collect_outfit_r2_candidates(doc)
@@ -1879,7 +1886,7 @@ def delete_document(http_request: Request, request: DeleteRequest):
                     delete_meta["r2_masked_deleted"] = masked_deleted
             except (R2StorageError, Exception) as exc:
                 delete_meta["r2_error"] = str(exc)
-                print(f"[data.delete_document] outfits r2 delete failed: {exc}")
+                logger.info(f"[data.delete_document] outfits r2 delete failed: {exc}")
 
         data_access_service.delete_document(
             resource=resource,
@@ -1890,7 +1897,7 @@ def delete_document(http_request: Request, request: DeleteRequest):
             response["meta"] = delete_meta
         return response
     except AppwriteProxyError as exc:
-        print(
+        logger.info(
             f"[data.delete_document] resource={request.resource} normalized={resource} document_id={request.document_id} error={exc}"
         )
         raise _http_error_from_proxy(exc)
@@ -1925,5 +1932,5 @@ def upsert_user_profile(http_request: Request, user_id: str, body: Dict[str, Any
                 raise
         return {"document": doc}
     except AppwriteProxyError as exc:
-        print(f"[data.upsert_user_profile] user_id={user_id} error={exc}")
+        logger.info(f"[data.upsert_user_profile] user_id={user_id} error={exc}")
         raise _http_error_from_proxy(exc)

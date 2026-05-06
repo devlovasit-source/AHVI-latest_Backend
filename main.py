@@ -202,15 +202,23 @@ if sentry_sdk:
     except Exception:
         _sentry_client_ready = False
 
-if _is_production():
+def _looks_like_cloud_run() -> bool:
+    # Google Cloud Run injects K_SERVICE / K_REVISION at runtime.
+    return bool(os.getenv("K_SERVICE") or os.getenv("K_REVISION"))
+
+
+_prod_like = _is_production() or _looks_like_cloud_run()
+
+if _prod_like:
     if not _sentry_dsn:
         raise RuntimeError(
-            "SENTRY_DSN is required when ENV=production. "
-            "Set SENTRY_DSN or unset ENV/APP_ENV to run without it."
+            "SENTRY_DSN is required in production-like environments "
+            "(ENV=production or running on Cloud Run). "
+            "Set SENTRY_DSN, or set ENV=development to opt out."
         )
     if not (sentry_sdk and FastApiIntegration):
         raise RuntimeError(
-            "sentry-sdk is not installed but ENV=production. "
+            "sentry-sdk is not installed but the runtime looks production-like. "
             "Add sentry-sdk to requirements.txt."
         )
 
@@ -512,15 +520,12 @@ async def auth_guard_middleware(request: Request, call_next):
         or path.startswith("/health")
         or path == "/api/notifications/health"
         or path == "/api/text"
-        or path.startswith("/api/boards")
-        or path.startswith("/api/notifications/devices/")
         or path.startswith("/api/notifications/dispatch-due")
-        or path.startswith("/api/wardrobe/capture/")
         or path.startswith("/docs")
         or path.startswith("/openapi")
     ):
-        return await call_next(request)
-    if path.startswith("/api/tasks/"):
+        # Note: dispatch-due is intentionally bypassed here — the route enforces
+        # its own NOTIFICATIONS_DISPATCH_SECRET.
         return await call_next(request)
     try:
         request.state.user = await get_current_user(request)
@@ -581,13 +586,9 @@ async def rate_limit_middleware(request: Request, call_next):
         and not path.startswith("/health")
         and path != "/api/notifications/health"
         and path != "/api/text"
-        and not path.startswith("/api/boards")
-        and not path.startswith("/api/notifications/devices/")
         and not path.startswith("/api/notifications/dispatch-due")
-        and not path.startswith("/api/wardrobe/capture/")
         and not path.startswith("/docs")
         and not path.startswith("/openapi")
-        and not path.startswith("/api/tasks/")
     ):
         try:
             request.state.user = await get_current_user(request)
@@ -964,8 +965,14 @@ def health_routes():
 # -------------------------
 @app.get("/api/tasks/{job_id}")
 def get_task_status(job_id: str, request: Request):
+    from services.auth_helpers import require_user
+
+    authed_user = require_user(request)
     request_id = str(getattr(request.state, "request_id", "") or "")
     tracker_data = job_tracker.get(job_id) or {}
+    job_owner = str((tracker_data or {}).get("user_id") or "").strip()
+    if job_owner and job_owner != authed_user:
+        raise HTTPException(status_code=403, detail="Forbidden")
     if not celery_app or AsyncResult is None:
         if tracker_data:
             return {
@@ -1032,8 +1039,14 @@ def get_task_status(job_id: str, request: Request):
 
 @app.get("/api/jobs/recent")
 def list_recent_jobs(
-    limit: int = 25, user_id: str | None = None, request_id: str | None = None
+    request: Request,
+    limit: int = 25,
+    user_id: str | None = None,
+    request_id: str | None = None,
 ):
+    from services.auth_helpers import enforce_owner
+
+    user_id = enforce_owner(request, user_id)
     return {
         "success": True,
         "jobs": job_tracker.list_recent(

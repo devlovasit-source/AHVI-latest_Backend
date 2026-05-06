@@ -1,8 +1,10 @@
+import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
+from services.auth_helpers import enforce_owner, require_user
 from services.board_service import (
     AppwriteProxyError,
     R2StorageError,
@@ -12,6 +14,8 @@ from services.board_service import (
     save_board as save_board_service,
     save_life_board as save_life_board_service,
 )
+
+logger = logging.getLogger(__name__)
 
 # 🔥 OPTIONAL (future)
 # from services.embedding_service import embedding_service
@@ -61,7 +65,13 @@ class SaveLifeBoardRequest(BaseModel):
 # LIST SAVED BOARDS
 # =========================
 @router.get("")
-def list_boards(user_id: str, occasion: Optional[str] = None, limit: int = 100):
+def list_boards(
+    request: Request,
+    user_id: str,
+    occasion: Optional[str] = None,
+    limit: int = 100,
+):
+    user_id = enforce_owner(request, user_id)
     try:
         docs = list_saved_boards(
             user_id=user_id,
@@ -72,7 +82,12 @@ def list_boards(user_id: str, occasion: Optional[str] = None, limit: int = 100):
         return {"success": True, "count": len(docs), "documents": docs}
 
     except AppwriteProxyError as exc:
-        print(f"[boards.list] user_id={user_id} occasion={occasion} error={exc}")
+        logger.warning(
+            "boards.list failed user_id=%s occasion=%s error=%s",
+            user_id,
+            occasion,
+            exc,
+        )
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -80,8 +95,8 @@ def list_boards(user_id: str, occasion: Optional[str] = None, limit: int = 100):
 # SAVE BOARD (🔥 UPGRADED)
 # =========================
 @router.post("/save")
-def save_board(request: SaveBoardRequest):
-
+def save_board(req: Request, request: SaveBoardRequest):
+    request.user_id = enforce_owner(req, request.user_id)
     try:
         payload = request.payload or {}
 
@@ -128,7 +143,7 @@ def save_board(request: SaveBoardRequest):
         raise HTTPException(status_code=500, detail=f"R2 upload failed: {exc}")
 
     except AppwriteProxyError as exc:
-        print(f"[boards.save] user_id={request.user_id} error={exc}")
+        logger.warning("boards.save failed user_id=%s error=%s", request.user_id, exc)
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -136,19 +151,21 @@ def save_board(request: SaveBoardRequest):
 # LIFE BOARDS
 # =========================
 @router.get("/life")
-def list_life_boards_api(user_id: str, limit: int = 100):
+def list_life_boards_api(request: Request, user_id: str, limit: int = 100):
+    user_id = enforce_owner(request, user_id)
     try:
         docs = list_life_boards(user_id=user_id, limit=limit)
 
         return {"success": True, "count": len(docs), "documents": docs}
 
     except AppwriteProxyError as exc:
-        print(f"[boards.life.list] user_id={user_id} error={exc}")
+        logger.warning("boards.life.list failed user_id=%s error=%s", user_id, exc)
         raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("/life/save")
-def save_life_board(request: SaveLifeBoardRequest):
+def save_life_board(req: Request, request: SaveLifeBoardRequest):
+    request.user_id = enforce_owner(req, request.user_id)
     try:
         created = save_life_board_service(
             user_id=request.user_id,
@@ -161,7 +178,9 @@ def save_life_board(request: SaveLifeBoardRequest):
         return {"success": True, "document": created}
 
     except AppwriteProxyError as exc:
-        print(f"[boards.life.save] user_id={request.user_id} error={exc}")
+        logger.warning(
+            "boards.life.save failed user_id=%s error=%s", request.user_id, exc
+        )
         raise HTTPException(status_code=400, detail=str(exc))
 
 
@@ -169,12 +188,17 @@ def save_life_board(request: SaveLifeBoardRequest):
 # DELETE
 # =========================
 @router.delete("/{document_id}")
-def delete_board(document_id: str):
+def delete_board(request: Request, document_id: str):
+    # Authentication required; ownership is enforced by the underlying service
+    # which checks the document's userId against the bearer's user.
+    authed = require_user(request)
     try:
-        delete_saved_board(document_id=document_id)
+        delete_saved_board(document_id=document_id, user_id=authed)
 
         return {"success": True, "deleted": document_id}
 
     except AppwriteProxyError as exc:
-        print(f"[boards.delete] document_id={document_id} error={exc}")
+        logger.warning(
+            "boards.delete failed document_id=%s error=%s", document_id, exc
+        )
         raise HTTPException(status_code=400, detail=str(exc))

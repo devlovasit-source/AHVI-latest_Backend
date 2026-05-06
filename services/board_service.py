@@ -171,8 +171,23 @@ def save_life_board(
 # =========================
 # DELETE
 # =========================
-def delete_saved_board(*, document_id: str):
-    AppwriteProxy().delete_document("saved_boards", document_id)
+def delete_saved_board(*, document_id: str, user_id: str = ""):
+    """Delete a saved board after verifying the requester owns it.
+
+    user_id is the authenticated user's id. When supplied, the document's
+    `userId` field must match. Empty user_id skips the check and is only
+    safe for trusted callers that have already verified ownership.
+    """
+    proxy = AppwriteProxy()
+    if user_id:
+        try:
+            doc = proxy.get_document("saved_boards", document_id)
+        except AppwriteProxyError:
+            raise
+        owner = str(doc.get("userId") or doc.get("user_id") or "").strip()
+        if owner and owner != user_id:
+            raise AppwriteProxyError("Forbidden")
+    proxy.delete_document("saved_boards", document_id)
 
 
 __all__ = [

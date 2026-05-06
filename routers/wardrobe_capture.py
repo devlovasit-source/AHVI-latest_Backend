@@ -60,12 +60,15 @@ def _request_user_id(http_request: Request) -> str:
 
 def _effective_user_id(http_request: Request, supplied_user_id: str) -> str:
     authed_user_id = _request_user_id(http_request)
+    if not authed_user_id:
+        # Auth is mandatory now; the bypass in main.py was removed.
+        raise HTTPException(status_code=401, detail="Authentication required")
     supplied = str(supplied_user_id or "").strip()
-    if authed_user_id and supplied and supplied != authed_user_id:
+    if supplied and supplied != authed_user_id:
         raise HTTPException(
             status_code=403, detail="user_id does not match authenticated user"
         )
-    return authed_user_id or supplied
+    return authed_user_id
 
 
 def _decode_image_base64(value: str) -> Image.Image:
@@ -328,9 +331,12 @@ def _dominant_color_hex_from_image(image: Image.Image) -> str:
 
 def _dominant_color_hex_from_url(url: str) -> str:
     try:
-        if not url:
+        from services.auth_helpers import is_safe_outbound_url
+
+        clean_url = str(url or "").strip()
+        if not clean_url or not is_safe_outbound_url(clean_url):
             return "#000000"
-        response = requests.get(str(url).strip(), timeout=8)
+        response = requests.get(clean_url, timeout=(2, 8))
         response.raise_for_status()
         img = Image.open(io.BytesIO(response.content)).convert("RGB").resize((64, 64))
         pixels = list(img.getdata())
@@ -400,10 +406,13 @@ def _vision_extract_attributes(
         return base
 
     try:
+        from services.auth_helpers import assert_safe_outbound_url
+
         if image_base64:
             image_b64 = str(image_base64 or "").split(",")[-1]
         else:
-            image_resp = requests.get(masked_url, timeout=8)
+            assert_safe_outbound_url(masked_url)
+            image_resp = requests.get(masked_url, timeout=(2, 8))
             image_resp.raise_for_status()
             image_b64 = base64.b64encode(image_resp.content).decode("utf-8")
 

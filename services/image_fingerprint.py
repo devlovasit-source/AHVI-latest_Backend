@@ -121,12 +121,19 @@ async def compute_hash_from_url(url: str, timeout: float = 6.0) -> str:
     if not url:
         return ""
 
+    from services.auth_helpers import is_safe_outbound_url
+
+    if not is_safe_outbound_url(url):
+        return ""
+
     cached = _cache_get(url)
     if cached:
         return cached
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=2.0, read=timeout, write=timeout, pool=2.0)
+        ) as client:
             resp = await client.get(url)
             resp.raise_for_status()
 

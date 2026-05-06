@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 from typing import Tuple
 
@@ -44,15 +45,32 @@ async def is_redis_rate_limit_ready() -> bool:
 
 
 def extract_client_ip(headers, client_host: str | None) -> str:
+    """Return the originating client IP.
+
+    On Cloud Run we are behind exactly one trusted hop (the Google front-end),
+    which appends the real client IP as the *last* entry in X-Forwarded-For.
+    Trusting the leftmost entry is spoofable — clients can set XFF themselves.
+
+    Operators can override the trusted-hop count via XFF_TRUSTED_HOPS (default 1).
+    """
     forwarded = ""
     try:
         forwarded = headers.get("x-forwarded-for", "")
     except Exception:
         forwarded = ""
     if forwarded:
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
+        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+        if parts:
+            try:
+                hops = max(1, int(os.getenv("XFF_TRUSTED_HOPS", "1")))
+            except ValueError:
+                hops = 1
+            # The rightmost `hops` entries are appended by trusted proxies.
+            # The client-attributable IP is at index -hops.
+            idx = -hops
+            if -idx > len(parts):
+                idx = 0
+            return parts[idx]
     return str(client_host or "unknown")
 
 

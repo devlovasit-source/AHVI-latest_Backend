@@ -97,10 +97,13 @@ def encode_image_base64(value: Any) -> List[float]:
 # =========================
 def encode_image_url(url: Any, timeout: float = 8.0) -> List[float]:
     try:
-        if not url:
+        from services.auth_helpers import is_safe_outbound_url
+
+        clean_url = str(url or "").strip()
+        if not clean_url or not is_safe_outbound_url(clean_url):
             return []
 
-        response = requests.get(str(url).strip(), timeout=timeout)
+        response = requests.get(clean_url, timeout=(2, timeout))
         response.raise_for_status()
 
         return encode_image_bytes(response.content)
