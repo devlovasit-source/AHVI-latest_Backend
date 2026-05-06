@@ -249,6 +249,36 @@ class AppwriteProxy:
             return f"{base}/{document_id}"
         return base
 
+    _shared_session: Optional[requests.Session] = None
+
+    @classmethod
+    def _get_session(cls) -> requests.Session:
+        if cls._shared_session is not None:
+            return cls._shared_session
+        session = requests.Session()
+        try:
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.retry import Retry
+
+            retry = Retry(
+                total=3,
+                connect=2,
+                read=1,
+                backoff_factor=0.4,
+                status_forcelist=[500, 502, 503, 504],
+                allowed_methods=("GET", "HEAD", "DELETE"),
+                raise_on_status=False,
+            )
+            adapter = HTTPAdapter(
+                pool_connections=10, pool_maxsize=20, max_retries=retry
+            )
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+        except Exception:
+            logger.exception("appwrite session adapter init failed; using defaults")
+        cls._shared_session = session
+        return session
+
     def _request(
         self,
         method: str,
@@ -259,14 +289,16 @@ class AppwriteProxy:
     ) -> Dict[str, Any]:
         self._ensure_config()
         try:
-            timeout_seconds = float(os.getenv("APPWRITE_TIMEOUT_SECONDS", "8"))
-            response = requests.request(
+            read_timeout = float(os.getenv("APPWRITE_TIMEOUT_SECONDS", "8"))
+            connect_timeout = float(os.getenv("APPWRITE_CONNECT_TIMEOUT_SECONDS", "2"))
+            session = AppwriteProxy._get_session()
+            response = session.request(
                 method=method,
                 url=url,
                 headers=self._headers(),
                 params=params,
                 json=payload,
-                timeout=timeout_seconds,
+                timeout=(connect_timeout, read_timeout),
             )
         except RequestException as exc:
             raise AppwriteProxyError(f"Appwrite connection failed: {exc}") from exc

@@ -1,6 +1,8 @@
+import logging
 import os
+import threading
 from io import BytesIO
-from typing import Dict
+from typing import Dict, Optional
 import uuid
 
 try:
@@ -9,9 +11,17 @@ except Exception:
     Minio = None
 
 try:
+    import urllib3
+except Exception:
+    urllib3 = None
+
+try:
     from services.image_normalizer import normalize_wardrobe_image_bytes
 except Exception:
     normalize_wardrobe_image_bytes = None
+
+
+logger = logging.getLogger(__name__)
 
 
 class R2StorageError(Exception):
@@ -23,6 +33,20 @@ def _env(name: str, fallback: str = "") -> str:
 
 
 def _load_local_env() -> None:
+    """Walk parent dirs to populate env from .env files. Off by default.
+
+    Set R2_LOAD_LOCAL_ENV=true to enable for local dev. On Cloud Run, env vars
+    come from the platform; loading parent .env files there is unnecessary and
+    can pollute os.environ mid-runtime.
+    """
+    if str(os.getenv("R2_LOAD_LOCAL_ENV", "false")).strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return
+
     cwd = os.getcwd()
     parent = os.path.dirname(cwd)
     candidate_paths = [
@@ -51,6 +75,7 @@ def _load_local_env() -> None:
                     ):
                         os.environ[key] = value
         except Exception:
+            logger.exception("r2 local env load failed path=%s", env_path)
             continue
 
 
@@ -83,6 +108,9 @@ class R2Storage:
             "EXPO_PUBLIC_R2_URL_STYLE_BOARDS"
         )
 
+    _shared_client = None
+    _shared_client_lock = threading.Lock()
+
     def _client(self):
         if Minio is None:
             raise R2StorageError("minio package is not installed on backend.")
@@ -90,13 +118,43 @@ class R2Storage:
         if not self.s3_url or not self.access_key or not self.secret_key:
             raise R2StorageError("Missing R2 backend configuration.")
 
-        endpoint = self.s3_url.replace("https://", "").replace("http://", "")
-        return Minio(
-            endpoint,
-            access_key=self.access_key,
-            secret_key=self.secret_key,
-            region="auto",
-        )
+        # Cached singleton: avoid building a new HTTP pool per request.
+        cls = R2Storage
+        if cls._shared_client is not None:
+            return cls._shared_client
+
+        with cls._shared_client_lock:
+            if cls._shared_client is not None:
+                return cls._shared_client
+
+            endpoint = self.s3_url.replace("https://", "").replace("http://", "")
+            http_client = None
+            if urllib3 is not None:
+                try:
+                    http_client = urllib3.PoolManager(
+                        num_pools=10,
+                        maxsize=20,
+                        retries=urllib3.Retry(
+                            total=3,
+                            backoff_factor=0.4,
+                            status_forcelist=[500, 502, 503, 504],
+                            allowed_methods=("GET", "PUT", "DELETE", "HEAD"),
+                        ),
+                        timeout=urllib3.Timeout(connect=2.0, read=15.0),
+                    )
+                except Exception:
+                    logger.exception("urllib3 PoolManager init failed; using minio default")
+                    http_client = None
+
+            client_kwargs: Dict[str, object] = {
+                "access_key": self.access_key,
+                "secret_key": self.secret_key,
+                "region": "auto",
+            }
+            if http_client is not None:
+                client_kwargs["http_client"] = http_client
+            cls._shared_client = Minio(endpoint, **client_kwargs)
+            return cls._shared_client
 
     def upload_avatar(self, *, user_id: str, image_bytes: bytes) -> str:
         if not self.raw_bucket or not self.raw_public_url:

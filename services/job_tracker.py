@@ -191,7 +191,7 @@ class JobTracker:
                     client.zadd(user_key, {job_id: ts})
                     client.expire(user_key, 7 * 24 * 3600)
             except Exception:
-                pass
+                logger.warning("job_tracker redis recent-index update failed", exc_info=True)
 
         with self._lock:
             self._memory[job_id] = dict(payload)
@@ -218,7 +218,7 @@ class JobTracker:
                     if isinstance(data, dict):
                         return data
             except Exception:
-                pass
+                logger.warning("job_tracker redis get failed", exc_info=True)
 
         with self._lock:
             data = self._memory.get(jid)
@@ -388,7 +388,7 @@ class JobTracker:
                     ]
                 return rows
             except Exception:
-                pass
+                logger.warning("job_tracker redis list_recent failed", exc_info=True)
 
         with self._lock:
             items = list(self._memory.values())
@@ -417,7 +417,7 @@ class JobTracker:
                     ]
                 return rows[:safe_limit]
             except Exception:
-                pass
+                logger.warning("job_tracker appwrite list_recent failed", exc_info=True)
         return []
 
 

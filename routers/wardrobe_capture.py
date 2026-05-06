@@ -1,5 +1,6 @@
 import base64
 import io
+import logging
 import os
 import time
 import uuid
@@ -10,6 +11,8 @@ import requests
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 from services import ai_gateway
 from services.bg_service import remove_bg_bytes
@@ -448,7 +451,7 @@ def _vision_extract_attributes(
                 }
             )
     except Exception:
-        pass
+        logger.exception("vision item enrichment failed; falling back to heuristic")
 
     return base
 
