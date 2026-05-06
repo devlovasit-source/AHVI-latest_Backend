@@ -995,6 +995,48 @@ def _coerce_vector(value: Any) -> list:
     return []
 
 
+_PAYLOAD_BYTES_CACHE_KEY = "__r2_bytes_cache__"
+
+
+def _read_payload_r2_bytes(payload: Dict[str, Any]) -> Dict[str, list]:
+    """Fetch R2 bytes for a payload's masked/raw candidates, cached per payload.
+
+    Returns {"masked": [bytes,...], "raw": [bytes,...]} so both pixel-hash and
+    image-vector helpers can avoid re-downloading the same R2 object twice.
+    """
+    cached = payload.get(_PAYLOAD_BYTES_CACHE_KEY)
+    if isinstance(cached, dict):
+        return cached
+    try:
+        storage = R2Storage()
+        candidates = _collect_outfit_r2_candidates(payload)
+        masked_bytes: list = []
+        for name in candidates.get("masked", []):
+            try:
+                b = storage.read_object_bytes(
+                    bucket=storage.wardrobe_bucket, object_name=name
+                )
+            except Exception:
+                b = None
+            if b:
+                masked_bytes.append(b)
+        raw_bytes: list = []
+        for name in candidates.get("raw", []):
+            try:
+                b = storage.read_object_bytes(
+                    bucket=storage.raw_bucket, object_name=name
+                )
+            except Exception:
+                b = None
+            if b:
+                raw_bytes.append(b)
+        result = {"masked": masked_bytes, "raw": raw_bytes}
+    except Exception:
+        result = {"masked": [], "raw": []}
+    payload[_PAYLOAD_BYTES_CACHE_KEY] = result
+    return result
+
+
 def _compute_payload_image_vector(payload: Dict[str, Any]) -> list:
     vector = _coerce_vector(payload.get("image_vector"))
     if vector:
@@ -1016,33 +1058,15 @@ def _compute_payload_image_vector(payload: Dict[str, Any]) -> list:
             if vector:
                 return vector
 
-    # Robust fallback: read just-uploaded bytes directly from R2 object IDs
-    # to avoid URL propagation/timing issues.
+    # Robust fallback: reuse cached R2 bytes (read once per payload).
     try:
-        storage = R2Storage()
-        candidates = _collect_outfit_r2_candidates(payload)
-        for name in candidates.get("masked", []):
-            image_bytes = storage.read_object_bytes(
-                bucket=storage.wardrobe_bucket,
-                object_name=name,
-            )
-            if not image_bytes:
-                continue
-            vector = encode_image_bytes(image_bytes)
-            if vector:
-                return vector
-        for name in candidates.get("raw", []):
-            image_bytes = storage.read_object_bytes(
-                bucket=storage.raw_bucket,
-                object_name=name,
-            )
-            if not image_bytes:
-                continue
+        cached = _read_payload_r2_bytes(payload)
+        for image_bytes in cached.get("masked", []) + cached.get("raw", []):
             vector = encode_image_bytes(image_bytes)
             if vector:
                 return vector
     except Exception:
-        pass
+        logger.warning("payload image vector r2 fallback failed", exc_info=True)
 
     for key in ("masked_url", "maskedUrl", "image_url", "imageUrl"):
         value = payload.get(key)
@@ -1073,32 +1097,15 @@ def _compute_payload_pixel_hash(payload: Dict[str, Any]) -> str:
             if pixel_hash:
                 return pixel_hash
 
-    # Robust fallback: read from R2 objects by file ids before URL download.
+    # Robust fallback: reuse cached R2 bytes (read once per payload).
     try:
-        storage = R2Storage()
-        candidates = _collect_outfit_r2_candidates(payload)
-        for name in candidates.get("masked", []):
-            image_bytes = storage.read_object_bytes(
-                bucket=storage.wardrobe_bucket,
-                object_name=name,
-            )
-            if not image_bytes:
-                continue
-            pixel_hash = compute_pixel_hash_from_bytes(image_bytes)
-            if pixel_hash:
-                return pixel_hash
-        for name in candidates.get("raw", []):
-            image_bytes = storage.read_object_bytes(
-                bucket=storage.raw_bucket,
-                object_name=name,
-            )
-            if not image_bytes:
-                continue
+        cached = _read_payload_r2_bytes(payload)
+        for image_bytes in cached.get("masked", []) + cached.get("raw", []):
             pixel_hash = compute_pixel_hash_from_bytes(image_bytes)
             if pixel_hash:
                 return pixel_hash
     except Exception:
-        pass
+        logger.warning("payload pixel hash r2 fallback failed", exc_info=True)
 
     for key in ("masked_url", "maskedUrl", "image_url", "imageUrl"):
         value = payload.get(key)

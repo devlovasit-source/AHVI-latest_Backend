@@ -41,7 +41,9 @@ _WEATHER_CACHE_MAX_ITEMS = max(32, int(os.getenv("WEATHER_CACHE_MAX_ITEMS", "256
 _WEATHER_CACHE_TTL_SECONDS = max(60, int(os.getenv("WEATHER_CACHE_TTL_SECONDS", "900")))
 _ORCH_TIMEOUT_SECONDS = max(2, int(os.getenv("CHAT_ORCHESTRATOR_TIMEOUT_SECONDS", "8")))
 _ORCHESTRATOR_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
-    max_workers=max(2, int(os.getenv("CHAT_ORCHESTRATOR_MAX_WORKERS", "8"))),
+    # Default reduced from 8 -> 3 to avoid oversubscribing 1-vCPU Cloud Run
+    # instances under default concurrency=80. Override via env if needed.
+    max_workers=max(2, int(os.getenv("CHAT_ORCHESTRATOR_MAX_WORKERS", "3"))),
     thread_name_prefix="chat-orch",
 )
 
@@ -188,8 +190,11 @@ def _is_fast_wardrobe_count_query(text: str) -> bool:
     )
 
 
+_CHAT_TOKEN_RE = re.compile(r"[^a-z0-9]+")
+
+
 def _chat_tokens(value: Any) -> List[str]:
-    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip().split()
+    return _CHAT_TOKEN_RE.sub(" ", str(value or "").lower()).strip().split()
 
 
 def _chat_has_any(tokens: List[str], words: List[str]) -> bool:
@@ -364,9 +369,26 @@ def _infer_chat_category(item: Dict[str, Any]) -> str:
 
 
 def _fast_wardrobe_count_response(user_id: str, query_text: str) -> Dict[str, Any]:
+    # Paginate fully so totals are accurate for wardrobes >100 items.
+    docs: List[Dict[str, Any]] = []
     try:
-        docs = AppwriteProxy().list_documents("outfits", user_id=user_id, limit=100)
+        proxy = AppwriteProxy()
+        page_size = 100
+        offset = 0
+        while True:
+            page = proxy.list_documents(
+                "outfits", user_id=user_id, limit=page_size, offset=offset
+            )
+            if not page:
+                break
+            docs.extend(page)
+            if len(page) < page_size:
+                break
+            offset += page_size
+            if offset >= 5000:  # safety cap
+                break
     except Exception:
+        logger.warning("fast_wardrobe_count_response fetch failed", exc_info=True)
         docs = []
 
     counts = {"tops": 0, "bottoms": 0, "shoes": 0, "dresses": 0, "accessories": 0}

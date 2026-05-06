@@ -206,27 +206,37 @@ class R2Storage:
 
         client = self._client()
 
-        client.put_object(
-            self.raw_bucket,
-            raw_file_name,
-            BytesIO(raw_image_bytes),
-            length=len(raw_image_bytes),
-            content_type="image/png",
-        )
-        client.put_object(
-            self.wardrobe_bucket,
-            masked_file_name,
-            BytesIO(masked_image_bytes),
-            length=len(masked_image_bytes),
-            content_type="image/png",
-        )
-        client.put_object(
-            self.wardrobe_bucket,
-            normalized_file_name,
-            BytesIO(normalized_image_bytes),
-            length=len(normalized_image_bytes),
-            content_type="image/png",
-        )
+        # Upload the three variants concurrently (still IO-bound on the same
+        # HTTP pool but at least overlapping the round-trip latency).
+        from concurrent.futures import ThreadPoolExecutor, wait
+
+        def _put(bucket: str, name: str, data: bytes) -> None:
+            client.put_object(
+                bucket,
+                name,
+                BytesIO(data),
+                length=len(data),
+                content_type="image/png",
+            )
+
+        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="r2-upload") as ex:
+            futures = [
+                ex.submit(_put, self.raw_bucket, raw_file_name, raw_image_bytes),
+                ex.submit(
+                    _put, self.wardrobe_bucket, masked_file_name, masked_image_bytes
+                ),
+                ex.submit(
+                    _put,
+                    self.wardrobe_bucket,
+                    normalized_file_name,
+                    normalized_image_bytes,
+                ),
+            ]
+            wait(futures)
+            for fut in futures:
+                exc = fut.exception()
+                if exc is not None:
+                    raise exc
 
         normalized_image_url = f"{self.wardrobe_public_url}/{normalized_file_name}"
         masked_image_url = f"{self.wardrobe_public_url}/{masked_file_name}"
