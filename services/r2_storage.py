@@ -8,6 +8,11 @@ try:
 except Exception:
     Minio = None
 
+try:
+    from services.image_normalizer import normalize_wardrobe_image_bytes
+except Exception:
+    normalize_wardrobe_image_bytes = None
+
 
 class R2StorageError(Exception):
     pass
@@ -122,6 +127,25 @@ class R2Storage:
 
         raw_file_name = f"raw_{file_id}.png"
         masked_file_name = f"wardrobe_{file_id}.png"
+        normalized_file_name = f"wardrobe_{file_id}_normalized.png"
+
+        # Long-term style-board quality:
+        # Store a 1024x1024 transparent PNG for composition, while keeping
+        # raw + masked URLs for audit/backward compatibility.
+        normalized_image_bytes = masked_image_bytes
+        if normalize_wardrobe_image_bytes is not None:
+            try:
+                normalized_image_bytes = normalize_wardrobe_image_bytes(
+                    masked_image_bytes or raw_image_bytes,
+                    canvas_size=1024,
+                    object_fill=0.82,
+                    output_format="PNG",
+                )
+            except Exception:
+                # Never break wardrobe upload because normalization failed.
+                # Fallback keeps the old masked image behavior.
+                normalized_image_bytes = masked_image_bytes or raw_image_bytes
+
         client = self._client()
 
         client.put_object(
@@ -138,12 +162,28 @@ class R2Storage:
             length=len(masked_image_bytes),
             content_type="image/png",
         )
+        client.put_object(
+            self.wardrobe_bucket,
+            normalized_file_name,
+            BytesIO(normalized_image_bytes),
+            length=len(normalized_image_bytes),
+            content_type="image/png",
+        )
+
+        normalized_image_url = f"{self.wardrobe_public_url}/{normalized_file_name}"
+        masked_image_url = f"{self.wardrobe_public_url}/{masked_file_name}"
 
         return {
             "raw_file_name": raw_file_name,
             "masked_file_name": masked_file_name,
+            "normalized_file_name": normalized_file_name,
             "raw_image_url": f"{self.raw_public_url}/{raw_file_name}",
-            "masked_image_url": f"{self.wardrobe_public_url}/{masked_file_name}",
+            "masked_image_url": masked_image_url,
+            "normalized_image_url": normalized_image_url,
+            "normalized_url": normalized_image_url,
+            # Compatibility field for newer pipelines that expect image_url to
+            # already be the best display asset.
+            "image_url": normalized_image_url or masked_image_url,
         }
 
     def upload_style_board_image(
@@ -225,9 +265,14 @@ class R2Storage:
         *,
         raw_file_name: str = "",
         masked_file_name: str = "",
+        normalized_file_name: str = "",
     ) -> Dict[str, bool]:
         client = self._client()
-        result = {"raw_deleted": False, "masked_deleted": False}
+        result = {
+            "raw_deleted": False,
+            "masked_deleted": False,
+            "normalized_deleted": False,
+        }
 
         if raw_file_name and self.raw_bucket:
             try:
@@ -241,6 +286,14 @@ class R2Storage:
             try:
                 client.remove_object(self.wardrobe_bucket, masked_file_name)
                 result["masked_deleted"] = True
+            except Exception:
+                # Keep delete idempotent even if object is already missing.
+                pass
+
+        if normalized_file_name and self.wardrobe_bucket:
+            try:
+                client.remove_object(self.wardrobe_bucket, normalized_file_name)
+                result["normalized_deleted"] = True
             except Exception:
                 # Keep delete idempotent even if object is already missing.
                 pass

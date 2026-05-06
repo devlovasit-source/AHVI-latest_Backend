@@ -1,4 +1,4 @@
-﻿import os
+import os
 import re
 import uuid
 from typing import Any, Dict, List
@@ -56,6 +56,15 @@ def _has_any(tokens: List[str], words: List[str]) -> bool:
 def _safe_text(value: Any, fallback: str = "") -> str:
     text = str(value or "").strip()
     return text if text else fallback
+
+
+def _first_url(item: Dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = item.get(key)
+        text = _safe_text(value)
+        if text and text.lower() != "null":
+            return text
+    return ""
 
 
 def _safe_document_id(value: Any) -> str:
@@ -317,6 +326,7 @@ def _build_appwrite_doc(
     item: Dict[str, Any],
     raw_url: str,
     masked_url: str,
+    normalized_url: str,
 ) -> Dict[str, Any]:
     sub_category = _safe_text(
         item.get("sub_category")
@@ -339,13 +349,18 @@ def _build_appwrite_doc(
     occasions = _normalize_list(item.get("occasions") or item.get("occasion_tags"))
 
     # Must match Appwrite outfits collection schema exactly.
-    # Do not add raw_url, notes, user_id, etc.
+    # image_url must point to the cleanest available asset for downstream
+    # chat/style-board rendering. Add `normalized_url` as an optional String
+    # attribute in Appwrite before deploying this file.
+    final_image_url = normalized_url or masked_url or raw_url
+
     return {
-        "image_url": raw_url,
+        "image_url": final_image_url,
         "category": category,
         "userId": user_id,
         "status": "active",
-        "masked_url": masked_url,
+        "masked_url": masked_url or final_image_url,
+        "normalized_url": normalized_url or final_image_url,
         "image_id": file_id,
         "masked_id": file_id,
         "name": name,
@@ -402,24 +417,53 @@ def persist_selected_items(
         try:
             file_id = _safe_document_id(item_id or uuid.uuid4())
 
-            raw_url = _safe_text(
-                item.get("raw_url") or item.get("image_url") or item.get("imageUrl")
+            raw_url = _first_url(
+                item,
+                "raw_url",
+                "rawUrl",
+                "raw_image_url",
+                "rawImageUrl",
             )
 
-            masked_url = _safe_text(
-                item.get("masked_url") or item.get("maskedUrl") or raw_url
+            masked_url = _first_url(
+                item,
+                "masked_url",
+                "maskedUrl",
+                "masked_image_url",
+                "maskedImageUrl",
+                "processed_url",
+                "processedUrl",
+                "transparent_url",
+                "transparentUrl",
             )
 
-            if not raw_url and not masked_url:
-                skipped += 1
-                errors.append(f"{file_id}: missing image_url/masked_url")
-                continue
+            normalized_url = _first_url(
+                item,
+                "normalized_url",
+                "normalizedUrl",
+                "normalized_image_url",
+                "normalizedImageUrl",
+                "png_url",
+                "pngUrl",
+                "cutout_url",
+                "cutoutUrl",
+            )
 
-            if not raw_url:
-                raw_url = masked_url
+            # Legacy clients may only send image_url/imageUrl. Treat that as the
+            # best available display image, not necessarily the raw original.
+            legacy_image_url = _first_url(item, "image_url", "imageUrl", "url")
 
+            if not normalized_url:
+                normalized_url = masked_url or legacy_image_url
             if not masked_url:
-                masked_url = raw_url
+                masked_url = normalized_url or legacy_image_url or raw_url
+            if not raw_url:
+                raw_url = legacy_image_url or masked_url or normalized_url
+
+            if not raw_url and not masked_url and not normalized_url:
+                skipped += 1
+                errors.append(f"{file_id}: missing image_url/masked_url/normalized_url")
+                continue
 
             doc = _build_appwrite_doc(
                 user_id=user_id,
@@ -427,6 +471,7 @@ def persist_selected_items(
                 item=item,
                 raw_url=raw_url,
                 masked_url=masked_url,
+                normalized_url=normalized_url,
             )
 
             created = _create_document(file_id, doc)
@@ -452,7 +497,7 @@ def persist_selected_items(
                         "type": str(doc["sub_category"]).lower(),
                         "category": doc["category"],
                         "color": doc["color_code"],
-                        "image_url": masked_url,
+                        "image_url": doc.get("image_url") or masked_url,
                         "embedding": embedding,
                     }
                 )

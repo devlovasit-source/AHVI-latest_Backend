@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
 from services.r2_storage import R2Storage, R2StorageError
+from services.image_normalizer import normalize_style_board_image_bytes
 
 
 # =========================
@@ -89,16 +90,25 @@ def save_board(
 
     final_image_url = (image_url or "").strip()
 
-    # ðŸ”¥ Upload if base64 present
+    # Upload if base64 present.
+    # Long-term AHVI rule: saved board covers are normalized into a
+    # consistent portrait preview before R2 upload so Planner -> Boards
+    # thumbnails do not appear cropped/uneven across devices.
     if str(image_base64 or "").strip():
-        image_bytes, extension = decode_image_base64(image_base64)
+        image_bytes, _extension = decode_image_base64(image_base64)
 
         try:
+            normalized_bytes = normalize_style_board_image_bytes(
+                image_bytes,
+                size=(1080, 1350),
+                output_format="JPEG",
+                quality=92,
+            )
             storage = R2Storage()
             uploaded = storage.upload_style_board_image(
                 user_id=user_id,
-                image_bytes=image_bytes,
-                extension=extension,
+                image_bytes=normalized_bytes,
+                extension="jpg",
             )
             final_image_url = uploaded.get("image_url", final_image_url)
         except Exception as exc:

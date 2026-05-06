@@ -678,17 +678,43 @@ def _ahvi_style_occasion(query_text):
 def _ahvi_style_image(item):
     if not isinstance(item, dict):
         return ""
-    return str(
-        item.get("masked_url")
-        or item.get("maskedUrl")
-        or item.get("image_url")
-        or item.get("imageUrl")
-        or item.get("raw_url")
-        or item.get("rawUrl")
-        or item.get("url")
-        or item.get("image")
-        or ""
-    ).strip()
+
+    # Prefer the cleanest asset for style boards.
+    # normalized_url is the 1024x1024 transparent PNG created by the backend
+    # image normalizer. raw_url is intentionally last for debugging/fallback only.
+    candidates = [
+        item.get("normalized_url"),
+        item.get("normalizedUrl"),
+        item.get("normalized_image_url"),
+        item.get("normalizedImageUrl"),
+        item.get("transparent_url"),
+        item.get("transparentUrl"),
+        item.get("processed_url"),
+        item.get("processedUrl"),
+        item.get("png_url"),
+        item.get("pngUrl"),
+        item.get("cutout_url"),
+        item.get("cutoutUrl"),
+        item.get("masked_url"),
+        item.get("maskedUrl"),
+        item.get("masked_image_url"),
+        item.get("maskedImageUrl"),
+        item.get("image_url"),
+        item.get("imageUrl"),
+        item.get("url"),
+        item.get("image"),
+        item.get("raw_url"),
+        item.get("rawUrl"),
+        item.get("raw_image_url"),
+        item.get("rawImageUrl"),
+    ]
+
+    for value in candidates:
+        url = str(value or "").strip()
+        if url and url.lower() not in {"null", "none", "undefined"}:
+            return url
+
+    return ""
 
 
 def _ahvi_style_blob(item):
@@ -873,10 +899,21 @@ def _ahvi_style_norm(item, role=None):
 
     image = _ahvi_style_image(row)
     if image:
-        row["image_url"] = row.get("image_url") or image
-        row["imageUrl"] = row.get("imageUrl") or image
-        row["masked_url"] = row.get("masked_url") or image
-        row["maskedUrl"] = row.get("maskedUrl") or image
+        # Force all frontend-compatible image fields to the resolved clean URL.
+        # Previously this used `row.get("image_url") or image`, which preserved
+        # old raw image_url values and caused raw photos to appear in style boards
+        # even when normalized/masked URLs existed.
+        row["image_url"] = image
+        row["imageUrl"] = image
+        row.setdefault("display_url", image)
+        row.setdefault("displayUrl", image)
+
+        if not str(row.get("normalized_url") or row.get("normalizedUrl") or "").strip():
+            row["normalized_url"] = image
+            row["normalizedUrl"] = image
+
+        row["masked_url"] = row.get("masked_url") or row.get("maskedUrl") or image
+        row["maskedUrl"] = row.get("maskedUrl") or row.get("masked_url") or image
 
     return row
 

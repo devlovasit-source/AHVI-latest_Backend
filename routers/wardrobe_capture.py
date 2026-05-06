@@ -503,8 +503,18 @@ def _try_upload_inline_images(item: Dict[str, Any]) -> Dict[str, Any]:
         item["item_id"] = file_id
         item["raw_url"] = upload.get("raw_image_url")
         item["masked_url"] = upload.get("masked_image_url")
+        item["normalized_url"] = (
+            upload.get("normalized_image_url")
+            or upload.get("normalized_url")
+            or upload.get("image_url")
+            or upload.get("masked_image_url")
+        )
+        item["image_url"] = item.get("normalized_url") or item.get("masked_url") or item.get("raw_url")
+        item["imageUrl"] = item.get("image_url")
+        item["normalizedUrl"] = item.get("normalized_url")
         item["raw_file_name"] = upload.get("raw_file_name")
         item["masked_file_name"] = upload.get("masked_file_name")
+        item["normalized_file_name"] = upload.get("normalized_file_name")
     except Exception as exc:
         item["upload_error"] = str(exc)
     return item
@@ -622,13 +632,43 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                 or f"hybrid_detection+{label_source}",
                 "bbox": item.get("bbox") or [],
                 "raw_url": item.get("raw_url"),
+                "rawUrl": item.get("raw_url"),
                 "masked_url": item.get("masked_url"),
                 "maskedUrl": item.get("masked_url"),
+                "normalized_url": (
+                    item.get("normalized_url")
+                    or item.get("normalizedUrl")
+                    or item.get("image_url")
+                    or item.get("masked_url")
+                    or item.get("raw_url")
+                ),
+                "normalizedUrl": (
+                    item.get("normalized_url")
+                    or item.get("normalizedUrl")
+                    or item.get("image_url")
+                    or item.get("masked_url")
+                    or item.get("raw_url")
+                ),
 
                 # Compatibility for frontend paths that still read image_url/imageUrl.
-                # These should show the background-removed asset first.
-                "image_url": item.get("masked_url") or item.get("raw_url"),
-                "imageUrl": item.get("masked_url") or item.get("raw_url"),
+                # Prefer normalized 1024x1024 transparent PNG first, then masked, then raw.
+                "image_url": (
+                    item.get("normalized_url")
+                    or item.get("normalizedUrl")
+                    or item.get("image_url")
+                    or item.get("masked_url")
+                    or item.get("raw_url")
+                ),
+                "imageUrl": (
+                    item.get("normalized_url")
+                    or item.get("normalizedUrl")
+                    or item.get("image_url")
+                    or item.get("masked_url")
+                    or item.get("raw_url")
+                ),
+                "raw_file_name": item.get("raw_file_name"),
+                "masked_file_name": item.get("masked_file_name"),
+                "normalized_file_name": item.get("normalized_file_name"),
                 "raw_image_base64": item.get("raw_image_base64"),
                 "masked_image_base64": item.get("masked_image_base64"),
                 "upload_error": item.get("upload_error") or "",
@@ -656,6 +696,9 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                 "bbox": [],
                 "raw_url": None,
                 "masked_url": None,
+                "normalized_url": None,
+                "image_url": None,
+                "imageUrl": None,
                 "raw_image_base64": None,
                 "masked_image_base64": None,
                 "upload_error": "",
@@ -860,32 +903,64 @@ def _ahvi_extract_r2_file_names(item: Dict[str, Any]) -> Dict[str, str]:
             or item.get("imageUrl")
         )
 
+    normalized_file_name = str(
+        item.get("normalized_file_name")
+        or item.get("normalizedFileName")
+        or item.get("normalized_key")
+        or item.get("normalizedKey")
+        or ""
+    ).strip()
+
     if not masked_file_name:
         masked_file_name = _ahvi_file_name_from_url(
             item.get("masked_url") or item.get("maskedUrl") or item.get("url")
         )
 
+    if not normalized_file_name:
+        normalized_file_name = _ahvi_file_name_from_url(
+            item.get("normalized_url")
+            or item.get("normalizedUrl")
+            or item.get("image_url")
+            or item.get("imageUrl")
+        )
+
     return {
         "raw_file_name": raw_file_name,
         "masked_file_name": masked_file_name,
+        "normalized_file_name": normalized_file_name,
     }
 
 
 def _ahvi_delete_r2_images_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
     names = _ahvi_extract_r2_file_names(item)
 
-    if not names.get("raw_file_name") and not names.get("masked_file_name"):
+    if (
+        not names.get("raw_file_name")
+        and not names.get("masked_file_name")
+        and not names.get("normalized_file_name")
+    ):
         return {
             "raw_deleted": False,
             "masked_deleted": False,
+            "normalized_deleted": False,
             "status": "no_r2_file_names",
         }
 
     try:
-        result = R2Storage().delete_wardrobe_images(
-            raw_file_name=names.get("raw_file_name") or "",
-            masked_file_name=names.get("masked_file_name") or "",
-        )
+        storage = R2Storage()
+        try:
+            result = storage.delete_wardrobe_images(
+                raw_file_name=names.get("raw_file_name") or "",
+                masked_file_name=names.get("masked_file_name") or "",
+                normalized_file_name=names.get("normalized_file_name") or "",
+            )
+        except TypeError:
+            # Backward compatible fallback if an older r2_storage.py is still deployed.
+            result = storage.delete_wardrobe_images(
+                raw_file_name=names.get("raw_file_name") or "",
+                masked_file_name=names.get("masked_file_name") or "",
+            )
+            result.setdefault("normalized_deleted", False)
         result["status"] = "ok"
         result.update(names)
         return result
@@ -893,6 +968,7 @@ def _ahvi_delete_r2_images_for_item(item: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "raw_deleted": False,
             "masked_deleted": False,
+            "normalized_deleted": False,
             "status": "exception",
             "error": str(exc),
             **names,
