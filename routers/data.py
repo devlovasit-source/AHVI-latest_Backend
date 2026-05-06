@@ -816,38 +816,46 @@ def _hydrate_existing_outfit_document(
         return merged
 
     docs: List[Dict[str, Any]] = []
-    try:
-        offset = 0
-        scan_cap = 2000
-        page_size = 100
-        while len(docs) < scan_cap:
+
+    # Fast path: indexed lookup on qdrant_point_id (requires the index from
+    # tools/appwrite_create_qdrant_index.py).
+    matched_doc: Optional[Dict[str, Any]] = None
+    if point_id:
+        try:
+            indexed = proxy.find_by_attribute(
+                "outfits",
+                "qdrant_point_id",
+                point_id,
+                user_id=user_id,
+                limit=5,
+            )
+            if indexed:
+                matched_doc = indexed[0]
+                docs = list(indexed)
+        except AppwriteProxyError:
+            logger.warning(
+                "indexed qdrant_point_id lookup failed; falling back to scan",
+                exc_info=True,
+            )
+
+    # Fallback path: only run a full scan if the indexed lookup returned
+    # nothing AND we still need hint matching below. Cap at 200 rows to keep
+    # latency bounded; the index should make this branch rare.
+    if matched_doc is None:
+        try:
             page = proxy.list_documents(
                 "outfits",
                 user_id=user_id,
-                limit=page_size,
-                offset=offset,
+                limit=200,
+                offset=0,
                 return_meta=True,
             )
-            if not isinstance(page, dict):
-                break
-            page_docs = page.get("documents", [])
-            if not isinstance(page_docs, list) or not page_docs:
-                break
-            docs.extend([d for d in page_docs if isinstance(d, dict)])
-
-            meta = (
-                page.get("meta", {}) if isinstance(page.get("meta", {}), dict) else {}
-            )
-            has_more = bool(meta.get("has_more"))
-            next_offset = meta.get("next_offset")
-            if not has_more or next_offset is None:
-                break
-            try:
-                offset = int(next_offset)
-            except Exception:
-                break
-    except AppwriteProxyError:
-        docs = []
+            if isinstance(page, dict):
+                page_docs = page.get("documents", [])
+                if isinstance(page_docs, list):
+                    docs = [d for d in page_docs if isinstance(d, dict)]
+        except AppwriteProxyError:
+            docs = []
 
     for doc in docs:
         if not isinstance(doc, dict):

@@ -250,6 +250,39 @@ class AppwriteProxy:
         return base
 
     _shared_session: Optional[requests.Session] = None
+    _shared_async_client = None  # type: ignore[var-annotated]
+
+    @classmethod
+    def _get_async_client(cls):
+        """httpx.AsyncClient singleton for use inside async handlers.
+
+        Avoids per-call client construction and bounds connect/read timeouts
+        separately. Falls back to None if httpx is unavailable, in which case
+        callers should use the sync session via asyncio.to_thread.
+        """
+        if cls._shared_async_client is not None:
+            return cls._shared_async_client
+        try:
+            import httpx  # type: ignore
+        except Exception:
+            return None
+        try:
+            read_timeout = float(os.getenv("APPWRITE_TIMEOUT_SECONDS", "8"))
+            connect_timeout = float(os.getenv("APPWRITE_CONNECT_TIMEOUT_SECONDS", "2"))
+            limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)
+            cls._shared_async_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    connect=connect_timeout,
+                    read=read_timeout,
+                    write=read_timeout,
+                    pool=connect_timeout,
+                ),
+                limits=limits,
+            )
+        except Exception:
+            logger.exception("appwrite async client init failed")
+            cls._shared_async_client = None
+        return cls._shared_async_client
 
     @classmethod
     def _get_session(cls) -> requests.Session:
@@ -314,6 +347,91 @@ class AppwriteProxy:
             raise AppwriteProxyError(
                 "Appwrite returned invalid JSON response."
             ) from exc
+
+    # ------------------------------------------------------------------
+    # Async variants — non-blocking inside async handlers.
+    # The sync API above remains intact; async helpers below are opt-in.
+    # ------------------------------------------------------------------
+
+    async def _request_async(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: Optional[Dict[str, Any]] = None,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        self._ensure_config()
+        client = AppwriteProxy._get_async_client()
+        if client is None:
+            # No httpx -> fall back to threaded sync to avoid blocking loop.
+            import asyncio
+
+            return await asyncio.to_thread(
+                self._request, method, url, params=params, payload=payload
+            )
+        try:
+            response = await client.request(
+                method=method,
+                url=url,
+                headers=self._headers(),
+                params=params,
+                json=payload,
+            )
+        except Exception as exc:
+            raise AppwriteProxyError(f"Appwrite connection failed: {exc}") from exc
+        if response.status_code >= 400:
+            raise AppwriteProxyError(
+                f"Appwrite request failed ({response.status_code}): {response.text}"
+            )
+        if not response.text:
+            return {}
+        try:
+            return response.json()
+        except Exception as exc:
+            raise AppwriteProxyError(
+                "Appwrite returned invalid JSON response."
+            ) from exc
+
+    async def get_document_async(
+        self, resource: str, document_id: str
+    ) -> Dict[str, Any]:
+        resource = self._normalize_resource(resource)
+        collection_id = self._collection_id(resource)
+        url = self._url(collection_id, document_id)
+        return await self._request_async("GET", url)
+
+    async def create_document_async(
+        self,
+        resource: str,
+        data: Dict[str, Any],
+        *,
+        document_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        resource = self._normalize_resource(resource)
+        collection_id = self._collection_id(resource)
+        url = self._url(collection_id)
+        payload: Dict[str, Any] = {
+            "documentId": document_id or "unique()",
+            "data": data,
+        }
+        return await self._request_async("POST", url, payload=payload)
+
+    async def update_document_async(
+        self, resource: str, document_id: str, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        resource = self._normalize_resource(resource)
+        collection_id = self._collection_id(resource)
+        url = self._url(collection_id, document_id)
+        return await self._request_async("PATCH", url, payload={"data": data})
+
+    async def delete_document_async(
+        self, resource: str, document_id: str
+    ) -> Dict[str, Any]:
+        resource = self._normalize_resource(resource)
+        collection_id = self._collection_id(resource)
+        url = self._url(collection_id, document_id)
+        return await self._request_async("DELETE", url)
 
     def _list_documents_page(
         self,
@@ -444,6 +562,37 @@ class AppwriteProxy:
     @staticmethod
     def _equal_query(field: str, value: str) -> Dict[str, Any]:
         return {"method": "equal", "attribute": str(field), "values": [str(value)]}
+
+    def find_by_attribute(
+        self,
+        resource: str,
+        attribute: str,
+        value: str,
+        *,
+        user_id: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Indexed lookup: SELECT * FROM <collection> WHERE <attribute> = <value>.
+
+        Requires that the underlying Appwrite collection has an index on
+        ``attribute``. Without the index Appwrite still returns rows but does
+        a full collection scan — the caller will get the same results, just
+        slowly.
+        """
+        resource = self._normalize_resource(resource)
+        collection_id = self._collection_id(resource)
+        user_field = self.user_field_map.get(resource)
+        queries: List[Any] = [self._equal_query(attribute, str(value))]
+        if user_field and user_id:
+            queries.append(self._equal_query(user_field, str(user_id)))
+        page = self._list_documents_page(
+            collection_id,
+            page_limit=max(1, min(int(limit), 100)),
+            offset=0,
+            queries=queries,
+        )
+        docs = page.get("documents", []) if isinstance(page, dict) else []
+        return [d for d in docs if isinstance(d, dict)]
 
     @staticmethod
     def _matches_user(

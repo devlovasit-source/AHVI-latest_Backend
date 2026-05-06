@@ -277,6 +277,17 @@ async def lifespan(_app: FastAPI):
         except Exception:
             logger.exception("redis shutdown failed")
 
+        # Close shared httpx async client used by AppwriteProxy.
+        try:
+            from services.appwrite_proxy import AppwriteProxy
+
+            client = AppwriteProxy._shared_async_client
+            if client is not None and hasattr(client, "aclose"):
+                await client.aclose()
+                AppwriteProxy._shared_async_client = None
+        except Exception:
+            logger.exception("appwrite async client shutdown failed")
+
         # Close Appwrite admin client.
         try:
             from services import appwrite_service

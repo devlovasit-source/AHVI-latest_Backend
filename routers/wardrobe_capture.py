@@ -568,8 +568,14 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         fallback_color_code = _dominant_color_hex_from_image(image)
 
         masked_b64 = str(item.get("masked_image_base64") or "")
-        vision = _vision_extract_attributes(
-            str(item.get("masked_url") or ""), raw_label, masked_b64
+        # Sync helpers — offload so the event loop is free under concurrency.
+        import asyncio as _asyncio
+
+        vision = await _asyncio.to_thread(
+            _vision_extract_attributes,
+            str(item.get("masked_url") or ""),
+            raw_label,
+            masked_b64,
         )
         category, sub_category, category_corrected = _guardrail_category(
             raw_label=raw_label,
@@ -581,7 +587,9 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         )
 
         color_code = (
-            _dominant_color_hex_from_url(str(item.get("masked_url") or ""))
+            await _asyncio.to_thread(
+                _dominant_color_hex_from_url, str(item.get("masked_url") or "")
+            )
             or fallback_color_code
         )
         if color_code == "#000000" and fallback_color_code != "#000000":
@@ -1015,54 +1023,66 @@ async def analyze_capture_batch(
     if not images:
         raise HTTPException(status_code=400, detail="image_base64s is required")
 
-    for index, image_base64 in enumerate(images):
-        try:
+    import asyncio as _asyncio
+
+    sem = _asyncio.Semaphore(
+        max(1, int(os.getenv("CAPTURE_BATCH_PARALLELISM", "2")))
+    )
+
+    async def _run_one(index: int, image_base64: str):
+        async with sem:
             single_request = CaptureAnalyzeRequest(
                 user_id=user_id,
                 image_base64=image_base64,
                 auto_save=False,
                 save_duplicates=request.save_duplicates,
             )
+            return await analyze_capture(http_request, single_request)
 
-            result = await analyze_capture(http_request, single_request)
-            items = result.get("items") if isinstance(result, dict) else []
-            if not isinstance(items, list):
-                items = []
+    results = await _asyncio.gather(
+        *[_run_one(i, b) for i, b in enumerate(images)],
+        return_exceptions=True,
+    )
 
-            normalized = []
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-
-                item = dict(item)
-                item["source_image_index"] = index
-                item["batch_index"] = index
-                normalized.append(item)
-                all_items.append(item)
-
-            per_image.append(
-                {
-                    "index": index,
-                    "success": True,
-                    "count": len(normalized),
-                    "items": normalized,
-                    "stage_trace": (
-                        result.get("stage_trace") if isinstance(result, dict) else {}
-                    ),
-                }
-            )
-
-        except Exception as exc:
-            errors.append({"index": index, "error": str(exc)})
+    for index, result in enumerate(results):
+        if isinstance(result, Exception):
+            errors.append({"index": index, "error": str(result)})
             per_image.append(
                 {
                     "index": index,
                     "success": False,
                     "count": 0,
                     "items": [],
-                    "error": str(exc),
+                    "error": str(result),
                 }
             )
+            continue
+
+        items = result.get("items") if isinstance(result, dict) else []
+        if not isinstance(items, list):
+            items = []
+
+        normalized = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item = dict(item)
+            item["source_image_index"] = index
+            item["batch_index"] = index
+            normalized.append(item)
+            all_items.append(item)
+
+        per_image.append(
+            {
+                "index": index,
+                "success": True,
+                "count": len(normalized),
+                "items": normalized,
+                "stage_trace": (
+                    result.get("stage_trace") if isinstance(result, dict) else {}
+                ),
+            }
+        )
 
     try:
         import logging
