@@ -89,7 +89,7 @@ def save_board(
 
     final_image_url = (image_url or "").strip()
 
-    # 🔥 Upload if base64 present
+    # ðŸ”¥ Upload if base64 present
     if str(image_base64 or "").strip():
         image_bytes, extension = decode_image_base64(image_base64)
 
@@ -117,28 +117,18 @@ def save_board(
             item_ids = [str(x).strip() for x in raw_item_ids if str(x).strip()]
 
     # =========================
-    # 🔥 ELITE STRUCTURED BOARD
+    # ðŸ”¥ ELITE STRUCTURED BOARD
     # =========================
+    # Demo-safe schema: Appwrite saved_boards currently supports only:
+    # userId, imageUrl, itemIds, occasion.
+    # Do not send aesthetic/vibe/colorStory/layout/items/styleScore/createdAt/updatedAt
+    # unless those attributes are added to the Appwrite collection.
     doc = {
         "userId": user_id,
         "occasion": clean_occasion(occasion),
         "imageUrl": final_image_url,
         "itemIds": item_ids,
-        # 🔥 NEW INTELLIGENCE LAYER
-        "aesthetic": payload.get("aesthetic"),
-        "vibe": payload.get("vibe"),
-        "colorStory": payload.get("color_story", []),
-        # layout for pinterest-style rendering
-        "layout": payload.get("layout", {}),
-        # full item metadata (optional but powerful)
-        "items": payload.get("items", []),
-        # scoring (optional)
-        "styleScore": payload.get("score"),
-        # timestamps
-        "createdAt": datetime.now(timezone.utc).isoformat(),
-        "updatedAt": datetime.now(timezone.utc).isoformat(),
     }
-
     return proxy.create_document("saved_boards", doc)
 
 
