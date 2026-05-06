@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Callable
@@ -512,6 +512,7 @@ async def auth_guard_middleware(request: Request, call_next):
         or path.startswith("/health")
         or path == "/api/notifications/health"
         or path == "/api/text"
+        or path.startswith("/api/boards")
         or path.startswith("/api/notifications/devices/")
         or path.startswith("/api/notifications/dispatch-due")
         or path.startswith("/api/wardrobe/capture/")
@@ -580,6 +581,7 @@ async def rate_limit_middleware(request: Request, call_next):
         and not path.startswith("/health")
         and path != "/api/notifications/health"
         and path != "/api/text"
+        and not path.startswith("/api/boards")
         and not path.startswith("/api/notifications/devices/")
         and not path.startswith("/api/notifications/dispatch-due")
         and not path.startswith("/api/wardrobe/capture/")
