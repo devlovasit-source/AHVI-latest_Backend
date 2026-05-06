@@ -103,116 +103,17 @@ def _bytes_from_image_base64(value: str) -> bytes:
         raise HTTPException(status_code=400, detail=f"Invalid image_base64: {exc}")
 
 
+from services.category_taxonomy import (
+    CANONICAL_CATEGORIES as _CANONICAL_CATEGORIES,
+    CANONICAL_CATEGORY_KEYWORDS as _CANONICAL_CATEGORY_KEYWORDS,
+    normalize_category_from_label as _shared_normalize_category_from_label,
+)
+
+
 def _normalize_category_from_label(label: str) -> tuple[str, str]:
-    raw = str(label or "").strip().lower()
-    if any(x in raw for x in ["saree", "kurta", "lehenga", "dupatta", "sherwani"]):
-        return ("Indian Wear", raw.title() or "Indian Wear")
-    if any(
-        x in raw
-        for x in [
-            "shirt",
-            "tshirt",
-            "t-shirt",
-            "top",
-            "blouse",
-            "crop",
-            "sweater",
-            "hoodie",
-            "tee",
-        ]
-    ):
-        return ("Tops", raw.title() or "Top")
-    if any(x in raw for x in ["pant", "trouser", "jean", "skirt", "short"]):
-        return ("Bottoms", raw.title() or "Bottom")
-    if any(x in raw for x in ["dress", "gown", "jumpsuit"]):
-        return ("Dresses", "Dress")
-    if any(x in raw for x in ["jacket", "coat", "blazer", "outerwear"]):
-        return ("Outerwear", raw.title() or "Outerwear")
-    if any(x in raw for x in ["shoe", "sneaker", "heel", "boot", "sandal"]):
-        return ("Footwear", raw.title() or "Footwear")
-    if any(x in raw for x in ["bag", "handbag", "backpack", "purse", "tote"]):
-        return ("Bags", raw.title() or "Bag")
-    if any(x in raw for x in ["watch", "belt", "scarf", "hat", "cap", "sunglass"]):
-        return ("Accessories", raw.title() or "Accessory")
-    if any(x in raw for x in ["bracelet", "ring", "earring", "necklace"]):
-        return ("Jewelry", raw.title() or "Jewelry")
-    return ("Item", "Item")
-
-
-_CANONICAL_CATEGORY_KEYWORDS = [
-    (
-        "Footwear",
-        "Footwear",
-        [
-            "boot",
-            "boots",
-            "shoe",
-            "shoes",
-            "sneaker",
-            "sneakers",
-            "heel",
-            "heels",
-            "sandal",
-            "sandals",
-            "loafer",
-            "loafers",
-            "slipper",
-            "slippers",
-        ],
-    ),
-    (
-        "Bottoms",
-        "Bottom",
-        [
-            "pant",
-            "pants",
-            "trouser",
-            "trousers",
-            "jean",
-            "jeans",
-            "short",
-            "shorts",
-            "skirt",
-            "chino",
-            "chinos",
-            "legging",
-            "leggings",
-        ],
-    ),
-    (
-        "Tops",
-        "Top",
-        [
-            "shirt",
-            "shirts",
-            "tshirt",
-            "t-shirt",
-            "tee",
-            "top",
-            "tops",
-            "blouse",
-            "crop",
-            "sweater",
-            "hoodie",
-            "polo",
-        ],
-    ),
-    ("Dresses", "Dress", ["dress", "gown", "jumpsuit"]),
-    ("Outerwear", "Outerwear", ["jacket", "coat", "blazer", "outerwear", "cardigan"]),
-    ("Bags", "Bag", ["bag", "handbag", "backpack", "purse", "tote", "clutch"]),
-    (
-        "Accessories",
-        "Accessory",
-        ["watch", "watches", "belt", "scarf", "hat", "cap", "sunglass", "sunglasses"],
-    ),
-    ("Jewelry", "Jewelry", ["bracelet", "ring", "earring", "earrings", "necklace"]),
-    (
-        "Indian Wear",
-        "Indian Wear",
-        ["saree", "kurta", "lehenga", "dupatta", "sherwani"],
-    ),
-]
-_CANONICAL_CATEGORIES = {row[0] for row in _CANONICAL_CATEGORY_KEYWORDS}
+    # Delegated to shared taxonomy. Kept as a thin wrapper because the symbol
+    # is referenced inside _guardrail_category below.
+    return _shared_normalize_category_from_label(label)
 
 
 def _guardrail_category(
@@ -791,43 +692,11 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
     }
 
 
-# ================= AHVI SAVE SELECTED 6 ITEMS PATCH V2 BEGIN =================
+# Wardrobe save/delete helpers — backed by AppwriteProxy (replaces the
+# legacy raw `requests` calls that bypassed our shared session, retries,
+# and timeouts).
 
-# ================= AHVI CAPTURE SAVE DELETE PATCH V4 BEGIN =================
-
-
-def _ahvi_outfits_collection_id() -> str:
-    return (
-        os.getenv("APPWRITE_COLLECTION_OUTFITS")
-        or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_OUTFITS")
-        or os.getenv("APPWRITE_COLLECTION_ID")
-        or "outfits"
-    )
-
-
-def _ahvi_appwrite_ready() -> bool:
-    return bool(
-        os.getenv("APPWRITE_ENDPOINT")
-        and os.getenv("APPWRITE_PROJECT_ID")
-        and os.getenv("APPWRITE_API_KEY")
-        and os.getenv("APPWRITE_DATABASE_ID")
-        and _ahvi_outfits_collection_id()
-    )
-
-
-def _ahvi_appwrite_headers() -> Dict[str, str]:
-    return {
-        "X-Appwrite-Project": os.getenv("APPWRITE_PROJECT_ID", ""),
-        "X-Appwrite-Key": os.getenv("APPWRITE_API_KEY", ""),
-        "Content-Type": "application/json",
-    }
-
-
-def _ahvi_appwrite_doc_url(document_id: str) -> str:
-    endpoint = str(os.getenv("APPWRITE_ENDPOINT") or "").rstrip("/")
-    database_id = str(os.getenv("APPWRITE_DATABASE_ID") or "").strip()
-    collection_id = _ahvi_outfits_collection_id()
-    return f"{endpoint}/databases/{database_id}/collections/{collection_id}/documents/{document_id}"
+from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
 
 
 def _ahvi_item_doc_id(item: Dict[str, Any]) -> str:
@@ -843,48 +712,32 @@ def _ahvi_item_doc_id(item: Dict[str, Any]) -> str:
 
 
 def _ahvi_fetch_outfit_doc(document_id: str) -> Dict[str, Any]:
-    if not _ahvi_appwrite_ready() or not document_id:
+    if not document_id:
         return {}
-
     try:
-        res = requests.get(
-            _ahvi_appwrite_doc_url(document_id),
-            headers=_ahvi_appwrite_headers(),
-            timeout=15,
-        )
-        if res.status_code == 404:
+        doc = AppwriteProxy().get_document("outfits", document_id)
+        return doc if isinstance(doc, dict) else {}
+    except AppwriteProxyError as exc:
+        msg = str(exc).lower()
+        if "404" in msg or "not found" in msg:
             return {}
-        res.raise_for_status()
-        data = res.json()
-        return data if isinstance(data, dict) else {}
-    except Exception:
+        logger.warning("ahvi_fetch_outfit_doc failed id=%s err=%s", document_id, exc)
         return {}
 
 
 def _ahvi_delete_outfit_doc(document_id: str) -> Dict[str, Any]:
-    if not _ahvi_appwrite_ready():
-        return {"ok": False, "status": "appwrite_not_configured"}
-
     if not document_id:
         return {"ok": False, "status": "missing_document_id"}
-
     try:
-        res = requests.delete(
-            _ahvi_appwrite_doc_url(document_id),
-            headers=_ahvi_appwrite_headers(),
-            timeout=15,
-        )
-
-        if res.status_code in {200, 202, 204, 404}:
-            return {"ok": True, "status": res.status_code}
-
-        return {
-            "ok": False,
-            "status": res.status_code,
-            "error": res.text[:400],
-        }
-    except Exception as exc:
-        return {"ok": False, "status": "exception", "error": str(exc)}
+        AppwriteProxy().delete_document("outfits", document_id)
+        return {"ok": True, "status": 200}
+    except AppwriteProxyError as exc:
+        msg = str(exc)
+        if "404" in msg.lower():
+            # Treat already-deleted as success.
+            return {"ok": True, "status": 404}
+        logger.warning("ahvi_delete_outfit_doc failed id=%s err=%s", document_id, exc)
+        return {"ok": False, "status": "exception", "error": msg[:400]}
 
 
 def _ahvi_file_name_from_url(url: Any) -> str:
