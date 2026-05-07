@@ -1995,6 +1995,24 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         semantic_map,
         limit=6,
     )
+    try:
+        _diag_picked = [
+            {
+                "type": t,
+                "name": str(item.get("name") or item.get("label") or "?")[:30],
+                "tags": (item.get("occasions") or item.get("occasion_tags") or [])[:5],
+                "score": _master_piece_score(item, occasion, semantic_map),
+            }
+            for t, item in master_candidates
+        ]
+        logging.getLogger("ahvi.outfit_pipeline").info(
+            "outfit_pipeline.picked_masters user=%s occ=%s picks=%s",
+            user_id,
+            occasion,
+            _diag_picked,
+        )
+    except Exception:
+        pass
     if not master_candidates:
         return {
             "intent": "daily_outfit",
@@ -2264,6 +2282,28 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         cards, ranked, occasion_filtered, limit=4
     )
     cards = _ahvi_finalize_style_cards(cards, ranked, ranked, limit=4)
+
+    try:
+        _diag_card_summary = [
+            {
+                "title": str(c.get("title") or "?")[:30],
+                "items": [
+                    str(it.get("name") or it.get("label") or "?")[:25]
+                    for it in (c.get("items") or [])[:5]
+                    if isinstance(it, dict)
+                ],
+            }
+            for c in (cards or [])[:6]
+            if isinstance(c, dict)
+        ]
+        logging.getLogger("ahvi.outfit_pipeline").info(
+            "outfit_pipeline.final_cards user=%s occ=%s cards=%s",
+            user_id,
+            occasion,
+            _diag_card_summary,
+        )
+    except Exception:
+        pass
 
     # AHVI V2.2: final card-level editorial ordering.
     # Some finalizers can rebuild/reinsert cards, so sort the actual returned cards
