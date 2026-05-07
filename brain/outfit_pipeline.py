@@ -2115,6 +2115,22 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         if len(combinations) >= 40:
             break
 
+    def _hero_names(items):
+        names = []
+        for o in items or []:
+            t = (o.get("top") or o.get("dress") or {}) if isinstance(o, dict) else {}
+            n = str(t.get("name") or t.get("label") or "?")[:25]
+            names.append(n)
+        from collections import Counter
+
+        return dict(Counter(names))
+
+    logging.getLogger("ahvi.outfit_pipeline").info(
+        "outfit_pipeline.diversity_trace user=%s stage=combinations heroes=%s",
+        user_id,
+        _hero_names(combinations),
+    )
+
     if not combinations:
         msg = (
             "Need bottoms + footwear for top-based styling."
@@ -2163,6 +2179,17 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     pattern_filtered = [
         c for c in color_filtered if str(c.get("combo_id")) in set(pattern_keep)
     ] or color_filtered[:5]
+
+    logging.getLogger("ahvi.outfit_pipeline").info(
+        "outfit_pipeline.diversity_trace user=%s stage=color_filter heroes=%s",
+        user_id,
+        _hero_names(color_filtered),
+    )
+    logging.getLogger("ahvi.outfit_pipeline").info(
+        "outfit_pipeline.diversity_trace user=%s stage=pattern_filter heroes=%s",
+        user_id,
+        _hero_names(pattern_filtered),
+    )
 
     candidate_combos = pattern_filtered
     if len(candidate_combos) < 3:
@@ -2229,6 +2256,11 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
 
         ranked = outfit_ranker.rank(
             user_id=user_id, outfits=scored, top_n=min(10, len(scored))
+        )
+        logging.getLogger("ahvi.outfit_pipeline").info(
+            "outfit_pipeline.diversity_trace user=%s stage=ranked heroes=%s",
+            user_id,
+            _hero_names(ranked),
         )
 
         # Closed-loop (lightweight): if a refinement is requested (or suggested proactively),
@@ -2313,6 +2345,11 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         )
 
         ranked = _diversify_outfits(ranked, limit=6)
+        logging.getLogger("ahvi.outfit_pipeline").info(
+            "outfit_pipeline.diversity_trace user=%s stage=diversified heroes=%s",
+            user_id,
+            _hero_names(ranked),
+        )
 
         # AHVI editorial quality guard: remove weak/bad combinations before memory, indexing and card rendering.
         try:
