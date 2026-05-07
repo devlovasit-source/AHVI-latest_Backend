@@ -1802,6 +1802,16 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     normalized = _normalize_wardrobe(raw_wardrobe)
     semantic_items, semantic_map = _semantic_retrieval(user_id=user_id, context=context)
     wardrobe = _merge_wardrobe(normalized, semantic_items)
+
+    # Identity-safe filter (formerly GENDER PATCH V2 wrapper). Block
+    # female-only items (saree, sports bra, dress, etc.) from male users
+    # before any combo work runs. Helper defined later in this file.
+    try:
+        wardrobe = [item for item in wardrobe if _ahvi_pipe_item_allowed(item, context)]
+    except NameError:
+        # Helpers loaded later in module — only matters at hot-reload edge cases.
+        pass
+
     occasion = str(context.get("occasion", "")).strip().lower()
 
     if not occasion:
@@ -2114,9 +2124,16 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         pass
 
+    # Identity-safe filter on outfits + cards (formerly GENDER PATCH V2).
+    try:
+        ranked = [o for o in ranked if _ahvi_pipe_outfit_allowed(o, context)]
+        cards = [c for c in cards if _ahvi_pipe_card_allowed(c, context)]
+    except NameError:
+        pass
+
     board_item_ids: List[str] = _ahvi_board_item_ids_from_cards(cards, ranked)
 
-    return {
+    result_payload = {
         "intent": "daily_outfit",
         "context": "I pulled together wardrobe-based looks that match your request, occasion, and style profile.",
         "outfits": ranked,
@@ -2160,6 +2177,26 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             "ml_ranking": True,
         },
     }
+
+    # Final card postprocess (formerly FINALIZER V3 wrapper). Rebuilds
+    # visible cards: required slots, accessory dedup, contextual
+    # explanation. Helper defined later in this file.
+    try:
+        result_payload = _ahvi_final_postprocess_cards(result_payload, user)
+    except NameError:
+        pass
+
+    if isinstance(result_payload, dict):
+        result_payload.setdefault("meta", {})
+        if isinstance(result_payload.get("meta"), dict):
+            try:
+                result_payload["meta"]["style_gender_guard"] = (
+                    _ahvi_pipe_context_gender(context)
+                )
+            except NameError:
+                pass
+
+    return result_payload
 
 
 # ---- AHVI demo fix: force optional accessories into generated style cards ----
@@ -2573,45 +2610,10 @@ def _ahvi_accessory_candidates(wardrobe, combo, limit=2):
     return unique[:limit]
 
 
-def _ahvi_finalize_style_cards(cards, outfits, wardrobe, limit=2):
-    if not isinstance(cards, list):
-        return cards
-
-    for index, card in enumerate(cards):
-        if not isinstance(card, dict):
-            continue
-
-        outfit = (
-            outfits[index]
-            if isinstance(outfits, list)
-            and index < len(outfits)
-            and isinstance(outfits[index], dict)
-            else {}
-        )
-
-        items = card.get("items")
-        if not isinstance(items, list):
-            items = []
-
-        accessories = card.get("accessories")
-        if not isinstance(accessories, list) or not accessories:
-            accessories = _ahvi_accessory_candidates(wardrobe, outfit, limit=limit)
-
-        accessories = [x for x in accessories if isinstance(x, dict)][:limit]
-
-        seen = {_ahvi_card_item_key(x) for x in items if isinstance(x, dict)}
-
-        for acc in accessories:
-            key = _ahvi_card_item_key(acc)
-            if key and key not in seen:
-                items.append(acc)
-                seen.add(key)
-
-        card["items"] = items
-        card["accessories"] = accessories
-
-    return cards
-
+# NOTE: an earlier "limit=2" definition of _ahvi_finalize_style_cards once
+# lived here; it was always shadowed at import time by the limit=4 version
+# in the AHVI ACCESSORY RAIL V2 section below. Removed to make execution
+# order deterministic.
 
 
 def _ahvi_card_item_text(card: Dict[str, Any]) -> str:
@@ -2928,97 +2930,7 @@ def _ahvi_accessory_candidates(wardrobe, combo, limit=3):
     return unique[:limit]
 
 
-def _ahvi_finalize_style_cards(cards, outfits, wardrobe, limit=3):
-    if not isinstance(cards, list):
-        return cards
-
-    for index, card in enumerate(cards):
-        if not isinstance(card, dict):
-            continue
-
-        outfit = (
-            outfits[index]
-            if isinstance(outfits, list)
-            and index < len(outfits)
-            and isinstance(outfits[index], dict)
-            else {}
-        )
-
-        raw_items = card.get("items") if isinstance(card.get("items"), list) else []
-
-        # Keep core clothing/shoe items, but remove fake accessories like extra pants/sarees.
-        core_items = []
-        seen_core = set()
-
-        for item in raw_items:
-            if not isinstance(item, dict):
-                continue
-            if _ahvi_is_accessory_item(item):
-                continue
-
-            key = (
-                _ahvi_card_item_key(item)
-                if "_ahvi_card_item_key" in globals()
-                else str(
-                    item.get("id")
-                    or item.get("$id")
-                    or item.get("name")
-                    or item.get("label")
-                    or id(item)
-                ).lower()
-            )
-
-            if key not in seen_core:
-                seen_core.add(key)
-                core_items.append(item)
-
-        # For demo board, keep max 3-4 core pieces.
-        core_items = core_items[:4]
-
-        accessories = _ahvi_accessory_candidates(wardrobe, outfit, limit=limit)
-
-        seen = {
-            (
-                _ahvi_card_item_key(x)
-                if "_ahvi_card_item_key" in globals()
-                else str(
-                    x.get("id")
-                    or x.get("$id")
-                    or x.get("name")
-                    or x.get("label")
-                    or id(x)
-                ).lower()
-            )
-            for x in core_items
-            if isinstance(x, dict)
-        }
-
-        final_items = list(core_items)
-        final_accessories = []
-
-        for acc in accessories:
-            key = (
-                _ahvi_card_item_key(acc)
-                if "_ahvi_card_item_key" in globals()
-                else str(
-                    acc.get("id")
-                    or acc.get("$id")
-                    or acc.get("name")
-                    or acc.get("label")
-                    or id(acc)
-                ).lower()
-            )
-            if key and key not in seen:
-                final_items.append(acc)
-                final_accessories.append(acc)
-                seen.add(key)
-
-        card["items"] = final_items[:7]
-        card["accessories"] = final_accessories
-
-    return cards
-
-
+# Removed: dead limit=3 _ahvi_finalize_style_cards (shadowed by limit=4 in ACCESSORY RAIL V2 below).
 # ---- end AHVI final strict accessory override ----
 
 # ================= AHVI OUTFIT PIPELINE GENDER PATCH V2 BEGIN =================
@@ -3222,62 +3134,11 @@ def _ahvi_pipe_card_allowed(card, context):
     return all(_ahvi_pipe_item_allowed(item, context) for item in items)
 
 
-try:
-    _AHVI_ORIGINAL_GET_DAILY_OUTFITS = get_daily_outfits
-except Exception:
-    _AHVI_ORIGINAL_GET_DAILY_OUTFITS = None
-
-
-if _AHVI_ORIGINAL_GET_DAILY_OUTFITS and not getattr(
-    get_daily_outfits, "_ahvi_gender_guard_v2", False
-):
-
-    def get_daily_outfits(user):
-        user = dict(user or {})
-        context = user.get("context") if isinstance(user.get("context"), dict) else {}
-
-        wardrobe = user.get("wardrobe")
-        if isinstance(wardrobe, list):
-            user["wardrobe"] = [
-                item for item in wardrobe if _ahvi_pipe_item_allowed(item, context)
-            ]
-
-        result = _AHVI_ORIGINAL_GET_DAILY_OUTFITS(user)
-
-        if not isinstance(result, dict):
-            return result
-
-        if isinstance(result.get("outfits"), list):
-            result["outfits"] = [
-                outfit
-                for outfit in result["outfits"]
-                if _ahvi_pipe_outfit_allowed(outfit, context)
-            ]
-
-        if isinstance(result.get("cards"), list):
-            result["cards"] = [
-                card
-                for card in result["cards"]
-                if _ahvi_pipe_card_allowed(card, context)
-            ]
-
-        data = result.get("data")
-        if isinstance(data, dict) and isinstance(data.get("outfits"), list):
-            data["outfits"] = [
-                outfit
-                for outfit in data["outfits"]
-                if _ahvi_pipe_outfit_allowed(outfit, context)
-            ]
-
-        result.setdefault("meta", {})
-        if isinstance(result.get("meta"), dict):
-            result["meta"]["style_gender_guard"] = _ahvi_pipe_context_gender(context)
-
-        return result
-
-    get_daily_outfits._ahvi_gender_guard_v2 = True
-
 # ================= AHVI OUTFIT PIPELINE GENDER PATCH V2 END =================
+# Wrapper rebinding removed — gender filter is now applied directly inside
+# the canonical get_daily_outfits() (see calls to _ahvi_pipe_item_allowed /
+# _ahvi_pipe_outfit_allowed / _ahvi_pipe_card_allowed). The helpers above
+# remain because the canonical function imports them by name.
 
 
 # ================= AHVI OUTFIT PIPELINE FINALIZER V3 BEGIN =================
@@ -3294,7 +3155,10 @@ except Exception:
     _ahvi_final_hashlib = None
     _ahvi_final_logging = None
 
-_AHVI_FINAL_ORIGINAL_GET_DAILY_OUTFITS = get_daily_outfits
+# Wrapper-bind removed — _ahvi_final_postprocess_cards is now invoked
+# directly inside the canonical get_daily_outfits() above. Helpers below
+# (token / blob / role / postprocess) stay because the canonical pipeline
+# imports them by name.
 
 
 def _ahvi_final_tokens(value):
@@ -3966,14 +3830,6 @@ def _ahvi_final_postprocess_cards(result, user):
 
     return result
 
-
-def get_daily_outfits(user):
-    user = dict(user or {})
-    result = _AHVI_FINAL_ORIGINAL_GET_DAILY_OUTFITS(user)
-    return _ahvi_final_postprocess_cards(result, user)
-
-
-get_daily_outfits._ahvi_finalizer_v3 = True
 
 # ================= AHVI OUTFIT PIPELINE FINALIZER V3 END =================
 
