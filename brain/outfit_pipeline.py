@@ -888,14 +888,26 @@ def _occasion_filter(
 def _master_piece_score(
     item: Dict[str, Any], occasion: str, semantic_map: Dict[str, float]
 ) -> float:
-    tags = [
-        str(v).strip().lower()
-        for v in (item.get("occasion_tags") or [])
-        if str(v).strip()
-    ]
+    # Vision capture saves the field as `occasions`; legacy code referenced
+    # `occasion_tags` only — so every item scored 0 and the picker fell back
+    # to semantic similarity, returning the same hero on every prompt.
+    raw_tags: List[Any] = []
+    for key in ("occasion_tags", "occasions"):
+        value = item.get(key)
+        if isinstance(value, list):
+            raw_tags.extend(value)
+        elif isinstance(value, str):
+            raw_tags.extend(part.strip() for part in value.split(","))
+    tags = [str(v).strip().lower() for v in raw_tags if str(v or "").strip()]
+
     score = 0.0
-    if occasion and (occasion in tags or any(occasion in t for t in tags)):
-        score += 2.0
+    occ = str(occasion or "").strip().lower()
+    if occ:
+        if occ in tags:
+            score += 2.0
+        elif any(occ in t or t in occ for t in tags):
+            # Partial match (e.g., 'office' vs 'office casual', 'date' vs 'date night').
+            score += 1.0
     item_id = str(item.get("id", "")).strip()
     if item_id:
         score += float(semantic_map.get(item_id, 0.0))
@@ -1808,14 +1820,6 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     # female-only items (saree, sports bra, dress, etc.) from male users
     # before any combo work runs. wardrobe is Dict[slot, List[item]] coming
     # out of _merge_wardrobe — filter inside each slot list, never flatten.
-    def _wardrobe_total(w):
-        if isinstance(w, dict):
-            return sum(len(v) for v in w.values() if isinstance(v, list))
-        if isinstance(w, list):
-            return len(w)
-        return 0
-
-    pre_count = _wardrobe_total(wardrobe)
     try:
         if isinstance(wardrobe, dict):
             wardrobe = {
@@ -1838,14 +1842,6 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     except NameError:
         # Helpers loaded later in module — only matters at hot-reload edge cases.
         pass
-    post_count = _wardrobe_total(wardrobe)
-    logging.getLogger("ahvi.outfit_pipeline").info(
-        "outfit_pipeline.gender_filter user=%s pre=%d post=%d dropped=%d",
-        user_id,
-        pre_count,
-        post_count,
-        max(0, pre_count - post_count),
-    )
 
     occasion = str(context.get("occasion", "")).strip().lower()
 
@@ -1870,34 +1866,11 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     occasion_filtered = _occasion_filter(wardrobe, occasion)
-    logging.getLogger("ahvi.outfit_pipeline").info(
-        "outfit_pipeline.occasion_filter user=%s occasion=%s pre=%d post=%d",
-        user_id,
-        occasion,
-        _wardrobe_total(wardrobe),
-        _wardrobe_total(occasion_filtered),
-    )
-    if isinstance(occasion_filtered, dict):
-        slot_breakdown = {
-            slot: len(items)
-            for slot, items in occasion_filtered.items()
-            if isinstance(items, list)
-        }
-        logging.getLogger("ahvi.outfit_pipeline").info(
-            "outfit_pipeline.slot_breakdown user=%s slots=%s",
-            user_id,
-            slot_breakdown,
-        )
     master_candidates = _pick_master_candidates(
         occasion_filtered,
         occasion,
         semantic_map,
         limit=6,
-    )
-    logging.getLogger("ahvi.outfit_pipeline").info(
-        "outfit_pipeline.master_candidates user=%s count=%d",
-        user_id,
-        len(master_candidates),
     )
     if not master_candidates:
         return {
