@@ -1170,16 +1170,28 @@ def _llm_filter_combo_ids(
     if not combos:
         return []
 
+    # Each combo carries its own master (combo['top'] / combo['dress']);
+    # we send those into the prompt so the LLM judges each combo on its
+    # own merits instead of assuming every combo shares the singular
+    # master_piece passed in from the caller. Without this, the LLM
+    # filtered out combos that used a different hero than the one it was
+    # told the "master" was, collapsing all final cards to one hero.
     compact = []
     for row in combos:
+        combo_top = (row.get("top") or {}) or {}
+        combo_dress = (row.get("dress") or {}) or {}
+        hero = combo_dress if combo_dress else combo_top
         compact.append(
             {
                 "combo_id": row.get("combo_id"),
                 "palette": _combo_palette(row),
                 "patterns": _combo_patterns(row),
+                "top": combo_top.get("name"),
                 "bottom": (row.get("bottom") or {}).get("name"),
                 "shoes": (row.get("shoes") or {}).get("name"),
-                "dress": (row.get("dress") or {}).get("name"),
+                "dress": combo_dress.get("name"),
+                "hero_color": hero.get("color"),
+                "hero_fabric": hero.get("fabric"),
             }
         )
 
@@ -1187,8 +1199,10 @@ def _llm_filter_combo_ids(
 You are a fashion combo evaluator.
 Occasion: {occasion}
 Stage: {stage}
-Master type: {master_type}
-Master piece: {json.dumps({'name': master_piece.get('name'), 'color': master_piece.get('color'), 'fabric': master_piece.get('fabric')}, ensure_ascii=True)}
+
+Each combo below is a complete outfit (top OR dress, plus bottom, shoes,
+palette, patterns). Evaluate every combo independently — do NOT assume
+all combos share the same hero.
 
 Select best combo_ids from this list:
 {json.dumps(compact, ensure_ascii=True)}
@@ -1223,7 +1237,10 @@ Rules:
 def _rule_color_fallback(
     master_piece: Dict[str, Any], combos: List[Dict[str, Any]]
 ) -> List[str]:
-    master_color = str((master_piece or {}).get("color", "")).strip().lower()
+    # Use each combo's own hero color, not just the singular master_piece
+    # passed in (which is master_candidates[0] and discriminates against
+    # combos built from other masters).
+    fallback_master_color = str((master_piece or {}).get("color", "")).strip().lower()
     neutrals = {"black", "white", "beige", "gray", "grey", "navy", "brown"}
     selected: List[str] = []
     for combo in combos:
@@ -1231,7 +1248,9 @@ def _rule_color_fallback(
         uniq = set(palette)
         if not uniq:
             continue
-        if master_color and master_color in uniq:
+        hero = (combo.get("top") or combo.get("dress") or {}) or {}
+        hero_color = str(hero.get("color", "")).strip().lower() or fallback_master_color
+        if hero_color and hero_color in uniq:
             selected.append(str(combo.get("combo_id")))
             continue
         if len(uniq) <= 3 and any(c in neutrals for c in uniq):
