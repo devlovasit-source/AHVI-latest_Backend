@@ -131,6 +131,17 @@ def _validate_token_sync(token: str) -> Dict[str, Any]:
     account = build_account_for_jwt(token)
     user = account.get()
 
+    # DIAGNOSTIC — surface what account.get() actually returned so we can see
+    # why the $id lookup misses.
+    try:
+        logger.warning(
+            "auth.account_get_payload type=%s repr=%s",
+            type(user).__name__,
+            repr(user)[:400],
+        )
+    except Exception:
+        pass
+
     if not user or "$id" not in user:
         raise HTTPException(status_code=401, detail="Invalid user payload")
 
