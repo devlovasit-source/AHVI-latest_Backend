@@ -156,9 +156,16 @@ async def get_current_user(request: Request):
     cached = await _cache_get(token)
     if cached is not None:
         if _is_negative_payload(cached):
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
-        request.state.user = cached
-        return cached
+            logger.warning(
+                "auth.negative_cache_hit token_sha=%s — bypassing for fresh validation",
+                _token_cache_key(token)[-12:],
+            )
+            # DIAGNOSTIC: skip the negative cache so we can see the real exception
+            # downstream. Revert this once root cause is found.
+            cached = None
+        else:
+            request.state.user = cached
+            return cached
 
     try:
         payload = await asyncio.to_thread(_validate_token_sync, token)
@@ -169,7 +176,12 @@ async def get_current_user(request: Request):
         request.state.user = payload
         return payload
 
-    except HTTPException:
+    except HTTPException as http_exc:
+        logger.warning(
+            "auth.token_validation_http_exc status=%s detail=%s",
+            http_exc.status_code,
+            str(http_exc.detail)[:200],
+        )
         # 🔥 negative caching (invalid token)
         await _cache_set(token, {"invalid": True}, negative=True)
         raise
