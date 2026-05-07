@@ -1866,6 +1866,25 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     occasion_filtered = _occasion_filter(wardrobe, occasion)
+    # DIAGNOSTIC: dump per-top tag profile so we can verify tags exist.
+    try:
+        _diag_tops = (occasion_filtered or {}).get("tops", []) or []
+        _diag_sample = [
+            {
+                "name": str(t.get("name") or t.get("label") or "?")[:30],
+                "occasions": (t.get("occasions") or t.get("occasion_tags") or [])[:5],
+                "score": _master_piece_score(t, occasion, semantic_map),
+            }
+            for t in _diag_tops[:6]
+        ]
+        logging.getLogger("ahvi.outfit_pipeline").info(
+            "outfit_pipeline.tag_audit user=%s occ=%s tops_sample=%s",
+            user_id,
+            occasion,
+            _diag_sample,
+        )
+    except Exception:
+        pass
     master_candidates = _pick_master_candidates(
         occasion_filtered,
         occasion,
