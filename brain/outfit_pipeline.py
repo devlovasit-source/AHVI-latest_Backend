@@ -1805,9 +1805,27 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
 
     # Identity-safe filter (formerly GENDER PATCH V2 wrapper). Block
     # female-only items (saree, sports bra, dress, etc.) from male users
-    # before any combo work runs. Helper defined later in this file.
+    # before any combo work runs. wardrobe is Dict[slot, List[item]] coming
+    # out of _merge_wardrobe — filter inside each slot list, never flatten.
     try:
-        wardrobe = [item for item in wardrobe if _ahvi_pipe_item_allowed(item, context)]
+        if isinstance(wardrobe, dict):
+            wardrobe = {
+                slot: [
+                    item
+                    for item in items
+                    if isinstance(item, dict)
+                    and _ahvi_pipe_item_allowed(item, context)
+                ]
+                for slot, items in wardrobe.items()
+                if isinstance(items, list)
+            }
+        elif isinstance(wardrobe, list):
+            wardrobe = [
+                item
+                for item in wardrobe
+                if isinstance(item, dict)
+                and _ahvi_pipe_item_allowed(item, context)
+            ]
     except NameError:
         # Helpers loaded later in module — only matters at hot-reload edge cases.
         pass
