@@ -1877,11 +1877,27 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         _wardrobe_total(wardrobe),
         _wardrobe_total(occasion_filtered),
     )
+    if isinstance(occasion_filtered, dict):
+        slot_breakdown = {
+            slot: len(items)
+            for slot, items in occasion_filtered.items()
+            if isinstance(items, list)
+        }
+        logging.getLogger("ahvi.outfit_pipeline").info(
+            "outfit_pipeline.slot_breakdown user=%s slots=%s",
+            user_id,
+            slot_breakdown,
+        )
     master_candidates = _pick_master_candidates(
         occasion_filtered,
         occasion,
         semantic_map,
         limit=6,
+    )
+    logging.getLogger("ahvi.outfit_pipeline").info(
+        "outfit_pipeline.master_candidates user=%s count=%d",
+        user_id,
+        len(master_candidates),
     )
     if not master_candidates:
         return {
