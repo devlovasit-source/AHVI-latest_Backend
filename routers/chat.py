@@ -1721,27 +1721,34 @@ def text_chat(request: TextChatRequest, http_request: Request):
     if not user_input:
         raise HTTPException(status_code=400, detail="Empty message")
 
-    # Resolve user_id with this priority:
-    #   1. authenticated user attached by auth middleware (most trustworthy)
-    #   2. top-level user_id / userID on the request
-    #   3. user_profile.user_id (legacy clients put it here)
-    #   4. "user_1" sentinel (dev-only fallback; cache key collisions if reached)
+    # SECURITY: user_id MUST come from the authenticated bearer token.
+    # Falling back to request body / "user_1" sentinel allows cross-account
+    # cache + wardrobe contamination on the same instance.
     auth_user_id = ""
     state_user = getattr(http_request.state, "user", None)
     if isinstance(state_user, dict):
         auth_user_id = str(
             state_user.get("user_id") or state_user.get("$id") or ""
         ).strip()
-    profile_user_id = ""
-    if isinstance(request.user_profile, dict):
-        profile_user_id = str(request.user_profile.get("user_id") or "").strip()
-    user_id = (
-        auth_user_id
-        or (request.user_id or "").strip()
-        or (request.userID or "").strip()
-        or profile_user_id
-        or "user_1"
-    )
+    if not auth_user_id:
+        raise HTTPException(
+            status_code=401, detail="Authenticated user is required"
+        )
+    # If the client sent a user_id, it must match the authed user.
+    for supplied in (
+        (request.user_id or "").strip(),
+        (request.userID or "").strip(),
+        (
+            str(request.user_profile.get("user_id") or "").strip()
+            if isinstance(request.user_profile, dict)
+            else ""
+        ),
+    ):
+        if supplied and supplied != auth_user_id:
+            raise HTTPException(
+                status_code=403, detail="user_id does not match authenticated user"
+            )
+    user_id = auth_user_id
     user_message_style = _infer_user_message_style(user_input)
 
     # -------------------------
