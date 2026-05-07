@@ -1,6 +1,7 @@
 # ================= AHVI CLEAN STYLE FLOW FIX V1 APPLIED =================
 import hashlib
 import json
+import logging
 import os
 import uuid
 from copy import deepcopy
@@ -1807,6 +1808,14 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     # female-only items (saree, sports bra, dress, etc.) from male users
     # before any combo work runs. wardrobe is Dict[slot, List[item]] coming
     # out of _merge_wardrobe — filter inside each slot list, never flatten.
+    def _wardrobe_total(w):
+        if isinstance(w, dict):
+            return sum(len(v) for v in w.values() if isinstance(v, list))
+        if isinstance(w, list):
+            return len(w)
+        return 0
+
+    pre_count = _wardrobe_total(wardrobe)
     try:
         if isinstance(wardrobe, dict):
             wardrobe = {
@@ -1829,6 +1838,14 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     except NameError:
         # Helpers loaded later in module — only matters at hot-reload edge cases.
         pass
+    post_count = _wardrobe_total(wardrobe)
+    logging.getLogger("ahvi.outfit_pipeline").info(
+        "outfit_pipeline.gender_filter user=%s pre=%d post=%d dropped=%d",
+        user_id,
+        pre_count,
+        post_count,
+        max(0, pre_count - post_count),
+    )
 
     occasion = str(context.get("occasion", "")).strip().lower()
 
@@ -1853,6 +1870,13 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     occasion_filtered = _occasion_filter(wardrobe, occasion)
+    logging.getLogger("ahvi.outfit_pipeline").info(
+        "outfit_pipeline.occasion_filter user=%s occasion=%s pre=%d post=%d",
+        user_id,
+        occasion,
+        _wardrobe_total(wardrobe),
+        _wardrobe_total(occasion_filtered),
+    )
     master_candidates = _pick_master_candidates(
         occasion_filtered,
         occasion,
