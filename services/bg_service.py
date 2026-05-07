@@ -15,14 +15,10 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 HF_TOKEN = os.getenv("HF_TOKEN")
 HF_BG_URL = "https://api-inference.huggingface.co/models/briaai/RMBG-2.0"
-# Accept either env var. RUNPOD_BG_SINGLE_URL is the historical name; the
-# current Cloud Run service is configured with RMBG_SERVICE_URL pointing at
-# the GCE VM (e.g. http://34.93.246.168:8010/remove-bg). Without this
-# fallback the code silently no-op'd and saved raw images for every upload.
-RUNPOD_BG_SINGLE_URL = (
-    os.getenv("RUNPOD_BG_SINGLE_URL", "").strip()
-    or os.getenv("RMBG_SERVICE_URL", "").strip()
-)
+# Background removal runs on a GCE VM hosting RMBG-2.0
+# (e.g. http://34.93.246.168:8010/remove-bg). Configured via
+# RMBG_SERVICE_URL on Cloud Run.
+RMBG_SERVICE_URL = os.getenv("RMBG_SERVICE_URL", "").strip()
 
 REDIS_URL = str(os.getenv("REDIS_URL", "") or "").strip()
 CACHE_TTL = 60 * 60  # 1 hour
@@ -121,15 +117,17 @@ async def remove_bg_bytes(image_bytes: bytes) -> bytes:
     # =========================
     # ❌ NO TOKEN
     # =========================
-    if RUNPOD_BG_SINGLE_URL:
+    if RMBG_SERVICE_URL:
         try:
             async with httpx.AsyncClient(timeout=45) as client:
+                # GCE-hosted RMBG service expects multipart form-data with
+                # field name 'file'. Sending raw octet-stream returned 422
+                # 'missing field file' and bg-removal silently no-op'd.
                 res = await client.post(
-                    RUNPOD_BG_SINGLE_URL,
-                    headers={"Content-Type": "application/octet-stream"},
-                    content=image_bytes,
+                    RMBG_SERVICE_URL,
+                    files={"file": ("image.png", image_bytes, "image/png")},
                 )
-            print(f"[RUNPOD BG STATUS] {res.status_code}")
+            print(f"[RMBG STATUS] {res.status_code}")
             if res.status_code == 200 and res.content:
                 content_type = str(res.headers.get("content-type") or "").lower()
                 result = res.content
@@ -150,9 +148,9 @@ async def remove_bg_bytes(image_bytes: bytes) -> bytes:
                     await _set_cached(cache_key, result)
                     return result
             else:
-                print("[RUNPOD BG ERROR]", res.text[:300])
+                print("[RMBG ERROR]", res.text[:300])
         except Exception as e:
-            print("[RUNPOD BG EXCEPTION]", e)
+            print("[RMBG EXCEPTION]", e)
 
     if not HF_TOKEN:
         print("[BG] HF token missing")

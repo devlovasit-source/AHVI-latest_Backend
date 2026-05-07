@@ -1,5 +1,6 @@
 import base64
 import io
+import os
 import asyncio
 import hashlib
 import json
@@ -19,7 +20,11 @@ from services.security_limits import get_redis_client
 router = APIRouter()
 
 # 🔥 CONFIG
-RUNPOD_URL = "https://your-runpod-endpoint"  # replace
+# GPU detection endpoint. Configure via env when re-enabling this router
+# (it is feature-flagged off by default — see ENABLE_VISION).
+GPU_DETECT_URL = os.getenv(
+    "GPU_DETECT_URL", os.getenv("RMBG_SERVICE_URL", "")
+).strip()
 AI_CACHE_TTL = 86400
 SEM = asyncio.Semaphore(5)
 
@@ -86,16 +91,18 @@ async def _get_ai(masked_url: str):
 
 
 # =========================
-# ⚡ GPU DETECTION (RUNPOD)
+# ⚡ GPU DETECTION
 # =========================
 async def _detect(image: Image.Image):
+    if not GPU_DETECT_URL:
+        return []
     try:
         buf = io.BytesIO()
         image.save(buf, format="JPEG")
 
         async with httpx.AsyncClient(timeout=20) as client:
             res = await client.post(
-                RUNPOD_URL,
+                GPU_DETECT_URL,
                 files={"file": buf.getvalue()},
             )
             return res.json()

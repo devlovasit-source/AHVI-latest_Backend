@@ -133,8 +133,9 @@ reddit_router = _load_optional_router("routers.reddit")
 # Feature-based
 bg_router = None
 if os.getenv("ENABLE_BG_REMOVER", "false").lower() in ("1", "true", "yes"):
-    # bg_service uses HuggingFace's hosted Inference API (httpx + redis only).
-    # torch/transformers are only needed for the local-model path on RunPod.
+    # bg_service routes uploads to the GCE-hosted RMBG service via
+    # RMBG_SERVICE_URL (httpx + redis only). HuggingFace Inference is the
+    # last-resort fallback when HF_TOKEN is set.
     if _has_module("httpx"):
         bg_router = _load_optional_router("routers.bg_router")
     else:
