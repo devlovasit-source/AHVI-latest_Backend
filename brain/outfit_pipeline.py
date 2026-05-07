@@ -2154,28 +2154,68 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             },
         }
 
-    color_keep = _llm_filter_combo_ids(
-        occasion=occasion,
-        stage="color_combo",
-        master_type=master_type,
-        master_piece=master_piece,
-        combos=combinations,
-    )
-    if not color_keep:
-        color_keep = _rule_color_fallback(master_piece, combinations)
+    # Run color/pattern filters PER HERO GROUP so the LLM can't collapse
+    # every output to a single hero. Old behavior: filter all 40 combos in
+    # one shot -> LLM picks 'best 8' globally -> all from one hero ->
+    # downstream cards all share the same shirt.
+    def _group_by_hero(combos):
+        groups: Dict[str, List[Dict[str, Any]]] = {}
+        for combo in combos:
+            hero = combo.get("top") or combo.get("dress") or {}
+            hero_id = str(
+                hero.get("id")
+                or hero.get("$id")
+                or hero.get("name")
+                or "?"
+            ).strip()
+            groups.setdefault(hero_id, []).append(combo)
+        return groups
+
+    def _filter_stage(stage_name: str, source_combos: List[Dict[str, Any]]):
+        kept_ids: List[str] = []
+        groups = _group_by_hero(source_combos)
+        # Decide a per-hero cap so the merged set is bounded but each hero
+        # is represented. With N heroes and a target of ~16 per stage we
+        # take ceil(16 / N), min 2, max 6.
+        n_heroes = max(1, len(groups))
+        per_hero_cap = max(2, min(6, (16 + n_heroes - 1) // n_heroes))
+        for _, group_combos in groups.items():
+            if not group_combos:
+                continue
+            hero_master = (
+                group_combos[0].get("top") or group_combos[0].get("dress") or {}
+            )
+            hero_master_type = (
+                "dress" if group_combos[0].get("dress") else "top"
+            )
+            ids = _llm_filter_combo_ids(
+                occasion=occasion,
+                stage=stage_name,
+                master_type=hero_master_type,
+                master_piece=hero_master,
+                combos=group_combos,
+            )
+            if not ids:
+                if stage_name == "color_combo":
+                    ids = _rule_color_fallback(hero_master, group_combos)
+                else:
+                    ids = _rule_pattern_fallback(group_combos)
+            # If no fallback returned anything, keep top-N by combo order.
+            if not ids:
+                ids = [
+                    str(c.get("combo_id")) for c in group_combos[:per_hero_cap]
+                ]
+            else:
+                ids = ids[:per_hero_cap]
+            kept_ids.extend(ids)
+        return kept_ids
+
+    color_keep = _filter_stage("color_combo", combinations)
     color_filtered = [
         c for c in combinations if str(c.get("combo_id")) in set(color_keep)
     ] or combinations[:8]
 
-    pattern_keep = _llm_filter_combo_ids(
-        occasion=occasion,
-        stage="pattern_combo",
-        master_type=master_type,
-        master_piece=master_piece,
-        combos=color_filtered,
-    )
-    if not pattern_keep:
-        pattern_keep = _rule_pattern_fallback(color_filtered)
+    pattern_keep = _filter_stage("pattern_combo", color_filtered)
     pattern_filtered = [
         c for c in color_filtered if str(c.get("combo_id")) in set(pattern_keep)
     ] or color_filtered[:5]
