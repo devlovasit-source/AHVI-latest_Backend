@@ -240,9 +240,35 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
             "recommend look",
             "what should i wear",
             "dress me",
+            # "I need something for X" / "looking for ... look" patterns.
+            "need something for",
+            "looking for a look",
+            "need a look",
         ]
     ):
         return {"intent": "daily_outfit", "slots": slots, "confidence": 0.68}
+
+    # Catch occasion-led phrasing without an explicit garment word: "for a
+    # business meeting", "for date night", "for office", "for a wedding".
+    _occasion_keywords = (
+        "business meeting",
+        "client meeting",
+        "office meeting",
+        "interview",
+        "date night",
+        "first date",
+        "office",
+        "wedding",
+        "party",
+        "brunch",
+        "dinner",
+        "club",
+    )
+    if any(kw in t for kw in _occasion_keywords) and any(
+        verb in t
+        for verb in ("need", "want", "suggest", "give me", "i have", "ideas")
+    ):
+        return {"intent": "daily_outfit", "slots": slots, "confidence": 0.7}
 
     daily_words = [
         "daily plan",
