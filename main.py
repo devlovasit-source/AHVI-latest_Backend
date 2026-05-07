@@ -207,20 +207,25 @@ def _looks_like_cloud_run() -> bool:
     return bool(os.getenv("K_SERVICE") or os.getenv("K_REVISION"))
 
 
-_prod_like = _is_production() or _looks_like_cloud_run()
-
-if _prod_like:
+# Sentry is only mandatory when ENV is explicitly production. On Cloud Run we
+# warn but do not block startup so a missing DSN cannot keep the service from
+# coming up.
+if _is_production():
     if not _sentry_dsn:
         raise RuntimeError(
-            "SENTRY_DSN is required in production-like environments "
-            "(ENV=production or running on Cloud Run). "
-            "Set SENTRY_DSN, or set ENV=development to opt out."
+            "SENTRY_DSN is required when ENV=production. "
+            "Set SENTRY_DSN or unset ENV/APP_ENV to run without it."
         )
     if not (sentry_sdk and FastApiIntegration):
         raise RuntimeError(
-            "sentry-sdk is not installed but the runtime looks production-like. "
+            "sentry-sdk is not installed but ENV=production. "
             "Add sentry-sdk to requirements.txt."
         )
+elif _looks_like_cloud_run() and not _sentry_dsn:
+    logger.warning(
+        "running on Cloud Run without SENTRY_DSN — error tracking disabled. "
+        "Set SENTRY_DSN to enable."
+    )
 
 if _sentry_dsn and sentry_sdk and FastApiIntegration and not _sentry_client_ready:
     sentry_sdk.init(
