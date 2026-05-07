@@ -1856,34 +1856,56 @@ def _different_enough(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     )
 
 
+def _outfit_hero_id(outfit: Dict[str, Any]) -> str:
+    """Identifier for the hero piece (dress > top). Used to enforce that the
+    final card list shows distinct heroes before allowing repeats."""
+    return _item_id(outfit.get("dress") or outfit.get("top") or {})
+
+
 def _diversify_outfits(
     outfits: List[Dict[str, Any]], limit: int = 6
 ) -> List[Dict[str, Any]]:
+    """Two-pass diversification:
+
+    Pass 1 — one card per unique hero (top / dress). Even if a single hero
+    has many highly-scored combos, only its best combo is kept here.
+
+    Pass 2 — fill remaining slots with the next-best combos (allowing hero
+    repeats), still deduping by full outfit signature.
+
+    The previous implementation only required (top, bottom, shoes) to differ
+    in any one slot, so 'Off White Shirt + jeans + sneakers' and 'Off White
+    Shirt + black pants + Birkenstocks' both passed — every card ended up
+    with the same hero.
+    """
     selected: List[Dict[str, Any]] = []
-    seen: set[str] = set()
+    seen_signatures: set[str] = set()
+    seen_heroes: set[str] = set()
 
+    # Pass 1: one outfit per unique hero, in original (score) order.
     for outfit in outfits or []:
+        if len(selected) >= limit:
+            break
         sig = _outfit_signature(outfit)
-        if not sig or sig in seen:
+        hero = _outfit_hero_id(outfit)
+        if not sig or sig in seen_signatures:
             continue
+        if hero and hero in seen_heroes:
+            continue
+        selected.append(outfit)
+        seen_signatures.add(sig)
+        if hero:
+            seen_heroes.add(hero)
 
-        if not selected or any(
-            _different_enough(existing, outfit) for existing in selected
-        ):
-            selected.append(outfit)
-            seen.add(sig)
-
-        if len(selected) >= limit:
-            break
-
+    # Pass 2: fill remaining slots, dedupe by full signature only.
     for outfit in outfits or []:
         if len(selected) >= limit:
             break
-
         sig = _outfit_signature(outfit)
-        if sig and sig not in seen:
-            selected.append(outfit)
-            seen.add(sig)
+        if not sig or sig in seen_signatures:
+            continue
+        selected.append(outfit)
+        seen_signatures.add(sig)
 
     return selected
 
