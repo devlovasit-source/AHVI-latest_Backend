@@ -875,7 +875,7 @@ def _occasion_filter(
                 str(v).strip().lower() for v in tags if str(v or "").strip()
             ]
 
-            if occ in normalized_tags or any(occ in tag for tag in normalized_tags):
+            if _occasion_match_strength(normalized_tags, occ) > 0.0:
                 matched.append(item)
             else:
                 rest.append(item)
@@ -883,6 +883,136 @@ def _occasion_filter(
         reordered[key] = matched + rest
 
     return reordered
+
+
+# Vision-tagged items use specific real-world labels (e.g. "work",
+# "client presentation", "dinner date"). Pipeline occasions are coarser
+# ("office", "date night"). Map each pipeline-occasion to the set of
+# vision-style tags that should count as a positive match.
+_OCCASION_SYNONYMS: Dict[str, set[str]] = {
+    "office": {
+        "office",
+        "work",
+        "workplace",
+        "client meeting",
+        "client presentation",
+        "business meeting",
+        "business",
+        "interview",
+        "professional",
+        "formal day",
+    },
+    "date night": {
+        "date night",
+        "date",
+        "dinner",
+        "dinner date",
+        "evening",
+        "evening out",
+        "romantic",
+    },
+    "date": {
+        "date",
+        "date night",
+        "dinner date",
+        "dinner",
+        "romantic",
+    },
+    "casual outing": {
+        "casual",
+        "casual outing",
+        "weekend",
+        "weekend coffee run",
+        "coffee",
+        "everyday",
+        "brunch",
+        "brunch date",
+    },
+    "casual": {
+        "casual",
+        "everyday",
+        "weekend",
+        "weekend coffee run",
+        "coffee",
+    },
+    "party": {
+        "party",
+        "club",
+        "night out",
+        "evening out",
+        "celebration",
+    },
+    "travel": {
+        "travel",
+        "airport transit",
+        "airport",
+        "vacation",
+        "vacation city walk",
+        "trip",
+        "city walk",
+    },
+    "workout": {
+        "workout",
+        "gym",
+        "training",
+        "fitness",
+        "athletic",
+        "sports",
+        "running",
+        "exercise",
+    },
+    "business meeting": {
+        "office",
+        "work",
+        "client meeting",
+        "client presentation",
+        "business meeting",
+        "interview",
+        "professional",
+    },
+    "today": {
+        "casual",
+        "everyday",
+        "weekend",
+        "work",
+    },
+    "rainy day": {
+        "rainy commute",
+        "rainy day",
+        "weather",
+    },
+    "traditional": {
+        "traditional",
+        "ethnic",
+        "wedding",
+        "festival",
+    },
+}
+
+
+def _occasion_match_strength(tags: List[str], occasion: str) -> float:
+    """Return 0.0 / 1.0 / 2.0 based on tag overlap with occasion synonyms.
+
+    2.0 = exact tag match
+    1.0 = synonym match OR substring overlap
+    0.0 = no overlap
+    """
+    occ = str(occasion or "").strip().lower()
+    if not occ or not tags:
+        return 0.0
+    tag_set = set(tags)
+    if occ in tag_set:
+        return 2.0
+    synonyms = _OCCASION_SYNONYMS.get(occ, set())
+    if synonyms and (synonyms & tag_set):
+        return 2.0
+    if any(occ in t or t in occ for t in tags):
+        return 1.0
+    if synonyms:
+        for t in tags:
+            if any(s in t or t in s for s in synonyms):
+                return 1.0
+    return 0.0
 
 
 def _master_piece_score(
@@ -900,14 +1030,7 @@ def _master_piece_score(
             raw_tags.extend(part.strip() for part in value.split(","))
     tags = [str(v).strip().lower() for v in raw_tags if str(v or "").strip()]
 
-    score = 0.0
-    occ = str(occasion or "").strip().lower()
-    if occ:
-        if occ in tags:
-            score += 2.0
-        elif any(occ in t or t in occ for t in tags):
-            # Partial match (e.g., 'office' vs 'office casual', 'date' vs 'date night').
-            score += 1.0
+    score = _occasion_match_strength(tags, occasion)
     item_id = str(item.get("id", "")).strip()
     if item_id:
         score += float(semantic_map.get(item_id, 0.0))
@@ -1866,25 +1989,6 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     occasion_filtered = _occasion_filter(wardrobe, occasion)
-    # DIAGNOSTIC: dump per-top tag profile so we can verify tags exist.
-    try:
-        _diag_tops = (occasion_filtered or {}).get("tops", []) or []
-        _diag_sample = [
-            {
-                "name": str(t.get("name") or t.get("label") or "?")[:30],
-                "occasions": (t.get("occasions") or t.get("occasion_tags") or [])[:5],
-                "score": _master_piece_score(t, occasion, semantic_map),
-            }
-            for t in _diag_tops[:6]
-        ]
-        logging.getLogger("ahvi.outfit_pipeline").info(
-            "outfit_pipeline.tag_audit user=%s occ=%s tops_sample=%s",
-            user_id,
-            occasion,
-            _diag_sample,
-        )
-    except Exception:
-        pass
     master_candidates = _pick_master_candidates(
         occasion_filtered,
         occasion,
