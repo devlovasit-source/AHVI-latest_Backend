@@ -191,16 +191,9 @@ async def get_current_user(request: Request):
     cached = await _cache_get(token)
     if cached is not None:
         if _is_negative_payload(cached):
-            logger.warning(
-                "auth.negative_cache_hit token_sha=%s — bypassing for fresh validation",
-                _token_cache_key(token)[-12:],
-            )
-            # DIAGNOSTIC: skip the negative cache so we can see the real exception
-            # downstream. Revert this once root cause is found.
-            cached = None
-        else:
-            request.state.user = cached
-            return cached
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        request.state.user = cached
+        return cached
 
     try:
         payload = await asyncio.to_thread(_validate_token_sync, token)
@@ -211,26 +204,13 @@ async def get_current_user(request: Request):
         request.state.user = payload
         return payload
 
-    except HTTPException as http_exc:
-        logger.warning(
-            "auth.token_validation_http_exc status=%s detail=%s",
-            http_exc.status_code,
-            str(http_exc.detail)[:200],
-        )
+    except HTTPException:
         # 🔥 negative caching (invalid token)
         await _cache_set(token, {"invalid": True}, negative=True)
         raise
 
     except Exception as e:
         error_str = str(e).lower()
-        # Always log the full exception so we can see why account.get() failed
-        # (the surfaced 'Invalid or expired token' is intentionally generic).
-        logger.warning(
-            "auth.token_validation_failed type=%s message=%s",
-            type(e).__name__,
-            str(e)[:300],
-            exc_info=True,
-        )
 
         if any(x in error_str for x in ["timeout", "connection", "name or service not known"]):
             raise HTTPException(status_code=503, detail="Auth service temporarily unavailable")
