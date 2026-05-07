@@ -2138,8 +2138,6 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
                 ),
             )
         except Exception as e:
-            import logging
-
             logging.getLogger(__name__).warning("outfit_quality_guard_failed: %s", e)
 
         user_memory["recent_outfits"] = ranked + user_memory.get("recent_outfits", [])
