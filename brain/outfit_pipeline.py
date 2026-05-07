@@ -2118,7 +2118,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "intent": "daily_outfit",
-        "context": "Generated with occasion filtering, master-piece selection, LLM color/pattern filtering, and accessory completion.",
+        "context": "I pulled together wardrobe-based looks that match your request, occasion, and style profile.",
         "outfits": ranked,
         "cards": cards,
         "boards": cards,
@@ -3691,6 +3691,91 @@ def _ahvi_final_has_required_slots(items):
     return "top" in roles and "bottom" in roles and "footwear" in roles
 
 
+def _ahvi_style_explanation_for_card(
+    *,
+    final_items,
+    query,
+    top_name,
+    bottom_name,
+    footwear_name,
+):
+    """Contextual style copy. Replaces the legacy
+    'creates a balanced top-bottom-footwear structure' line with copy that
+    actually reads like a stylist wrote it.
+
+    Selection: occasion-driven (date / office / workout / travel /
+    business), with a clean default for casual queries. Each branch leans
+    on the actual garment names so the explanation feels grounded.
+    """
+    q = str(query or "").lower()
+
+    is_date = "date" in q or "evening" in q
+    is_office = "office" in q or "meeting" in q or "work" in q or "business" in q
+    is_workout = (
+        "workout" in q
+        or "gym" in q
+        or "training" in q
+        or "run " in q
+        or "run." in q
+        or q.endswith("run")
+        or "yoga" in q
+    )
+    is_travel = (
+        "travel" in q
+        or "trip" in q
+        or "goa" in q
+        or "vacation" in q
+        or "airport" in q
+        or "holiday" in q
+    )
+
+    top_phrase = (
+        top_name.split(",")[0].strip() if top_name else "top"
+    ) or "top"
+    bottom_phrase = (
+        bottom_name.split(",")[0].strip() if bottom_name else "bottom"
+    ) or "bottom"
+    footwear_phrase = (
+        footwear_name.split(",")[0].strip() if footwear_name else "footwear"
+    ) or "footwear"
+
+    if is_workout:
+        return (
+            f"This keeps the outfit movement-friendly and practical, with the "
+            f"{top_phrase} and {bottom_phrase} staying breathable while the "
+            f"{footwear_phrase} actually supports training instead of just "
+            f"completing the look visually."
+        )
+    if is_date:
+        return (
+            f"The {top_phrase} gives the look a cleaner base for date night, "
+            f"while the {bottom_phrase} keeps it relaxed instead of overly "
+            f"formal. The {footwear_phrase} adds polish, so the outfit feels "
+            f"intentional without looking overdone."
+        )
+    if is_office:
+        return (
+            f"This keeps the silhouette structured and neat for work — the "
+            f"{top_phrase} and {bottom_phrase} read clean, while the "
+            f"{footwear_phrase} adds enough polish for a meeting and stays "
+            f"comfortable through the day."
+        )
+    if is_travel:
+        return (
+            f"This works for travel because the {top_phrase} and "
+            f"{bottom_phrase} stay comfortable for movement, while the "
+            f"{footwear_phrase} keeps it clean enough for cafés, airport "
+            f"transitions, or casual plans."
+        )
+
+    # Default — casual everyday. Avoid the old robotic phrasing.
+    return (
+        f"The {top_phrase} sets the tone, the {bottom_phrase} keeps the base "
+        f"easy to wear, and the {footwear_phrase} grounds the look so it "
+        f"feels put-together rather than thrown on."
+    )
+
+
 def _ahvi_final_postprocess_cards(result, user):
     if not isinstance(result, dict):
         return result
@@ -3816,20 +3901,13 @@ def _ahvi_final_postprocess_cards(result, user):
             "",
         )
 
-        core = ", ".join([x for x in [top_name, bottom_name, footwear_name] if x])
-        if "date" in query.lower():
-            why = f"This works for date night because {core} creates a clean smart-casual balance without over-accessorizing."
-        elif (
-            "office" in query.lower()
-            or "meeting" in query.lower()
-            or "work" in query.lower()
-        ):
-            why = f"This works for office because {core} keeps the look structured, neat, and wearable."
-        else:
-            why = f"This works because {core} creates a balanced top-bottom-footwear structure."
-
-        # Fix accidental tuple formatting from f-string expression above.
-        why = why.replace("('", "").replace("', '", " and ").replace("')", "")
+        why = _ahvi_style_explanation_for_card(
+            final_items=final_items,
+            query=query,
+            top_name=top_name,
+            bottom_name=bottom_name,
+            footwear_name=footwear_name,
+        )
 
         fixed["why_it_works"] = why
         fixed["explanation"] = why
