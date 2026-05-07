@@ -535,7 +535,6 @@ async def auth_guard_middleware(request: Request, call_next):
         path == "/"
         or path.startswith("/health")
         or path == "/api/notifications/health"
-        or path == "/api/text"
         or path.startswith("/api/notifications/dispatch-due")
         or path.startswith("/docs")
         or path.startswith("/openapi")
@@ -601,7 +600,6 @@ async def rate_limit_middleware(request: Request, call_next):
         and path != "/"
         and not path.startswith("/health")
         and path != "/api/notifications/health"
-        and path != "/api/text"
         and not path.startswith("/api/notifications/dispatch-due")
         and not path.startswith("/docs")
         and not path.startswith("/openapi")
