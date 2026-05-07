@@ -1094,13 +1094,15 @@ def _ahvi_sanitize_style_cards(
         )
         core = ", ".join([x for x in [top_name, bottom_name, footwear_name] if x])
 
-        q = str(query_text or "").lower()
-        if "date" in q:
-            why = f"This works for date night because {core} creates a clean smart-casual balance without over-accessorizing."
-        elif any(k in q for k in ["office", "meeting", "work"]):
-            why = f"This works for office because {core} keeps the outfit structured, neat, and wearable."
-        else:
-            why = f"This works because {core} creates a balanced top-bottom-footwear structure."
+        from brain.outfit_pipeline import _ahvi_style_explanation_for_card
+
+        why = _ahvi_style_explanation_for_card(
+            final_items=final_items,
+            query=query_text,
+            top_name=top_name,
+            bottom_name=bottom_name,
+            footwear_name=footwear_name,
+        )
 
         fixed["why_it_works"] = why
         fixed["explanation"] = why
@@ -2393,13 +2395,15 @@ def _ahvi_sanitize_style_cards(cards, user_id, query_text, request_wardrobe=None
         )
         core = ", ".join([x for x in [top_name, bottom_name, footwear_name] if x])
 
-        q = str(query_text or "").lower()
-        if "date" in q:
-            why = f"This works for date night because {core} creates a clean smart-casual balance with polished accessories."
-        elif any(k in q for k in ["office", "meeting", "work"]):
-            why = f"This works for office because {core} keeps the outfit structured, neat, and wearable."
-        else:
-            why = f"This works because {core} creates a balanced top-bottom-footwear structure."
+        from brain.outfit_pipeline import _ahvi_style_explanation_for_card
+
+        why = _ahvi_style_explanation_for_card(
+            final_items=final_items,
+            query=query_text,
+            top_name=top_name,
+            bottom_name=bottom_name,
+            footwear_name=footwear_name,
+        )
 
         fixed["why_it_works"] = why
         fixed["explanation"] = why
