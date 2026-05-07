@@ -1588,14 +1588,36 @@ def _flatten_outfit_items(outfit: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not isinstance(outfit, dict):
         return items
 
-    for part in ("master_piece", "top", "bottom", "dress", "shoes", "outerwear"):
-        value = outfit.get(part, {}) or {}
-        if isinstance(value, dict) and value:
-            items.append(value)
+    # master_piece is a meta-pointer to the same dict as top (or dress).
+    # Ordering (top, bottom, dress, shoes, outerwear) puts the actual hero
+    # first; we then dedupe so master_piece never re-renders as a separate
+    # item. Without dedupe, cards showed two shirts (one from master_piece,
+    # one from top) which the UI flattened to whichever sorted first.
+    seen_ids: set[str] = set()
+
+    def _add(value: Any) -> None:
+        if not isinstance(value, dict) or not value:
+            return
+        item_id = str(
+            value.get("id")
+            or value.get("$id")
+            or value.get("image_id")
+            or value.get("name")
+            or ""
+        ).strip()
+        if item_id and item_id in seen_ids:
+            return
+        if item_id:
+            seen_ids.add(item_id)
+        items.append(value)
+
+    for part in ("top", "bottom", "dress", "shoes", "outerwear", "master_piece"):
+        _add(outfit.get(part, {}))
 
     accessories = outfit.get("accessories") or []
     if isinstance(accessories, list):
-        items.extend([x for x in accessories if isinstance(x, dict)])
+        for acc in accessories:
+            _add(acc)
 
     return items
 
@@ -2165,8 +2187,16 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             scored_combo = score_outfit(
                 combo, merged_context, user_memory, rules, semantic_map
             )
-            scored_combo["master_type"] = master_type
-            scored_combo["master_piece"] = master_piece
+            # Preserve THIS combo's master, do not overwrite with the
+            # outer-loop master from master_candidates[0]. Without this guard
+            # every card showed the same hero because _flatten_outfit_items
+            # surfaces master_piece before top.
+            if not scored_combo.get("master_type"):
+                scored_combo["master_type"] = combo.get("master_type") or master_type
+            if not scored_combo.get("master_piece"):
+                scored_combo["master_piece"] = (
+                    combo.get("master_piece") or master_piece
+                )
             scored_combo["pipeline_tags"] = [
                 "occasion_filtered",
                 "master_piece",
