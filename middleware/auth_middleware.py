@@ -176,6 +176,14 @@ async def get_current_user(request: Request):
 
     except Exception as e:
         error_str = str(e).lower()
+        # Always log the full exception so we can see why account.get() failed
+        # (the surfaced 'Invalid or expired token' is intentionally generic).
+        logger.warning(
+            "auth.token_validation_failed type=%s message=%s",
+            type(e).__name__,
+            str(e)[:300],
+            exc_info=True,
+        )
 
         if any(x in error_str for x in ["timeout", "connection", "name or service not known"]):
             raise HTTPException(status_code=503, detail="Auth service temporarily unavailable")
