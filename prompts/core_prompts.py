@@ -29,7 +29,7 @@ VISION_ANALYZE_PROMPT = """You are an expert AI fashion categorizer. Analyze the
 1. 'name': A catchy, descriptive 2-to-3 word name for the item.
 2. 'category': MUST be exactly one of the following: 'Tops', 'Bottoms', 'Footwear', 'Outerwear', 'Accessories', 'Dresses', 'Bags', 'Jewelry', 'Indian Wear'.
 3. 'sub_category': The specific type of garment (e.g., T-Shirt, Jeans, Saree, Kurta, Sneakers, Blazer, Maxi Dress, Tote, Necklace).
-4. 'occasions': Return EXACTLY 5 to 8 item-specific occasions, all lowercase, no duplicates, and avoid generic placeholders. Use concrete outputs like ["airport transit", "client presentation", "rainy commute", "weekend coffee run", "dinner date"].
+4. 'occasions': Return EXACTLY 5 to 8 occasions that suit THIS specific item. Lowercase, no duplicates, no generic placeholders. Pick from real-world contexts that match the garment's formality, fabric, and silhouette. Examples of the *kind* of output (DO NOT copy these literally, generate fresh ones for each item): airport transit, client presentation, rainy commute, weekend coffee run, dinner date, gym session, beach holiday, board meeting, wedding ceremony, music festival, hiking trail, business lunch.
 5. 'pattern': The visual pattern or texture. If it is a solid color but has texture, mention the texture instead of just 'plain' (e.g., 'ribbed', 'pleated', 'striped', 'floral', 'checked', 'printed', 'sequined', 'embroidered', 'lace', 'velvet', 'plain').
 
 CRITICAL RULES:
@@ -45,7 +45,7 @@ WARDROBE_CAPTURE_PROMPT = """You are an expert AI fashion categorizer and wardro
       "name": "Catchy 2-to-3 word name",
       "category": "Tops|Bottoms|Footwear|Outerwear|Accessories|Dresses|Bags|Jewelry|Indian Wear",
       "sub_category": "specific garment type",
-      "occasions": ["airport transit", "client presentation", "weekend coffee run", "dinner date", "vacation city walk"],
+      "occasions": ["<5-8 lowercase occasion tags specific to THIS item — do NOT echo example tags like 'airport transit' verbatim; generate based on garment formality, fabric, fit, color>"],
       "color_name": "primary color words",
       "pattern": "pattern or texture (e.g. ribbed, plain, striped)",
       "confidence": 0.0,

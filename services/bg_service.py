@@ -15,7 +15,14 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 HF_TOKEN = os.getenv("HF_TOKEN")
 HF_BG_URL = "https://api-inference.huggingface.co/models/briaai/RMBG-2.0"
-RUNPOD_BG_SINGLE_URL = os.getenv("RUNPOD_BG_SINGLE_URL", "").strip()
+# Accept either env var. RUNPOD_BG_SINGLE_URL is the historical name; the
+# current Cloud Run service is configured with RMBG_SERVICE_URL pointing at
+# the GCE VM (e.g. http://34.93.246.168:8010/remove-bg). Without this
+# fallback the code silently no-op'd and saved raw images for every upload.
+RUNPOD_BG_SINGLE_URL = (
+    os.getenv("RUNPOD_BG_SINGLE_URL", "").strip()
+    or os.getenv("RMBG_SERVICE_URL", "").strip()
+)
 
 REDIS_URL = str(os.getenv("REDIS_URL", "") or "").strip()
 CACHE_TTL = 60 * 60  # 1 hour
