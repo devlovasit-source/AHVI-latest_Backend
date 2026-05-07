@@ -127,28 +127,52 @@ async def _cache_set(token: str, payload: Dict[str, Any], negative: bool = False
 # =========================
 # VALIDATION
 # =========================
+def _user_field(user: Any, *names: str) -> Any:
+    """Pull a field from either a dict (older Appwrite SDK shape) or a
+    Pydantic model (Appwrite Python SDK >=17 returns User / Session model
+    instances). Returns the first non-empty match.
+    """
+    if user is None:
+        return None
+    for name in names:
+        # Dict / mapping path
+        if isinstance(user, dict):
+            value = user.get(name)
+            if value not in (None, ""):
+                return value
+            continue
+        # Pydantic / dataclass path
+        if hasattr(user, name):
+            value = getattr(user, name)
+            if value not in (None, ""):
+                return value
+        # Pydantic 2 sometimes exposes only model_dump
+        if hasattr(user, "model_dump"):
+            try:
+                dumped = user.model_dump()
+                if isinstance(dumped, dict) and name in dumped:
+                    value = dumped[name]
+                    if value not in (None, ""):
+                        return value
+            except Exception:
+                pass
+    return None
+
+
 def _validate_token_sync(token: str) -> Dict[str, Any]:
     account = build_account_for_jwt(token)
     user = account.get()
 
-    # DIAGNOSTIC — surface what account.get() actually returned so we can see
-    # why the $id lookup misses.
-    try:
-        logger.warning(
-            "auth.account_get_payload type=%s repr=%s",
-            type(user).__name__,
-            repr(user)[:400],
-        )
-    except Exception:
-        pass
-
-    if not user or "$id" not in user:
+    # Appwrite Python SDK 17.x returns a User model (field `id`); older SDKs
+    # returned a dict (field `$id`). Support both.
+    user_id = _user_field(user, "$id", "id")
+    if not user or not user_id:
         raise HTTPException(status_code=401, detail="Invalid user payload")
 
     return {
-        "user_id": user["$id"],
-        "email": user.get("email"),
-        "name": user.get("name"),
+        "user_id": str(user_id),
+        "email": _user_field(user, "email"),
+        "name": _user_field(user, "name"),
     }
 
 
