@@ -223,3 +223,77 @@ def test_final_boards_have_archetype_explanation_and_visual_metadata():
     assert all(card.get("styling_tip") for card in filtered)
     assert all(card.get("layout_preset") for card in filtered)
     assert len(modes) == len(set(modes))
+
+
+def test_general_style_dna_metadata_is_added_for_non_office_requests():
+    cards = [
+        _card(_item("top-1", "Patterned Statement Shirt", "top", "red"), _item("bottom-1", "Black Jeans", "bottom"), _item("shoe-1", "Chelsea Boots", "footwear"), score=95),
+        _card(_item("top-2", "Black Shirt", "top"), _item("bottom-2", "Black Pants", "bottom"), _item("shoe-2", "Black Sneakers", "footwear"), score=90),
+        _card(_item("top-3", "Soft Dinner Shirt", "top", "white"), _item("bottom-3", "Grey Trousers", "bottom", "grey"), _item("shoe-3", "Leather Loafers", "footwear"), score=88),
+    ]
+
+    filtered = finalize_style_cards(cards, query="date night outfit", default_limit=3)
+
+    assert filtered
+    assert all(card.get("style_energy") for card in filtered)
+    assert all(card.get("silhouette_category") for card in filtered)
+    assert all(card.get("palette_direction") for card in filtered)
+    assert all(card.get("footwear_energy") for card in filtered)
+    assert all(card.get("formality_energy") for card in filtered)
+    assert all(card.get("occasion_fit") is not None for card in filtered)
+    assert all(card.get("style_direction") == "date_night" for card in filtered)
+
+
+def test_date_request_demotes_relaxed_sandals_when_polished_footwear_exists():
+    cards = [
+        _card(_item("top-1", "Dinner Shirt", "top", "white"), _item("bottom-1", "Black Pants", "bottom"), _item("shoe-sandal", "Birkenstock Sandals", "footwear"), score=120),
+        _card(_item("top-2", "Black Shirt", "top"), _item("bottom-2", "Grey Trousers", "bottom", "grey"), _item("shoe-loafer", "Leather Loafers", "footwear"), score=80),
+    ]
+
+    filtered = finalize_style_cards(cards, query="date night outfit", default_limit=2)
+    first_footwear = [
+        item["name"].lower()
+        for item in filtered[0]["items"]
+        if item.get("role") == "footwear"
+    ][0]
+
+    assert "sandal" not in first_footwear
+    assert "loafer" in first_footwear
+
+
+def test_party_request_prefers_statement_or_polished_energy():
+    cards = [
+        _card(_item("top-1", "Plain Office Shirt", "top", "white"), _item("bottom-1", "Grey Trousers", "bottom", "grey"), _item("shoe-1", "White Sneakers", "footwear"), score=100),
+        _card(_item("top-2", "Patterned Statement Shirt", "top", "red"), _item("bottom-2", "Black Jeans", "bottom"), _item("shoe-2", "Chelsea Boots", "footwear"), score=85),
+    ]
+
+    filtered = finalize_style_cards(cards, query="party outfit", default_limit=2)
+
+    assert filtered[0]["style_energy"] in {"expressive/statement", "polished/social", "minimal/monochrome"}
+
+
+def test_travel_request_prefers_comfort_polish_over_formal_event_energy():
+    cards = [
+        _card(_item("top-1", "Formal Shirt", "top", "white"), _item("bottom-1", "Formal Trousers", "bottom"), _item("shoe-1", "Oxford Formal Shoes", "footwear"), score=100),
+        _card(_item("top-2", "Clean Polo", "top", "blue"), _item("bottom-2", "Travel Chinos", "bottom", "navy"), _item("shoe-2", "Clean Sneakers", "footwear"), score=88),
+    ]
+
+    filtered = finalize_style_cards(cards, query="airport travel outfit", default_limit=2)
+    first_names = " ".join(item["name"].lower() for item in filtered[0]["items"])
+
+    assert "sneaker" in first_names or filtered[0]["style_energy"] == "elevated/casual"
+
+
+def test_first_boards_prefer_distinct_style_energy_when_supported():
+    cards = [
+        _card(_item("top-1", "Oxford Shirt", "top", "white"), _item("bottom-1", "Tailored Trousers", "bottom", "grey"), _item("shoe-1", "Leather Loafers", "footwear"), score=100),
+        _card(_item("top-2", "Patterned Statement Shirt", "top", "red"), _item("bottom-2", "Black Jeans", "bottom"), _item("shoe-2", "Chelsea Boots", "footwear"), score=98),
+        _card(_item("top-3", "Black Shirt", "top"), _item("bottom-3", "Black Pants", "bottom"), _item("shoe-3", "Black Sneakers", "footwear"), score=96),
+        _card(_item("top-4", "Clean Polo", "top", "blue"), _item("bottom-4", "Navy Chinos", "bottom", "navy"), _item("shoe-4", "White Sneakers", "footwear"), score=94),
+        _card(_item("top-5", "Relaxed Denim Shirt", "top", "blue"), _item("bottom-5", "Light Blue Jeans", "bottom", "blue"), _item("shoe-5", "Casual Sneakers", "footwear"), score=92),
+    ]
+
+    filtered = finalize_style_cards(cards, query="casual weekend outfit", default_limit=5)
+    energies = [card.get("style_energy") for card in filtered[:5]]
+
+    assert len(set(energies)) >= 4

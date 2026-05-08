@@ -33,9 +33,12 @@ class StyleBoardRenderer:
 
         items = board.get("items", [])
         layout = board.get("layout", {})
+        preset = str(board.get("layout_preset") or "").strip()
 
         # 🔥 VALIDATE OR FALLBACK
-        if not self._is_valid_layout(layout, items):
+        if preset:
+            layout = self._build_preset_layout(items, preset)
+        elif not self._is_valid_layout(layout, items):
             layout = self._build_fallback_layout(items)
 
         placements = layout.get("placements", {})
@@ -148,6 +151,69 @@ class StyleBoardRenderer:
             }
 
         return {"layers": layers, "placements": placements}
+
+    def _item_role(self, item):
+        text = " ".join(
+            str(item.get(k) or "")
+            for k in ("role", "slot", "type", "category", "sub_category", "subcategory", "name")
+        ).lower()
+        if any(k in text for k in ("dress", "gown", "saree", "lehenga", "jumpsuit")):
+            return "dress"
+        if any(k in text for k in ("shoe", "sneaker", "loafer", "boot", "sandal", "heel")):
+            return "footwear"
+        if any(k in text for k in ("bottom", "jean", "trouser", "pant", "chino", "shorts", "skirt")):
+            return "bottom"
+        if any(k in text for k in ("watch", "belt", "sunglass", "bag", "necklace", "bracelet", "ring", "scarf")):
+            return "accessory"
+        if any(k in text for k in ("top", "shirt", "tee", "tshirt", "polo", "kurta", "blouse", "jacket", "blazer")):
+            return "top"
+        return "accessory"
+
+    def _build_preset_layout(self, items, preset):
+        role_items = {"top": [], "dress": [], "bottom": [], "footwear": [], "accessory": []}
+        for item in items or []:
+            role = self._item_role(item)
+            role_items.setdefault(role, []).append(item)
+
+        hero = (role_items["dress"] or role_items["top"] or items[:1] or [None])[0]
+        bottom = (role_items["bottom"] or [None])[0]
+        footwear = (role_items["footwear"] or [None])[0]
+        accessories = role_items["accessory"][:4]
+        left_anchor = "left" in preset or "asymmetric" in preset
+        compact = "compact" in preset
+
+        layers = {"background": [], "midground": [], "foreground": []}
+        placements = {}
+
+        def add(item, layer, x, y, scale, rotation=0):
+            if not item:
+                return
+            item_id = item.get("id")
+            layers[layer].append(item)
+            placements[item_id] = {
+                "x": x,
+                "y": y,
+                "scale": scale,
+                "rotation": rotation,
+                "z": {"background": 1, "midground": 2, "foreground": 3}[layer],
+            }
+
+        if hero and self._item_role(hero) == "dress":
+            add(hero, "midground", 0.46, 0.42, 1.45)
+        else:
+            add(bottom, "background", 0.62 if left_anchor else 0.58, 0.54, 1.18)
+            add(hero, "midground", 0.42 if left_anchor else 0.46, 0.38, 1.38)
+
+        add(footwear, "foreground", 0.27 if left_anchor else 0.70, 0.80, 0.98 if not compact else 0.84, -6 if left_anchor else 6)
+
+        accessory_positions = [(0.82, 0.18), (0.86, 0.30), (0.80, 0.42), (0.88, 0.54)]
+        if compact:
+            accessory_positions = [(0.80, 0.16), (0.88, 0.16), (0.80, 0.27), (0.88, 0.27)]
+        for idx, item in enumerate(accessories):
+            x, y = accessory_positions[idx % len(accessory_positions)]
+            add(item, "foreground", x, y, 0.46)
+
+        return {"composition": preset, "layers": layers, "placements": placements}
 
     # =========================
     # PLACEMENT
