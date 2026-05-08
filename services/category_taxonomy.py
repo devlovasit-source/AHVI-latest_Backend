@@ -367,10 +367,117 @@ def categorize_for_chat(item: dict) -> str:
     return "Accessories"
 
 
+def infer_style_attributes(item: dict) -> Dict[str, object]:
+    """Infer stable taste metadata for scoring without adding another service.
+
+    These values are intentionally deterministic and conservative. Vision/LLM
+    tagging can override them later, but the style engine always has a usable
+    formality, aesthetic, visual weight, silhouette, and occasion-fitness base.
+    """
+    if not isinstance(item, dict):
+        item = {}
+    text = " ".join(
+        str(item.get(k, "") or "").lower()
+        for k in (
+            "name",
+            "label",
+            "category",
+            "sub_category",
+            "subcategory",
+            "type",
+            "pattern",
+            "style",
+            "material",
+            "fabric",
+            "color",
+            "color_name",
+            "occasions",
+        )
+    )
+    category = str(item.get("category") or "").lower()
+    sub = str(item.get("sub_category") or item.get("subcategory") or item.get("type") or "").lower()
+    pattern = str(item.get("pattern") or "").lower()
+    color = str(item.get("color_name") or item.get("color") or item.get("color_code") or "").lower()
+
+    formality = 3
+    if any(x in text for x in ("blazer", "suit", "formal", "oxford", "derby", "loafer", "trouser", "tailored", "client", "boardroom", "business")):
+        formality += 1
+    if any(x in text for x in ("t-shirt", "tshirt", "tee", "shorts", "slides", "slider", "slipper", "sandal", "birkenstock", "crocs", "gym", "running")):
+        formality -= 2
+    if any(x in text for x in ("sneaker", "denim", "jeans", "polo", "chino")):
+        formality -= 1
+    if any(x in text for x in ("leather sneaker", "minimal sneaker", "white sneaker", "clean sneaker", "button-down", "button down", "shirt")):
+        formality += 1
+    formality = max(1, min(5, formality))
+
+    visual_weight = 2
+    if any(x in pattern for x in ("print", "pattern", "floral", "graphic", "check", "stripe")):
+        visual_weight += 2
+    if any(x in color for x in ("red", "orange", "yellow", "lime", "neon", "bright")):
+        visual_weight += 1
+    if any(x in text for x in ("tropical", "hawaiian", "statement", "chunky", "oversized")):
+        visual_weight += 1
+    if any(x in color for x in ("black", "white", "grey", "gray", "navy", "beige", "cream")) and pattern in {"", "plain", "solid"}:
+        visual_weight -= 1
+    visual_weight = max(1, min(5, visual_weight))
+
+    if any(x in text for x in ("tropical", "hawaiian", "graphic", "statement", "printed", "pattern")):
+        aesthetic_cluster = "expressive"
+    elif any(x in text for x in ("loafer", "oxford", "trouser", "tailored", "blazer", "button-down", "button down")):
+        aesthetic_cluster = "classic"
+    elif any(x in text for x in ("sneaker", "denim", "jeans", "hoodie", "street")):
+        aesthetic_cluster = "street-smart"
+    elif any(x in text for x in ("slipper", "slides", "sandal", "birkenstock", "shorts")):
+        aesthetic_cluster = "relaxed"
+    elif visual_weight <= 2:
+        aesthetic_cluster = "minimal"
+    else:
+        aesthetic_cluster = "polished"
+
+    if any(x in text for x in ("blazer", "structured", "tailored", "trouser", "oxford")):
+        silhouette_family = "structured"
+    elif any(x in text for x in ("oversized", "loose", "wide", "relaxed")):
+        silhouette_family = "relaxed"
+    elif any(x in text for x in ("slim", "skinny", "fitted")):
+        silhouette_family = "slim"
+    elif "dress" in category or "dress" in sub:
+        silhouette_family = "one-piece"
+    else:
+        silhouette_family = "clean"
+
+    occasion_fitness = {
+        "office": 0.5,
+        "date": 0.5,
+        "party": 0.5,
+        "travel": 0.5,
+        "casual": 0.6,
+        "wedding": 0.3,
+    }
+    if formality >= 4:
+        occasion_fitness.update({"office": 0.85, "date": 0.75, "wedding": 0.75})
+    if aesthetic_cluster == "expressive":
+        occasion_fitness.update({"party": 0.8, "date": 0.65, "office": 0.35})
+    if aesthetic_cluster in {"relaxed", "street-smart"}:
+        occasion_fitness.update({"casual": 0.85, "travel": 0.75, "office": min(occasion_fitness["office"], 0.45)})
+    if any(x in text for x in ("sandal", "slipper", "slides", "birkenstock", "crocs")):
+        occasion_fitness.update({"office": 0.1, "date": 0.2, "wedding": 0.1})
+    if any(x in text for x in ("loafer", "oxford", "derby", "formal", "leather sneaker", "minimal sneaker")):
+        occasion_fitness.update({"office": max(occasion_fitness["office"], 0.85), "date": max(occasion_fitness["date"], 0.75)})
+
+    return {
+        "formality": formality,
+        "aesthetic_cluster": aesthetic_cluster,
+        "visual_weight": visual_weight,
+        "silhouette_family": silhouette_family,
+        "occasion_fitness": occasion_fitness,
+    }
+
+
 __all__ = (
     "CANONICAL_CATEGORY_KEYWORDS",
     "CANONICAL_CATEGORIES",
     "CHAT_EXPLICIT_MAP",
     "categorize_for_chat",
+    "infer_style_attributes",
     "normalize_category_from_label",
 )

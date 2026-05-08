@@ -4,6 +4,8 @@ import logging
 import uuid
 from typing import Any, Dict, List, Optional
 
+from services.category_taxonomy import infer_style_attributes
+
 try:
     from services.r2_storage import R2Storage, R2StorageError
 except Exception:  # pragma: no cover - optional deploy dependency
@@ -183,6 +185,9 @@ def normalize_item(item: Dict[str, Any], role: Optional[str] = None) -> Dict[str
         row.setdefault("imageUrl", image)
         row.setdefault("masked_url", image)
         row.setdefault("maskedUrl", image)
+    attrs = infer_style_attributes(row)
+    for key, value in attrs.items():
+        row.setdefault(key, value)
     return row
 
 
@@ -369,6 +374,63 @@ def _item_blob(item: Dict[str, Any]) -> str:
             "fabric",
         )
     ).lower()
+
+
+def _item_formality(item: Dict[str, Any]) -> float:
+    try:
+        return float(_dict(item).get("formality") or infer_style_attributes(_dict(item)).get("formality") or 3)
+    except Exception:
+        return 3.0
+
+
+def _item_visual_weight(item: Dict[str, Any]) -> float:
+    try:
+        return float(_dict(item).get("visual_weight") or infer_style_attributes(_dict(item)).get("visual_weight") or 2)
+    except Exception:
+        return 2.0
+
+
+def _item_cluster(item: Dict[str, Any]) -> str:
+    return _safe_text(_dict(item).get("aesthetic_cluster") or infer_style_attributes(_dict(item)).get("aesthetic_cluster") or "polished")
+
+
+def _item_occasion_fitness(item: Dict[str, Any], kind: str) -> float:
+    data = _dict(_dict(item).get("occasion_fitness"))
+    if not data:
+        data = _dict(infer_style_attributes(_dict(item)).get("occasion_fitness"))
+    try:
+        return float(data.get(kind) if data.get(kind) is not None else 0.5)
+    except Exception:
+        return 0.5
+
+
+def _coherence_score(card: Dict[str, Any]) -> float:
+    core_items = [
+        item for item in card.get("items", [])
+        if isinstance(item, dict) and item_role(item) in {"top", "bottom", "dress", "footwear"}
+    ]
+    if len(core_items) < 2:
+        return 0.0
+    formalities = [_item_formality(item) for item in core_items]
+    weights = [_item_visual_weight(item) for item in core_items]
+    clusters = [_item_cluster(item) for item in core_items]
+    formality_spread = max(formalities) - min(formalities)
+    weight_total = sum(weights)
+    cluster_count = len(set(clusters))
+    score = 2.0
+    if formality_spread <= 1.5:
+        score += 1.0
+    elif formality_spread >= 3.0:
+        score -= 2.0
+    if weight_total <= 8:
+        score += 0.8
+    elif weight_total >= 12:
+        score -= 1.5
+    if cluster_count <= 2:
+        score += 0.8
+    elif cluster_count >= 4:
+        score -= 1.2
+    return score
 
 
 def _occasion_kind(query: str) -> str:
@@ -640,6 +702,8 @@ def _diversity_profile(card: Dict[str, Any], query: str) -> Dict[str, Any]:
         "formality_energy": _formality_energy(card, query),
         "style_energy": _style_energy(card, query),
         "accessory_mood": _accessory_mood(card),
+        "coherence_score": round(_coherence_score(card), 3),
+        "hero_visual_weight": _item_visual_weight(_item_by_role(card, "top") or _item_by_role(card, "dress")),
     }
 
 
@@ -711,6 +775,7 @@ def _quality_score(card: Dict[str, Any], query: str) -> float:
     roles = {item_role(item) for item in card.get("items", []) if isinstance(item, dict)}
     score += len(roles.intersection({"top", "bottom", "dress", "footwear"}))
     score += min(2, len([x for x in card.get("accessories", []) if isinstance(x, dict)])) * 0.35
+    score += _coherence_score(card)
 
     if flags["office"]:
         if any(k in text for k in ("button-down", "button down", "shirt", "trouser", "black pants", "off white", "loafer")):
@@ -752,6 +817,12 @@ def _occasion_fit_score(card: Dict[str, Any], query: str) -> float:
     formality = _formality_energy(card, query)
     silhouette = _silhouette_category(card)
     score = 0.0
+    core_items = [
+        item for item in card.get("items", [])
+        if isinstance(item, dict) and item_role(item) in {"top", "bottom", "dress", "footwear"}
+    ]
+    if core_items:
+        score += sum(_item_occasion_fitness(item, kind) for item in core_items) / len(core_items)
     if kind == "office":
         if formality in {"formal", "smart"}:
             score += 2.0
@@ -1213,6 +1284,7 @@ def finalize_style_cards(
             "core_style_signature": card.get("_style_core_signature"),
             "base_outfit_signature": _base_outfit_signature(card),
             "quality_score": round(float(card.get("_style_quality_score") or 0.0), 3),
+            "coherence_score": round(_coherence_score(card), 3),
             "occasion_fit": card["occasion_fit"],
             "style_archetype": archetype,
             "style_direction": card["style_direction"],
@@ -1397,6 +1469,7 @@ def _board_metadata_summary(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]
                 "core_style_signature": metadata.get("core_style_signature") or card.get("_style_core_signature") or core_card_signature(card),
                 "base_outfit_signature": metadata.get("base_outfit_signature") or _base_outfit_signature(card),
                 "quality_score": metadata.get("quality_score"),
+                "coherence_score": metadata.get("coherence_score"),
                 "occasion_fit": card.get("occasion_fit"),
                 "layout_preset": card.get("layout_preset"),
             }

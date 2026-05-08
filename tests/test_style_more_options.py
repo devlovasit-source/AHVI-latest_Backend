@@ -3,6 +3,7 @@ from services.style_flow_service import (
     finalize_style_cards,
     finalize_style_response_payload,
 )
+from services.category_taxonomy import infer_style_attributes
 
 
 GENERIC_TITLES = {"Signature Combo", "Easy Win", "Today's Edit", "Polished Daily"}
@@ -24,6 +25,37 @@ def _card(top, bottom, footwear, *, title="Signature Combo", score=100):
         "score": score,
         "items": [top, bottom, footwear, _item(f"watch-{top['id']}", "Omega Speedmaster", "accessory")],
     }
+
+
+def test_taxonomy_infers_trust_layer_style_attributes():
+    attrs = infer_style_attributes(
+        {
+            "name": "Burgundy Leather Loafers",
+            "category": "Footwear",
+            "sub_category": "Loafers",
+            "pattern": "plain",
+            "occasions": ["office", "date"],
+        }
+    )
+
+    assert attrs["formality"] >= 4
+    assert attrs["aesthetic_cluster"] in {"classic", "polished"}
+    assert attrs["occasion_fitness"]["office"] >= 0.8
+    assert attrs["occasion_fitness"]["date"] >= 0.7
+
+
+def test_taxonomy_marks_relaxed_footwear_as_low_office_fit():
+    attrs = infer_style_attributes(
+        {
+            "name": "Birkenstock Sandals",
+            "category": "Footwear",
+            "sub_category": "Sandals",
+            "pattern": "plain",
+        }
+    )
+
+    assert attrs["formality"] <= 2
+    assert attrs["occasion_fitness"]["office"] <= 0.2
 
 
 def test_more_options_excludes_already_seen_style_signatures():
@@ -261,6 +293,7 @@ def test_style_response_exposes_additive_board_metadata():
     assert response["data"]["board_metadata"]
     assert response["meta"]["board_metadata"]
     assert response["data"]["board_metadata"][0]["base_outfit_signature"]
+    assert response["data"]["board_metadata"][0]["coherence_score"] is not None
 
 
 def test_general_style_dna_metadata_is_added_for_non_office_requests():

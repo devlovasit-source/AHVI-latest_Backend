@@ -107,6 +107,7 @@ def _bytes_from_image_base64(value: str) -> bytes:
 from services.category_taxonomy import (
     CANONICAL_CATEGORIES as _CANONICAL_CATEGORIES,
     CANONICAL_CATEGORY_KEYWORDS as _CANONICAL_CATEGORY_KEYWORDS,
+    infer_style_attributes as _infer_style_attributes,
     normalize_category_from_label as _shared_normalize_category_from_label,
 )
 
@@ -669,68 +670,68 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             except Exception:
                 pass
 
-        items.append(
-            {
-                "item_id": item.get("item_id") or str(uuid.uuid4()),
-                "name": vision.get("name") or sub_category or raw_label or "Item",
-                "category": category,
-                "sub_category": sub_category,
-                "color_code": color_code,
-                "color_name": color_name,
-                "pattern": str(vision.get("pattern") or "plain"),
-                "occasions": vision.get("occasions") or [],
-                "confidence": confidence,
-                "label_source": label_source,
-                "requires_manual_entry": requires_manual_entry,
-                "reasoning": vision.get("reasoning")
-                or f"hybrid_detection+{label_source}",
-                "bbox": item.get("bbox") or [],
-                "raw_url": item.get("raw_url"),
-                "rawUrl": item.get("raw_url"),
-                "masked_url": item.get("masked_url"),
-                "maskedUrl": item.get("masked_url"),
-                "normalized_url": (
-                    item.get("normalized_url")
-                    or item.get("normalizedUrl")
-                    or item.get("image_url")
-                    or item.get("masked_url")
-                    or item.get("raw_url")
-                ),
-                "normalizedUrl": (
-                    item.get("normalized_url")
-                    or item.get("normalizedUrl")
-                    or item.get("image_url")
-                    or item.get("masked_url")
-                    or item.get("raw_url")
-                ),
+        detected = {
+            "item_id": item.get("item_id") or str(uuid.uuid4()),
+            "name": vision.get("name") or sub_category or raw_label or "Item",
+            "category": category,
+            "sub_category": sub_category,
+            "color_code": color_code,
+            "color_name": color_name,
+            "pattern": str(vision.get("pattern") or "plain"),
+            "occasions": vision.get("occasions") or [],
+            "confidence": confidence,
+            "label_source": label_source,
+            "requires_manual_entry": requires_manual_entry,
+            "reasoning": vision.get("reasoning")
+            or f"hybrid_detection+{label_source}",
+            "bbox": item.get("bbox") or [],
+            "raw_url": item.get("raw_url"),
+            "rawUrl": item.get("raw_url"),
+            "masked_url": item.get("masked_url"),
+            "maskedUrl": item.get("masked_url"),
+            "normalized_url": (
+                item.get("normalized_url")
+                or item.get("normalizedUrl")
+                or item.get("image_url")
+                or item.get("masked_url")
+                or item.get("raw_url")
+            ),
+            "normalizedUrl": (
+                item.get("normalized_url")
+                or item.get("normalizedUrl")
+                or item.get("image_url")
+                or item.get("masked_url")
+                or item.get("raw_url")
+            ),
 
-                # Compatibility for frontend paths that still read image_url/imageUrl.
-                # Prefer normalized 1024x1024 transparent PNG first, then masked, then raw.
-                "image_url": (
-                    item.get("normalized_url")
-                    or item.get("normalizedUrl")
-                    or item.get("image_url")
-                    or item.get("masked_url")
-                    or item.get("raw_url")
-                ),
-                "imageUrl": (
-                    item.get("normalized_url")
-                    or item.get("normalizedUrl")
-                    or item.get("image_url")
-                    or item.get("masked_url")
-                    or item.get("raw_url")
-                ),
-                "raw_file_name": item.get("raw_file_name"),
-                "masked_file_name": item.get("masked_file_name"),
-                "normalized_file_name": item.get("normalized_file_name"),
-                "raw_image_base64": item.get("raw_image_base64"),
-                "masked_image_base64": item.get("masked_image_base64"),
-                "upload_error": item.get("upload_error") or "",
-                "pixel_hash": pixel_hash,
-                "duplicate": duplicate,
-                "image_embedding": embedding,
-            }
-        )
+            # Compatibility for frontend paths that still read image_url/imageUrl.
+            # Prefer normalized 1024x1024 transparent PNG first, then masked, then raw.
+            "image_url": (
+                item.get("normalized_url")
+                or item.get("normalizedUrl")
+                or item.get("image_url")
+                or item.get("masked_url")
+                or item.get("raw_url")
+            ),
+            "imageUrl": (
+                item.get("normalized_url")
+                or item.get("normalizedUrl")
+                or item.get("image_url")
+                or item.get("masked_url")
+                or item.get("raw_url")
+            ),
+            "raw_file_name": item.get("raw_file_name"),
+            "masked_file_name": item.get("masked_file_name"),
+            "normalized_file_name": item.get("normalized_file_name"),
+            "raw_image_base64": item.get("raw_image_base64"),
+            "masked_image_base64": item.get("masked_image_base64"),
+            "upload_error": item.get("upload_error") or "",
+            "pixel_hash": pixel_hash,
+            "duplicate": duplicate,
+            "image_embedding": embedding,
+        }
+        detected.update(_infer_style_attributes(detected))
+        items.append(detected)
 
     if not items:
         items = [
@@ -748,6 +749,16 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                 "requires_manual_entry": True,
                 "reasoning": "fallback_no_detection",
                 "bbox": [],
+                **_infer_style_attributes(
+                    {
+                        "name": "Fallback Item",
+                        "category": "Tops",
+                        "sub_category": "Item",
+                        "pattern": "plain",
+                        "color_name": "black",
+                        "occasions": ["casual"],
+                    }
+                ),
                 "raw_url": None,
                 "masked_url": None,
                 "normalized_url": None,

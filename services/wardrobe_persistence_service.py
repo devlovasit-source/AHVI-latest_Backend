@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 import requests
 
 from services.embedding_service import embedding_service
+from services.category_taxonomy import infer_style_attributes
 from services.qdrant_service import qdrant_service
 
 # =========================
@@ -374,6 +375,17 @@ def _build_appwrite_doc(
     )
     pattern = _safe_text(item.get("pattern"), "plain").lower()
     occasions = _normalize_list(item.get("occasions") or item.get("occasion_tags"))
+    style_attrs = infer_style_attributes(
+        {
+            **item,
+            "name": name,
+            "category": category,
+            "sub_category": sub_category,
+            "color_code": color,
+            "pattern": pattern,
+            "occasions": occasions,
+        }
+    )
 
     # Must match Appwrite outfits collection schema exactly.
     # image_url must point to the cleanest available asset for downstream
@@ -404,6 +416,7 @@ def _build_appwrite_doc(
     }
     if pixel_hash:
         doc["pixel_hash"] = pixel_hash
+    doc["_style_attrs"] = style_attrs
     return doc
 
 
@@ -506,6 +519,7 @@ def persist_selected_items(
                 masked_url=masked_url,
                 normalized_url=normalized_url,
             )
+            style_attrs = doc.pop("_style_attrs", {})
 
             created = _create_document(file_id, doc)
 
@@ -532,6 +546,8 @@ def persist_selected_items(
                             doc["color_code"],
                             doc["pattern"],
                             " ".join(doc["occasions"]),
+                            str(style_attrs.get("aesthetic_cluster") or ""),
+                            str(style_attrs.get("silhouette_family") or ""),
                         ]
                     )
                 )
@@ -546,6 +562,11 @@ def persist_selected_items(
                         "image_url": doc.get("image_url") or masked_url,
                         "pixel_hash": pixel_hash,
                         "embedding": embedding,
+                        "formality": style_attrs.get("formality"),
+                        "aesthetic_cluster": style_attrs.get("aesthetic_cluster"),
+                        "visual_weight": style_attrs.get("visual_weight"),
+                        "silhouette_family": style_attrs.get("silhouette_family"),
+                        "occasion_fitness": style_attrs.get("occasion_fitness"),
                     }
                 )
                 if image_embedding:
@@ -562,6 +583,11 @@ def persist_selected_items(
                             "normalized_url": normalized_url,
                             "pixel_hash": pixel_hash,
                             "qdrant_point_id": file_id,
+                            "formality": style_attrs.get("formality"),
+                            "aesthetic_cluster": style_attrs.get("aesthetic_cluster"),
+                            "visual_weight": style_attrs.get("visual_weight"),
+                            "silhouette_family": style_attrs.get("silhouette_family"),
+                            "occasion_fitness": style_attrs.get("occasion_fitness"),
                         },
                     )
             except Exception as exc:
