@@ -423,6 +423,68 @@ def test_generic_today_request_defaults_to_smart_casual_not_relaxed_sandal():
     assert "birkenstock" not in first_names
 
 
+def test_raw_quality_guard_blocks_birkenstock_for_smart_requests():
+    from brain.engines.outfit_quality_guard import filter_and_guard_outfits
+
+    outfits = [
+        {
+            "top": {"id": "top-1", "name": "Off White Shirt", "role": "top"},
+            "bottom": {"id": "bottom-1", "name": "Black Pants", "role": "bottom"},
+            "shoes": {"id": "shoe-birk", "name": "Birkenstock", "role": "footwear"},
+            "score": 200,
+        },
+        {
+            "top": {"id": "top-2", "name": "Black Shirt", "role": "top"},
+            "bottom": {"id": "bottom-2", "name": "Grey Trousers", "role": "bottom"},
+            "shoes": {"id": "shoe-loafer", "name": "Leather Loafers", "role": "footwear"},
+            "score": 80,
+        },
+    ]
+
+    guarded = filter_and_guard_outfits(
+        outfits,
+        intent="office",
+        query="Suggest an outfit for today",
+    )
+    footwear_names = [
+        (row.get("shoes") or row.get("footwear") or {}).get("name", "").lower()
+        for row in guarded
+    ]
+
+    assert "birkenstock" not in " ".join(footwear_names)
+    assert any("loafer" in name for name in footwear_names)
+
+
+def test_raw_quality_guard_demotes_third_repeated_bottom_before_cards():
+    from brain.engines.outfit_quality_guard import filter_and_guard_outfits
+
+    outfits = [
+        {
+            "top": {"id": f"top-{idx}", "name": f"Shirt {idx}", "role": "top"},
+            "bottom": {"id": "black-pants", "name": "Black Pants", "role": "bottom"},
+            "shoes": {"id": f"shoe-{idx}", "name": "Leather Loafers", "role": "footwear"},
+            "score": 120 - idx,
+        }
+        for idx in range(4)
+    ] + [
+        {
+            "top": {"id": "top-alt", "name": "Blue Shirt", "role": "top"},
+            "bottom": {"id": "grey-trousers", "name": "Grey Trousers", "role": "bottom"},
+            "shoes": {"id": "shoe-alt", "name": "Black Sneakers", "role": "footwear"},
+            "score": 94,
+        }
+    ]
+
+    guarded = filter_and_guard_outfits(outfits, intent="office", query="office outfit")
+    first_four_bottoms = [
+        (row.get("bottom") or {}).get("id")
+        for row in guarded[:4]
+    ]
+
+    assert "grey-trousers" in first_four_bottoms
+    assert first_four_bottoms.count("black-pants") <= 3
+
+
 def test_accessory_selector_allows_restraint_and_rotation():
     import sys
     import types

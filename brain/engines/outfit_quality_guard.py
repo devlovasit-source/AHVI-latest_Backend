@@ -42,7 +42,7 @@ DATE_NIGHT_FOOTWEAR_OK = {
 
 RELAXED_FOOTWEAR = {
     "slider", "sliders", "slipper", "slippers", "flip flop", "flip-flop",
-    "sandals", "sandal", "crocs",
+    "sandals", "sandal", "crocs", "birkenstock", "birkenstocks",
 }
 
 RAIN_BAD_FOOTWEAR = {
@@ -252,6 +252,10 @@ def _is_athletic_footwear(item: Dict[str, Any]) -> bool:
     return any(x in text for x in ATHLETIC_FOOTWEAR)
 
 
+def _is_relaxed_footwear(item: Dict[str, Any]) -> bool:
+    return _has_any(_item_text(item), RELAXED_FOOTWEAR)
+
+
 def _is_male_blocked_item(item: Dict[str, Any]) -> bool:
     text = _item_text(item)
     return any(blocked in text for blocked in MALE_BLOCKED_CATEGORIES)
@@ -457,6 +461,15 @@ def guard_outfit(
 
     if footwear:
         footwear_text = _item_text(footwear)
+        relaxed_footwear = _is_relaxed_footwear(footwear)
+
+        if (
+            is_smart_occasion
+            and relaxed_footwear
+            and not bold_requested
+            and not _is_beach_or_relaxed_context(outfit_text)
+        ):
+            return False, -100, ["Relaxed footwear blocked for smart/date/office styling"], fixed
 
         if is_smart_occasion and _is_loud_footwear(footwear) and not bold_requested:
             penalty -= 45
@@ -490,6 +503,65 @@ def guard_outfit(
 
     allowed = penalty > -70
     return allowed, penalty, reasons, fixed
+
+
+def _stable_item_key(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return _norm(
+        item.get("id")
+        or item.get("$id")
+        or item.get("item_id")
+        or item.get("itemId")
+        or item.get("name")
+        or item.get("title")
+    )
+
+
+def _apply_bottom_reuse_cooldown(outfits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Demote repeated bottoms before the pipeline diversifier builds cards.
+
+    The finalizer also enforces diversity, but raw `outfit_pipeline.final_cards`
+    is created before the service finalizer logs. This keeps the raw pipeline
+    from looking like six versions of the same black-pants outfit.
+    """
+    keyed: List[Tuple[str, Dict[str, Any]]] = []
+    for outfit in outfits or []:
+        _, bottom, _, _ = _extract_outfit_slots(outfit)
+        key = _stable_item_key(bottom)
+        if key:
+            keyed.append((key, outfit))
+
+    unique_bottoms = {key for key, _ in keyed}
+    if len(unique_bottoms) <= 1:
+        return outfits
+
+    seen: Dict[str, int] = {}
+    adjusted: List[Dict[str, Any]] = []
+    for outfit in sorted(outfits, key=lambda x: float(x.get("score") or 0), reverse=True):
+        _, bottom, _, _ = _extract_outfit_slots(outfit)
+        bottom_key = _stable_item_key(bottom)
+        repeat_count = seen.get(bottom_key, 0) if bottom_key else 0
+        fixed = dict(outfit)
+
+        if bottom_key and repeat_count >= 2:
+            penalty = min(75, 24 * (repeat_count - 1))
+            try:
+                fixed["score"] = float(fixed.get("score") or 0.0) - penalty
+                fixed["rank_score"] = float(fixed.get("score") or 0.0)
+            except Exception:
+                pass
+            fixed["_bottom_reuse_penalty"] = -penalty
+            reasons = list(fixed.get("_quality_guard_reasons") or [])
+            reasons.append("Repeated bottom demoted to preserve outfit variety")
+            fixed["_quality_guard_reasons"] = reasons
+
+        if bottom_key:
+            seen[bottom_key] = repeat_count + 1
+        adjusted.append(fixed)
+
+    adjusted.sort(key=lambda x: float(x.get("score") or 0), reverse=True)
+    return adjusted
 
 
 def filter_and_guard_outfits(
@@ -539,5 +611,6 @@ def filter_and_guard_outfits(
         guarded.append(fixed)
 
     guarded.sort(key=lambda x: float(x.get("score") or 0), reverse=True)
+    guarded = _apply_bottom_reuse_cooldown(guarded)
     return guarded
 
