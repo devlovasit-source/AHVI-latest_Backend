@@ -1436,21 +1436,30 @@ def _select_accessories(
 
     candidates = [item for item in candidates if _is_accessory_item(item)]
     priority = {
-        "watch": 0,
-        "eyewear": 1,
-        "bag": 2,
+        "bag": 0,
+        "belt": 1,
+        "ring": 2,
         "bracelet": 3,
-        "ring": 4,
-        "necklace": 5,
-        "earring": 6,
-        "belt": 7,
+        "necklace": 4,
+        "eyewear": 5,
+        "watch": 6,
+        "earring": 7,
         "scarf": 8,
         "headwear": 9,
         "jewelry": 10,
         "accessory": 99,
     }
+    seed = _outfit_signature(combo) or str(combo.get("combo_id") or "")
+    accessory_budget = max(0, min(int(limit), 2))
+    # Luxury boards need restraint. Some combinations are cleaner with no accent,
+    # and avoiding a guaranteed watch stops every board from feeling templated.
+    if seed:
+        accessory_budget = _stable_offset(f"accessory-budget:{seed}", accessory_budget + 1)
+    if accessory_budget <= 0:
+        return []
     candidates.sort(
         key=lambda item: (
+            _stable_offset(f"accessory-rotate:{seed}:{_accessory_item_key(item)}", 7),
             priority.get(_accessory_type(item), 99),
             0 if _accessory_has_image(item) else 1,
             str(item.get("name") or item.get("label") or ""),
@@ -1468,7 +1477,7 @@ def _select_accessories(
         picked.append(item)
         seen_ids.add(key)
         seen_types.add(typ)
-        if len(picked) >= max(0, int(limit)):
+        if len(picked) >= accessory_budget:
             break
     return picked
 

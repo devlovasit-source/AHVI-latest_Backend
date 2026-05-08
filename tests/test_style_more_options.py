@@ -337,3 +337,50 @@ def test_pipeline_diversifier_preserves_bottom_and_footwear_variety():
     assert bottom_ids.count("black-pants") <= 2
     assert len(set(bottom_ids)) >= 3
     assert all(footwear_ids.count(shoe) <= 2 for shoe in set(footwear_ids))
+
+
+def test_generic_today_request_defaults_to_smart_casual_not_relaxed_sandal():
+    cards = [
+        _card(_item("top-1", "Off White Shirt", "top", "white"), _item("bottom-1", "Black Pants", "bottom"), _item("shoe-birk", "Birkenstock Sandals", "footwear"), score=130),
+        _card(_item("top-2", "Blue Button-Down", "top", "blue"), _item("bottom-2", "Grey Trousers", "bottom", "grey"), _item("shoe-loafer", "Burgundy Loafers", "footwear"), score=90),
+    ]
+
+    filtered = finalize_style_cards(cards, query="Suggest an outfit for today", default_limit=2)
+    first_names = " ".join(item["name"].lower() for item in filtered[0]["items"])
+
+    assert filtered[0]["style_direction"] == "smart_casual_office"
+    assert "birkenstock" not in first_names
+
+
+def test_accessory_selector_allows_restraint_and_rotation():
+    import sys
+    import types
+
+    if "dotenv" not in sys.modules:
+        dotenv = types.ModuleType("dotenv")
+        dotenv.load_dotenv = lambda *args, **kwargs: None
+        sys.modules["dotenv"] = dotenv
+
+    try:
+        from brain.outfit_pipeline import _select_accessories
+    except ModuleNotFoundError:
+        return
+
+    wardrobe = {
+        "accessories": [
+            _item("watch-1", "Omega Watch", "accessory"),
+            _item("sun-1", "Sunglasses", "accessory"),
+            _item("ring-1", "Silver Ring", "accessory"),
+            _item("belt-1", "Black Belt", "accessory"),
+        ]
+    }
+    combos = [
+        {"top": {"id": f"top-{i}"}, "bottom": {"id": f"bottom-{i}"}, "shoes": {"id": f"shoe-{i}"}, "combo_id": f"combo-{i}"}
+        for i in range(8)
+    ]
+    picked = [_select_accessories(wardrobe, combo, limit=4) for combo in combos]
+    flattened = [item["id"] for group in picked for item in group]
+
+    assert any(len(group) == 0 for group in picked)
+    assert all(len(group) <= 2 for group in picked)
+    assert flattened.count("watch-1") < len(combos)

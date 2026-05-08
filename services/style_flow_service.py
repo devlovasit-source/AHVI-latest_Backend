@@ -359,7 +359,12 @@ def _item_blob(item: Dict[str, Any]) -> str:
 
 
 def _occasion_kind(query: str) -> str:
+    q = str(query or "").lower()
     flags = _occasion_flags(query)
+    generic_today = any(k in q for k in ("suggest an outfit", "outfit for today", "what should i wear", "wear today", "today outfit"))
+    explicitly_relaxed = any(k in q for k in ("casual", "weekend", "sunday", "home", "resort", "beach", "coffee", "errand", "vacation"))
+    if generic_today and not explicitly_relaxed and not any(flags[k] for k in ("date", "party", "travel", "wedding")):
+        return "office"
     for key in ("office", "date", "party", "travel", "wedding", "casual"):
         if flags.get(key):
             return key
@@ -376,6 +381,8 @@ def _style_direction(query: str) -> str:
         return "startup_office"
     if any(k in q for k in ("friday", "relaxed office", "casual friday")):
         return "friday_office"
+    if _occasion_kind(query) == "office":
+        return "smart_casual_office"
     flags = _occasion_flags(query)
     if flags["office"]:
         return "smart_casual_office"
@@ -400,8 +407,12 @@ def _office_direction(query: str) -> str:
 
 def _footwear_mood(item: Dict[str, Any]) -> str:
     text = _item_blob(item)
+    if any(k in text for k in ("chunky", "runner", "running", "trainer", "gym", "athletic", "sports")):
+        return "athletic"
     if any(k in text for k in ("loafer", "oxford", "derby", "formal", "monk strap")):
         return "formal polish"
+    if any(k in text for k in ("slip-on", "slip on", "suede", "beige slip")):
+        return "polished sneaker"
     if any(k in text for k in ("leather sneaker", "minimal sneaker", "white sneaker", "cream sneaker", "clean sneaker")):
         return "polished sneaker"
     if "sneaker" in text:
@@ -410,8 +421,6 @@ def _footwear_mood(item: Dict[str, Any]) -> str:
         return "relaxed sandal"
     if any(k in text for k in ("boot", "chelsea")):
         return "structured boot"
-    if any(k in text for k in ("running", "trainer", "gym", "athletic", "sports")):
-        return "athletic"
     return "neutral footwear"
 
 
@@ -450,8 +459,27 @@ def _footwear_formality_score(item: Dict[str, Any], query: str) -> float:
             "formal polish": 2.2,
             "structured boot": 2.0,
             "polished sneaker": 1.2,
+            "casual sneaker": -1.2,
             "relaxed sandal": -5.0,
             "athletic": -4.0,
+        }.get(mood, 0.0)
+    if direction in {"clean_daily", "daily"}:
+        return {
+            "formal polish": 1.4,
+            "polished sneaker": 1.6,
+            "structured boot": 1.0,
+            "casual sneaker": 0.2,
+            "relaxed sandal": -2.5,
+            "athletic": -2.0,
+        }.get(mood, 0.0)
+    if direction in {"comfort_polish"}:
+        return {
+            "formal polish": 0.2,
+            "polished sneaker": 1.7,
+            "structured boot": 1.0,
+            "casual sneaker": 1.2,
+            "relaxed sandal": 0.1,
+            "athletic": -0.5,
         }.get(mood, 0.0)
     return 0.0
 
