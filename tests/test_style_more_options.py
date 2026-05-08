@@ -297,3 +297,43 @@ def test_first_boards_prefer_distinct_style_energy_when_supported():
     energies = [card.get("style_energy") for card in filtered[:5]]
 
     assert len(set(energies)) >= 4
+
+
+def test_pipeline_diversifier_preserves_bottom_and_footwear_variety():
+    import sys
+    import types
+
+    if "dotenv" not in sys.modules:
+        dotenv = types.ModuleType("dotenv")
+        dotenv.load_dotenv = lambda *args, **kwargs: None
+        sys.modules["dotenv"] = dotenv
+
+    try:
+        from brain.outfit_pipeline import _diversify_outfits
+    except ModuleNotFoundError:
+        return
+
+    def outfit(top, bottom, shoes, score):
+        return {
+            "top": {"id": top, "name": top},
+            "bottom": {"id": bottom, "name": bottom},
+            "shoes": {"id": shoes, "name": shoes},
+            "score": score,
+        }
+
+    ranked = [
+        outfit("top-1", "black-pants", "loafer", 100),
+        outfit("top-2", "black-pants", "white-sneaker", 99),
+        outfit("top-3", "black-pants", "black-sneaker", 98),
+        outfit("top-4", "light-jeans", "loafer", 80),
+        outfit("top-5", "navy-chinos", "white-sneaker", 78),
+        outfit("top-6", "grey-trousers", "black-sneaker", 76),
+    ]
+
+    diversified = _diversify_outfits(ranked, limit=6)
+    bottom_ids = [row["bottom"]["id"] for row in diversified]
+    footwear_ids = [row["shoes"]["id"] for row in diversified]
+
+    assert bottom_ids.count("black-pants") <= 2
+    assert len(set(bottom_ids)) >= 3
+    assert all(footwear_ids.count(shoe) <= 2 for shoe in set(footwear_ids))

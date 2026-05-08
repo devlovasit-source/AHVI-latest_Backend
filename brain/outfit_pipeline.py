@@ -2086,6 +2086,14 @@ def _outfit_hero_id(outfit: Dict[str, Any]) -> str:
     return _item_id(outfit.get("dress") or outfit.get("top") or {})
 
 
+def _outfit_bottom_id(outfit: Dict[str, Any]) -> str:
+    return _item_id(outfit.get("bottom") or {})
+
+
+def _outfit_footwear_id(outfit: Dict[str, Any]) -> str:
+    return _item_id(outfit.get("shoes") or outfit.get("footwear") or {})
+
+
 def _diversify_outfits(
     outfits: List[Dict[str, Any]], limit: int = 6
 ) -> List[Dict[str, Any]]:
@@ -2105,31 +2113,78 @@ def _diversify_outfits(
     selected: List[Dict[str, Any]] = []
     seen_signatures: set[str] = set()
     seen_heroes: set[str] = set()
+    pool = [o for o in outfits or [] if isinstance(o, dict)]
+    unique_bottoms = {b for b in (_outfit_bottom_id(o) for o in pool) if b}
+    unique_footwear = {s for s in (_outfit_footwear_id(o) for o in pool) if s}
+    max_bottom_reuse = 2 if len(unique_bottoms) > 1 else limit
+    max_footwear_reuse = 2 if len(unique_footwear) > 1 else limit
 
-    # Pass 1: one outfit per unique hero, in original (score) order.
-    for outfit in outfits or []:
-        if len(selected) >= limit:
-            break
+    def _count(role_fn, value: str) -> int:
+        if not value:
+            return 0
+        return sum(1 for selected_outfit in selected if role_fn(selected_outfit) == value)
+
+    def _can_add(outfit: Dict[str, Any], *, strict: bool) -> bool:
         sig = _outfit_signature(outfit)
-        hero = _outfit_hero_id(outfit)
         if not sig or sig in seen_signatures:
-            continue
-        if hero and hero in seen_heroes:
-            continue
+            return False
+        bottom = _outfit_bottom_id(outfit)
+        footwear = _outfit_footwear_id(outfit)
+        if bottom and _count(_outfit_bottom_id, bottom) >= max_bottom_reuse:
+            return False
+        if footwear and _count(_outfit_footwear_id, footwear) >= max_footwear_reuse:
+            return False
+        if strict:
+            hero = _outfit_hero_id(outfit)
+            if len(selected) < min(3, limit) and hero and hero in seen_heroes:
+                return False
+        return True
+
+    def _add(outfit: Dict[str, Any]) -> None:
         selected.append(outfit)
-        seen_signatures.add(sig)
+        sig = _outfit_signature(outfit)
+        if sig:
+            seen_signatures.add(sig)
+        hero = _outfit_hero_id(outfit)
         if hero:
             seen_heroes.add(hero)
 
-    # Pass 2: fill remaining slots, dedupe by full signature only.
-    for outfit in outfits or []:
+    # Pass 1: preserve the best ranked look for each available bottom first.
+    for bottom in unique_bottoms:
         if len(selected) >= limit:
             break
-        sig = _outfit_signature(outfit)
-        if not sig or sig in seen_signatures:
+        candidate = next((o for o in pool if _outfit_bottom_id(o) == bottom and _can_add(o, strict=True)), None)
+        if candidate is None:
+            candidate = next((o for o in pool if _outfit_bottom_id(o) == bottom and _can_add(o, strict=False)), None)
+        if candidate is not None:
+            _add(candidate)
+
+    # Pass 2: preserve footwear directions before filling with near-duplicates.
+    for footwear in unique_footwear:
+        if len(selected) >= limit:
+            break
+        candidate = next((o for o in pool if _outfit_footwear_id(o) == footwear and _can_add(o, strict=True)), None)
+        if candidate is None:
+            candidate = next((o for o in pool if _outfit_footwear_id(o) == footwear and _can_add(o, strict=False)), None)
+        if candidate is not None:
+            _add(candidate)
+
+    # Pass 3: one outfit per unique hero.
+    for outfit in pool:
+        if len(selected) >= limit:
+            break
+        hero = _outfit_hero_id(outfit)
+        if hero and hero in seen_heroes:
             continue
-        selected.append(outfit)
-        seen_signatures.add(sig)
+        if _can_add(outfit, strict=True):
+            _add(outfit)
+
+    # Pass 4: fill remaining slots, still respecting bottom/footwear caps.
+    for outfit in pool:
+        if len(selected) >= limit:
+            break
+        if _can_add(outfit, strict=False):
+            _add(outfit)
 
     return selected
 
@@ -2478,7 +2533,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             scored.append(scored_combo)
 
         ranked = outfit_ranker.rank(
-            user_id=user_id, outfits=scored, top_n=min(10, len(scored))
+            user_id=user_id, outfits=scored, top_n=min(24, len(scored))
         )
         logging.getLogger("ahvi.outfit_pipeline").info(
             "outfit_pipeline.diversity_trace user=%s stage=ranked heroes=%s",
