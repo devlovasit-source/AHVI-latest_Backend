@@ -540,6 +540,33 @@ def _ahvi_style_occasion(query_text):
         for k in ["coffee", "casual", "outing", "weekend", "street", "sport", "outdoor"]
     ):
         return "casual outing"
+
+    generic_daily_style = any(
+        k in q
+        for k in [
+            "suggest an outfit",
+            "outfit for today",
+            "today outfit",
+            "wear today",
+            "what should i wear",
+        ]
+    )
+    relaxed_daily_context = any(
+        k in q
+        for k in [
+            "home",
+            "wfh",
+            "sunday",
+            "lazy",
+            "errand",
+            "grocery",
+            "beach",
+            "resort",
+            "vacation",
+        ]
+    )
+    if generic_daily_style and not relaxed_daily_context:
+        return "office"
     return "today"
 
 

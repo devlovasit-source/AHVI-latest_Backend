@@ -31,6 +31,10 @@ class IntentRouter:
                 "matching",
                 "fit",
                 "what should i wear",
+                "suggest an outfit",
+                "outfit for today",
+                "today outfit",
+                "wear today",
             ]
         )
 
@@ -41,6 +45,7 @@ class IntentRouter:
             {
                 "party": ["party", "club", "birthday", "pub"],
                 "office": ["office", "work", "interview", "meeting", "corporate"],
+                "date": ["date", "dinner date", "date night"],
                 "vacation": ["vacation", "trip", "holiday", "beach", "travel", "goa"],
                 "wedding": ["wedding", "reception", "festival", "event", "pooja"],
                 "casual": ["casual", "daily", "everyday", "grocery"],
@@ -100,6 +105,34 @@ class IntentRouter:
             if hits:
                 slots["occasion"] = occasion
                 break
+
+        generic_daily_style = any(
+            phrase in text
+            for phrase in [
+                "suggest an outfit",
+                "outfit for today",
+                "today outfit",
+                "wear today",
+                "what should i wear",
+            ]
+        )
+        relaxed_daily_context = any(
+            phrase in text
+            for phrase in [
+                "home",
+                "wfh",
+                "sunday",
+                "lazy",
+                "errand",
+                "grocery",
+                "beach",
+                "resort",
+                "vacation",
+                "casual",
+            ]
+        )
+        if generic_daily_style and not slots["occasion"] and not relaxed_daily_context:
+            slots["occasion"] = "office"
 
         # Weather
         for weather, patterns in self.weather_conditions.items():
