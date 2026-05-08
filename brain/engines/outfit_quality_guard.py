@@ -3,6 +3,8 @@
 import logging
 from typing import Any, Dict, List, Tuple
 
+from brain.engines.style_rules_engine import style_engine
+
 logger = logging.getLogger("ahvi.outfit_quality_guard")
 
 LOUD_COLORS = {"yellow", "orange", "neon", "fluorescent", "bright yellow", "bright orange", "lime"}
@@ -15,6 +17,7 @@ SMART_OCCASIONS = {
 MALE_BLOCKED_CATEGORIES = {
     "saree", "lehenga", "skirt", "gown", "dress", "heels", "heel",
     "heeled boots", "heeled_boots", "women sandals", "women_sandals",
+    "sports bra", "sports_bra", "bra", "bralette", "bustier",
 }
 
 SMART_FOOTWEAR_GOOD = {
@@ -420,6 +423,29 @@ def guard_outfit(
     outfit_text = " ".join([_item_text(top), _item_text(bottom), _item_text(footwear), occasion_text])
     if query:
         outfit_text = f"{outfit_text} {_norm(query)}"
+
+    # AHVI STYLE FLOW:
+    # Central deterministic rule gate from style_rules_engine.
+    # This keeps scorer + final guard aligned.
+    try:
+        rules = style_engine.get_scoring_rules(
+            {},
+            {
+                "user_profile": user_profile,
+                "intent": intent,
+                "occasion": occasion_text,
+                "query": query,
+            },
+        )
+        if hasattr(style_engine, "is_blocked_item"):
+            for item in [top, bottom, footwear, *accessories]:
+                if not item:
+                    continue
+                blocked, reason = style_engine.is_blocked_item(item, rules)
+                if blocked:
+                    return False, -100, [f"Blocked by style rules: {reason}"], fixed
+    except Exception:
+        logger.exception("style_rule_guard_failed")
 
     if _is_male_user(user_profile):
         for item in [top, bottom, footwear, *accessories]:
