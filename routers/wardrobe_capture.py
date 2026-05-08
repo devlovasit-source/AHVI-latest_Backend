@@ -16,9 +16,10 @@ logger = logging.getLogger(__name__)
 
 from services import ai_gateway
 from services.bg_service import remove_bg_bytes
+from services.embedding_service import encode_metadata
 from services.hybrid_detection_service import run_hybrid_detection
 from services.image_embedding_service import encode_image_url
-from services.image_fingerprint import compute_hash_from_url
+from services.image_fingerprint import compute_hash_from_base64, compute_hash_from_url
 from services.qdrant_service import qdrant_service
 from services.r2_storage import R2Storage
 from services.wardrobe_persistence_service import persist_selected_items
@@ -217,6 +218,128 @@ def _hex_to_name(color_hex: str) -> str:
             best_dist = dist
             best_name = name
     return best_name
+
+
+def _embeddings_enabled() -> bool:
+    return str(os.getenv("ENABLE_IMAGE_EMBEDDINGS", "false")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _duplicate_result(
+    *,
+    checked: bool,
+    is_duplicate: bool,
+    reason: str | None = None,
+    confidence: float = 0.0,
+    matched_item_id: Any = None,
+    distance: Any = None,
+    score: Any = None,
+    payload: Any = None,
+) -> Dict[str, Any]:
+    result: Dict[str, Any] = {
+        "checked": bool(checked),
+        "is_duplicate": bool(is_duplicate),
+        "reason": reason,
+        "confidence": float(confidence or 0.0),
+        "matched_item_id": str(matched_item_id or "") or None,
+    }
+    if distance is not None:
+        result["distance"] = distance
+    if score is not None:
+        result["score"] = float(score or 0.0)
+    if isinstance(payload, dict):
+        result["payload"] = payload
+    return result
+
+
+def _same_metadata_family(item: Dict[str, Any], payload: Dict[str, Any]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    item_category = str(item.get("category") or "").strip().lower()
+    item_sub = str(item.get("sub_category") or item.get("type") or "").strip().lower()
+    item_color = str(item.get("color_code") or item.get("color") or "").strip().lower()
+    payload_category = str(payload.get("category") or "").strip().lower()
+    payload_type = str(payload.get("type") or payload.get("sub_category") or "").strip().lower()
+    payload_color = str(payload.get("color") or payload.get("color_code") or "").strip().lower()
+    category_ok = bool(item_category and payload_category and item_category == payload_category)
+    sub_ok = bool(item_sub and payload_type and item_sub == payload_type)
+    color_ok = bool(item_color and payload_color and item_color == payload_color)
+    return category_ok and (sub_ok or color_ok)
+
+
+def _find_upload_duplicate(
+    *,
+    user_id: str,
+    item: Dict[str, Any],
+    pixel_hash: str,
+    image_embedding: List[float],
+) -> Dict[str, Any]:
+    checked_any = False
+
+    if pixel_hash:
+        duplicate = qdrant_service.find_pixel_duplicate(
+            user_id, pixel_hash, max_distance=6
+        )
+        checked_any = checked_any or bool(duplicate.get("checked"))
+        if duplicate.get("is_duplicate"):
+            return _duplicate_result(
+                checked=True,
+                is_duplicate=True,
+                reason="pixel_hash",
+                confidence=float(duplicate.get("confidence") or 1.0),
+                matched_item_id=duplicate.get("matched_item_id") or duplicate.get("id"),
+                distance=duplicate.get("distance"),
+                payload=duplicate.get("payload"),
+            )
+
+    if image_embedding:
+        duplicate = qdrant_service.find_image_duplicate(
+            image_embedding, user_id, threshold=0.985
+        )
+        checked_any = checked_any or bool(duplicate.get("checked"))
+        if duplicate.get("is_duplicate"):
+            return _duplicate_result(
+                checked=True,
+                is_duplicate=True,
+                reason="image_vector",
+                confidence=float(duplicate.get("confidence") or duplicate.get("score") or 0.0),
+                matched_item_id=duplicate.get("matched_item_id") or duplicate.get("id"),
+                score=duplicate.get("score"),
+                payload=duplicate.get("payload"),
+            )
+
+    metadata_vector = encode_metadata(
+        {
+            "category": item.get("category"),
+            "sub_category": item.get("sub_category"),
+            "color_code": item.get("color_code"),
+            "pattern": item.get("pattern"),
+            "occasions": item.get("occasions") or [],
+        }
+    )
+    if metadata_vector:
+        duplicate = qdrant_service.find_duplicate(
+            metadata_vector, user_id, threshold=0.995
+        )
+        checked_any = checked_any or bool(duplicate.get("checked"))
+        payload = duplicate.get("payload") if isinstance(duplicate.get("payload"), dict) else {}
+        if duplicate.get("is_duplicate") and _same_metadata_family(item, payload):
+            score = float(duplicate.get("score") or 0.0)
+            return _duplicate_result(
+                checked=True,
+                is_duplicate=True,
+                reason="metadata",
+                confidence=min(score, 0.75),
+                matched_item_id=duplicate.get("matched_item_id") or duplicate.get("id"),
+                score=score,
+                payload=payload,
+            )
+
+    return _duplicate_result(checked=checked_any, is_duplicate=False)
 
 
 def _dominant_color_hex_from_image(image: Image.Image) -> str:
@@ -504,12 +627,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         )
 
         embedding = []
-        if str(os.getenv("ENABLE_IMAGE_EMBEDDINGS", "false")).strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }:
+        if _embeddings_enabled():
             try:
                 embedding = (
                     encode_image_url(item.get("masked_url"))
@@ -520,14 +638,29 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                 embedding = []
 
         pixel_hash = ""
-        duplicate = {"checked": False, "is_duplicate": False}
+        duplicate = _duplicate_result(checked=False, is_duplicate=False)
         try:
-            pixel_hash = await compute_hash_from_url(str(item.get("masked_url") or ""))
-            duplicate = qdrant_service.find_pixel_duplicate(
-                user_id, pixel_hash, max_distance=6
+            if item.get("masked_url"):
+                pixel_hash = await compute_hash_from_url(str(item.get("masked_url") or ""))
+            if not pixel_hash and item.get("masked_image_base64"):
+                pixel_hash = compute_hash_from_base64(item.get("masked_image_base64"))
+
+            duplicate_item = {
+                "category": category,
+                "sub_category": sub_category,
+                "color_code": color_code,
+                "pattern": str(vision.get("pattern") or "plain"),
+                "occasions": vision.get("occasions") or [],
+            }
+            duplicate = _find_upload_duplicate(
+                user_id=user_id,
+                item=duplicate_item,
+                pixel_hash=pixel_hash,
+                image_embedding=embedding,
             )
-        except Exception:
-            duplicate = {"checked": False, "is_duplicate": False}
+        except Exception as exc:
+            logger.warning("wardrobe duplicate check failed user_id=%s error=%s", user_id, exc)
+            duplicate = _duplicate_result(checked=False, is_duplicate=False)
 
         confidence = float(item.get("score") or 0.8)
         if vision.get("confidence"):
@@ -624,7 +757,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                 "masked_image_base64": None,
                 "upload_error": "",
                 "pixel_hash": "",
-                "duplicate": {"checked": False, "is_duplicate": False},
+                "duplicate": _duplicate_result(checked=False, is_duplicate=False),
                 "image_embedding": [],
             }
         ]

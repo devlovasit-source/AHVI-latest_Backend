@@ -20,3 +20,6 @@ __pycache__/
 # Temp search files
 backend-files.txt
 backend-python-search.txt
+
+__pycache__/
+*.pyc
