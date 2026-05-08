@@ -859,6 +859,37 @@ def _occasion_fit_score(card: Dict[str, Any], query: str) -> float:
     return score
 
 
+def _allows_relaxed_footwear(query: str) -> bool:
+    q = _safe_text(query).lower()
+    return any(
+        key in q
+        for key in (
+            "beach",
+            "pool",
+            "resort",
+            "vacation",
+            "holiday",
+            "lounge",
+            "home",
+            "sunday",
+            "errand",
+            "very casual",
+        )
+    )
+
+
+def _hard_rejection_reason(card: Dict[str, Any], query: str) -> str:
+    kind = _occasion_kind(query)
+    footwear_mood = _footwear_mood(_item_by_role(card, "footwear"))
+    if (
+        kind in {"office", "date", "wedding"}
+        and footwear_mood == "relaxed sandal"
+        and not _allows_relaxed_footwear(query)
+    ):
+        return "relaxed_footwear_blocked_for_occasion"
+    return ""
+
+
 _STYLE_DNA_TARGETS = {
     "office": [
         {"style_energy": "safest/refined", "archetype": "Hero Look", "title": "Boardroom Casual"},
@@ -1240,6 +1271,19 @@ def finalize_style_cards(
             continue
         fixed = _canonicalize_card(card, idx)
         if not fixed:
+            continue
+        rejection_reason = _hard_rejection_reason(fixed, query)
+        if rejection_reason:
+            logger.info(
+                "style_flow.card_rejected reason=%s query=%s items=%s",
+                rejection_reason,
+                query,
+                [
+                    _safe_text(item.get("name") or item.get("title"))
+                    for item in fixed.get("items", [])
+                    if isinstance(item, dict)
+                ],
+            )
             continue
         sig = card_signature(fixed)
         core_sig = core_card_signature(fixed) or sig

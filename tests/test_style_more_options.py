@@ -332,6 +332,25 @@ def test_date_request_demotes_relaxed_sandals_when_polished_footwear_exists():
     assert "loafer" in first_footwear
 
 
+def test_date_request_blocks_relaxed_sandals_from_final_boards():
+    cards = [
+        _card(_item("top-1", "Tropical Print Shirt", "top", "orange"), _item("bottom-1", "Black Pants", "bottom"), _item("shoe-birk", "Birkenstock", "footwear"), score=180),
+        _card(_item("top-2", "Black Shirt", "top"), _item("bottom-2", "Grey Trousers", "bottom", "grey"), _item("shoe-loafer", "Leather Loafers", "footwear"), score=80),
+        _card(_item("top-3", "Off White Shirt", "top", "white"), _item("bottom-3", "Black Jeans", "bottom"), _item("shoe-boot", "Chelsea Boots", "footwear"), score=75),
+    ]
+
+    filtered = finalize_style_cards(cards, query="I have a date tonight", default_limit=3)
+    footwear_names = [
+        item["name"].lower()
+        for card in filtered
+        for item in card["items"]
+        if item.get("role") == "footwear"
+    ]
+
+    assert footwear_names
+    assert all("birkenstock" not in name and "sandal" not in name for name in footwear_names)
+
+
 def test_party_request_prefers_statement_or_polished_energy():
     cards = [
         _card(_item("top-1", "Plain Office Shirt", "top", "white"), _item("bottom-1", "Grey Trousers", "bottom", "grey"), _item("shoe-1", "White Sneakers", "footwear"), score=100),
