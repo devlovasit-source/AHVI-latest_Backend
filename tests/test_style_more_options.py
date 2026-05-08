@@ -5,6 +5,27 @@ from services.style_flow_service import (
 )
 
 
+GENERIC_TITLES = {"Signature Combo", "Easy Win", "Today's Edit", "Polished Daily"}
+
+
+def _item(item_id, name, role, color="black"):
+    return {
+        "id": item_id,
+        "name": name,
+        "role": role,
+        "color": color,
+        "image_url": f"https://x/{item_id}.png",
+    }
+
+
+def _card(top, bottom, footwear, *, title="Signature Combo", score=100):
+    return {
+        "title": title,
+        "score": score,
+        "items": [top, bottom, footwear, _item(f"watch-{top['id']}", "Omega Speedmaster", "accessory")],
+    }
+
+
 def test_more_options_excludes_already_seen_style_signatures():
     seen_card = {
         "title": "Boardroom Casual",
@@ -120,3 +141,85 @@ def test_accessory_only_change_does_not_create_new_style_board():
 
     assert len(filtered) == 1
     assert filtered[0]["_style_core_signature"] == "top-1|bottom-1|shoe-1"
+
+
+def test_generic_office_demotes_birkenstock_when_clean_footwear_exists():
+    black_pants = _item("bottom-1", "Black Pants", "bottom")
+    cards = [
+        _card(_item("top-1", "Teal Shirt", "top", "teal"), black_pants, _item("shoe-birk", "Birkenstock", "footwear"), score=120),
+        _card(_item("top-2", "Off White Shirt", "top", "white"), _item("bottom-2", "Grey Trousers", "bottom", "grey"), _item("shoe-loafer", "Leather Loafers", "footwear"), score=90),
+        _card(_item("top-3", "Blue Button-Down", "top", "blue"), _item("bottom-3", "Navy Chinos", "bottom", "navy"), _item("shoe-white", "White Sneakers", "footwear"), score=85),
+        _card(_item("top-4", "Black Shirt", "top"), black_pants, _item("shoe-black", "Black Sneakers", "footwear"), score=80),
+    ]
+
+    filtered = finalize_style_cards(cards, query="I need office outfit", default_limit=4)
+    top_three_names = [
+        item["name"].lower()
+        for card in filtered[:3]
+        for item in card["items"]
+        if item.get("role") == "footwear"
+    ]
+
+    assert all("birkenstock" not in name for name in top_three_names)
+
+
+def test_repeated_bottom_is_capped_when_alternatives_exist():
+    cards = [
+        _card(_item("top-1", "White Shirt", "top"), _item("bottom-black", "Black Pants", "bottom"), _item("shoe-1", "Black Sneakers", "footwear"), score=110),
+        _card(_item("top-2", "Blue Shirt", "top"), _item("bottom-black", "Black Pants", "bottom"), _item("shoe-2", "White Sneakers", "footwear"), score=108),
+        _card(_item("top-3", "Teal Shirt", "top"), _item("bottom-black", "Black Pants", "bottom"), _item("shoe-3", "Loafers", "footwear"), score=106),
+        _card(_item("top-4", "Off White Shirt", "top"), _item("bottom-grey", "Grey Trousers", "bottom", "grey"), _item("shoe-4", "Leather Sneakers", "footwear"), score=80),
+        _card(_item("top-5", "Mint Shirt", "top"), _item("bottom-navy", "Navy Chinos", "bottom", "navy"), _item("shoe-5", "Loafers", "footwear"), score=78),
+    ]
+
+    filtered = finalize_style_cards(cards, query="office outfit", default_limit=5)
+    bottom_ids = [
+        item["id"]
+        for card in filtered
+        for item in card["items"]
+        if item.get("role") == "bottom"
+    ]
+
+    assert bottom_ids.count("bottom-black") <= 2
+    assert {"bottom-grey", "bottom-navy"}.intersection(bottom_ids)
+
+
+def test_footwear_only_change_is_not_prioritized_as_new_direction():
+    same_top = _item("top-1", "White Shirt", "top")
+    same_bottom = _item("bottom-1", "Black Pants", "bottom")
+    cards = [
+        _card(same_top, same_bottom, _item("shoe-1", "Black Sneakers", "footwear"), score=100),
+        _card(same_top, same_bottom, _item("shoe-2", "White Sneakers", "footwear"), score=99),
+        _card(_item("top-2", "Blue Button-Down", "top"), _item("bottom-2", "Grey Trousers", "bottom", "grey"), _item("shoe-3", "Loafers", "footwear"), score=80),
+    ]
+
+    filtered = finalize_style_cards(cards, query="office outfit", default_limit=3)
+    top_bottom_pairs = [
+        "|".join(
+            item["id"]
+            for item in card["items"]
+            if item.get("role") in {"top", "bottom"}
+        )
+        for card in filtered[:2]
+    ]
+
+    assert len(set(top_bottom_pairs)) == len(top_bottom_pairs)
+
+
+def test_final_boards_have_archetype_explanation_and_visual_metadata():
+    cards = [
+        _card(_item("top-1", "White Shirt", "top", "white"), _item("bottom-1", "Black Pants", "bottom"), _item("shoe-1", "Black Sneakers", "footwear")),
+        _card(_item("top-2", "Blue Button-Down", "top", "blue"), _item("bottom-2", "Grey Trousers", "bottom", "grey"), _item("shoe-2", "Loafers", "footwear")),
+        _card(_item("top-3", "Off White Shirt", "top", "white"), _item("bottom-3", "Navy Chinos", "bottom", "navy"), _item("shoe-3", "White Sneakers", "footwear")),
+    ]
+
+    filtered = finalize_style_cards(cards, query="office outfit", default_limit=3)
+    modes = [card["explanation_mode"] for card in filtered]
+
+    assert all(card["title"] not in GENERIC_TITLES for card in filtered)
+    assert all(card.get("style_archetype") for card in filtered)
+    assert all(card.get("style_direction") == "smart_casual_office" for card in filtered)
+    assert all(card.get("diversity_profile") for card in filtered)
+    assert all(card.get("styling_tip") for card in filtered)
+    assert all(card.get("layout_preset") for card in filtered)
+    assert len(modes) == len(set(modes))

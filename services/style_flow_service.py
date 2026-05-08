@@ -322,6 +322,224 @@ def _occasion_flags(query: str) -> Dict[str, bool]:
     }
 
 
+def _item_by_role(card: Dict[str, Any], role: str) -> Dict[str, Any]:
+    for item in card.get("items", []):
+        if isinstance(item, dict) and item_role(item) == role:
+            return item
+    return {}
+
+
+def _role_key(card: Dict[str, Any], role: str) -> str:
+    return item_key(_item_by_role(card, role))
+
+
+def _item_blob(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return " ".join(
+        _safe_text(item.get(k))
+        for k in (
+            "name",
+            "label",
+            "title",
+            "category",
+            "sub_category",
+            "subcategory",
+            "type",
+            "style",
+            "pattern",
+            "color",
+            "material",
+            "fabric",
+        )
+    ).lower()
+
+
+def _office_direction(query: str) -> str:
+    q = str(query or "").lower()
+    if any(k in q for k in ("corporate", "boardroom", "formal", "client", "presentation")):
+        return "corporate_office"
+    if any(k in q for k in ("creative", "agency", "studio", "design")):
+        return "creative_office"
+    if any(k in q for k in ("startup", "start-up", "casual office")):
+        return "startup_office"
+    if any(k in q for k in ("friday", "relaxed office", "casual friday")):
+        return "friday_office"
+    if _occasion_flags(query)["office"]:
+        return "smart_casual_office"
+    if _occasion_flags(query)["date"]:
+        return "date_night"
+    if _occasion_flags(query)["party"]:
+        return "party"
+    return "daily"
+
+
+def _footwear_mood(item: Dict[str, Any]) -> str:
+    text = _item_blob(item)
+    if any(k in text for k in ("loafer", "oxford", "derby", "formal", "monk strap")):
+        return "formal polish"
+    if any(k in text for k in ("leather sneaker", "minimal sneaker", "white sneaker", "cream sneaker", "clean sneaker")):
+        return "polished sneaker"
+    if "sneaker" in text:
+        return "casual sneaker"
+    if any(k in text for k in ("birkenstock", "sandal", "slipper", "slider", "slides", "flip flop", "flip-flop", "crocs")):
+        return "relaxed sandal"
+    if any(k in text for k in ("boot", "chelsea")):
+        return "structured boot"
+    if any(k in text for k in ("running", "trainer", "gym", "athletic", "sports")):
+        return "athletic"
+    return "neutral footwear"
+
+
+def _footwear_formality_score(item: Dict[str, Any], query: str) -> float:
+    mood = _footwear_mood(item)
+    direction = _office_direction(query)
+    if direction == "corporate_office":
+        return {
+            "formal polish": 3.0,
+            "polished sneaker": 1.3,
+            "structured boot": 1.0,
+            "casual sneaker": -1.0,
+            "relaxed sandal": -8.0,
+            "athletic": -7.0,
+        }.get(mood, 0.0)
+    if direction in {"smart_casual_office", "friday_office", "startup_office"}:
+        return {
+            "formal polish": 2.4,
+            "polished sneaker": 2.2,
+            "structured boot": 1.2,
+            "casual sneaker": 0.4,
+            "relaxed sandal": -7.0,
+            "athletic": -5.0,
+        }.get(mood, 0.0)
+    if direction == "creative_office":
+        return {
+            "formal polish": 1.5,
+            "polished sneaker": 2.0,
+            "structured boot": 1.5,
+            "casual sneaker": 0.8,
+            "relaxed sandal": -3.5,
+            "athletic": -3.0,
+        }.get(mood, 0.0)
+    if direction == "date_night":
+        return {
+            "formal polish": 2.2,
+            "structured boot": 2.0,
+            "polished sneaker": 1.2,
+            "relaxed sandal": -5.0,
+            "athletic": -4.0,
+        }.get(mood, 0.0)
+    return 0.0
+
+
+def _top_office_score(item: Dict[str, Any], query: str) -> float:
+    if not _occasion_flags(query)["office"]:
+        return 0.0
+    text = _item_blob(item)
+    score = 0.0
+    if any(k in text for k in ("button-down", "button down", "buttondown", "oxford", "shirt", "polo", "overshirt")):
+        score += 2.0
+    if any(k in text for k in ("structured", "tailored", "crisp", "clean")):
+        score += 0.8
+    expressive_ok = _office_direction(query) in {"creative_office", "startup_office", "friday_office"}
+    if any(k in text for k in ("tropical", "hawaiian", "vacation", "beach", "resort", "loud")) and not expressive_ok:
+        score -= 6.0
+    return score
+
+
+def _palette_direction(card: Dict[str, Any]) -> str:
+    colors = [
+        _safe_text(item.get("color") or item.get("color_code")).lower()
+        for item in card.get("items", [])
+        if isinstance(item, dict) and _safe_text(item.get("color") or item.get("color_code"))
+    ]
+    neutrals = {"black", "white", "off white", "grey", "gray", "navy", "cream", "beige", "brown"}
+    unique = [c for c in dict.fromkeys(colors) if c]
+    if not unique:
+        return "neutral"
+    if all(c in neutrals for c in unique):
+        return "minimal neutral"
+    if any(c in {"blue", "teal", "green", "mint", "navy"} for c in unique):
+        return "cool contrast"
+    if any(c in {"orange", "red", "yellow", "maroon"} for c in unique):
+        return "warm statement"
+    return "balanced color"
+
+
+def _silhouette_mood(card: Dict[str, Any]) -> str:
+    top_text = _item_blob(_item_by_role(card, "top") or _item_by_role(card, "dress"))
+    bottom_text = _item_blob(_item_by_role(card, "bottom"))
+    footwear_text = _item_blob(_item_by_role(card, "footwear"))
+    if any(k in top_text for k in ("shirt", "button", "oxford")) and any(k in bottom_text for k in ("trouser", "pant", "chino")):
+        return "clean tailoring"
+    if "black" in top_text and "black" in bottom_text:
+        return "modern monochrome"
+    if "jean" in bottom_text or "denim" in bottom_text:
+        return "relaxed smart"
+    if "loafer" in footwear_text or "formal" in footwear_text:
+        return "polished column"
+    return "easy structure"
+
+
+def _accessory_mood(card: Dict[str, Any]) -> str:
+    types = [_accessory_type(item) for item in card.get("accessories", []) if isinstance(item, dict)]
+    if not types:
+        return "clean minimal"
+    if "watch" in types and len(types) == 1:
+        return "minimal watch"
+    if "watch" in types and "eyewear" in types:
+        return "watch and eyewear"
+    if "bag" in types:
+        return "utility polish"
+    return "subtle accessories"
+
+
+def _diversity_profile(card: Dict[str, Any], query: str) -> Dict[str, Any]:
+    return {
+        "silhouette": _silhouette_mood(card),
+        "palette": _palette_direction(card),
+        "footwear_mood": _footwear_mood(_item_by_role(card, "footwear")),
+        "accessory_mood": _accessory_mood(card),
+    }
+
+
+def _diversity_bonus(card: Dict[str, Any], selected: List[Dict[str, Any]]) -> float:
+    if not selected:
+        return 2.0
+    profile = _diversity_profile(card, _safe_text(card.get("_style_query")))
+    selected_profiles = [s.get("diversity_profile") or _diversity_profile(s, _safe_text(s.get("_style_query"))) for s in selected]
+    bonus = 0.0
+    for key in ("silhouette", "palette", "footwear_mood", "accessory_mood"):
+        if profile.get(key) not in {p.get(key) for p in selected_profiles}:
+            bonus += 0.7
+    if _role_key(card, "top") and _role_key(card, "top") not in {_role_key(s, "top") for s in selected}:
+        bonus += 1.0
+    if _role_key(card, "bottom") and _role_key(card, "bottom") not in {_role_key(s, "bottom") for s in selected}:
+        bonus += 1.0
+    return bonus
+
+
+def _redundancy_penalty(card: Dict[str, Any], selected: List[Dict[str, Any]]) -> float:
+    penalty = 0.0
+    bottom = _role_key(card, "bottom")
+    top = _role_key(card, "top") or _role_key(card, "dress")
+    top_bottom = "|".join([top, bottom])
+    selected_bottoms = [_role_key(s, "bottom") for s in selected]
+    selected_top_bottoms = {
+        "|".join([_role_key(s, "top") or _role_key(s, "dress"), _role_key(s, "bottom")])
+        for s in selected
+    }
+    if bottom and bottom in selected_bottoms:
+        penalty += selected_bottoms.count(bottom) * 2.5
+    if top_bottom.strip("|") and top_bottom in selected_top_bottoms:
+        penalty += 6.0
+    if _footwear_mood(_item_by_role(card, "footwear")) in {
+        _footwear_mood(_item_by_role(s, "footwear")) for s in selected
+    }:
+        penalty += 0.8
+    return penalty
+
+
 def _card_blob(card: Dict[str, Any]) -> str:
     return " ".join(
         [
@@ -355,16 +573,29 @@ def _quality_score(card: Dict[str, Any], query: str) -> float:
             score += 1.0
         if any(k in text for k in ("tropical", "hawaiian", "vacation", "beach", "party", "loud")):
             score -= 5.0
-        if any(k in text for k in ("shorts", "slipper", "slides")):
-            score -= 2.0
+        if any(k in text for k in ("shorts", "slipper", "slides", "slider", "sandal", "birkenstock", "crocs")):
+            score -= 4.0
+        score += _top_office_score(_item_by_role(card, "top"), query)
+        score += _footwear_formality_score(_item_by_role(card, "footwear"), query)
     if flags["date"] and any(k in text for k in ("watch", "black", "off white", "loafer")):
         score += 1.5
+        score += _footwear_formality_score(_item_by_role(card, "footwear"), query)
     if flags["party"] and any(k in text for k in ("print", "pattern", "statement", "black")):
         score += 1.0
     return score
 
 
-def _title_for(card: Dict[str, Any], query: str, index: int) -> str:
+_ARCHETYPES = [
+    "Hero Look",
+    "Safest Option",
+    "Elevated Option",
+    "Relaxed Sharp",
+    "Creative Professional",
+    "Backup Option",
+]
+
+
+def _title_for(card: Dict[str, Any], query: str, index: int, archetype: str = "") -> str:
     existing = _safe_text(card.get("look_name") or card.get("title") or card.get("name"))
     lower = existing.lower()
     generic = (
@@ -384,16 +615,177 @@ def _title_for(card: Dict[str, Any], query: str, index: int) -> str:
         return existing
 
     flags = _occasion_flags(query)
-    titles = (
-        ["Boardroom Casual", "Sharp Daily", "Clean Friday", "Polished Neutral", "Smart Ease", "Workday Edit"]
-        if flags["office"]
-        else ["Date Night Edit", "Evening Ease", "Polished Dinner", "Soft Statement", "After-Dark Smart", "Clean Romance"]
-        if flags["date"]
-        else ["After-Hours Edit", "Statement Ease", "Night-Out Sharp", "Clean Contrast", "Smart Presence", "Polished Edge"]
-        if flags["party"]
-        else ["Polished Neutral", "Sharp Daily", "Smart Ease", "Clean Edit", "Refined Casual", "Signature Fit"]
-    )
+    if flags["office"]:
+        title_by_archetype = {
+            "Hero Look": "Boardroom Casual",
+            "Safest Option": "Sharp Daily",
+            "Elevated Option": "Executive Minimal",
+            "Relaxed Sharp": "Clean Friday",
+            "Creative Professional": "Creative Professional",
+            "Backup Option": "Relaxed Sharp",
+        }
+        titles = ["Boardroom Casual", "Sharp Daily", "Creative Professional", "Clean Friday", "Executive Minimal", "Relaxed Sharp"]
+    elif flags["date"]:
+        title_by_archetype = {
+            "Hero Look": "Date Night Edit",
+            "Safest Option": "Polished Dinner",
+            "Elevated Option": "After-Dark Smart",
+            "Relaxed Sharp": "Confident Casual",
+            "Creative Professional": "Soft Statement",
+            "Backup Option": "Evening Minimal",
+        }
+        titles = ["Date Night Edit", "After-Dark Smart", "Polished Dinner", "Soft Statement", "Evening Minimal", "Confident Casual"]
+    elif flags["party"]:
+        title_by_archetype = {
+            "Hero Look": "After-Hours Edit",
+            "Safest Option": "Clean Contrast",
+            "Elevated Option": "Polished Edge",
+            "Relaxed Sharp": "Statement Ease",
+            "Creative Professional": "Night-Out Sharp",
+            "Backup Option": "Smart Presence",
+        }
+        titles = ["After-Hours Edit", "Statement Ease", "Night-Out Sharp", "Clean Contrast", "Smart Presence", "Polished Edge"]
+    else:
+        title_by_archetype = {
+            "Hero Look": "Polished Neutral",
+            "Safest Option": "Sharp Daily",
+            "Elevated Option": "Clean Edit",
+            "Relaxed Sharp": "Smart Ease",
+            "Creative Professional": "Refined Casual",
+            "Backup Option": "Signature Fit",
+        }
+        titles = ["Polished Neutral", "Sharp Daily", "Smart Ease", "Clean Edit", "Refined Casual", "Signature Fit"]
+    if archetype in title_by_archetype:
+        return title_by_archetype[archetype]
     return titles[index % len(titles)]
+
+
+_EXPLANATION_MODES = [
+    "color_harmony",
+    "silhouette_balance",
+    "texture_contrast",
+    "occasion_alignment",
+    "footwear_polish",
+    "smart_contrast",
+    "minimal_aesthetic",
+    "relaxed_tailoring",
+]
+
+
+def _item_name(card: Dict[str, Any], role: str, fallback: str) -> str:
+    item = _item_by_role(card, role)
+    return _safe_text(item.get("name") or item.get("label") or item.get("title") or fallback)
+
+
+def _explanation_for(card: Dict[str, Any], query: str, index: int) -> Dict[str, str]:
+    mode = _EXPLANATION_MODES[index % len(_EXPLANATION_MODES)]
+    top = _item_name(card, "top", _item_name(card, "dress", "the hero piece"))
+    bottom = _item_name(card, "bottom", "the base")
+    footwear = _item_name(card, "footwear", "the footwear")
+    palette = _palette_direction(card)
+    silhouette = _silhouette_mood(card)
+    footwear_mood = _footwear_mood(_item_by_role(card, "footwear"))
+
+    copy = {
+        "color_harmony": f"The {top} sets a {palette} direction, while {bottom} keeps the palette grounded so the outfit reads intentional.",
+        "silhouette_balance": f"The {top} and {bottom} create a {silhouette} shape, with {footwear} anchoring the proportions instead of competing with them.",
+        "texture_contrast": f"The contrast between {top} and {bottom} gives the look depth, and {footwear} keeps the finish practical without flattening the styling.",
+        "occasion_alignment": f"For this request, {top} feels appropriate because {bottom} keeps the base controlled and {footwear} supports the occasion.",
+        "footwear_polish": f"The {footwear} changes the mood to {footwear_mood}, making the outfit feel styled rather than just matched.",
+        "smart_contrast": f"The sharper read of {top} works against the easier base of {bottom}, giving the board a clean smart-casual tension.",
+        "minimal_aesthetic": f"This keeps the outfit restrained: {top}, {bottom}, and {footwear} form a simple line with no unnecessary visual noise.",
+        "relaxed_tailoring": f"The look stays relaxed but neat; {top} adds structure, {bottom} keeps it wearable, and {footwear} finishes it with ease.",
+    }
+    tips = [
+        f"Roll the sleeves once on {top} if you want the office look to feel less stiff.",
+        f"Keep {top} untucked only if the hem sits above mid-hip.",
+        f"Swap to loafers after 6 PM if this needs to move from office to dinner.",
+        "Keep accessories minimal here; the cleaner line is what makes the board feel premium.",
+        f"Let {footwear} stay visible; it is doing the polish work in this outfit.",
+        f"If {bottom} is slim, avoid oversized accessories so the silhouette stays sharp.",
+        "This palette works best in daylight because the contrast stays clean without feeling heavy.",
+        f"Use a single watch or eyewear piece; more than that will distract from {top}.",
+    ]
+    return {
+        "explanation_mode": mode,
+        "why_it_works": copy[mode],
+        "styling_tip": tips[index % len(tips)],
+    }
+
+
+def _layout_metadata(card: Dict[str, Any], archetype: str) -> Dict[str, Any]:
+    presets = {
+        "Hero Look": "editorial_overlap_left",
+        "Safest Option": "clean_catalog_stack",
+        "Elevated Option": "magazine_depth_right",
+        "Relaxed Sharp": "footwear_anchor_left",
+        "Creative Professional": "asymmetric_editorial",
+        "Backup Option": "compact_accessory_rail",
+    }
+    hierarchy = ["dress", "footwear", "accessory"] if _item_by_role(card, "dress") else ["top", "bottom", "footwear", "accessory"]
+    return {
+        "layout_preset": presets.get(archetype, "editorial_overlap_left"),
+        "visual_hierarchy": hierarchy,
+        "composition_notes": ["footwear_anchor", "visible_bottom", "accessory_rail"],
+    }
+
+
+def _office_has_strong_footwear(cards: List[Dict[str, Any]], query: str) -> bool:
+    if not _occasion_flags(query)["office"]:
+        return False
+    return any(_footwear_formality_score(_item_by_role(card, "footwear"), query) > 0.5 for card in cards)
+
+
+def _select_diverse_cards(cards: List[Dict[str, Any]], query: str, limit: int) -> List[Dict[str, Any]]:
+    if not cards:
+        return []
+    unique_bottoms = {k for k in (_role_key(card, "bottom") for card in cards) if k}
+    enforce_bottom_limit = len(unique_bottoms) > 1
+    strong_office_footwear_exists = _office_has_strong_footwear(cards, query)
+    selected: List[Dict[str, Any]] = []
+    selected_sigs: set[str] = set()
+
+    def can_add(card: Dict[str, Any], *, strict: bool) -> bool:
+        core = _safe_text(card.get("_style_core_signature"))
+        if core in selected_sigs:
+            return False
+        bottom = _role_key(card, "bottom")
+        if enforce_bottom_limit and bottom:
+            bottom_count = sum(1 for selected_card in selected if _role_key(selected_card, "bottom") == bottom)
+            if bottom_count >= 2:
+                return False
+        if _occasion_flags(query)["office"] and strong_office_footwear_exists and len(selected) < 3:
+            if _footwear_formality_score(_item_by_role(card, "footwear"), query) <= -3.0:
+                return False
+        if strict:
+            top_bottom = "|".join([_role_key(card, "top") or _role_key(card, "dress"), bottom])
+            selected_top_bottoms = {
+                "|".join([_role_key(s, "top") or _role_key(s, "dress"), _role_key(s, "bottom")])
+                for s in selected
+            }
+            if top_bottom.strip("|") and top_bottom in selected_top_bottoms:
+                return False
+        return True
+
+    remaining = list(cards)
+    for strict in (True, False):
+        while len(selected) < limit:
+            choices = [card for card in remaining if can_add(card, strict=strict)]
+            if not choices:
+                break
+            choices.sort(
+                key=lambda card: (
+                    float(card.get("_style_quality_score") or 0.0)
+                    + _diversity_bonus(card, selected)
+                    - _redundancy_penalty(card, selected)
+                ),
+                reverse=True,
+            )
+            picked = choices[0]
+            selected.append(picked)
+            selected_sigs.add(_safe_text(picked.get("_style_core_signature")))
+            remaining = [card for card in remaining if card is not picked]
+    return selected[:limit]
 
 
 def finalize_style_cards(
@@ -426,14 +818,32 @@ def finalize_style_cards(
         fixed["_style_signature"] = sig
         fixed["_style_core_signature"] = core_sig
         fixed["_style_quality_score"] = _quality_score(fixed, query)
+        fixed["_style_query"] = query
         seen.add(core_sig)
         canonical.append(fixed)
 
     canonical.sort(key=lambda c: float(c.get("_style_quality_score") or 0.0), reverse=True)
+    canonical = _select_diverse_cards(canonical, query, limit)
     for idx, card in enumerate(canonical):
-        title = _title_for(card, query, idx)
+        archetype = _ARCHETYPES[idx % len(_ARCHETYPES)]
+        title = _title_for(card, query, idx, archetype)
+        profile = _diversity_profile(card, query)
+        explanation = _explanation_for(card, query, idx)
+        layout = _layout_metadata(card, archetype)
         card["title"] = title
         card["name"] = title
+        card["style_archetype"] = archetype
+        card["style_direction"] = _office_direction(query)
+        card["diversity_profile"] = profile
+        card["explanation_mode"] = explanation["explanation_mode"]
+        card["why_it_works"] = explanation["why_it_works"]
+        card["explanation"] = explanation["why_it_works"]
+        card["reason"] = explanation["why_it_works"]
+        card["style_reason"] = explanation["why_it_works"]
+        card["styling_tip"] = explanation["styling_tip"]
+        card["layout_preset"] = layout["layout_preset"]
+        card["visual_hierarchy"] = layout["visual_hierarchy"]
+        card["composition_notes"] = layout["composition_notes"]
     return canonical[:limit]
 
 
@@ -547,6 +957,12 @@ def render_style_boards(
                     "score": card.get("score"),
                     "style_dna": style_dna,
                     "card_id": card.get("id") or f"style_card_{idx + 1}",
+                    "style_archetype": card.get("style_archetype"),
+                    "style_direction": card.get("style_direction"),
+                    "diversity_profile": card.get("diversity_profile"),
+                    "layout_preset": card.get("layout_preset"),
+                    "visual_hierarchy": card.get("visual_hierarchy"),
+                    "composition_notes": card.get("composition_notes"),
                 },
             }
         )

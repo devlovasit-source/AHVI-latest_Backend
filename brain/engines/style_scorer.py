@@ -232,7 +232,7 @@ class UnifiedStyleScorer:
         if not footwear:
             return -4.0, [], ["missing footwear"]
 
-        relaxed = any(x in text for x in ["slipper", "slider", "slides", "flip", "crocs"])
+        relaxed = any(x in text for x in ["slipper", "slider", "slides", "flip", "crocs", "birkenstock", "sandal"])
         athletic = any(x in text for x in ["running", "gym", "training", "sports"])
         polished = any(
             x in text
