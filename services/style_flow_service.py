@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import logging
+import os
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +17,7 @@ logger = logging.getLogger("ahvi.style_flow")
 
 
 STYLE_ACTION_CHIPS = ["More looks", "Next best options", "Try different shoes"]
+TRUST_LAYER_RUNTIME_INFERENCE = str(os.getenv("AHVI_TRUST_LAYER_RUNTIME_INFERENCE", "")).lower() in {"1", "true", "yes"}
 
 
 def _dict(value: Any) -> Dict[str, Any]:
@@ -185,9 +187,10 @@ def normalize_item(item: Dict[str, Any], role: Optional[str] = None) -> Dict[str
         row.setdefault("imageUrl", image)
         row.setdefault("masked_url", image)
         row.setdefault("maskedUrl", image)
-    attrs = infer_style_attributes(row)
-    for key, value in attrs.items():
-        row.setdefault(key, value)
+    if TRUST_LAYER_RUNTIME_INFERENCE and "formality" not in row:
+        attrs = infer_style_attributes(row)
+        for key, value in attrs.items():
+            row.setdefault(key, value)
     return row
 
 
@@ -378,26 +381,24 @@ def _item_blob(item: Dict[str, Any]) -> str:
 
 def _item_formality(item: Dict[str, Any]) -> float:
     try:
-        return float(_dict(item).get("formality") or infer_style_attributes(_dict(item)).get("formality") or 3)
+        return float(_dict(item).get("formality") or 3)
     except Exception:
         return 3.0
 
 
 def _item_visual_weight(item: Dict[str, Any]) -> float:
     try:
-        return float(_dict(item).get("visual_weight") or infer_style_attributes(_dict(item)).get("visual_weight") or 2)
+        return float(_dict(item).get("visual_weight") or 2)
     except Exception:
         return 2.0
 
 
 def _item_cluster(item: Dict[str, Any]) -> str:
-    return _safe_text(_dict(item).get("aesthetic_cluster") or infer_style_attributes(_dict(item)).get("aesthetic_cluster") or "polished")
+    return _safe_text(_dict(item).get("aesthetic_cluster") or "polished")
 
 
 def _item_occasion_fitness(item: Dict[str, Any], kind: str) -> float:
     data = _dict(_dict(item).get("occasion_fitness"))
-    if not data:
-        data = _dict(infer_style_attributes(_dict(item)).get("occasion_fitness"))
     try:
         return float(data.get(kind) if data.get(kind) is not None else 0.5)
     except Exception:
