@@ -283,7 +283,14 @@ class QdrantService:
 
     def find_duplicate(self, vector, user_id, threshold=0.97):
         if not vector:
-            return {"checked": False, "is_duplicate": False, "score": 0.0}
+            return {
+                "checked": False,
+                "is_duplicate": False,
+                "reason": None,
+                "confidence": 0.0,
+                "matched_item_id": None,
+                "score": 0.0,
+            }
         matches = self._search_collection(
             self.collection,
             vector,
@@ -292,19 +299,37 @@ class QdrantService:
             score_threshold=float(threshold),
         )
         if not matches:
-            return {"checked": True, "is_duplicate": False, "score": 0.0}
+            return {
+                "checked": True,
+                "is_duplicate": False,
+                "reason": None,
+                "confidence": 0.0,
+                "matched_item_id": None,
+                "score": 0.0,
+            }
         top = matches[0]
+        score = float(top.get("score") or 0.0)
         return {
             "checked": True,
             "is_duplicate": True,
+            "reason": "metadata",
+            "confidence": score,
+            "matched_item_id": top.get("id"),
             "id": top.get("id"),
-            "score": float(top.get("score") or 0.0),
+            "score": score,
             "payload": top.get("payload") or {},
         }
 
     def find_image_duplicate(self, vector, user_id, threshold=0.985):
         if not vector:
-            return {"checked": False, "is_duplicate": False, "score": 0.0}
+            return {
+                "checked": False,
+                "is_duplicate": False,
+                "reason": None,
+                "confidence": 0.0,
+                "matched_item_id": None,
+                "score": 0.0,
+            }
         matches = self._search_collection(
             self.image_collection,
             vector,
@@ -313,13 +338,24 @@ class QdrantService:
             score_threshold=float(threshold),
         )
         if not matches:
-            return {"checked": True, "is_duplicate": False, "score": 0.0}
+            return {
+                "checked": True,
+                "is_duplicate": False,
+                "reason": None,
+                "confidence": 0.0,
+                "matched_item_id": None,
+                "score": 0.0,
+            }
         top = matches[0]
+        score = float(top.get("score") or 0.0)
         return {
             "checked": True,
             "is_duplicate": True,
+            "reason": "image_vector",
+            "confidence": score,
+            "matched_item_id": top.get("id"),
             "id": top.get("id"),
-            "score": float(top.get("score") or 0.0),
+            "score": score,
             "payload": top.get("payload") or {},
         }
 
@@ -368,6 +404,8 @@ class QdrantService:
             "category": item.get("category"),
             "color": item.get("color"),
             "image_url": item.get("image_url"),
+            "pixel_hash": item.get("pixel_hash"),
+            "qdrant_point_id": item_id,
         }
         payload = {k: v for k, v in payload.items() if v is not None}
         self.upsert_item(item_id, vector, payload)
@@ -389,7 +427,13 @@ class QdrantService:
     # =========================
     def find_pixel_duplicate(self, user_id, pixel_hash, max_distance=6):
         if not self._ensure() or not pixel_hash:
-            return {"checked": False, "is_duplicate": False}
+            return {
+                "checked": False,
+                "is_duplicate": False,
+                "reason": None,
+                "confidence": 0.0,
+                "matched_item_id": None,
+            }
 
         try:
             # 🔥 only fetch limited candidates
@@ -416,17 +460,34 @@ class QdrantService:
                 dist = hamming_distance_hex(pixel_hash, candidate_hash)
 
                 if dist is not None and dist <= max_distance:
+                    confidence = max(0.0, 1.0 - (float(dist) / max(float(max_distance), 1.0)))
                     return {
                         "checked": True,
                         "is_duplicate": True,
+                        "reason": "pixel_hash",
+                        "confidence": confidence,
+                        "matched_item_id": str(point.id),
                         "id": str(point.id),
                         "distance": dist,
+                        "payload": point.payload or {},
                     }
 
-            return {"checked": True, "is_duplicate": False}
+            return {
+                "checked": True,
+                "is_duplicate": False,
+                "reason": None,
+                "confidence": 0.0,
+                "matched_item_id": None,
+            }
 
         except Exception:
-            return {"checked": True, "is_duplicate": False}
+            return {
+                "checked": True,
+                "is_duplicate": False,
+                "reason": None,
+                "confidence": 0.0,
+                "matched_item_id": None,
+            }
 
     # =========================
     # USER MEMORY

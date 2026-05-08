@@ -133,8 +133,9 @@ reddit_router = _load_optional_router("routers.reddit")
 # Feature-based
 bg_router = None
 if os.getenv("ENABLE_BG_REMOVER", "false").lower() in ("1", "true", "yes"):
-    # bg_service uses HuggingFace's hosted Inference API (httpx + redis only).
-    # torch/transformers are only needed for the local-model path on RunPod.
+    # bg_service routes uploads to the GCE-hosted RMBG service via
+    # RMBG_SERVICE_URL (httpx + redis only). HuggingFace Inference is the
+    # last-resort fallback when HF_TOKEN is set.
     if _has_module("httpx"):
         bg_router = _load_optional_router("routers.bg_router")
     else:
@@ -207,20 +208,25 @@ def _looks_like_cloud_run() -> bool:
     return bool(os.getenv("K_SERVICE") or os.getenv("K_REVISION"))
 
 
-_prod_like = _is_production() or _looks_like_cloud_run()
-
-if _prod_like:
+# Sentry is only mandatory when ENV is explicitly production. On Cloud Run we
+# warn but do not block startup so a missing DSN cannot keep the service from
+# coming up.
+if _is_production():
     if not _sentry_dsn:
         raise RuntimeError(
-            "SENTRY_DSN is required in production-like environments "
-            "(ENV=production or running on Cloud Run). "
-            "Set SENTRY_DSN, or set ENV=development to opt out."
+            "SENTRY_DSN is required when ENV=production. "
+            "Set SENTRY_DSN or unset ENV/APP_ENV to run without it."
         )
     if not (sentry_sdk and FastApiIntegration):
         raise RuntimeError(
-            "sentry-sdk is not installed but the runtime looks production-like. "
+            "sentry-sdk is not installed but ENV=production. "
             "Add sentry-sdk to requirements.txt."
         )
+elif _looks_like_cloud_run() and not _sentry_dsn:
+    logger.warning(
+        "running on Cloud Run without SENTRY_DSN — error tracking disabled. "
+        "Set SENTRY_DSN to enable."
+    )
 
 if _sentry_dsn and sentry_sdk and FastApiIntegration and not _sentry_client_ready:
     sentry_sdk.init(
@@ -530,7 +536,6 @@ async def auth_guard_middleware(request: Request, call_next):
         path == "/"
         or path.startswith("/health")
         or path == "/api/notifications/health"
-        or path == "/api/text"
         or path.startswith("/api/notifications/dispatch-due")
         or path.startswith("/docs")
         or path.startswith("/openapi")
@@ -596,7 +601,6 @@ async def rate_limit_middleware(request: Request, call_next):
         and path != "/"
         and not path.startswith("/health")
         and path != "/api/notifications/health"
-        and path != "/api/text"
         and not path.startswith("/api/notifications/dispatch-due")
         and not path.startswith("/docs")
         and not path.startswith("/openapi")

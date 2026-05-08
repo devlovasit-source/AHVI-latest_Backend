@@ -2,9 +2,17 @@ import re
 from typing import List, Dict, Any, Optional
 
 from brain.engines.color_normalizer import color_normalizer
-from brain.engines.memory_scorer import memory_scorer
 from brain.engines.styling.palette_engine import palette_engine
-from services.qdrant_service import qdrant_service
+
+try:
+    from brain.engines.memory_scorer import memory_scorer
+except Exception:  # pragma: no cover - optional vector memory path
+    memory_scorer = None
+
+try:
+    from services.qdrant_service import qdrant_service
+except Exception:  # pragma: no cover - optional vector memory path
+    qdrant_service = None
 
 
 class WardrobeSelector:
@@ -116,6 +124,26 @@ class WardrobeSelector:
         "sunglasses": "accessory",
         "eyewear": "accessory",
     }
+
+    @staticmethod
+    def _cosine_similarity(a: List[float], b: List[float]) -> float:
+        if qdrant_service is not None:
+            try:
+                return float(qdrant_service.cosine_similarity(a, b) or 0.0)
+            except Exception:
+                pass
+        try:
+            pairs = [(float(x), float(y)) for x, y in zip(a or [], b or [])]
+            if not pairs:
+                return 0.0
+            dot = sum(x * y for x, y in pairs)
+            norm_a = sum(x * x for x, _ in pairs) ** 0.5
+            norm_b = sum(y * y for _, y in pairs) ** 0.5
+            if not norm_a or not norm_b:
+                return 0.0
+            return dot / (norm_a * norm_b)
+        except Exception:
+            return 0.0
 
     def normalize_type(self, t: str) -> str:
         if not t:
@@ -350,11 +378,34 @@ class WardrobeSelector:
         preferred_colors: Optional[List[str]] = None,
         require_occasion: str | None = None,
     ) -> Optional[Dict]:
+        matches = self.find_best_matches(
+            target_type=target_type,
+            context=context,
+            reference_embedding=reference_embedding,
+            preferred_colors=preferred_colors,
+            require_occasion=require_occasion,
+            limit=1,
+        )
+        if not matches:
+            return None
+        best = matches[0]["item"]
+        print(f"SELECTED ITEM -> type: {self.normalize_type(target_type)} | score: {matches[0]['score']:.3f}")
+        return best
+
+    def find_best_matches(
+        self,
+        target_type: str,
+        context: Dict[str, Any],
+        reference_embedding: Optional[List[float]] = None,
+        preferred_colors: Optional[List[str]] = None,
+        require_occasion: str | None = None,
+        limit: int = 6,
+    ) -> List[Dict[str, Any]]:
 
         wardrobe = context.get("wardrobe", [])
         if not wardrobe:
             print("No wardrobe available")
-            return None
+            return []
 
         target_type = self.normalize_type(target_type)
         occasion = (
@@ -425,7 +476,7 @@ class WardrobeSelector:
 
         if not candidates:
             print(f"No candidates for type: {target_type}")
-            return None
+            return []
 
         # -------------------------
         # SCORING
@@ -438,9 +489,7 @@ class WardrobeSelector:
             # Embedding score.
             if reference_embedding and item.get("embedding"):
                 try:
-                    sim = qdrant_service.cosine_similarity(
-                        reference_embedding, item["embedding"]
-                    )
+                    sim = self._cosine_similarity(reference_embedding, item["embedding"])
                     score += sim * 0.8
                 except Exception:
                     pass
@@ -477,7 +526,7 @@ class WardrobeSelector:
             score += self._context_score(item, context, current_outfit)
 
             # Memory: boost items aligned with user's past likes.
-            if item.get("embedding"):
+            if item.get("embedding") and memory_scorer is not None:
                 try:
                     mem = float(memory_scorer.score(item["embedding"], context))
                     mem = max(-1.0, min(mem, 1.0))
@@ -491,12 +540,7 @@ class WardrobeSelector:
         # SORT
         # -------------------------
         scored.sort(key=lambda x: x["score"], reverse=True)
-
-        best = scored[0]["item"]
-
-        print(f"SELECTED ITEM -> type: {target_type} | score: {scored[0]['score']:.3f}")
-
-        return best
+        return scored[: max(1, int(limit or 1))]
 
     # =========================
     # FALLBACK

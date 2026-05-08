@@ -148,15 +148,25 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         f"/collections/{APPWRITE_COLLECTION_ID}/documents"
     )
 
-    res = requests.post(
-        url,
-        json={
-            "documentId": document_id,
-            "data": data,
-        },
-        headers=HEADERS,
-        timeout=20,
-    )
+    def post(payload: Dict[str, Any]):
+        return requests.post(
+            url,
+            json={
+                "documentId": document_id,
+                "data": payload,
+            },
+            headers=HEADERS,
+            timeout=20,
+        )
+
+    res = post(data)
+
+    optional_keys = {"pixel_hash", "image_embedding", "image_vector"}
+    if res.status_code not in (200, 201) and optional_keys.intersection(data):
+        body = str(res.text or "").lower()
+        if "unknown attribute" in body or "invalid document structure" in body:
+            clean_data = {k: v for k, v in data.items() if k not in optional_keys}
+            res = post(clean_data)
 
     if res.status_code not in (200, 201):
         raise RuntimeError(f"Appwrite error: {res.status_code} {res.text}")
@@ -353,8 +363,11 @@ def _build_appwrite_doc(
     # chat/style-board rendering. Add `normalized_url` as an optional String
     # attribute in Appwrite before deploying this file.
     final_image_url = normalized_url or masked_url or raw_url
+    pixel_hash = _safe_text(
+        item.get("pixel_hash") or item.get("pixelHash") or item.get("masked_pixel_hash")
+    )
 
-    return {
+    doc = {
         "image_url": final_image_url,
         "category": category,
         "userId": user_id,
@@ -372,6 +385,9 @@ def _build_appwrite_doc(
         "liked": bool(item.get("liked") or False),
         "qdrant_point_id": file_id,
     }
+    if pixel_hash:
+        doc["pixel_hash"] = pixel_hash
+    return doc
 
 
 # =========================
@@ -477,6 +493,19 @@ def persist_selected_items(
             created = _create_document(file_id, doc)
 
             try:
+                pixel_hash = _safe_text(
+                    item.get("pixel_hash")
+                    or item.get("pixelHash")
+                    or item.get("masked_pixel_hash")
+                    or doc.get("pixel_hash")
+                )
+                image_embedding = (
+                    item.get("image_embedding")
+                    or item.get("imageEmbedding")
+                    or item.get("image_vector")
+                    or item.get("imageVector")
+                    or []
+                )
                 embedding = embedding_service.encode_text(
                     " ".join(
                         [
@@ -498,9 +527,26 @@ def persist_selected_items(
                         "category": doc["category"],
                         "color": doc["color_code"],
                         "image_url": doc.get("image_url") or masked_url,
+                        "pixel_hash": pixel_hash,
                         "embedding": embedding,
                     }
                 )
+                if image_embedding:
+                    qdrant_service.upsert_image_vector(
+                        file_id,
+                        image_embedding,
+                        {
+                            "userId": user_id,
+                            "type": str(doc["sub_category"]).lower(),
+                            "category": doc["category"],
+                            "color": doc["color_code"],
+                            "image_url": doc.get("image_url") or masked_url,
+                            "masked_url": masked_url,
+                            "normalized_url": normalized_url,
+                            "pixel_hash": pixel_hash,
+                            "qdrant_point_id": file_id,
+                        },
+                    )
             except Exception as exc:
                 # Do not fail wardrobe save because Qdrant failed.
                 print("[qdrant error]", exc)
