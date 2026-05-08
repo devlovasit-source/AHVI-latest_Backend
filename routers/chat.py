@@ -52,6 +52,9 @@ _ORCHESTRATOR_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
     max_workers=max(2, int(os.getenv("CHAT_ORCHESTRATOR_MAX_WORKERS", "3"))),
     thread_name_prefix="chat-orch",
 )
+_CHAT_INCLUDE_BASE64_ALLOWED = str(
+    os.getenv("AHVI_CHAT_INCLUDE_BASE64_ALLOWED", "")
+).lower() in {"1", "true", "yes"}
 
 
 class _TTLLRUCache:
@@ -1316,12 +1319,31 @@ def text_chat(request: TextChatRequest, http_request: Request):
         or style_query
         or bool(style_action)
     )
+    include_base64_for_chat = bool(request.include_base64 and _CHAT_INCLUDE_BASE64_ALLOWED)
+    if request.include_base64 and not _CHAT_INCLUDE_BASE64_ALLOWED:
+        logger.info(
+            "chat.base64_ignored user_id=%s module=%s style_query=%s style_action=%s",
+            user_id,
+            request.module_context or "",
+            bool(style_query),
+            style_action or "",
+        )
     cache_visual_boards = bool(
-        (request.include_base64 or style_query or style_action) and visual_context
+        (include_base64_for_chat or style_query or style_action) and visual_context
     )
     cached = None if cache_visual_boards else _CHAT_CACHE.get(cache_key)
     if cached is not None:
         return cached
+
+    logger.info(
+        "chat.text_request user_id=%s module=%s visual=%s style_query=%s style_action=%s include_base64=%s",
+        user_id,
+        request.module_context or "",
+        bool(visual_context),
+        bool(style_query),
+        style_action or "",
+        bool(include_base64_for_chat),
+    )
 
     # -------------------------
     # LANGUAGE
@@ -1673,7 +1695,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 "weather": weather_data.get("condition"),
                 "time_of_day": weather_data.get("time_of_day"),
             },
-            include_base64=bool(request.include_base64),
+            include_base64=include_base64_for_chat,
             style_action=style_action,
             exclude_style_signatures=request.exclude_style_signatures,
             requested_board_count=request.requested_board_count,
