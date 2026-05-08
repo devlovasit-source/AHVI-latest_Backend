@@ -87,11 +87,34 @@ CANONICAL_CATEGORY_KEYWORDS: List[Tuple[str, str, List[str]]] = [
     ),
     ("Bags", "Bag", ["bag", "handbag", "backpack", "purse", "tote", "clutch"]),
     (
+        "Jewelry",
+        "Jewelry",
+        [
+            "jewelry",
+            "jewellery",
+            "bracelet",
+            "bracelets",
+            "ring",
+            "rings",
+            "earring",
+            "earrings",
+            "necklace",
+            "necklaces",
+            "bangle",
+            "bangles",
+            "pendant",
+            "pendants",
+            "chain",
+            "chains",
+            "hoop",
+            "hoops",
+        ],
+    ),
+    (
         "Accessories",
         "Accessory",
         ["watch", "watches", "belt", "scarf", "hat", "cap", "sunglass", "sunglasses"],
     ),
-    ("Jewelry", "Jewelry", ["bracelet", "ring", "earring", "earrings", "necklace"]),
     (
         "Indian Wear",
         "Indian Wear",
@@ -134,10 +157,24 @@ def normalize_category_from_label(label: str) -> Tuple[str, str]:
         return ("Footwear", raw.title() or "Footwear")
     if any(x in raw for x in ["bag", "handbag", "backpack", "purse", "tote"]):
         return ("Bags", raw.title() or "Bag")
+    if any(
+        x in raw
+        for x in [
+            "jewelry",
+            "jewellery",
+            "bracelet",
+            "ring",
+            "earring",
+            "necklace",
+            "bangle",
+            "pendant",
+            "chain",
+            "hoop",
+        ]
+    ):
+        return ("Jewelry", raw.title() or "Jewelry")
     if any(x in raw for x in ["watch", "belt", "scarf", "hat", "cap", "sunglass"]):
         return ("Accessories", raw.title() or "Accessory")
-    if any(x in raw for x in ["bracelet", "ring", "earring", "necklace"]):
-        return ("Jewelry", raw.title() or "Jewelry")
     return ("Item", "Item")
 
 
@@ -175,8 +212,8 @@ CHAT_EXPLICIT_MAP: Dict[str, str] = {
     "accessories": "Accessories",
     "bag": "Accessories",
     "bags": "Accessories",
-    "jewelry": "Accessories",
-    "jewellery": "Accessories",
+    "jewelry": "Jewelry",
+    "jewellery": "Jewelry",
     "outerwear": "Outerwear",
     "outer": "Outerwear",
     "dress": "Dresses",
@@ -245,6 +282,29 @@ _CHAT_BUCKET_KEYWORDS: List[Tuple[str, List[str]]] = [
         ],
     ),
     (
+        "Jewelry",
+        [
+            "jewelry",
+            "jewellery",
+            "ring",
+            "rings",
+            "necklace",
+            "necklaces",
+            "bracelet",
+            "bracelets",
+            "bangle",
+            "bangles",
+            "earring",
+            "earrings",
+            "pendant",
+            "pendants",
+            "chain",
+            "chains",
+            "hoop",
+            "hoops",
+        ],
+    ),
+    (
         "Accessories",
         [
             "watch",
@@ -255,14 +315,6 @@ _CHAT_BUCKET_KEYWORDS: List[Tuple[str, List[str]]] = [
             "belts",
             "scarf",
             "scarves",
-            "jewelry",
-            "jewellery",
-            "ring",
-            "rings",
-            "necklace",
-            "bracelet",
-            "earring",
-            "earrings",
             "accessory",
             "accessories",
             "hat",
@@ -283,7 +335,7 @@ _CHAT_BUCKET_KEYWORDS: List[Tuple[str, List[str]]] = [
 
 
 def categorize_for_chat(item: dict) -> str:
-    """Return one of: Tops/Bottoms/Footwear/Accessories/Outerwear/Dresses."""
+    """Return one of: Tops/Bottoms/Footwear/Jewelry/Accessories/Outerwear/Dresses."""
     if not isinstance(item, dict):
         return "Accessories"
     explicit = (
