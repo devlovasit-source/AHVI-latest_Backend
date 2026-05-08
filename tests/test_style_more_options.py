@@ -206,6 +206,22 @@ def test_footwear_only_change_is_not_prioritized_as_new_direction():
     assert len(set(top_bottom_pairs)) == len(top_bottom_pairs)
 
 
+def test_footwear_only_change_is_suppressed_when_base_alternatives_exist():
+    same_top = _item("top-1", "White Shirt", "top")
+    same_bottom = _item("bottom-1", "Black Pants", "bottom")
+    cards = [
+        _card(same_top, same_bottom, _item("shoe-1", "Leather Loafers", "footwear"), score=120),
+        _card(same_top, same_bottom, _item("shoe-2", "White Minimal Sneakers", "footwear"), score=118),
+        _card(_item("top-2", "Blue Button-Down", "top"), _item("bottom-2", "Grey Trousers", "bottom", "grey"), _item("shoe-3", "Loafers", "footwear"), score=95),
+        _card(_item("top-3", "Black Shirt", "top"), _item("bottom-3", "Navy Chinos", "bottom", "navy"), _item("shoe-4", "Black Sneakers", "footwear"), score=90),
+    ]
+
+    filtered = finalize_style_cards(cards, query="business meeting outfit", default_limit=3)
+    base_signatures = [card["style_metadata"]["base_outfit_signature"] for card in filtered]
+
+    assert len(base_signatures) == len(set(base_signatures))
+
+
 def test_final_boards_have_archetype_explanation_and_visual_metadata():
     cards = [
         _card(_item("top-1", "White Shirt", "top", "white"), _item("bottom-1", "Black Pants", "bottom"), _item("shoe-1", "Black Sneakers", "footwear")),
@@ -222,7 +238,29 @@ def test_final_boards_have_archetype_explanation_and_visual_metadata():
     assert all(card.get("diversity_profile") for card in filtered)
     assert all(card.get("styling_tip") for card in filtered)
     assert all(card.get("layout_preset") for card in filtered)
+    assert all(card.get("style_metadata") for card in filtered)
     assert len(modes) == len(set(modes))
+
+
+def test_style_response_exposes_additive_board_metadata():
+    result = {
+        "cards": [
+            _card(_item("top-1", "White Shirt", "top"), _item("bottom-1", "Black Pants", "bottom"), _item("shoe-1", "Loafers", "footwear")),
+            _card(_item("top-2", "Blue Shirt", "top"), _item("bottom-2", "Grey Trousers", "bottom", "grey"), _item("shoe-2", "White Sneakers", "footwear")),
+        ],
+        "outfits": [],
+    }
+
+    response = finalize_style_response_payload(
+        result,
+        user_id="u1",
+        query="business outfit",
+        include_base64=False,
+    )
+
+    assert response["data"]["board_metadata"]
+    assert response["meta"]["board_metadata"]
+    assert response["data"]["board_metadata"][0]["base_outfit_signature"]
 
 
 def test_general_style_dna_metadata_is_added_for_non_office_requests():

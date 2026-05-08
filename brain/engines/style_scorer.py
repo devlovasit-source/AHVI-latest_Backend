@@ -233,7 +233,7 @@ class UnifiedStyleScorer:
             return -4.0, [], ["missing footwear"]
 
         relaxed = any(x in text for x in ["slipper", "slider", "slides", "flip", "crocs", "birkenstock", "sandal"])
-        athletic = any(x in text for x in ["running", "gym", "training", "sports"])
+        athletic = any(x in text for x in ["running", "gym", "training", "sports", "chunky", "runner", "hiking", "trail"])
         polished = any(
             x in text
             for x in [
@@ -250,14 +250,14 @@ class UnifiedStyleScorer:
 
         if intent == "office":
             if relaxed or athletic:
-                return -3.0, ["footwear weak for office"], ["office footwear mismatch"]
+                return -5.0, ["footwear weak for office"], ["office footwear mismatch"]
             if polished:
-                return 1.2, ["office-ready footwear"], []
+                return 1.8, ["office-ready footwear"], []
         if intent == "date":
-            if relaxed:
-                return -3.0, ["footwear weak for date night"], ["date footwear mismatch"]
+            if relaxed or athletic:
+                return -5.0, ["footwear weak for date night"], ["date footwear mismatch"]
             if polished:
-                return 1.0, ["polished footwear"], []
+                return 1.5, ["polished footwear"], []
         if intent == "party" and polished:
             return 0.7, ["strong footwear finish"], []
         return 0.0, [], []

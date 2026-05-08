@@ -1,16 +1,22 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Dict, Any
+from typing import Any, Dict
+import logging
 
 from services.qdrant_service import qdrant_service
 from services.embedding_service import encode_metadata
 
 router = APIRouter(prefix="/api/feedback")
+logger = logging.getLogger("ahvi.feedback")
 
 
-# =========================
-# ITEM FEEDBACK (KEEP)
-# =========================
+def _nested(data: Dict[str, Any], parent: str, key: str) -> Any:
+    value = data.get(parent)
+    if isinstance(value, dict):
+        return value.get(key)
+    return None
+
+
 class ItemFeedbackRequest(BaseModel):
     item_id: str
     feedback: str  # up / down
@@ -18,7 +24,6 @@ class ItemFeedbackRequest(BaseModel):
 
 @router.post("/item")
 def feedback_item(request: ItemFeedbackRequest):
-
     fb = request.feedback.lower()
 
     if fb not in ["up", "down"]:
@@ -26,35 +31,50 @@ def feedback_item(request: ItemFeedbackRequest):
 
     try:
         qdrant_service.update_feedback(request.item_id, fb)
-
         return {"success": True, "message": "Item feedback recorded"}
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# =========================
-# 🔥 BOARD FEEDBACK (NEW)
-# =========================
 class BoardFeedbackRequest(BaseModel):
     user_id: str
-    action: str  # like / dislike
+    action: str
     board_payload: Dict[str, Any]
 
 
 @router.post("/board")
 def feedback_board(request: BoardFeedbackRequest):
-
     action = request.action.lower()
+    passive_actions = {"shown", "saved", "dismissed", "regenerated", "clicked", "shared"}
 
-    if action not in ["like", "dislike"]:
-        raise HTTPException(status_code=400, detail="action must be like/dislike")
+    if action not in {"like", "dislike", *passive_actions}:
+        raise HTTPException(
+            status_code=400,
+            detail="action must be like/dislike/shown/saved/dismissed/regenerated/clicked/shared",
+        )
 
     try:
-        # 🔥 Build embedding from board
-        embedding = encode_metadata(request.board_payload)
+        board = request.board_payload or {}
+        logger.info(
+            "style_board.behavior user=%s action=%s board_id=%s title=%s signature=%s core_signature=%s archetype=%s direction=%s",
+            request.user_id,
+            action,
+            board.get("board_id") or board.get("id") or board.get("card_id") or "",
+            board.get("title") or board.get("label") or "",
+            board.get("style_signature") or board.get("_style_signature") or _nested(board, "style_metadata", "style_signature"),
+            board.get("core_style_signature") or board.get("_style_core_signature") or _nested(board, "style_metadata", "core_style_signature"),
+            board.get("style_archetype") or _nested(board, "style_metadata", "style_archetype"),
+            board.get("style_direction") or _nested(board, "style_metadata", "style_direction"),
+        )
 
-        # 🔥 Store in Qdrant
+        if action in passive_actions:
+            return {
+                "success": True,
+                "message": "Board behavior logged",
+                "action": action,
+            }
+
+        embedding = encode_metadata(request.board_payload)
         point_id = qdrant_service.upsert_user_memory(
             user_id=request.user_id,
             vector=embedding,
@@ -71,6 +91,5 @@ def feedback_board(request: BoardFeedbackRequest):
             "message": "Board feedback recorded",
             "memory_point_id": point_id,
         }
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

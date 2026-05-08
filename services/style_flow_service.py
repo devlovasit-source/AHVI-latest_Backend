@@ -316,7 +316,7 @@ def _canonicalize_card(card: Dict[str, Any], index: int) -> Optional[Dict[str, A
 def _occasion_flags(query: str) -> Dict[str, bool]:
     q = str(query or "").lower()
     return {
-        "office": any(k in q for k in ("office", "work", "meeting", "client")),
+        "office": any(k in q for k in ("office", "work", "meeting", "client", "business", "interview", "corporate")),
         "date": any(k in q for k in ("date", "dinner", "night")),
         "party": any(k in q for k in ("party", "club", "after-hours", "night out")),
         "travel": any(k in q for k in ("travel", "airport", "flight", "vacation", "trip")),
@@ -334,6 +334,19 @@ def _item_by_role(card: Dict[str, Any], role: str) -> Dict[str, Any]:
 
 def _role_key(card: Dict[str, Any], role: str) -> str:
     return item_key(_item_by_role(card, role))
+
+
+def _base_outfit_signature(card: Dict[str, Any]) -> str:
+    if _role_key(card, "dress"):
+        return _role_key(card, "dress")
+    return "|".join(
+        part
+        for part in [
+            _role_key(card, "top"),
+            _role_key(card, "bottom"),
+        ]
+        if part
+    )
 
 
 def _item_blob(item: Dict[str, Any]) -> str:
@@ -407,7 +420,9 @@ def _office_direction(query: str) -> str:
 
 def _footwear_mood(item: Dict[str, Any]) -> str:
     text = _item_blob(item)
-    if any(k in text for k in ("chunky", "runner", "running", "trainer", "gym", "athletic", "sports")):
+    if any(k in text for k in ("birkenstock", "sandal", "slipper", "slider", "slides", "flip flop", "flip-flop", "crocs")):
+        return "relaxed sandal"
+    if any(k in text for k in ("chunky", "runner", "running", "trainer", "gym", "athletic", "sports", "hiking", "trail")):
         return "athletic"
     if any(k in text for k in ("loafer", "oxford", "derby", "formal", "monk strap")):
         return "formal polish"
@@ -417,8 +432,6 @@ def _footwear_mood(item: Dict[str, Any]) -> str:
         return "polished sneaker"
     if "sneaker" in text:
         return "casual sneaker"
-    if any(k in text for k in ("birkenstock", "sandal", "slipper", "slider", "slides", "flip flop", "flip-flop", "crocs")):
-        return "relaxed sandal"
     if any(k in text for k in ("boot", "chelsea")):
         return "structured boot"
     return "neutral footwear"
@@ -459,9 +472,9 @@ def _footwear_formality_score(item: Dict[str, Any], query: str) -> float:
             "formal polish": 2.2,
             "structured boot": 2.0,
             "polished sneaker": 1.2,
-            "casual sneaker": -1.2,
-            "relaxed sandal": -5.0,
-            "athletic": -4.0,
+            "casual sneaker": -2.0,
+            "relaxed sandal": -7.0,
+            "athletic": -6.0,
         }.get(mood, 0.0)
     if direction in {"clean_daily", "daily"}:
         return {
@@ -710,8 +723,9 @@ def _quality_score(card: Dict[str, Any], query: str) -> float:
             score -= 4.0
         score += _top_office_score(_item_by_role(card, "top"), query)
         score += _footwear_formality_score(_item_by_role(card, "footwear"), query)
-    if flags["date"] and any(k in text for k in ("watch", "black", "off white", "loafer")):
-        score += 1.5
+    if flags["date"]:
+        if any(k in text for k in ("watch", "black", "off white", "loafer")):
+            score += 1.5
         score += _footwear_formality_score(_item_by_role(card, "footwear"), query)
     if flags["party"] and any(k in text for k in ("print", "pattern", "statement", "black")):
         score += 1.0
@@ -948,14 +962,14 @@ def _explanation_for(card: Dict[str, Any], query: str, index: int) -> Dict[str, 
     footwear_mood = _footwear_mood(_item_by_role(card, "footwear"))
 
     copy = {
-        "color_harmony": f"The {top} sets a {palette} direction, while {bottom} keeps the palette grounded so the outfit reads intentional.",
-        "silhouette_balance": f"The {top} and {bottom} create a {silhouette} shape, with {footwear} anchoring the proportions instead of competing with them.",
-        "texture_contrast": f"The contrast between {top} and {bottom} gives the look depth, and {footwear} keeps the finish practical without flattening the styling.",
-        "occasion_alignment": f"For this request, {top} feels appropriate because {bottom} keeps the base controlled and {footwear} supports the occasion.",
-        "footwear_polish": f"The {footwear} changes the mood to {footwear_mood}, making the outfit feel styled rather than just matched.",
-        "smart_contrast": f"The sharper read of {top} works against the easier base of {bottom}, giving the board a clean smart-casual tension.",
-        "minimal_aesthetic": f"This keeps the outfit restrained: {top}, {bottom}, and {footwear} form a simple line with no unnecessary visual noise.",
-        "relaxed_tailoring": f"The look stays relaxed but neat; {top} adds structure, {bottom} keeps it wearable, and {footwear} finishes it with ease.",
+        "color_harmony": f"{top} sets the {palette} palette, while {bottom} keeps the base clean and intentional.",
+        "silhouette_balance": f"{top} and {bottom} create a {silhouette} line; {footwear} gives the look a clear anchor.",
+        "texture_contrast": f"{top} adds visual depth against {bottom}, with {footwear} keeping the finish grounded.",
+        "occasion_alignment": f"{top} fits the request because {bottom} keeps the outfit controlled and {footwear} holds the right register.",
+        "footwear_polish": f"{footwear} shifts the outfit into {footwear_mood}, which makes the board feel deliberately styled.",
+        "smart_contrast": f"The sharper read of {top} works against the quieter base of {bottom} for a clean, considered contrast.",
+        "minimal_aesthetic": f"The edit is restrained: {top}, {bottom}, and {footwear} carry the look without extra noise.",
+        "relaxed_tailoring": f"The outfit stays easy but neat; {top} gives structure, {bottom} keeps it wearable, and {footwear} finishes it calmly.",
     }
     tips = [
         f"Roll the sleeves once on {top} if you want the office look to feel less stiff.",
@@ -1029,9 +1043,11 @@ def _select_diverse_cards(cards: List[Dict[str, Any]], query: str, limit: int) -
     unique_footwear = {k for k in (_role_key(card, "footwear") for card in cards) if k}
     unique_accessories = {key for card in cards for key in _accessory_keys(card)}
     unique_energies = {_style_energy(card, query) for card in cards}
+    unique_bases = {k for k in (_base_outfit_signature(card) for card in cards) if k}
     enforce_bottom_limit = len(unique_bottoms) > 1
     enforce_footwear_limit = len(unique_footwear) > 1
     enforce_accessory_limit = len(unique_accessories) > 1
+    enforce_base_variation = len(unique_bases) > 1
     strong_office_footwear_exists = _office_has_strong_footwear(cards, query)
     selected: List[Dict[str, Any]] = []
     selected_sigs: set[str] = set()
@@ -1042,6 +1058,11 @@ def _select_diverse_cards(cards: List[Dict[str, Any]], query: str, limit: int) -
             return False
         bottom = _role_key(card, "bottom")
         footwear = _role_key(card, "footwear")
+        base_sig = _base_outfit_signature(card)
+        if enforce_base_variation and base_sig:
+            selected_bases = {_base_outfit_signature(selected_card) for selected_card in selected}
+            if base_sig in selected_bases and len(selected_bases) < len(unique_bases):
+                return False
         if enforce_bottom_limit and bottom:
             if _selected_count(selected, "bottom", bottom) >= MAX_BOTTOM_REUSE:
                 return False
@@ -1187,6 +1208,22 @@ def finalize_style_cards(
         card["layout_preset"] = layout["layout_preset"]
         card["visual_hierarchy"] = layout["visual_hierarchy"]
         card["composition_notes"] = layout["composition_notes"]
+        card["style_metadata"] = {
+            "style_signature": card.get("_style_signature"),
+            "core_style_signature": card.get("_style_core_signature"),
+            "base_outfit_signature": _base_outfit_signature(card),
+            "quality_score": round(float(card.get("_style_quality_score") or 0.0), 3),
+            "occasion_fit": card["occasion_fit"],
+            "style_archetype": archetype,
+            "style_direction": card["style_direction"],
+            "style_energy": card["style_energy"],
+            "silhouette_category": card["silhouette_category"],
+            "palette_direction": card["palette_direction"],
+            "footwear_energy": card["footwear_energy"],
+            "formality_energy": card["formality_energy"],
+            "explanation_mode": card["explanation_mode"],
+            "layout_preset": card["layout_preset"],
+        }
     return canonical[:limit]
 
 
@@ -1338,6 +1375,35 @@ def _style_signature_hash(signatures: List[str]) -> str:
     return hashlib.sha1("|".join(signatures).encode("utf-8")).hexdigest() if signatures else ""
 
 
+def _board_metadata_summary(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    summary: List[Dict[str, Any]] = []
+    for idx, card in enumerate(cards or []):
+        if not isinstance(card, dict):
+            continue
+        metadata = _dict(card.get("style_metadata"))
+        summary.append(
+            {
+                "index": idx,
+                "title": card.get("title"),
+                "style_archetype": card.get("style_archetype"),
+                "style_direction": card.get("style_direction"),
+                "style_energy": card.get("style_energy"),
+                "silhouette_category": card.get("silhouette_category"),
+                "palette_direction": card.get("palette_direction"),
+                "footwear_energy": card.get("footwear_energy"),
+                "formality_energy": card.get("formality_energy"),
+                "explanation_mode": card.get("explanation_mode"),
+                "style_signature": metadata.get("style_signature") or card.get("_style_signature") or card_signature(card),
+                "core_style_signature": metadata.get("core_style_signature") or card.get("_style_core_signature") or core_card_signature(card),
+                "base_outfit_signature": metadata.get("base_outfit_signature") or _base_outfit_signature(card),
+                "quality_score": metadata.get("quality_score"),
+                "occasion_fit": card.get("occasion_fit"),
+                "layout_preset": card.get("layout_preset"),
+            }
+        )
+    return summary
+
+
 def finalize_style_response_payload(
     result: Dict[str, Any],
     *,
@@ -1391,6 +1457,7 @@ def finalize_style_response_payload(
         "pipeline": _dict(result.get("pipeline")),
         "rendered_boards": rendered or cards,
         "board_item_ids": ids,
+        "board_metadata": _board_metadata_summary(cards),
     }
     return {
         "cards": cards,
@@ -1401,6 +1468,7 @@ def finalize_style_response_payload(
             "style_action": style_action or None,
             "style_signature": style_signature or None,
             "core_style_signatures": core_signatures,
+            "board_metadata": _board_metadata_summary(cards),
             "board_count": len(cards),
             "has_more_style_options": bool(cards),
             "cache_bypass": bool(cache_bypass),
