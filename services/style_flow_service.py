@@ -588,6 +588,120 @@ def _style_direction(query: str) -> str:
     return "daily"
 
 
+def interpret_occasion(query: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    ctx = _dict(context)
+    q = _safe_text(query).lower()
+    kind = _occasion_kind(query)
+    weather = _safe_text(ctx.get("weather") or ctx.get("condition")).lower()
+    time_of_day = _safe_text(ctx.get("time_of_day") or ctx.get("hour")).lower()
+    module_context = _safe_text(ctx.get("module_context")).lower()
+
+    chips: List[Dict[str, str]] = []
+    ask_user = False
+    reason = ""
+    confidence = "high"
+
+    if kind == "date":
+        if any(k in q for k in ("dinner", "restaurant", "candle", "tonight", "evening")):
+            brief = "polished dinner, low light, intentional but not overworked"
+        elif any(k in q for k in ("coffee", "day", "afternoon", "walk")):
+            brief = "daytime date, easy polish, movement friendly"
+        elif any(k in q for k in ("rooftop", "drinks", "bar")):
+            brief = "rooftop casual, warm evening, relaxed polish"
+        else:
+            brief = "polished date, social ease, clean footwear"
+            ask_user = "date" in q and not any(k in q for k in ("today", "now", "quick", "suggest"))
+            confidence = "medium" if ask_user else "high"
+            reason = "date_venue_changes_formality"
+            chips = [
+                {"label": "Polished dinner", "value": "date_polished_dinner"},
+                {"label": "Rooftop easy", "value": "date_rooftop_easy"},
+                {"label": "Daytime quiet", "value": "date_daytime_quiet"},
+            ]
+    elif kind == "office":
+        if any(k in q for k in ("client", "presentation", "meeting", "corporate", "interview")):
+            brief = "client-facing office, polish required, smart footwear"
+        elif any(k in q for k in ("creative", "studio", "agency")):
+            brief = "creative office, expressive but controlled"
+        elif any(k in q for k in ("startup", "start-up", "friday", "casual office")):
+            brief = "relaxed office, intentional smart casual"
+        else:
+            brief = "smart casual office, clean structure, credible footwear"
+    elif kind == "party":
+        brief = "after-hours social, sharper contrast, memorable but edited"
+    elif kind == "travel":
+        brief = "travel comfort polish, movement friendly, weather aware"
+    elif kind == "wedding":
+        brief = "formal event, respectful polish, ceremony-aware restraint"
+        if not any(k in q for k in ("reception", "wedding", "formal", "traditional", "ceremony")):
+            ask_user = True
+            confidence = "medium"
+            reason = "event_formality_or_cultural_context"
+            chips = [
+                {"label": "Ceremony refined", "value": "event_ceremony_refined"},
+                {"label": "Reception polish", "value": "event_reception_polish"},
+                {"label": "Statement occasion", "value": "event_statement_occasion"},
+            ]
+    elif kind == "casual":
+        brief = "clean daily, comfortable but intentional"
+    else:
+        brief = "elevated daily, smart casual, repeat-aware"
+
+    if "rain" in weather:
+        brief = f"{brief}, rain-ready"
+    elif any(k in weather for k in ("hot", "summer")):
+        brief = f"{brief}, heat-conscious"
+    elif any(k in weather for k in ("cold", "winter")):
+        brief = f"{brief}, layered"
+    if time_of_day and kind in {"date", "party"}:
+        brief = f"{brief}, {time_of_day}"
+
+    # Normal style flows should not become questionnaires. Only ask when a
+    # single missing choice can prevent a visibly wrong board.
+    if module_context in {"style", "wardrobe"} and ask_user:
+        ask_user = True
+
+    return {
+        "resolved_brief": brief,
+        "confidence": confidence,
+        "ask_user": bool(ask_user),
+        "question": (
+            "Which brief is closer?"
+            if ask_user
+            else ""
+        ),
+        "chips": chips[:3],
+        "board_generation_notes": {
+            "occasion_kind": kind,
+            "style_direction": _style_direction(query),
+            "reason": reason or "context_sufficient",
+            "max_questions": 3,
+        },
+    }
+
+
+def _clarification_response(interpretation: Dict[str, Any]) -> Dict[str, Any]:
+    chips = interpretation.get("chips") if isinstance(interpretation.get("chips"), list) else []
+    return {
+        "success": True,
+        "message": interpretation.get("question") or "Which brief is closer?",
+        "board": "style",
+        "type": "clarification",
+        "cards": [],
+        "style_boards": [],
+        "chips": chips[:3],
+        "board_ids": "",
+        "data": {"outfits": [], "rendered_boards": []},
+        "meta": {
+            "question_count": 1,
+            "max_questions": 3,
+            "reason": _dict(interpretation.get("board_generation_notes")).get("reason"),
+            "occasion_interpretation": interpretation,
+        },
+        "audio_job_id": "offline",
+    }
+
+
 def _office_direction(query: str) -> str:
     # Backward-compatible name for existing callers/tests. The returned value is
     # now the general style direction, not only an office subtype.
@@ -1209,14 +1323,14 @@ def _explanation_for(card: Dict[str, Any], query: str, index: int) -> Dict[str, 
     footwear_mood = _footwear_mood(_item_by_role(card, "footwear"))
 
     copy = {
-        "color_harmony": f"{top} sets the {palette} palette, while {bottom} keeps the base clean and intentional.",
-        "silhouette_balance": f"{top} and {bottom} create a {silhouette} line; {footwear} gives the look a clear anchor.",
-        "texture_contrast": f"{top} adds visual depth against {bottom}, with {footwear} keeping the finish grounded.",
-        "occasion_alignment": f"{top} fits the request because {bottom} keeps the outfit controlled and {footwear} holds the right register.",
-        "footwear_polish": f"{footwear} shifts the outfit into {footwear_mood}, which makes the board feel deliberately styled.",
-        "smart_contrast": f"The sharper read of {top} works against the quieter base of {bottom} for a clean, considered contrast.",
-        "minimal_aesthetic": f"The edit is restrained: {top}, {bottom}, and {footwear} carry the look without extra noise.",
-        "relaxed_tailoring": f"The outfit stays easy but neat; {top} gives structure, {bottom} keeps it wearable, and {footwear} finishes it calmly.",
+        "color_harmony": f"{top} sets a {palette} register; {bottom} keeps the line deliberate.",
+        "silhouette_balance": f"Structure leads through {top}, then {footwear} anchors the {silhouette} line.",
+        "texture_contrast": f"{top} brings the visual pressure; {bottom} and {footwear} keep it from turning loud.",
+        "occasion_alignment": f"{top} reads right for the brief because {footwear} holds the social register.",
+        "footwear_polish": f"{footwear} tightens the mood into {footwear_mood} - intentional rather than easy.",
+        "smart_contrast": f"Sharper above, quieter below. {top} carries the attitude while {bottom} gives it restraint.",
+        "minimal_aesthetic": f"All restraint: {top}, {bottom}, and {footwear}, with nothing fighting for attention.",
+        "relaxed_tailoring": f"Ease with a backbone. {top} gives structure, {bottom} keeps it wearable, and {footwear} settles the tone.",
     }
     tips = [
         f"Roll the sleeves once on {top} if you want the office look to feel less stiff.",
@@ -1249,6 +1363,60 @@ def _layout_metadata(card: Dict[str, Any], archetype: str) -> Dict[str, Any]:
         "layout_preset": presets.get(archetype, "editorial_overlap_left"),
         "visual_hierarchy": hierarchy,
         "composition_notes": ["footwear_anchor", "visible_bottom", "accessory_rail"],
+    }
+
+
+def _item_id(item: Dict[str, Any]) -> str:
+    return _safe_text(
+        item.get("id")
+        or item.get("$id")
+        or item.get("item_id")
+        or item.get("itemId")
+        or item.get("image_id")
+        or item.get("name")
+    )
+
+
+def _composition_metadata(card: Dict[str, Any]) -> Dict[str, Any]:
+    items = [item for item in card.get("items", []) if isinstance(item, dict)]
+    hero = _item_by_role(card, "dress") or _item_by_role(card, "top") or (items[0] if items else {})
+    anchor = _item_by_role(card, "footwear") or (items[-1] if items else {})
+    profile = _diversity_profile(card, _safe_text(card.get("_style_query")))
+    mode = "grid" if (
+        profile.get("style_energy") == "minimal/monochrome"
+        or profile.get("palette") == "minimal neutral"
+        or profile.get("accessory_mood") == "clean minimal"
+    ) else "stack"
+    composition_items: List[Dict[str, Any]] = []
+    for item in items:
+        role = item_role(item)
+        ident = _item_id(item)
+        if not ident:
+            continue
+        if ident == _item_id(hero):
+            comp_role = "hero"
+            size = 0.38
+        elif ident == _item_id(anchor) or role == "footwear":
+            comp_role = "anchor"
+            size = 0.22
+        elif role == "accessory":
+            comp_role = "accent"
+            size = 0.08
+        else:
+            comp_role = "support"
+            size = 0.16
+        composition_items.append(
+            {
+                "id": ident,
+                "role": comp_role,
+                "relative_size": size,
+            }
+        )
+    return {
+        "composition_mode": mode,
+        "hero_item_id": _item_id(hero),
+        "anchor_item_id": _item_id(anchor),
+        "composition_items": composition_items,
     }
 
 
@@ -1398,6 +1566,7 @@ def finalize_style_cards(
     *,
     query: str,
     style_identity: Optional[Dict[str, Any]] = None,
+    occasion_interpretation: Optional[Dict[str, Any]] = None,
     exclude_signatures: Any = None,
     requested_count: Optional[int] = None,
     default_limit: int = 6,
@@ -1452,6 +1621,7 @@ def finalize_style_cards(
         profile = _diversity_profile(card, query)
         explanation = _explanation_for(card, query, idx)
         layout = _layout_metadata(card, archetype)
+        composition = _composition_metadata(card)
         card["title"] = title
         card["name"] = title
         card["style_archetype"] = archetype
@@ -1472,6 +1642,11 @@ def finalize_style_cards(
         card["layout_preset"] = layout["layout_preset"]
         card["visual_hierarchy"] = layout["visual_hierarchy"]
         card["composition_notes"] = layout["composition_notes"]
+        card["composition_mode"] = composition["composition_mode"]
+        card["hero_item_id"] = composition["hero_item_id"]
+        card["anchor_item_id"] = composition["anchor_item_id"]
+        card["composition_items"] = composition["composition_items"]
+        card["occasion_interpretation"] = occasion_interpretation or {}
         card["style_metadata"] = {
             "style_signature": card.get("_style_signature"),
             "core_style_signature": card.get("_style_core_signature"),
@@ -1488,7 +1663,11 @@ def finalize_style_cards(
             "formality_energy": card["formality_energy"],
             "explanation_mode": card["explanation_mode"],
             "layout_preset": card["layout_preset"],
+            "composition_mode": card["composition_mode"],
+            "hero_item_id": card["hero_item_id"],
+            "anchor_item_id": card["anchor_item_id"],
             "identity_match_score": round(float(card.get("_style_identity_score") or 0.0), 3),
+            "occasion_interpretation": occasion_interpretation or {},
         }
     return canonical[:limit]
 
@@ -1571,6 +1750,10 @@ def render_style_boards(
                     "style_archetype": card.get("style_archetype"),
                     "style_energy": card.get("style_energy"),
                     "layout_preset": card.get("layout_preset"),
+                    "composition_mode": card.get("composition_mode"),
+                    "hero_item_id": card.get("hero_item_id"),
+                    "anchor_item_id": card.get("anchor_item_id"),
+                    "composition_items": card.get("composition_items"),
                     "visual_hierarchy": card.get("visual_hierarchy"),
                     "composition_notes": card.get("composition_notes"),
                     "diversity_profile": card.get("diversity_profile"),
@@ -1582,6 +1765,10 @@ def render_style_boards(
                     "style_archetype": card.get("style_archetype"),
                     "style_energy": card.get("style_energy"),
                     "layout_preset": card.get("layout_preset"),
+                    "composition_mode": card.get("composition_mode"),
+                    "hero_item_id": card.get("hero_item_id"),
+                    "anchor_item_id": card.get("anchor_item_id"),
+                    "composition_items": card.get("composition_items"),
                     "visual_hierarchy": card.get("visual_hierarchy"),
                     "composition_notes": card.get("composition_notes"),
                     "diversity_profile": card.get("diversity_profile"),
@@ -1629,6 +1816,10 @@ def render_style_boards(
                     "style_direction": card.get("style_direction"),
                     "diversity_profile": card.get("diversity_profile"),
                     "layout_preset": card.get("layout_preset"),
+                    "composition_mode": card.get("composition_mode"),
+                    "hero_item_id": card.get("hero_item_id"),
+                    "anchor_item_id": card.get("anchor_item_id"),
+                    "composition_items": card.get("composition_items"),
                     "visual_hierarchy": card.get("visual_hierarchy"),
                     "composition_notes": card.get("composition_notes"),
                 },
@@ -1666,6 +1857,10 @@ def _board_metadata_summary(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]
                 "coherence_score": metadata.get("coherence_score"),
                 "occasion_fit": card.get("occasion_fit"),
                 "layout_preset": card.get("layout_preset"),
+                "composition_mode": card.get("composition_mode"),
+                "hero_item_id": card.get("hero_item_id"),
+                "anchor_item_id": card.get("anchor_item_id"),
+                "occasion_interpretation": card.get("occasion_interpretation"),
             }
         )
     return summary
@@ -1687,6 +1882,10 @@ def finalize_style_response_payload(
     ctx = dict(context or {})
     style_identity = normalize_style_identity(_dict(ctx.get("user_profile")))
     ctx["style_identity"] = style_identity
+    occasion_interpretation = _dict(ctx.get("occasion_interpretation")) or interpret_occasion(query, ctx)
+    ctx["occasion_interpretation"] = occasion_interpretation
+    resolved_brief = _safe_text(occasion_interpretation.get("resolved_brief"))
+    finalizer_query = f"{query} {resolved_brief}".strip() if resolved_brief else query
     raw_cards = result.get("cards") if isinstance(result.get("cards"), list) else []
     raw_outfits = result.get("outfits") if isinstance(result.get("outfits"), list) else []
     candidates = list(raw_outfits or []) + list(raw_cards or [])
@@ -1694,8 +1893,9 @@ def finalize_style_response_payload(
     finalize_started = time.perf_counter()
     cards = finalize_style_cards(
         candidates,
-        query=query,
+        query=finalizer_query,
         style_identity=style_identity,
+        occasion_interpretation=occasion_interpretation,
         exclude_signatures=exclude_style_signatures,
         requested_count=requested_board_count if style_action in {"more_options", "more_looks", "next_best"} else None,
     )
@@ -1751,6 +1951,7 @@ def finalize_style_response_payload(
             "cache_bypass": bool(cache_bypass),
             "style_cache_bypass": bool(cache_bypass),
             "style_identity": style_identity,
+            "occasion_interpretation": occasion_interpretation,
             "profile_sources": {
                 "appwrite_profile": bool(style_identity.get("profile_fields_used")),
                 "request_profile": bool(_dict(ctx.get("user_profile"))),
@@ -1786,6 +1987,14 @@ def build_style_flow_response(
     if user_profile is not None:
         ctx.setdefault("user_profile", user_profile)
     ctx.setdefault("style_identity", normalize_style_identity(_dict(ctx.get("user_profile"))))
+    occasion_interpretation = interpret_occasion(query, ctx)
+    ctx["occasion_interpretation"] = occasion_interpretation
+    if (
+        occasion_interpretation.get("ask_user")
+        and not style_action
+        and not requested_board_count
+    ):
+        return _clarification_response(occasion_interpretation)
 
     candidate_started = time.perf_counter()
     result = get_daily_outfits(

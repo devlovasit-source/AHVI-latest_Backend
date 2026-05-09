@@ -18,6 +18,7 @@ except (
     types = None
 
 from brain.tone.tone_engine import tone_engine
+from prompts.core_prompts import AHVI_SYSTEM_PROMPT
 
 logger = logging.getLogger("ahvi.llm_service")
 
@@ -133,7 +134,7 @@ def _call_gemini_text(
     tone = tone_engine.build_prompt_tone(user_profile, signals)
 
     full_prompt = f"""
-You are AHVI, a premium AI fashion stylist.
+{AHVI_SYSTEM_PROMPT}
 
 Tone instruction:
 {tone.get("tone_instruction", "")}
@@ -151,7 +152,7 @@ Task:
     try:
         config = types.GenerateContentConfig(
             system_instruction=system_instruction
-            or "You are AHVI's language layer. You explain already-selected wardrobe-grounded outfits. You do not decide final outfit validity.",
+            or AHVI_SYSTEM_PROMPT,
             temperature=temperature,
             max_output_tokens=max_output_tokens,
         )
@@ -277,7 +278,7 @@ def generate_text(
     tone = tone_engine.build_prompt_tone(user_profile, signals)
 
     full_prompt = f"""
-You are AHVI, a premium AI fashion stylist.
+{AHVI_SYSTEM_PROMPT}
 
 Tone: {tone.get("tone_instruction", "")}
 

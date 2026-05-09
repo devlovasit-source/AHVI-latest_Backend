@@ -34,9 +34,12 @@ class StyleBoardRenderer:
         items = board.get("items", [])
         layout = board.get("layout", {})
         preset = str(board.get("layout_preset") or "").strip()
+        composition_items = board.get("composition_items") or []
 
         # 🔥 VALIDATE OR FALLBACK
-        if preset:
+        if composition_items:
+            layout = self._build_composition_layout(items, board)
+        elif preset:
             layout = self._build_preset_layout(items, preset)
         elif not self._is_valid_layout(layout, items):
             layout = self._build_fallback_layout(items)
@@ -214,6 +217,113 @@ class StyleBoardRenderer:
             add(item, "foreground", x, y, 0.46)
 
         return {"composition": preset, "layers": layers, "placements": placements}
+
+    def _item_id(self, item):
+        return str(
+            item.get("id")
+            or item.get("$id")
+            or item.get("item_id")
+            or item.get("itemId")
+            or item.get("image_id")
+            or item.get("name")
+            or ""
+        ).strip()
+
+    def _build_composition_layout(self, items, board):
+        mode = str(board.get("composition_mode") or "stack").lower()
+        composition_items = board.get("composition_items") or []
+        by_id = {self._item_id(item): item for item in items or [] if self._item_id(item)}
+        roles = {
+            str(entry.get("id") or ""): str(entry.get("role") or "").lower()
+            for entry in composition_items
+            if isinstance(entry, dict)
+        }
+
+        hero_id = str(board.get("hero_item_id") or "").strip()
+        anchor_id = str(board.get("anchor_item_id") or "").strip()
+        hero = by_id.get(hero_id) or (items[0] if items else None)
+        anchor = by_id.get(anchor_id)
+        supports = []
+        accessories = []
+        for item in items or []:
+            ident = self._item_id(item)
+            role = roles.get(ident) or self._item_role(item)
+            if item is hero or ident == hero_id:
+                continue
+            if item is anchor or ident == anchor_id or role == "anchor":
+                anchor = item
+                continue
+            if role in {"accent", "accessory"} or self._item_role(item) == "accessory":
+                accessories.append(item)
+            else:
+                supports.append(item)
+
+        if mode == "grid":
+            return self._build_grid_layout(items, hero, anchor, supports, accessories)
+        return self._build_stack_layout(items, hero, anchor, supports, accessories)
+
+    def _build_stack_layout(self, items, hero, anchor, supports, accessories):
+        layers = {"background": [], "midground": [], "foreground": []}
+        placements = {}
+
+        def add(item, layer, x, y, scale, rotation=0):
+            if not item:
+                return
+            ident = self._item_id(item)
+            layers[layer].append(item)
+            placements[ident] = {
+                "x": max(0.06, min(0.94, x)),
+                "y": max(0.06, min(0.94, y)),
+                "scale": scale,
+                "rotation": rotation,
+                "z": {"background": 1, "midground": 2, "foreground": 3}[layer],
+            }
+
+        add(hero, "midground", 0.42, 0.40, 1.42, 0)
+        for idx, item in enumerate(supports[:2]):
+            add(item, "background", [0.64, 0.58][idx % 2], [0.54, 0.34][idx % 2], 1.05 if idx == 0 else 0.78, 0)
+        add(anchor, "foreground", 0.28, 0.78, 0.94, -5)
+
+        accent_positions = [(0.80, 0.18), (0.86, 0.30), (0.78, 0.42)]
+        for idx, item in enumerate(accessories[:3]):
+            x, y = accent_positions[idx]
+            add(item, "foreground", x, y, 0.34, 4 if idx == 1 else 0)
+
+        placed = {self._item_id(item) for layer in layers.values() for item in layer}
+        fallback_positions = [(0.72, 0.70), (0.24, 0.24), (0.72, 0.24)]
+        for idx, item in enumerate([i for i in items or [] if self._item_id(i) not in placed]):
+            x, y = fallback_positions[idx % len(fallback_positions)]
+            add(item, "background", x, y, 0.64, 0)
+        return {"composition": "stack", "layers": layers, "placements": placements}
+
+    def _build_grid_layout(self, items, hero, anchor, supports, accessories):
+        layers = {"background": [], "midground": [], "foreground": []}
+        placements = {}
+
+        def add(item, layer, x, y, scale):
+            if not item:
+                return
+            ident = self._item_id(item)
+            layers[layer].append(item)
+            placements[ident] = {
+                "x": x,
+                "y": y,
+                "scale": scale,
+                "rotation": 0,
+                "z": {"background": 1, "midground": 2, "foreground": 3}[layer],
+            }
+
+        add(hero, "midground", 0.38, 0.40, 1.30)
+        for idx, item in enumerate(supports[:2]):
+            add(item, "background", [0.68, 0.68][idx], [0.36, 0.58][idx], 0.82)
+        add(anchor, "foreground", 0.34, 0.76, 0.78)
+        for idx, item in enumerate(accessories[:3]):
+            add(item, "foreground", 0.70 + (idx % 2) * 0.10, 0.76 + (idx // 2) * 0.10, 0.30)
+
+        placed = {self._item_id(item) for layer in layers.values() for item in layer}
+        for idx, item in enumerate([i for i in items or [] if self._item_id(i) not in placed]):
+            add(item, "background", 0.62 + (idx % 2) * 0.16, 0.24 + (idx // 2) * 0.16, 0.52)
+        return {"composition": "grid", "layers": layers, "placements": placements}
 
     # =========================
     # PLACEMENT

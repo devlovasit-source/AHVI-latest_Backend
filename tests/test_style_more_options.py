@@ -2,6 +2,7 @@ from services.style_flow_service import (
     card_signature,
     finalize_style_cards,
     finalize_style_response_payload,
+    interpret_occasion,
     normalize_style_identity,
 )
 from services.category_taxonomy import infer_style_attributes
@@ -584,3 +585,76 @@ def test_accessory_selector_allows_restraint_and_rotation():
     assert any(len(group) == 0 for group in picked)
     assert all(len(group) <= 2 for group in picked)
     assert flattened.count("watch-1") < len(combos)
+
+
+def test_prompt_constants_use_style_plan_prep_modes():
+    from prompts.core_prompts import AHVI_SYSTEM_PROMPT
+    from prompts.styling_prompts import (
+        BOARD_COMPOSITION_PROMPT,
+        OCCASION_INTERPRETER_PROMPT,
+        STYLE_BOARD_PROMPT,
+        STYLE_EXPLANATION_PROMPT,
+    )
+
+    combined = "\n".join(
+        [
+            AHVI_SYSTEM_PROMPT,
+            STYLE_BOARD_PROMPT,
+            STYLE_EXPLANATION_PROMPT,
+            BOARD_COMPOSITION_PROMPT,
+            OCCASION_INTERPRETER_PROMPT,
+        ]
+    )
+
+    assert "Style, Plan, and Prep" in AHVI_SYSTEM_PROMPT
+    assert "Plan, Prep, and Boards" not in combined
+    assert "A shoe swap is not a new outfit" in STYLE_BOARD_PROMPT
+
+
+def test_occasion_interpreter_asks_one_brief_style_question_for_ambiguous_date():
+    interpreted = interpret_occasion("date night", {"module_context": "style"})
+
+    assert interpreted["ask_user"] is True
+    assert interpreted["confidence"] == "medium"
+    assert len(interpreted["chips"]) == 3
+    assert all(chip["label"] not in {"Casual", "Formal", "Other"} for chip in interpreted["chips"])
+
+
+def test_occasion_interpreter_generates_for_generic_today_without_question():
+    interpreted = interpret_occasion("Suggest an outfit for today", {"module_context": "style"})
+
+    assert interpreted["ask_user"] is False
+    assert "smart casual" in interpreted["resolved_brief"]
+
+
+def test_final_boards_include_occasion_and_composition_metadata():
+    cards = [
+        _card(_item("top-1", "White Shirt", "top", "white"), _item("bottom-1", "Black Pants", "bottom"), _item("shoe-1", "Leather Loafers", "footwear")),
+    ]
+    interpretation = interpret_occasion("office outfit", {"module_context": "style"})
+
+    filtered = finalize_style_cards(
+        cards,
+        query="office outfit",
+        occasion_interpretation=interpretation,
+    )
+
+    assert filtered[0]["occasion_interpretation"]["resolved_brief"]
+    assert filtered[0]["composition_mode"] in {"stack", "grid"}
+    assert filtered[0]["hero_item_id"]
+    assert filtered[0]["anchor_item_id"]
+    assert filtered[0]["composition_items"]
+
+
+def test_explanations_avoid_banned_catalog_openers():
+    cards = [
+        _card(_item("top-1", "White Shirt", "top", "white"), _item("bottom-1", "Black Pants", "bottom"), _item("shoe-1", "Leather Loafers", "footwear")),
+        _card(_item("top-2", "Patterned Shirt", "top", "red"), _item("bottom-2", "Navy Chinos", "bottom", "navy"), _item("shoe-2", "Chelsea Boots", "footwear")),
+    ]
+
+    filtered = finalize_style_cards(cards, query="date night")
+    explanations = [card["why_it_works"] for card in filtered]
+    banned = ("match", "go together", "The look", "This outfit")
+
+    assert explanations
+    assert all(not any(term in text for term in banned) for text in explanations)
