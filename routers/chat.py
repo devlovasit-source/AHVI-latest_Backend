@@ -1294,6 +1294,12 @@ def text_chat(request: TextChatRequest, http_request: Request):
             )
     user_id = auth_user_id
     user_message_style = _infer_user_message_style(user_input)
+    profile_started = time.perf_counter()
+    effective_user_profile = _ahvi_resolve_effective_user_profile(
+        user_id,
+        request.user_profile if isinstance(request.user_profile, dict) else {},
+    )
+    profile_ms = round((time.perf_counter() - profile_started) * 1000, 2)
 
     # -------------------------
     # FAST PATH
@@ -1302,7 +1308,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
         fast = _fast_wardrobe_count_response(user_id, user_input)
         fast["message"] = tone_engine.apply(
             str(fast.get("message") or ""),
-            user_profile=request.user_profile,
+            user_profile=effective_user_profile,
             signals={"context_mode": "home", "user_message_style": user_message_style},
             context={},
         )
@@ -1374,7 +1380,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             messages=request.messages,
             english_input=english_input,
             user_id=user_id,
-            user_profile=request.user_profile if isinstance(request.user_profile, dict) else {},
+            user_profile=effective_user_profile,
             user_message_style=user_message_style,
             module_context=request.module_context,
         )
@@ -1392,7 +1398,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             messages=request.messages,
             english_input=english_input,
             user_id=user_id,
-            user_profile=request.user_profile if isinstance(request.user_profile, dict) else {},
+            user_profile=effective_user_profile,
             user_message_style=user_message_style,
             module_context=request.module_context,
         )
@@ -1402,7 +1408,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             messages=request.messages,
             english_input=english_input,
             user_id=user_id,
-            user_profile=request.user_profile if isinstance(request.user_profile, dict) else {},
+            user_profile=effective_user_profile,
             user_message_style=user_message_style,
             module_context=request.module_context,
         )
@@ -1412,7 +1418,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # -------------------------
     weather_data = {}
     try:
-        location = request.user_profile.get("location") or {}
+        location = effective_user_profile.get("location") or {}
         lat, lon = location.get("lat"), location.get("lon")
 
         if lat is not None and lon is not None:
@@ -1438,14 +1444,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             user_id=user_id,
             context={
                 "memory": request.current_memory,
-                "user_profile": _ahvi_resolve_effective_user_profile(
-                    user_id,
-                    (
-                        request.user_profile
-                        if isinstance(request.user_profile, dict)
-                        else {}
-                    ),
-                ),
+                "user_profile": effective_user_profile,
                 "module_context": request.module_context,
                 # Final style rendering is owned by style_flow_service after
                 # card sanitization; avoid stale pre-rendered boards here.
@@ -1471,7 +1470,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
         )
     except concurrent.futures.TimeoutError:
         style_payload = (
-            _demo_style_board_payload(user_id, english_input, request.wardrobe)
+            _demo_style_board_payload(user_id, english_input, request.wardrobe, effective_user_profile)
             if visual_context
             else {}
         )
@@ -1484,7 +1483,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "success": True,
             "message": tone_engine.apply(
                 fallback_message,
-                user_profile=request.user_profile,
+                user_profile=effective_user_profile,
                 signals={
                     "context_mode": request.module_context or "style",
                     "user_message_style": user_message_style,
@@ -1505,7 +1504,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
         }
     except Exception as exc:
         style_payload = (
-            _demo_style_board_payload(user_id, english_input, request.wardrobe)
+            _demo_style_board_payload(user_id, english_input, request.wardrobe, effective_user_profile)
             if visual_context
             else {}
         )
@@ -1518,7 +1517,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "success": True,
             "message": tone_engine.apply(
                 fallback_message,
-                user_profile=request.user_profile,
+                user_profile=effective_user_profile,
                 signals={
                     "context_mode": request.module_context or "style",
                     "user_message_style": user_message_style,
@@ -1564,7 +1563,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
     try:
         message = tone_engine.apply(
             message,
-            user_profile=request.user_profile,
+            user_profile=effective_user_profile,
             signals={
                 "context_mode": request.module_context or "chat",
                 "user_message_style": user_message_style,
@@ -1611,7 +1610,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
         )
         if visual_context and not has_visual_board:
             style_payload = _demo_style_board_payload(
-                user_id, english_input, request.wardrobe
+                user_id, english_input, request.wardrobe, effective_user_profile
             )
             if style_payload.get("cards"):
                 cards_payload = style_payload.get("cards") or []
@@ -1637,7 +1636,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             try:
                 message = tone_engine.apply(
                     replacement,
-                    user_profile=request.user_profile,
+                    user_profile=effective_user_profile,
                     signals={
                         "context_mode": request.module_context or "style",
                         "user_message_style": user_message_style,
@@ -1687,11 +1686,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             context={
                 "query": english_input,
                 "occasion": _ahvi_style_occasion(english_input),
-                "user_profile": (
-                    request.user_profile
-                    if isinstance(request.user_profile, dict)
-                    else {}
-                ),
+                "user_profile": effective_user_profile,
                 "weather": weather_data.get("condition"),
                 "time_of_day": weather_data.get("time_of_day"),
             },
@@ -1711,11 +1706,12 @@ def text_chat(request: TextChatRequest, http_request: Request):
         result["style_boards"] = canonical_style.get("style_boards") or cards_payload
 
     logger.info(
-        "chat.text_response user_id=%s cards=%d signatures=%s style_action=%s",
+        "chat.text_response user_id=%s cards=%d signatures=%s style_action=%s profile_ms=%s",
         user_id,
         len(cards_payload),
         [style_card_signature(c) for c in cards_payload],
         style_action or "",
+        profile_ms,
     )
 
     final_signatures = [

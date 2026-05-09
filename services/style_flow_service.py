@@ -2,6 +2,7 @@ import base64
 import hashlib
 import logging
 import os
+import time
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -32,6 +33,118 @@ def _tokens(value: Any) -> set[str]:
     import re
 
     return set(re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).split())
+
+
+def _list_text(value: Any) -> List[str]:
+    if isinstance(value, (list, tuple, set)):
+        return [_safe_text(v) for v in value if _safe_text(v)]
+    text = _safe_text(value)
+    if not text:
+        return []
+    return [part.strip() for part in text.replace("|", ",").split(",") if part.strip()]
+
+
+_STYLE_PREF_MAP = {
+    "clean minimal": {
+        "style_energy": "minimal/monochrome",
+        "palette": "minimal neutral",
+        "accessory_policy": "restrained",
+        "silhouette": "clean",
+    },
+    "minimalist": {
+        "style_energy": "minimal/monochrome",
+        "palette": "minimal neutral",
+        "accessory_policy": "restrained",
+        "silhouette": "clean",
+    },
+    "soft elegant": {
+        "style_energy": "polished/social",
+        "palette": "soft contrast",
+        "accessory_policy": "refined",
+        "silhouette": "polished",
+    },
+    "street cool": {
+        "style_energy": "elevated/casual",
+        "palette": "urban neutral",
+        "accessory_policy": "edited",
+        "silhouette": "street-smart",
+    },
+    "boho artisanal": {
+        "style_energy": "relaxed/creative",
+        "palette": "warm expressive",
+        "accessory_policy": "textured",
+        "silhouette": "creative",
+    },
+    "party glam": {
+        "style_energy": "expressive/statement",
+        "palette": "sharp contrast",
+        "accessory_policy": "statement",
+        "silhouette": "social",
+    },
+    "formal chic": {
+        "style_energy": "safest/refined",
+        "palette": "refined neutral",
+        "accessory_policy": "polished",
+        "silhouette": "tailored",
+    },
+    "casual": {
+        "style_energy": "elevated/casual",
+        "palette": "easy neutral",
+        "accessory_policy": "edited",
+        "silhouette": "relaxed",
+    },
+}
+
+
+def normalize_style_identity(user_profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    profile = _dict(user_profile)
+    prefs = (
+        _list_text(profile.get("stylePreferences"))
+        or _list_text(profile.get("styles"))
+        or _list_text(profile.get("style_preferences"))
+        or _list_text(profile.get("preferred_styles"))
+    )
+    normalized_prefs = [_safe_text(pref) for pref in prefs if _safe_text(pref)]
+    mapped = [
+        _STYLE_PREF_MAP.get(_safe_text(pref).lower())
+        for pref in normalized_prefs
+        if _STYLE_PREF_MAP.get(_safe_text(pref).lower())
+    ]
+    preferred_energies = []
+    preferred_palettes = []
+    preferred_silhouettes = []
+    accessory_policies = []
+    for row in mapped:
+        preferred_energies.append(row["style_energy"])
+        preferred_palettes.append(row["palette"])
+        preferred_silhouettes.append(row["silhouette"])
+        accessory_policies.append(row["accessory_policy"])
+
+    identity = {
+        "gender": _safe_text(profile.get("gender") or profile.get("style_gender")),
+        "shop_prefs": _list_text(profile.get("shopPrefs") or profile.get("shop_prefs")),
+        "skin_tone": _safe_text(profile.get("skinTone") or profile.get("skin_tone")),
+        "body_shape": _safe_text(profile.get("bodyShape") or profile.get("body_shape")),
+        "style_preferences": normalized_prefs,
+        "location_label": _safe_text(profile.get("locationLabel") or profile.get("location_label")),
+        "preferred_style_energies": list(dict.fromkeys(preferred_energies)),
+        "preferred_palettes": list(dict.fromkeys(preferred_palettes)),
+        "preferred_silhouettes": list(dict.fromkeys(preferred_silhouettes)),
+        "accessory_policy": next((p for p in accessory_policies if p), ""),
+        "profile_fields_used": [
+            key
+            for key, value in {
+                "gender": profile.get("gender") or profile.get("style_gender"),
+                "shopPrefs": profile.get("shopPrefs") or profile.get("shop_prefs"),
+                "skinTone": profile.get("skinTone") or profile.get("skin_tone"),
+                "bodyShape": profile.get("bodyShape") or profile.get("body_shape"),
+                "stylePreferences": normalized_prefs,
+                "locationLabel": profile.get("locationLabel") or profile.get("location_label"),
+            }.items()
+            if value
+        ],
+    }
+    return identity
 
 
 def item_image(item: Dict[str, Any]) -> str:
@@ -328,7 +441,7 @@ def _occasion_flags(query: str) -> Dict[str, bool]:
         "date": any(k in q for k in ("date", "dinner", "night")),
         "party": any(k in q for k in ("party", "club", "after-hours", "night out")),
         "travel": any(k in q for k in ("travel", "airport", "flight", "vacation", "trip")),
-        "wedding": any(k in q for k in ("wedding", "reception", "ceremony", "sangeet", "formal event")),
+        "wedding": any(k in q for k in ("wedding", "reception", "ceremony", "sangeet", "formal event", "event")),
         "casual": any(k in q for k in ("casual", "daily", "today", "weekend", "errand", "coffee")),
     }
 
@@ -963,6 +1076,37 @@ def _style_dna_match_score(card: Dict[str, Any], target: Dict[str, str], query: 
     return score
 
 
+def _identity_match_score(card: Dict[str, Any], style_identity: Dict[str, Any]) -> float:
+    if not style_identity:
+        return 0.0
+    score = 0.0
+    energy = _safe_text(card.get("style_energy") or _style_energy(card, _safe_text(card.get("_style_query"))))
+    palette = _safe_text(card.get("palette_direction") or _palette_direction(card))
+    silhouette = _safe_text(card.get("silhouette_category") or _silhouette_category(card))
+    preferred_energies = set(style_identity.get("preferred_style_energies") or [])
+    preferred_palettes = set(style_identity.get("preferred_palettes") or [])
+    preferred_silhouettes = set(style_identity.get("preferred_silhouettes") or [])
+
+    if energy and energy in preferred_energies:
+        score += 2.5
+    if any(palette and pref and pref.split()[0] in palette for pref in preferred_palettes):
+        score += 0.8
+    if silhouette and silhouette in preferred_silhouettes:
+        score += 0.8
+
+    accessory_policy = _safe_text(style_identity.get("accessory_policy")).lower()
+    accessory_count = len([x for x in card.get("accessories", []) if isinstance(x, dict)])
+    if accessory_policy == "restrained":
+        score += 0.8 if accessory_count <= 1 else -1.2
+    elif accessory_policy in {"statement", "textured"}:
+        text = _card_blob(card)
+        if any(k in text for k in ("print", "pattern", "texture", "ring", "bracelet", "watch")):
+            score += 0.6
+    elif accessory_policy in {"polished", "refined"} and accessory_count <= 2:
+        score += 0.4
+    return score
+
+
 _ARCHETYPES = [
     "Hero Look",
     "Safest Option",
@@ -1253,6 +1397,7 @@ def finalize_style_cards(
     cards: Any,
     *,
     query: str,
+    style_identity: Optional[Dict[str, Any]] = None,
     exclude_signatures: Any = None,
     requested_count: Optional[int] = None,
     default_limit: int = 6,
@@ -1293,6 +1438,9 @@ def finalize_style_cards(
         fixed["_style_core_signature"] = core_sig
         fixed["_style_quality_score"] = _quality_score(fixed, query) + _occasion_fit_score(fixed, query)
         fixed["_style_query"] = query
+        fixed["_style_identity"] = dict(style_identity or {})
+        fixed["_style_identity_score"] = _identity_match_score(fixed, style_identity or {})
+        fixed["_style_quality_score"] += float(fixed.get("_style_identity_score") or 0.0)
         seen.add(core_sig)
         canonical.append(fixed)
 
@@ -1340,6 +1488,7 @@ def finalize_style_cards(
             "formality_energy": card["formality_energy"],
             "explanation_mode": card["explanation_mode"],
             "layout_preset": card["layout_preset"],
+            "identity_match_score": round(float(card.get("_style_identity_score") or 0.0), 3),
         }
     return canonical[:limit]
 
@@ -1536,17 +1685,23 @@ def finalize_style_response_payload(
     cache_bypass: bool = True,
 ) -> Dict[str, Any]:
     ctx = dict(context or {})
+    style_identity = normalize_style_identity(_dict(ctx.get("user_profile")))
+    ctx["style_identity"] = style_identity
     raw_cards = result.get("cards") if isinstance(result.get("cards"), list) else []
     raw_outfits = result.get("outfits") if isinstance(result.get("outfits"), list) else []
     candidates = list(raw_outfits or []) + list(raw_cards or [])
 
+    finalize_started = time.perf_counter()
     cards = finalize_style_cards(
         candidates,
         query=query,
+        style_identity=style_identity,
         exclude_signatures=exclude_style_signatures,
         requested_count=requested_board_count if style_action in {"more_options", "more_looks", "next_best"} else None,
     )
+    finalize_ms = round((time.perf_counter() - finalize_started) * 1000, 2)
     ids = board_item_ids(cards)
+    render_started = time.perf_counter()
     rendered = render_style_boards(
         cards,
         ctx,
@@ -1554,19 +1709,23 @@ def finalize_style_response_payload(
         include_base64=include_base64,
         upload_to_r2=upload_to_r2,
     )
+    render_ms = round((time.perf_counter() - render_started) * 1000, 2)
     signatures = [card.get("_style_signature") or card_signature(card) for card in cards]
     core_signatures = [card.get("_style_core_signature") or core_card_signature(card) for card in cards]
     style_signature = _style_signature_hash([s for s in signatures if s])
     primary_board_id = ids[0] if ids else ""
 
     logger.info(
-        "style_flow.final_response user=%s cards=%d core_signatures=%s signatures=%s style_action=%s cache_bypass=%s",
+        "style_flow.final_response user=%s cards=%d core_signatures=%s signatures=%s style_action=%s cache_bypass=%s finalize_ms=%s render_ms=%s profile_fields=%s",
         user_id,
         len(cards),
         core_signatures,
         signatures,
         style_action or "",
         bool(cache_bypass),
+        finalize_ms,
+        render_ms,
+        style_identity.get("profile_fields_used") or [],
     )
 
     data = {
@@ -1591,6 +1750,15 @@ def finalize_style_response_payload(
             "has_more_style_options": bool(cards),
             "cache_bypass": bool(cache_bypass),
             "style_cache_bypass": bool(cache_bypass),
+            "style_identity": style_identity,
+            "profile_sources": {
+                "appwrite_profile": bool(style_identity.get("profile_fields_used")),
+                "request_profile": bool(_dict(ctx.get("user_profile"))),
+            },
+            "timing_ms": {
+                "style_finalization": finalize_ms,
+                "style_rendering": render_ms,
+            },
         },
     }
 
@@ -1611,12 +1779,15 @@ def build_style_flow_response(
 ) -> Dict[str, Any]:
     from brain.outfit_pipeline import get_daily_outfits
 
+    started = time.perf_counter()
     ctx = dict(context or {})
     ctx.setdefault("query", query)
     ctx.setdefault("user_id", user_id)
     if user_profile is not None:
         ctx.setdefault("user_profile", user_profile)
+    ctx.setdefault("style_identity", normalize_style_identity(_dict(ctx.get("user_profile"))))
 
+    candidate_started = time.perf_counter()
     result = get_daily_outfits(
         {
             "user_id": user_id,
@@ -1624,6 +1795,7 @@ def build_style_flow_response(
             "context": ctx,
         }
     )
+    candidate_ms = round((time.perf_counter() - candidate_started) * 1000, 2)
     if not isinstance(result, dict):
         result = {}
 
@@ -1640,6 +1812,15 @@ def build_style_flow_response(
         cache_bypass=cache_bypass,
     )
     cards = finalized["cards"]
+    total_ms = round((time.perf_counter() - started) * 1000, 2)
+    logger.info(
+        "style_flow.timing user=%s candidates_ms=%s total_ms=%s wardrobe_count=%s cards=%s",
+        user_id,
+        candidate_ms,
+        total_ms,
+        len(wardrobe) if isinstance(wardrobe, list) else 0,
+        len(cards),
+    )
     return {
         "success": bool(cards),
         "message": result.get("context")
@@ -1659,5 +1840,10 @@ def build_style_flow_response(
             **_dict(result.get("meta")),
             **finalized["meta"],
             "analysis_source": "style_flow_service",
+            "timing_ms": {
+                **_dict(finalized.get("meta", {}).get("timing_ms")),
+                "candidate_generation": candidate_ms,
+                "style_flow_total": total_ms,
+            },
         },
     }

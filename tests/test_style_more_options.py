@@ -2,6 +2,7 @@ from services.style_flow_service import (
     card_signature,
     finalize_style_cards,
     finalize_style_response_payload,
+    normalize_style_identity,
 )
 from services.category_taxonomy import infer_style_attributes
 
@@ -294,6 +295,53 @@ def test_style_response_exposes_additive_board_metadata():
     assert response["meta"]["board_metadata"]
     assert response["data"]["board_metadata"][0]["base_outfit_signature"]
     assert response["data"]["board_metadata"][0]["coherence_score"] is not None
+
+
+def test_onboarding_style_preferences_normalize_into_style_identity():
+    identity = normalize_style_identity(
+        {
+            "gender": "Male",
+            "shopPrefs": ["Men"],
+            "skinTone": "Warm",
+            "bodyShape": "Rectangle",
+            "stylePreferences": ["Clean Minimal", "Formal Chic"],
+            "locationLabel": "Mumbai",
+        }
+    )
+
+    assert identity["gender"] == "Male"
+    assert "stylePreferences" in identity["profile_fields_used"]
+    assert "minimal/monochrome" in identity["preferred_style_energies"]
+    assert "safest/refined" in identity["preferred_style_energies"]
+    assert identity["accessory_policy"] == "restrained"
+
+
+def test_profile_identity_biases_final_boards_without_hard_lock():
+    cards = [
+        _card(_item("top-1", "Black Shirt", "top"), _item("bottom-1", "Black Pants", "bottom"), _item("shoe-1", "Black Sneakers", "footwear"), score=90),
+        _card(_item("top-2", "Patterned Statement Shirt", "top", "red"), _item("bottom-2", "Black Jeans", "bottom"), _item("shoe-2", "Chelsea Boots", "footwear"), score=92),
+    ]
+    identity = normalize_style_identity({"stylePreferences": ["Clean Minimal"]})
+
+    filtered = finalize_style_cards(cards, query="casual outfit", style_identity=identity, default_limit=2)
+
+    assert filtered[0]["style_metadata"]["identity_match_score"] > 0
+    first_names = " ".join(item["name"].lower() for item in filtered[0]["items"])
+    assert "black shirt" in first_names
+
+
+def test_plan_pack_uses_smart_packing_engine_for_addons():
+    from brain.plan_pack_flow import build_plan_pack_response
+
+    response = build_plan_pack_response(
+        "pack for a 3 day business trip",
+        {"weather": "rainy", "time_of_day": "evening"},
+    )
+    essentials = next(card for card in response["cards"] if card["id"] == "packing_essentials")
+
+    assert response["intent"] == "plan_pack"
+    assert essentials["items"]
+    assert all(isinstance(item, str) for item in essentials["items"])
 
 
 def test_general_style_dna_metadata_is_added_for_non_office_requests():

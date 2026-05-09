@@ -31,6 +31,8 @@ MAIN_CATEGORIES = [
     "dresses and jumpsuits",
     "outerwear and winter wear",
     "footwear",
+    "bags",
+    "jewelry",
 ]
 
 SUB_CATEGORIES = {
@@ -89,6 +91,22 @@ SUB_CATEGORIES = {
         "boots",
         "slippers",
     ],
+    "bags": [
+        "handbag",
+        "backpack",
+        "tote bag",
+        "purse",
+        "clutch",
+        "messenger bag",
+    ],
+    "jewelry": [
+        "necklace",
+        "earrings",
+        "ring",
+        "bracelet",
+        "watch",
+        "pendant",
+    ],
 }
 
 APP_CATEGORY_MAP = {
@@ -98,6 +116,8 @@ APP_CATEGORY_MAP = {
     "outerwear and winter wear": "Outerwear",
     "dresses and jumpsuits": "Dresses",
     "traditional indian wear": "Dresses",
+    "bags": "Bags",
+    "jewelry": "Jewelry",
 }
 
 

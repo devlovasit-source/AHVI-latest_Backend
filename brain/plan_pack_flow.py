@@ -2,6 +2,8 @@ import math
 import re
 from typing import Any, Dict, List
 
+from brain.engines.packing.packing_engine import packing_engine
+
 
 def _parse_days(text: str) -> int:
     lowered = (text or "").lower()
@@ -195,7 +197,25 @@ def _ui_cards(
     days: int, destination: str, scenario: str, weather: str, time_of_day: str
 ) -> List[Dict[str, Any]]:
     clothes = _packing_clothes(days=days, scenario=scenario)
-    addons = _scenario_addons(scenario=scenario)
+    smart_packing = packing_engine.build_packing(
+        {
+            "days": days,
+            "purpose": scenario,
+            "destination": destination,
+            "weather": weather,
+            "gender": "universal",
+        }
+    )
+    addons: List[str] = []
+    for card in smart_packing.get("cards", []):
+        title = str((card or {}).get("title") or (card or {}).get("category") or "").lower()
+        if title not in {"purpose", "weather", "activity"}:
+            continue
+        items = card.get("items") if isinstance(card, dict) else []
+        if isinstance(items, list):
+            addons.extend([str(item) for item in items if str(item).strip()])
+    if not addons:
+        addons = _scenario_addons(scenario=scenario)
     timeline = _timeline_checklist(days=days, scenario=scenario)
     weather_items = _weather_layer_items(weather=weather)
     timeline = timeline + _time_based_tasks(time_of_day=time_of_day)

@@ -24,6 +24,7 @@ from brain.plan_pack_flow import build_plan_pack_response
 from brain.response.response_assembler import response_assembler
 from brain.tone.tone_engine import tone_engine
 from services.appwrite_proxy import AppwriteProxy
+from services.style_flow_service import build_style_flow_response
 
 logger = logging.getLogger("ahvi.orchestrator")
 
@@ -744,6 +745,48 @@ class AhviOrchestrator:
 
         if intent == "plan_pack":
             out = build_plan_pack_response(query, ctx)
+            wardrobe_ctx = ctx.get("wardrobe")
+            wardrobe = _coerce_wardrobe_payload(wardrobe_ctx)
+            wardrobe_source = "ctx" if wardrobe else "appwrite"
+            if not wardrobe:
+                wardrobe = _wardrobe_from_appwrite(uid)
+
+            scenario = _safe_text(_dict(out.get("data")).get("scenario") or "travel")
+            destination = _safe_text(_dict(out.get("data")).get("destination") or "your trip")
+            days = _dict(out.get("data")).get("days") or 3
+            weather = _safe_text(_dict(out.get("data")).get("weather") or _safe_text(ctx.get("weather")) or "mild")
+            travel_style_cards: List[Dict[str, Any]] = []
+            if wardrobe:
+                try:
+                    travel_style = build_style_flow_response(
+                        user_id=uid,
+                        query=f"Build travel outfits for a {days}-day {scenario} trip to {destination}. Weather is {weather}.",
+                        wardrobe=wardrobe,
+                        user_profile=user_profile,
+                        context={
+                            **ctx,
+                            "query": query,
+                            "occasion": "travel",
+                            "style_action": _safe_text(ctx.get("style_action")),
+                        },
+                        include_base64=False,
+                        upload_to_r2=False,
+                        cache_bypass=True,
+                    )
+                    travel_style_cards = [
+                        card
+                        for card in (travel_style.get("cards") or [])[:3]
+                        if isinstance(card, dict)
+                    ]
+                except Exception as exc:
+                    logger.exception("plan_pack style_flow failed uid=%s error=%s", uid, str(exc))
+            if travel_style_cards:
+                out["cards"] = [
+                    card
+                    for card in (out.get("cards") or [])
+                    if not (isinstance(card, dict) and card.get("id") == "packing_clothes")
+                ] + travel_style_cards
+                out["type"] = "cards"
             out["success"] = True
             out["message"] = tone_engine.apply(
                 _safe_text(out.get("message")),
@@ -755,6 +798,9 @@ class AhviOrchestrator:
                 **_dict(out.get("meta")),
                 "intent": intent,
                 "confidence": float(intent_row.get("confidence", 0.0)),
+                "wardrobe_source": wardrobe_source,
+                "wardrobe_count": len(wardrobe),
+                "travel_style_cards": len(travel_style_cards),
             }
             return out
 
