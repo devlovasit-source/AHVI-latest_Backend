@@ -620,6 +620,27 @@ def test_occasion_interpreter_asks_one_brief_style_question_for_ambiguous_date()
     assert all(chip["label"] not in {"Casual", "Formal", "Other"} for chip in interpreted["chips"])
 
 
+def test_occasion_interpreter_asks_brief_style_question_for_broad_party():
+    interpreted = interpret_occasion("I have a party coming up", {"module_context": "style"})
+
+    assert interpreted["ask_user"] is True
+    assert interpreted["confidence"] == "medium"
+    assert interpreted["board_generation_notes"]["max_questions"] == 3
+    assert [chip["label"] for chip in interpreted["chips"]] == [
+        "Rave energy",
+        "Cocktail sharp",
+        "House easy",
+    ]
+
+
+def test_occasion_interpreter_resolves_rave_party_without_asking():
+    interpreted = interpret_occasion("its a rave party", {"module_context": "style"})
+
+    assert interpreted["ask_user"] is False
+    assert "rave party" in interpreted["resolved_brief"]
+    assert interpreted["chips"] == []
+
+
 def test_occasion_interpreter_generates_for_generic_today_without_question():
     interpreted = interpret_occasion("Suggest an outfit for today", {"module_context": "style"})
 

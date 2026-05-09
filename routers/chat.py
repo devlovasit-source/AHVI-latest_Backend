@@ -941,6 +941,52 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
     ):
         return True
 
+    occasion_setup_words = [
+        "date",
+        "dinner",
+        "party",
+        "club",
+        "rave",
+        "office",
+        "meeting",
+        "wedding",
+        "reception",
+        "event",
+        "travel",
+        "trip",
+        "brunch",
+    ]
+    setup_phrases = [
+        "i have",
+        "ive got",
+        "i've got",
+        "coming up",
+        "tonight",
+        "tomorrow",
+        "this weekend",
+        "next week",
+        "need to go",
+        "going to",
+    ]
+    if any(o in q for o in occasion_setup_words) and any(
+        p in q for p in setup_phrases
+    ):
+        return True
+
+    if any(
+        p in q
+        for p in [
+            "rave party",
+            "club party",
+            "birthday party",
+            "house party",
+            "cocktail party",
+            "office party",
+            "wedding reception",
+        ]
+    ):
+        return True
+
     explicit_phrases = [
         "what should i wear",
         "what to wear",

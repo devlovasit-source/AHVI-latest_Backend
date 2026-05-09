@@ -628,7 +628,22 @@ def interpret_occasion(query: str, context: Optional[Dict[str, Any]] = None) -> 
         else:
             brief = "smart casual office, clean structure, credible footwear"
     elif kind == "party":
-        brief = "after-hours social, sharper contrast, memorable but edited"
+        if any(k in q for k in ("rave", "club", "edm", "festival")):
+            brief = "rave party, after-hours energy, movement friendly, expressive edge"
+        elif any(k in q for k in ("cocktail", "lounge", "bar", "drinks")):
+            brief = "cocktail party, sharp social polish, after-dark restraint"
+        elif any(k in q for k in ("house", "birthday", "friends")):
+            brief = "house party, relaxed social polish, memorable but easy"
+        else:
+            brief = "after-hours social, sharper contrast, memorable but edited"
+            ask_user = True
+            confidence = "medium"
+            reason = "party_atmosphere_changes_formality"
+            chips = [
+                {"label": "Rave energy", "value": "party_rave_energy"},
+                {"label": "Cocktail sharp", "value": "party_cocktail_sharp"},
+                {"label": "House easy", "value": "party_house_easy"},
+            ]
     elif kind == "travel":
         brief = "travel comfort polish, movement friendly, weather aware"
     elif kind == "wedding":
