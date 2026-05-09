@@ -1674,6 +1674,10 @@ def text_chat(request: TextChatRequest, http_request: Request):
             not message
             or "clarification" in lower_message
             or "balance isn't quite" in lower_message
+            or (
+                style_payload.get("cards")
+                and "i will assume smart casual" in lower_message
+            )
         ):
             replacement = (
                 style_payload.get("message")
@@ -1723,8 +1727,19 @@ def text_chat(request: TextChatRequest, http_request: Request):
         cards_payload = []
 
     board_ids_text = str(result.get("board_ids") or "")
+    result_meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+    already_finalized_style_payload = (
+        result_meta.get("mode") == "style_flow_service_adapter_v1"
+        and isinstance(data_payload, dict)
+        and bool(data_payload.get("outfits") or data_payload.get("rendered_boards"))
+    )
 
-    if visual_context and isinstance(cards_payload, list) and cards_payload:
+    if (
+        visual_context
+        and isinstance(cards_payload, list)
+        and cards_payload
+        and not already_finalized_style_payload
+    ):
         canonical_style = finalize_style_response_payload(
             {**result, "cards": cards_payload, "data": data_payload},
             user_id=user_id,
@@ -1750,6 +1765,13 @@ def text_chat(request: TextChatRequest, http_request: Request):
             **(canonical_style.get("meta") or {}),
         }
         result["style_boards"] = canonical_style.get("style_boards") or cards_payload
+    elif already_finalized_style_payload:
+        result["style_boards"] = result.get("style_boards") or cards_payload
+        logger.info(
+            "chat.skip_duplicate_style_finalize user_id=%s cards=%d",
+            user_id,
+            len(cards_payload),
+        )
 
     logger.info(
         "chat.text_response user_id=%s cards=%d signatures=%s style_action=%s profile_ms=%s",
