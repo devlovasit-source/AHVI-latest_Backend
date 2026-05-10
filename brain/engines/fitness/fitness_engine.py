@@ -42,15 +42,12 @@ class FitnessEngine:
         }
         """
 
-        candidates = set(self.sessions.keys())
+        candidate_keys = list(self.sessions.keys())
+        candidates = set(candidate_keys)
 
         # Goal filter
         if input_data.get("goal") in self.goal_routes:
             candidates &= set(self.goal_routes[input_data["goal"]])
-
-        # Gender filter
-        if input_data.get("gender") in self.gender_routes:
-            candidates &= set(self.gender_routes[input_data["gender"]])
 
         # Duration filter
         if str(input_data.get("duration")) in self.duration_routes:
@@ -68,7 +65,29 @@ class FitnessEngine:
         if input_data.get("constraint") in self.constraint_routes:
             candidates &= set(self.constraint_routes[input_data["constraint"]])
 
-        return [self.sessions[k] for k in candidates]
+        return [self.sessions[k] for k in candidate_keys if k in candidates]
+
+    def relaxed_fallback(self, input_data, limit=3):
+        candidate_keys = list(self.sessions.keys())
+        filters = [
+            ("location", self.location_routes, input_data.get("location")),
+            ("equipment", self.equipment_routes, input_data.get("equipment")),
+            ("duration", self.duration_routes, str(input_data.get("duration"))),
+            ("constraint", self.constraint_routes, input_data.get("constraint")),
+            ("goal", self.goal_routes, input_data.get("goal")),
+            ("gender", self.gender_routes, input_data.get("gender")),
+        ]
+
+        for keep_count in range(len(filters), 0, -1):
+            candidates = set(candidate_keys)
+            for _, routes, value in filters[:keep_count]:
+                if value in routes:
+                    candidates &= set(routes[value])
+            ordered = [self.sessions[k] for k in candidate_keys if k in candidates]
+            if ordered:
+                return ordered[:limit]
+
+        return [self.sessions[k] for k in candidate_keys[:limit]]
 
     # =========================
     # MAIN RECOMMENDER
@@ -79,7 +98,7 @@ class FitnessEngine:
         if not results:
             return {
                 "message": "No exact match found, try relaxing filters",
-                "fallback": list(self.sessions.values())[:3],
+                "fallback": self.relaxed_fallback(input_data),
             }
 
         # Pick top 3
