@@ -211,14 +211,25 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
     t = (text or "").lower()
     slots: Dict[str, Any] = {}
 
-    if "office" in t or "work" in t:
-        slots["occasion"] = "office"
+    # Specific occasions must beat generic "work" keyword so Gym/Party/etc.
+    # calendar chats don't get hijacked when user types "work outfit"
+    # inside a non-work session.
+    if "gym" in t or "workout" in t or "fitness" in t:
+        slots["occasion"] = "gym"
     elif "party" in t:
         slots["occasion"] = "party"
     elif "wedding" in t:
         slots["occasion"] = "wedding"
-    elif "date" in t:
+    elif "date night" in t or "date" in t:
         slots["occasion"] = "date_night"
+    elif "shopping" in t:
+        slots["occasion"] = "shopping"
+    elif "study" in t:
+        slots["occasion"] = "study"
+    elif "travel" in t or "trip" in t:
+        slots["occasion"] = "travel"
+    elif "office" in t or "work" in t:
+        slots["occasion"] = "office"
 
     if "morning" in t:
         slots["time"] = "morning"

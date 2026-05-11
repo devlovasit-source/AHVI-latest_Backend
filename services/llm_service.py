@@ -65,8 +65,8 @@ def _env_float(name: str, default: float) -> float:
         return float(default)
 
 
-DEFAULT_NUM_CTX = _env_int("OLLAMA_NUM_CTX", 1024)
-DEFAULT_NUM_PREDICT = _env_int("OLLAMA_NUM_PREDICT", 300)
+DEFAULT_NUM_CTX = _env_int("OLLAMA_NUM_CTX", 4096)
+DEFAULT_NUM_PREDICT = _env_int("OLLAMA_NUM_PREDICT", 512)
 DEFAULT_TEMPERATURE = _env_float("OLLAMA_TEMPERATURE", 0.2)
 
 
@@ -124,7 +124,7 @@ def _call_gemini_text(
     user_profile: Optional[Dict[str, Any]] = None,
     signals: Optional[Dict[str, Any]] = None,
     temperature: float = 0.35,
-    max_output_tokens: int = 450,
+    max_output_tokens: int = 700,
     system_instruction: Optional[str] = None,
 ) -> Optional[str]:
     client = _get_gemini_client()
@@ -268,7 +268,7 @@ def generate_text(
             user_profile=user_profile,
             signals=signals,
             temperature=float((options or {}).get("temperature", 0.35)),
-            max_output_tokens=int((options or {}).get("max_output_tokens", 450)),
+            max_output_tokens=int((options or {}).get("max_output_tokens", 700)),
         )
         if gemini_text:
             logger.info("llm.generate_text provider=gemini model=%s usecase=%s", GEMINI_MODEL, usecase)
@@ -447,7 +447,7 @@ Optional styling note:
         prompt,
         user_profile=user_profile,
         signals=signals,
-        options={"temperature": 0.35, "max_output_tokens": 420},
+        options={"temperature": 0.35, "max_output_tokens": 700},
         usecase="outfit_explanation",
     )
 
@@ -522,7 +522,7 @@ Keep it premium and concise.
         prompt,
         user_profile=user_profile,
         signals=signals,
-        options={"temperature": 0.4, "max_output_tokens": 450},
+        options={"temperature": 0.4, "max_output_tokens": 700},
         usecase="style_advice",
     )
 

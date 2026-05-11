@@ -1308,6 +1308,21 @@ def text_chat(request: TextChatRequest, http_request: Request):
 
     user_input = (request.messages[-1].content or "").strip()
 
+    # Backwards-compat: older calendar.dart builds wrap user text as
+    # "Occasion: <X>\n\n<user text>". Strip the prefix and promote
+    # occasion into user_profile so the orchestrator sees it as a
+    # structured slot instead of polluting the LLM prompt.
+    import re as _re_occ
+    _occ_match = _re_occ.match(r"^\s*Occasion:\s*([^\n]+)\n+", user_input, flags=_re_occ.IGNORECASE)
+    if _occ_match:
+        _legacy_occasion = _occ_match.group(1).strip().lower()
+        user_input = user_input[_occ_match.end():].strip()
+        if isinstance(request.user_profile, dict):
+            if not request.user_profile.get("occasion"):
+                request.user_profile["occasion"] = _legacy_occasion
+        else:
+            request.user_profile = {"occasion": _legacy_occasion}
+
     if not user_input:
         raise HTTPException(status_code=400, detail="Empty message")
 
