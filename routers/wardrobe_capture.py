@@ -14,6 +14,10 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+
+def _env_enabled(name: str, default: str = "false") -> bool:
+    return str(os.getenv(name, default)).strip().lower() in {"1", "true", "yes", "on"}
+
 from services import ai_gateway
 from services.bg_service import remove_bg_bytes
 from services.embedding_service import encode_metadata
@@ -486,13 +490,16 @@ async def _full_image_fallback_item(
 ) -> Dict[str, Any]:
     masked_bytes = source_bytes
     masked_mime = "image/png"
-    try:
-        masked_bytes = await remove_bg_bytes(source_bytes)
-    except Exception as exc:
-        reason = f"{reason}; bg_fallback:{exc}"
-        buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        masked_bytes = buf.getvalue()
+    if _env_enabled("WARDROBE_CAPTURE_FAST_MODE", "true"):
+        reason = f"{reason}; fast_mode_bg_skipped"
+    else:
+        try:
+            masked_bytes = await remove_bg_bytes(source_bytes)
+        except Exception as exc:
+            reason = f"{reason}; bg_fallback:{exc}"
+            buf = io.BytesIO()
+            image.save(buf, format="PNG")
+            masked_bytes = buf.getvalue()
 
     return {
         "item_id": str(uuid.uuid4()),
@@ -522,6 +529,12 @@ def _decode_inline_image(value: Any) -> bytes:
 
 
 def _try_upload_inline_images(item: Dict[str, Any]) -> Dict[str, Any]:
+    if _env_enabled("WARDROBE_CAPTURE_FAST_MODE", "true"):
+        item["upload_error"] = (
+            str(item.get("upload_error") or "") + "; fast_mode_upload_skipped"
+        ).strip("; ")
+        return item
+
     if item.get("masked_url"):
         return item
 
@@ -559,6 +572,7 @@ def _try_upload_inline_images(item: Dict[str, Any]) -> Dict[str, Any]:
 
 @router.post("/analyze")
 async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest):
+    started = time.perf_counter()
     user_id = _effective_user_id(http_request, request.user_id)
     image = _decode_image_base64(request.image_base64)
     source_bytes = _bytes_from_image_base64(request.image_base64)
@@ -596,12 +610,15 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         # Sync helpers — offload so the event loop is free under concurrency.
         import asyncio as _asyncio
 
-        vision = await _asyncio.to_thread(
-            _vision_extract_attributes,
-            str(item.get("masked_url") or ""),
-            raw_label,
-            masked_b64,
-        )
+        if _env_enabled("WARDROBE_CAPTURE_VISION_ENRICHMENT", "false"):
+            vision = await _asyncio.to_thread(
+                _vision_extract_attributes,
+                str(item.get("masked_url") or ""),
+                raw_label,
+                masked_b64,
+            )
+        else:
+            vision = _vision_extract_attributes("", raw_label, "")
         category, sub_category, category_corrected = _guardrail_category(
             raw_label=raw_label,
             vision_name=str(vision.get("name") or ""),
@@ -794,6 +811,16 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             save_state = f"failed:{exc}"
             raise HTTPException(status_code=503, detail=f"Wardrobe save failed: {exc}")
 
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    logger.info(
+        "ahvi.capture_analyze user_id=%s items=%s elapsed_ms=%s fast_mode=%s vision_enrichment=%s",
+        user_id,
+        len(items),
+        elapsed_ms,
+        _env_enabled("WARDROBE_CAPTURE_FAST_MODE", "true"),
+        _env_enabled("WARDROBE_CAPTURE_VISION_ENRICHMENT", "false"),
+    )
+
     return {
         "success": True,
         "count": len(items),
@@ -831,7 +858,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             "request_id": str(getattr(http_request.state, "request_id", "") or ""),
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "source_image_bytes": len(source_bytes),
-            "duration_hint_ms": int(time.time() * 1000) % 100000,
+            "duration_ms": elapsed_ms,
         },
     }
 
