@@ -23,6 +23,78 @@ from typing import Dict, Iterable, List, Tuple
 # ---------------------------------------------------------------------------
 CANONICAL_CATEGORY_KEYWORDS: List[Tuple[str, str, List[str]]] = [
     (
+        "Indian Wear",
+        "Saree",
+        [
+            "saree",
+            "sari",
+            "lehenga",
+            "dupatta",
+            "sherwani",
+            "kurta",
+            "kurti",
+            "anarkali",
+        ],
+    ),
+    (
+        "Dresses",
+        "Dress",
+        [
+            "one piece dress",
+            "one-piece dress",
+            "mini dress",
+            "midi dress",
+            "maxi dress",
+            "bodycon dress",
+            "shift dress",
+            "wrap dress",
+            "slip dress",
+            "dress",
+            "gown",
+            "jumpsuit",
+        ],
+    ),
+    (
+        "Bags",
+        "Bag",
+        [
+            "handbag",
+            "shoulder bag",
+            "sling bag",
+            "crossbody",
+            "tote",
+            "clutch",
+            "purse",
+            "backpack",
+            "bag",
+        ],
+    ),
+    (
+        "Jewelry",
+        "Jewelry",
+        [
+            "jewelry",
+            "jewellery",
+            "bracelet",
+            "bracelets",
+            "ring",
+            "rings",
+            "earring",
+            "earrings",
+            "necklace",
+            "necklaces",
+            "bangle",
+            "bangles",
+            "pendant",
+            "pendants",
+            "chain",
+            "chains",
+        ],
+    ),
+    ("Watches", "Watch", ["watch", "watches"]),
+    ("Belts", "Belt", ["belt", "belts"]),
+    ("Eyewear", "Eyewear", ["sunglass", "sunglasses", "eyewear", "glasses"]),
+    (
         "Footwear",
         "Footwear",
         [
@@ -52,7 +124,6 @@ CANONICAL_CATEGORY_KEYWORDS: List[Tuple[str, str, List[str]]] = [
             "trousers",
             "jean",
             "jeans",
-            "short",
             "shorts",
             "skirt",
             "chino",
@@ -73,53 +144,18 @@ CANONICAL_CATEGORY_KEYWORDS: List[Tuple[str, str, List[str]]] = [
             "top",
             "tops",
             "blouse",
-            "crop",
+            "crop top",
             "sweater",
             "hoodie",
             "polo",
         ],
     ),
-    ("Dresses", "Dress", ["dress", "gown", "jumpsuit"]),
     (
         "Outerwear",
         "Outerwear",
         ["jacket", "coat", "blazer", "outerwear", "cardigan"],
     ),
-    ("Bags", "Bag", ["bag", "handbag", "backpack", "purse", "tote", "clutch"]),
-    (
-        "Jewelry",
-        "Jewelry",
-        [
-            "jewelry",
-            "jewellery",
-            "bracelet",
-            "bracelets",
-            "ring",
-            "rings",
-            "earring",
-            "earrings",
-            "necklace",
-            "necklaces",
-            "bangle",
-            "bangles",
-            "pendant",
-            "pendants",
-            "chain",
-            "chains",
-            "hoop",
-            "hoops",
-        ],
-    ),
-    (
-        "Accessories",
-        "Accessory",
-        ["watch", "watches", "belt", "scarf", "hat", "cap", "sunglass", "sunglasses"],
-    ),
-    (
-        "Indian Wear",
-        "Indian Wear",
-        ["saree", "kurta", "lehenga", "dupatta", "sherwani"],
-    ),
+    ("Accessories", "Accessory", ["scarf", "hat", "cap"]),
 ]
 
 CANONICAL_CATEGORIES: set[str] = {row[0] for row in CANONICAL_CATEGORY_KEYWORDS}
@@ -130,51 +166,12 @@ def normalize_category_from_label(label: str) -> Tuple[str, str]:
     raw = (label or "").strip().lower()
     if not raw:
         return ("Item", "Item")
-    if any(x in raw for x in ["saree", "kurta", "lehenga", "dupatta", "sherwani"]):
-        return ("Indian Wear", raw.title() or "Indian Wear")
-    if any(
-        x in raw
-        for x in [
-            "shirt",
-            "tshirt",
-            "t-shirt",
-            "top",
-            "blouse",
-            "crop",
-            "sweater",
-            "hoodie",
-            "tee",
-        ]
-    ):
-        return ("Tops", raw.title() or "Top")
-    if any(x in raw for x in ["pant", "trouser", "jean", "skirt", "short"]):
-        return ("Bottoms", raw.title() or "Bottom")
-    if any(x in raw for x in ["dress", "gown", "jumpsuit"]):
-        return ("Dresses", "Dress")
-    if any(x in raw for x in ["jacket", "coat", "blazer", "outerwear"]):
-        return ("Outerwear", raw.title() or "Outerwear")
-    if any(x in raw for x in ["shoe", "sneaker", "heel", "boot", "sandal"]):
-        return ("Footwear", raw.title() or "Footwear")
-    if any(x in raw for x in ["bag", "handbag", "backpack", "purse", "tote"]):
-        return ("Bags", raw.title() or "Bag")
-    if any(
-        x in raw
-        for x in [
-            "jewelry",
-            "jewellery",
-            "bracelet",
-            "ring",
-            "earring",
-            "necklace",
-            "bangle",
-            "pendant",
-            "chain",
-            "hoop",
-        ]
-    ):
-        return ("Jewelry", raw.title() or "Jewelry")
-    if any(x in raw for x in ["watch", "belt", "scarf", "hat", "cap", "sunglass"]):
-        return ("Accessories", raw.title() or "Accessory")
+    for category, default_sub, keywords in CANONICAL_CATEGORY_KEYWORDS:
+        if any(keyword in raw for keyword in keywords):
+            sub = raw.title() or default_sub
+            if category == "Indian Wear" and ("sari" in raw or "saree" in raw):
+                sub = "Saree"
+            return (category, sub)
     return ("Item", "Item")
 
 

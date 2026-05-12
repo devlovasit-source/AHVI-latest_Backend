@@ -180,17 +180,112 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
 # =========================
 def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
     """
-    Token-aware category inference.
+    Final save-time category normalization.
 
-    Critical demo fix:
-    - "Short-Sleeved Shirt" => Tops
-    - "Khaki Shorts" => Bottoms
-    - "Brown Boots" => Footwear
-    - "Watch" => Accessories
+    Strong garment/accessory signals override weak explicit categories.
+    This prevents:
+    - bags saving as Accessories
+    - jewelry saving as Accessories
+    - saree saving as Accessories
+    - one-piece dress / mini dress saving as Tops
     """
 
-    explicit = str(cat or "").strip().lower()
+    text = " ".join(
+        [
+            str(cat or ""),
+            str(name or ""),
+            str(sub_category or ""),
+        ]
+    ).lower()
+    tokens = _tokens(text)
 
+    def has_any(words: List[str]) -> bool:
+        return _has_any(tokens, words) or any(word in text for word in words)
+
+    # Strong overrides FIRST. These must run before trusting explicit
+    # "Tops" / "Accessories" labels from vision or older clients.
+    if has_any(
+        [
+            "saree",
+            "sari",
+            "lehenga",
+            "dupatta",
+            "sherwani",
+            "kurta",
+            "kurti",
+            "anarkali",
+        ]
+    ):
+        return "Indian Wear"
+
+    if has_any(
+        [
+            "one piece dress",
+            "one-piece dress",
+            "mini dress",
+            "midi dress",
+            "maxi dress",
+            "bodycon dress",
+            "shift dress",
+            "wrap dress",
+            "slip dress",
+            "dress",
+            "dresses",
+            "gown",
+            "jumpsuit",
+        ]
+    ):
+        return "Dresses"
+
+    if has_any(
+        [
+            "handbag",
+            "shoulder bag",
+            "sling bag",
+            "crossbody",
+            "cross body",
+            "tote",
+            "clutch",
+            "purse",
+            "backpack",
+            "bag",
+            "bags",
+        ]
+    ):
+        return "Bags"
+
+    if has_any(
+        [
+            "ring",
+            "rings",
+            "bracelet",
+            "bracelets",
+            "necklace",
+            "necklaces",
+            "earring",
+            "earrings",
+            "bangle",
+            "bangles",
+            "pendant",
+            "pendants",
+            "chain",
+            "chains",
+            "jewelry",
+            "jewellery",
+        ]
+    ):
+        return "Jewelry"
+
+    if has_any(["watch", "watches"]):
+        return "Watches"
+
+    if has_any(["belt", "belts"]):
+        return "Belts"
+
+    if has_any(["sunglass", "sunglasses", "eyewear", "glasses"]):
+        return "Eyewear"
+
+    explicit = str(cat or "").strip().lower()
     explicit_map = {
         "tops": "Tops",
         "top": "Tops",
@@ -199,33 +294,28 @@ def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
         "footwear": "Footwear",
         "shoe": "Footwear",
         "shoes": "Footwear",
-        "accessories": "Accessories",
-        "accessory": "Accessories",
-        "bags": "Accessories",
-        "bag": "Accessories",
-        "jewelry": "Jewelry",
-        "jewellery": "Jewelry",
         "outerwear": "Outerwear",
         "dresses": "Dresses",
         "dress": "Dresses",
-        "indian wear": "Dresses",
+        "indian wear": "Indian Wear",
+        "bags": "Bags",
+        "bag": "Bags",
+        "jewelry": "Jewelry",
+        "jewellery": "Jewelry",
+        "watches": "Watches",
+        "watch": "Watches",
+        "belts": "Belts",
+        "belt": "Belts",
+        "eyewear": "Eyewear",
+        "accessories": "Accessories",
+        "accessory": "Accessories",
     }
 
     if explicit in explicit_map:
         return explicit_map[explicit]
 
-    text = " ".join(
-        [
-            str(cat or ""),
-            str(name or ""),
-            str(sub_category or ""),
-        ]
-    )
-    t = _tokens(text)
-
-    # Tops first so "Short-Sleeved Shirt" never becomes Bottoms.
-    if _has_any(
-        t,
+    # Tops before bottoms, but only after dress/Indian/accessory overrides.
+    if has_any(
         [
             "shirt",
             "shirts",
@@ -240,8 +330,6 @@ def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
             "hoodies",
             "sweater",
             "sweaters",
-            "kurta",
-            "kurtas",
             "polo",
             "polos",
         ],
@@ -249,8 +337,7 @@ def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
         return "Tops"
 
     # Only "shorts", not "short".
-    if _has_any(
-        t,
+    if has_any(
         [
             "pants",
             "pant",
@@ -269,8 +356,7 @@ def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
     ):
         return "Bottoms"
 
-    if _has_any(
-        t,
+    if has_any(
         [
             "shoe",
             "shoes",
@@ -290,61 +376,48 @@ def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
     ):
         return "Footwear"
 
-    if _has_any(
-        t,
-        [
-            "jewelry",
-            "jewellery",
-            "ring",
-            "rings",
-            "necklace",
-            "necklaces",
-            "bracelet",
-            "bracelets",
-            "bangle",
-            "bangles",
-            "earring",
-            "earrings",
-            "pendant",
-            "pendants",
-            "chain",
-            "chains",
-            "hoop",
-            "hoops",
-        ],
-    ):
-        return "Jewelry"
-
-    if _has_any(
-        t,
-        [
-            "watch",
-            "watches",
-            "bag",
-            "bags",
-            "belt",
-            "belts",
-            "scarf",
-            "scarves",
-            "accessory",
-            "accessories",
-            "hat",
-            "cap",
-            "sunglass",
-            "sunglasses",
-        ],
-    ):
-        return "Accessories"
-
-    if _has_any(t, ["jacket", "coat", "blazer", "outerwear", "cardigan", "overshirt"]):
+    if has_any(["jacket", "coat", "blazer", "outerwear", "cardigan", "overshirt"]):
         return "Outerwear"
 
-    if _has_any(
-        t, ["dress", "dresses", "gown", "jumpsuit", "saree", "lehenga", "sherwani"]
-    ):
-        return "Dresses"
-
     return "Accessories"
+
+
+def normalize_display_name_and_subcategory(
+    name: str,
+    sub_category: str,
+    category: str,
+) -> tuple[str, str]:
+    raw_name = str(name or "").strip()
+    raw_sub = str(sub_category or "").strip()
+    text = f"{raw_name} {raw_sub}".lower()
+
+    if "sari" in text or "saree" in text:
+        return (
+            raw_name.replace("Sari", "Saree").replace("sari", "Saree") or "Saree",
+            "Saree",
+        )
+    if "mini dress" in text:
+        return raw_name or "Mini Dress", "Mini Dress"
+    if "one piece" in text or "one-piece" in text:
+        return raw_name or "One-Piece Dress", "One-Piece Dress"
+    if "dress" in text:
+        return raw_name or "Dress", raw_sub if raw_sub else "Dress"
+    if "handbag" in text:
+        return raw_name or "Handbag", "Handbag"
+    if "shoulder bag" in text:
+        return raw_name or "Shoulder Bag", "Shoulder Bag"
+    if "tote" in text:
+        return raw_name or "Tote Bag", "Tote Bag"
+    if "ring" in text:
+        return raw_name or "Ring", "Ring"
+    if "bracelet" in text:
+        return raw_name or "Bracelet", "Bracelet"
+    if "necklace" in text:
+        return raw_name or "Necklace", "Necklace"
+    if "watch" in text:
+        return raw_name or "Watch", "Watch"
+
+    return raw_name or raw_sub or "Item", raw_sub or category or "Item"
 
 
 def _build_appwrite_doc(
@@ -370,6 +443,11 @@ def _build_appwrite_doc(
     )
 
     category = normalize_category(item.get("category"), name, sub_category)
+    name, sub_category = normalize_display_name_and_subcategory(
+        name=name,
+        sub_category=sub_category,
+        category=category,
+    )
     color = _normalize_hex_color(
         item.get("color_code") or item.get("color") or item.get("hex")
     )
@@ -614,4 +692,5 @@ def persist_selected_items(
 __all__ = [
     "persist_selected_items",
     "normalize_category",
+    "normalize_display_name_and_subcategory",
 ]
