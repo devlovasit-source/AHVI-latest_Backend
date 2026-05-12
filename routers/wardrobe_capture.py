@@ -528,8 +528,10 @@ def _decode_inline_image(value: Any) -> bytes:
         return b""
 
 
-def _try_upload_inline_images(item: Dict[str, Any]) -> Dict[str, Any]:
-    if _env_enabled("WARDROBE_CAPTURE_FAST_MODE", "true"):
+def _try_upload_inline_images(
+    item: Dict[str, Any], *, allow_fast_mode_skip: bool = True
+) -> Dict[str, Any]:
+    if allow_fast_mode_skip and _env_enabled("WARDROBE_CAPTURE_FAST_MODE", "true"):
         item["upload_error"] = (
             str(item.get("upload_error") or "") + "; fast_mode_upload_skipped"
         ).strip("; ")
@@ -1166,7 +1168,7 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         )
 
         try:
-            item = _try_upload_inline_images(item)
+            item = _try_upload_inline_images(item, allow_fast_mode_skip=False)
         except Exception as exc:
             item["upload_error"] = str(exc)
 
