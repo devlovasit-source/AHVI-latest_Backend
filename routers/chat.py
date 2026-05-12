@@ -9,6 +9,7 @@ import hashlib
 import concurrent.futures
 import threading
 import re
+import json
 
 from deep_translator import GoogleTranslator
 
@@ -1295,6 +1296,152 @@ class DailyCardsRequest(BaseModel):
     time_slot: str | None = None
     user_profile: Dict[str, Any] = Field(default_factory=dict)
     current_memory: Any = Field(default_factory=dict)
+
+
+class ModuleChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+    history: List[Dict[str, str]] = Field(default_factory=list, max_length=20)
+    module: str = Field(..., min_length=2, max_length=32)
+    context_data: Dict[str, Any] = Field(default_factory=dict)
+    user_profile: Dict[str, Any] = Field(default_factory=dict)
+
+
+_MODULE_CHAT_PROMPTS: Dict[str, str] = {
+    "medi": (
+        "You are AHVI's medicine tracking assistant. Use only the user's "
+        "medication inventory and reminder data. Do not give diagnosis or unsafe "
+        "dosage advice. For medical uncertainty, advise consulting a doctor."
+    ),
+    "skincare": (
+        "You are AHVI's skincare assistant. Use the user's skin profile and "
+        "routine. Be practical, conservative, and avoid diagnosis."
+    ),
+    "meal": (
+        "You are AHVI's meal planning assistant. Use the user's diet, allergies, "
+        "goal, calories, and logged meals. Never suggest ingredients listed in allergies."
+    ),
+    "diet": (
+        "You are AHVI's meal planning assistant. Use the user's diet, allergies, "
+        "goal, calories, and logged meals. Never suggest ingredients listed in allergies."
+    ),
+    "calendar": (
+        "You are AHVI's planning assistant. Use today's events, tasks, deadlines, "
+        "and time context. Prioritize what reduces friction for the user."
+    ),
+    "bills": (
+        "You are AHVI's bills and expense assistant. Use only the provided bill, "
+        "transaction, budget, and due-date context. Do not provide investment advice."
+    ),
+    "fitness": (
+        "You are AHVI's fitness preparation assistant. Use the user's workout, "
+        "equipment, time, and constraint context. Keep guidance safe, practical, and concise."
+    ),
+    "daily_wear": (
+        "You are AHVI's daily wear assistant. Use the provided style context, but "
+        "do not invent wardrobe items. If the user asks for boards, route them to style."
+    ),
+}
+
+
+def _normalize_module_name(module: str) -> str:
+    value = str(module or "").strip().lower().replace("-", "_")
+    allowed = {
+        "style",
+        "wardrobe",
+        "daily_wear",
+        "skincare",
+        "medi",
+        "bills",
+        "calendar",
+        "meal",
+        "diet",
+        "fitness",
+    }
+    return value if value in allowed else "chat"
+
+
+def _state_user_id(http_request: Request) -> str:
+    state_user = getattr(http_request.state, "user", None)
+    if isinstance(state_user, dict):
+        return str(
+            state_user.get("user_id")
+            or state_user.get("$id")
+            or state_user.get("id")
+            or ""
+        ).strip()
+    return ""
+
+
+def _module_llm_response(
+    *,
+    module: str,
+    user_message: str,
+    history: List[Dict[str, str]],
+    context_data: Dict[str, Any],
+    user_profile: Dict[str, Any],
+) -> Dict[str, Any]:
+    module_key = _normalize_module_name(module)
+    system_instruction = _MODULE_CHAT_PROMPTS.get(
+        module_key,
+        "You are AHVI. Answer directly using the provided context. Do not invent missing data.",
+    )
+
+    if context_data:
+        system_instruction += (
+            "\n\nUse this app context. Do not invent missing data:\n"
+            + json.dumps(context_data, ensure_ascii=False, default=str)[:6000]
+        )
+
+    messages: List[Dict[str, str]] = []
+    for item in list(history or [])[-10:]:
+        role = str(item.get("role") or "user").lower().strip()
+        content = str(item.get("content") or item.get("text") or "").strip()
+        if role not in {"user", "assistant", "system"}:
+            role = "user"
+        if content:
+            messages.append({"role": role, "content": content[:1200]})
+    messages.append({"role": "user", "content": user_message})
+
+    try:
+        answer = chat_completion(
+            messages,
+            system_instruction=system_instruction,
+            user_profile=user_profile,
+            signals={"context_mode": module_key},
+            timeout_seconds=45,
+            options={"temperature": 0.45, "max_output_tokens": 320},
+            usecase=f"{module_key}_chat",
+        )
+    except Exception as exc:
+        logger.warning("chat.module_chat_failed module=%s error=%s", module_key, str(exc)[:180])
+        answer = lightweight_chat(user_message)
+
+    return {
+        "success": True,
+        "response": str(answer or "").strip(),
+        "module": module_key,
+        "type": "module_chat",
+        "chips": [],
+        "data": {"module": module_key},
+        "meta": {"mode": module_key},
+    }
+
+
+@router.post("/module-chat")
+def module_chat(request: ModuleChatRequest, http_request: Request):
+    module = _normalize_module_name(request.module)
+    profile = dict(request.user_profile or {})
+    user_id = _state_user_id(http_request)
+    if user_id:
+        profile["user_id"] = user_id
+
+    return _module_llm_response(
+        module=module,
+        user_message=str(request.message or "").strip(),
+        history=request.history,
+        context_data=request.context_data,
+        user_profile=profile,
+    )
 
 
 @router.post("/text")
