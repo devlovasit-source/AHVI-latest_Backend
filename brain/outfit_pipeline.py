@@ -1457,6 +1457,10 @@ def _select_accessories(
         accessory_budget = _stable_offset(f"accessory-budget:{seed}", accessory_budget + 1)
     if accessory_budget <= 0:
         return []
+    # Do not make every generated board accessory-heavy. Five to six items should
+    # happen only when the accessories are genuinely useful.
+    if accessory_budget > 2 and seed and _stable_offset(f"accessory-restraint:{seed}", 3) == 0:
+        accessory_budget = 2
     candidates.sort(
         key=lambda item: (
             _stable_offset(f"accessory-rotate:{seed}:{_accessory_item_key(item)}", 7),

@@ -365,20 +365,134 @@ def card_is_complete(card: Dict[str, Any]) -> bool:
 
 
 def _accessory_type(item: Dict[str, Any]) -> str:
-    blob = " ".join(_safe_text(item.get(k)) for k in ("name", "label", "category", "type", "sub_category"))
+    blob = " ".join(_safe_text(item.get(k)) for k in ("name", "label", "category", "type", "sub_category", "subcategory"))
     tokens = _tokens(blob)
     for typ, words in (
         ("watch", {"watch", "watches"}),
         ("eyewear", {"sunglass", "sunglasses", "eyewear", "glasses"}),
         ("bag", {"bag", "bags", "purse", "tote", "clutch"}),
         ("belt", {"belt", "belts"}),
-        ("headwear", {"cap", "hat"}),
+        ("headwear", {"cap", "caps", "hat", "hats", "beanie"}),
         ("scarf", {"scarf", "scarves"}),
-        ("jewelry", {"ring", "necklace", "bracelet", "earring", "jewelry", "jewellery"}),
+        ("jewelry", {"ring", "rings", "necklace", "bracelet", "earring", "jewelry", "jewellery"}),
     ):
         if tokens.intersection(words):
             return typ
     return "accessory"
+
+
+_SOCIAL_ACCESSORIES = {"watch", "belt", "jewelry", "eyewear", "bag", "scarf"}
+_PROFESSIONAL_ACCESSORIES = {"watch", "belt", "jewelry", "eyewear", "bag", "scarf"}
+_CASUAL_ACCESSORIES = {"watch", "belt", "jewelry", "eyewear", "bag", "scarf", "headwear"}
+
+
+def _allows_headwear(query: str) -> bool:
+    q = str(query or "").lower()
+    return any(
+        k in q
+        for k in (
+            "cap",
+            "hat",
+            "street",
+            "sport",
+            "outdoor",
+            "travel",
+            "airport",
+            "flight",
+            "vacation",
+            "beach",
+            "weekend",
+            "rave",
+            "festival",
+        )
+    )
+
+
+def _accessory_allowed_for_query(item: Dict[str, Any], query: str) -> bool:
+    typ = _accessory_type(item)
+    kind = _occasion_kind(query)
+    if typ == "headwear" and not _allows_headwear(query):
+        return False
+    if kind in {"office", "date", "wedding"}:
+        return typ in _PROFESSIONAL_ACCESSORIES
+    if kind == "party":
+        return typ in _SOCIAL_ACCESSORIES or _allows_headwear(query)
+    if kind in {"travel", "casual", "daily"}:
+        return typ in _CASUAL_ACCESSORIES
+    return typ != "headwear" or _allows_headwear(query)
+
+
+def _accessory_priority(item: Dict[str, Any], query: str) -> int:
+    typ = _accessory_type(item)
+    kind = _occasion_kind(query)
+    if kind in {"office", "date", "wedding"}:
+        order = ["belt", "watch", "jewelry", "eyewear", "bag", "scarf", "accessory", "headwear"]
+    elif kind == "party":
+        order = ["jewelry", "watch", "belt", "eyewear", "bag", "scarf", "headwear", "accessory"]
+    elif kind == "travel":
+        order = ["bag", "eyewear", "watch", "belt", "scarf", "headwear", "jewelry", "accessory"]
+    else:
+        order = ["watch", "belt", "eyewear", "bag", "jewelry", "scarf", "headwear", "accessory"]
+    try:
+        return order.index(typ)
+    except ValueError:
+        return 99
+
+
+def _curate_accessories_for_card(card: Dict[str, Any], query: str) -> Dict[str, Any]:
+    """Keep boards styled, not stuffed.
+
+    The upstream outfit builder may attach any available accessory. This final
+    pass removes occasion-breaking accents (for example a cap in office/date),
+    dedupes accessory types, and caps the final board to six useful items.
+    """
+    if not isinstance(card, dict):
+        return card
+    core = [
+        item
+        for item in card.get("items", [])
+        if isinstance(item, dict) and item_role(item) != "accessory"
+    ]
+    raw_accessories: List[Dict[str, Any]] = []
+    for item in list(card.get("accessories") or []) + list(card.get("items") or []):
+        if isinstance(item, dict) and item_role(item) == "accessory":
+            raw_accessories.append(item)
+
+    seen_keys: set[str] = set()
+    seen_types: set[str] = set()
+    accessories: List[Dict[str, Any]] = []
+    for item in sorted(raw_accessories, key=lambda x: (_accessory_priority(x, query), item_key(x))):
+        if not _accessory_allowed_for_query(item, query):
+            continue
+        key = item_key(item)
+        typ = _accessory_type(item)
+        if key and key in seen_keys:
+            continue
+        if typ in seen_types:
+            continue
+        normalized = normalize_item(item, "accessory")
+        accessories.append(normalized)
+        if key:
+            seen_keys.add(key)
+        seen_types.add(typ)
+
+    # Premium boards do not need six items. They may carry six only when the
+    # accessories are genuinely useful and distinct.
+    accessory_budget = max(0, min(6 - len(core), 3))
+    if _occasion_kind(query) in {"office", "date", "wedding"}:
+        accessory_budget = min(accessory_budget, 2)
+    accessories = accessories[:accessory_budget]
+
+    fixed = dict(card)
+    fixed["accessories"] = accessories
+    fixed["items"] = core + accessories
+    fixed["item_count"] = len(fixed["items"])
+    fixed["accessory_policy_applied"] = {
+        "max_items": 6,
+        "accessory_budget": accessory_budget,
+        "accessory_types": [_accessory_type(item) for item in accessories],
+    }
+    return fixed
 
 
 def _canonicalize_card(card: Dict[str, Any], index: int) -> Optional[Dict[str, Any]]:
@@ -970,26 +1084,29 @@ def _redundancy_penalty(card: Dict[str, Any], selected: List[Dict[str, Any]]) ->
     penalty = 0.0
     bottom = _role_key(card, "bottom")
     top = _role_key(card, "top") or _role_key(card, "dress")
-    top_bottom = "|".join([top, bottom])
+    top_bottom = _top_bottom_signature(card)
     selected_bottoms = [_role_key(s, "bottom") for s in selected]
-    selected_top_bottoms = {
-        "|".join([_role_key(s, "top") or _role_key(s, "dress"), _role_key(s, "bottom")])
-        for s in selected
-    }
+    selected_tops = [_role_key(s, "top") or _role_key(s, "dress") for s in selected]
+    selected_top_bottoms = {_top_bottom_signature(s) for s in selected}
+    if top and top in selected_tops:
+        penalty += selected_tops.count(top) * 3.0
     if bottom and bottom in selected_bottoms:
-        penalty += selected_bottoms.count(bottom) * 2.5
-    if top_bottom.strip("|") and top_bottom in selected_top_bottoms:
-        penalty += 6.0
+        penalty += selected_bottoms.count(bottom) * 4.5
+    if top_bottom and top_bottom in selected_top_bottoms:
+        # This is the main visible failure: same shirt + same pant with shoe/accessory swaps.
+        penalty += 18.0
     if _footwear_mood(_item_by_role(card, "footwear")) in {
         _footwear_mood(_item_by_role(s, "footwear")) for s in selected
     }:
-        penalty += 0.8
+        penalty += 1.2
     if _role_key(card, "footwear") and _role_key(card, "footwear") in {_role_key(s, "footwear") for s in selected}:
-        penalty += 1.6
+        penalty += 2.5
     if _style_energy(card, _safe_text(card.get("_style_query"))) in {
         _style_energy(s, _safe_text(s.get("_style_query"))) for s in selected
     }:
-        penalty += 1.0
+        penalty += 1.5
+    if set(_accessory_types(card)).intersection({typ for s in selected for typ in _accessory_types(s)}):
+        penalty += 0.6
     return penalty
 
 
@@ -1129,6 +1246,10 @@ def _hard_rejection_reason(card: Dict[str, Any], query: str) -> str:
         and not _allows_relaxed_footwear(query)
     ):
         return "relaxed_footwear_blocked_for_occasion"
+    if kind in {"office", "date", "wedding"}:
+        for item in card.get("accessories", []) or []:
+            if isinstance(item, dict) and _accessory_type(item) == "headwear" and not _allows_headwear(query):
+                return "headwear_blocked_for_polished_occasion"
     return ""
 
 
@@ -1333,29 +1454,32 @@ def _explanation_for(card: Dict[str, Any], query: str, index: int) -> Dict[str, 
     top = _item_name(card, "top", _item_name(card, "dress", "the hero piece"))
     bottom = _item_name(card, "bottom", "the base")
     footwear = _item_name(card, "footwear", "the footwear")
-    palette = _palette_direction(card)
-    silhouette = _silhouette_mood(card)
+    top_color = _safe_text(_item_by_role(card, "top").get("color") or _item_by_role(card, "dress").get("color")).title()
+    bottom_color = _safe_text(_item_by_role(card, "bottom").get("color")).title()
     footwear_mood = _footwear_mood(_item_by_role(card, "footwear"))
+    has_accessory = bool([x for x in card.get("accessories", []) if isinstance(x, dict)])
+
+    hero_label = top if top != "the hero piece" else "The hero piece"
+    base_label = "darker base" if "black" in bottom.lower() or bottom_color.lower() == "black" else "quieter base"
+    accent_line = "The small accent breaks the severity." if has_accessory else "Nothing extra is fighting the line."
 
     copy = {
-        "color_harmony": f"{top} sets a {palette} register; {bottom} keeps the line deliberate.",
-        "silhouette_balance": f"Structure leads through {top}, then {footwear} anchors the {silhouette} line.",
-        "texture_contrast": f"{top} brings the visual pressure; {bottom} and {footwear} keep it from turning loud.",
-        "occasion_alignment": f"{top} reads right for the brief because {footwear} holds the social register.",
-        "footwear_polish": f"{footwear} tightens the mood into {footwear_mood} - intentional rather than easy.",
-        "smart_contrast": f"Sharper above, quieter below. {top} carries the attitude while {bottom} gives it restraint.",
-        "minimal_aesthetic": f"All restraint: {top}, {bottom}, and {footwear}, with nothing fighting for attention.",
-        "relaxed_tailoring": f"Ease with a backbone. {top} gives structure, {bottom} keeps it wearable, and {footwear} settles the tone.",
+        "color_harmony": f"{hero_label} carries the personality. The {base_label} keeps it from turning loud.",
+        "silhouette_balance": f"Structure leads above; {footwear} gives the line a cleaner finish.",
+        "texture_contrast": f"The visual pressure stays controlled. {bottom} and {footwear} keep the finish grounded.",
+        "occasion_alignment": f"The register is clean enough for the brief without feeling dressed-up for its own sake.",
+        "footwear_polish": f"{footwear} sharpens the mood into {footwear_mood}. Intentional rather than easy.",
+        "smart_contrast": f"Sharper above, quieter below. The point is the restraint.",
+        "minimal_aesthetic": f"A clean column, then one controlled break. {accent_line}",
+        "relaxed_tailoring": f"Ease with a backbone. The polish comes from what is left out.",
     }
     tips = [
-        f"Roll the sleeves once on {top} if you want the office look to feel less stiff.",
+        f"Roll the sleeves once on {top} if you want the line less stiff.",
         f"Keep {top} untucked only if the hem sits above mid-hip.",
-        f"Swap to loafers after 6 PM if this needs to move from office to dinner.",
-        "Keep accessories minimal here; the cleaner line is what makes the board feel premium.",
-        f"Let {footwear} stay visible; it is doing the polish work in this outfit.",
-        f"If {bottom} is slim, avoid oversized accessories so the silhouette stays sharp.",
-        "This palette works best in daylight because the contrast stays clean without feeling heavy.",
-        f"Use a single watch or eyewear piece; more than that will distract from {top}.",
+        "Keep accessories minimal here; the clean line is doing the work.",
+        f"Let {footwear} stay visible; it is carrying the polish.",
+        "If this moves into evening, keep the collar open and skip extra accessories.",
+        "Do not add a cap here unless the brief is explicitly weekend or street.",
     ]
     return {
         "explanation_mode": mode,
@@ -1399,11 +1523,35 @@ def _composition_metadata(card: Dict[str, Any]) -> Dict[str, Any]:
     profile = _diversity_profile(card, _safe_text(card.get("_style_query")))
     mode = "grid" if (
         profile.get("style_energy") == "minimal/monochrome"
-        or profile.get("palette") == "minimal neutral"
-        or profile.get("accessory_mood") == "clean minimal"
+        and len(items) <= 4
+        and profile.get("accessory_mood") in {"no accessories", "clean minimal", "minimal watch"}
     ) else "stack"
+
+    # Runtime layout spec. x/y are center positions in board space.
+    stack_positions = {
+        "hero": (0.40, 0.46, 3, 0),
+        "anchor": (0.27, 0.74, 5, -5),
+        "support_0": (0.63, 0.53, 1, 0),
+        "support_1": (0.62, 0.34, 1, 0),
+        "accent_0": (0.80, 0.22, 6, 0),
+        "accent_1": (0.86, 0.34, 6, 4),
+        "accent_2": (0.78, 0.45, 6, -3),
+    }
+    grid_positions = {
+        "hero": (0.38, 0.42, 3, 0),
+        "anchor": (0.32, 0.74, 5, 0),
+        "support_0": (0.68, 0.42, 1, 0),
+        "support_1": (0.68, 0.62, 1, 0),
+        "accent_0": (0.72, 0.76, 6, 0),
+        "accent_1": (0.84, 0.76, 6, 0),
+        "accent_2": (0.78, 0.88, 6, 0),
+    }
+    positions = grid_positions if mode == "grid" else stack_positions
+
     composition_items: List[Dict[str, Any]] = []
-    for item in items:
+    support_index = 0
+    accent_index = 0
+    for item in items[:6]:
         role = item_role(item)
         ident = _item_id(item)
         if not ident:
@@ -1411,20 +1559,31 @@ def _composition_metadata(card: Dict[str, Any]) -> Dict[str, Any]:
         if ident == _item_id(hero):
             comp_role = "hero"
             size = 0.38
+            key = "hero"
         elif ident == _item_id(anchor) or role == "footwear":
             comp_role = "anchor"
             size = 0.22
+            key = "anchor"
         elif role == "accessory":
             comp_role = "accent"
             size = 0.08
+            key = f"accent_{min(accent_index, 2)}"
+            accent_index += 1
         else:
             comp_role = "support"
             size = 0.16
+            key = f"support_{min(support_index, 1)}"
+            support_index += 1
+        x, y, z, rotation = positions.get(key, (0.70, 0.24, 1, 0))
         composition_items.append(
             {
                 "id": ident,
                 "role": comp_role,
                 "relative_size": size,
+                "x": x,
+                "y": y,
+                "z": z,
+                "rotation": rotation if mode == "stack" else 0,
             }
         )
     return {
@@ -1441,9 +1600,12 @@ def _office_has_strong_footwear(cards: List[Dict[str, Any]], query: str) -> bool
     return any(_footwear_formality_score(_item_by_role(card, "footwear"), query) > 0.5 for card in cards)
 
 
+MAX_TOP_REUSE = 2
 MAX_BOTTOM_REUSE = 2
 MAX_FOOTWEAR_REUSE = 2
 MAX_ACCESSORY_REUSE = 2
+MAX_TOP_BOTTOM_REUSE = 1
+RELAXED_TOP_BOTTOM_REUSE = 2
 
 
 def _accessory_keys(card: Dict[str, Any]) -> List[str]:
@@ -1460,6 +1622,14 @@ def _accessory_types(card: Dict[str, Any]) -> List[str]:
     return [_accessory_type(item) for item in card.get("accessories", []) if isinstance(item, dict)]
 
 
+def _top_bottom_signature(card: Dict[str, Any]) -> str:
+    if _role_key(card, "dress"):
+        return _role_key(card, "dress")
+    top = _role_key(card, "top")
+    bottom = _role_key(card, "bottom")
+    return "|".join(part for part in (top, bottom) if part)
+
+
 def _selected_count(selected: List[Dict[str, Any]], role: str, value: str) -> int:
     if not value:
         return 0
@@ -1469,11 +1639,13 @@ def _selected_count(selected: List[Dict[str, Any]], role: str, value: str) -> in
 def _select_diverse_cards(cards: List[Dict[str, Any]], query: str, limit: int) -> List[Dict[str, Any]]:
     if not cards:
         return []
+    unique_tops = {k for k in ((_role_key(card, "top") or _role_key(card, "dress")) for card in cards) if k}
     unique_bottoms = {k for k in (_role_key(card, "bottom") for card in cards) if k}
     unique_footwear = {k for k in (_role_key(card, "footwear") for card in cards) if k}
     unique_accessories = {key for card in cards for key in _accessory_keys(card)}
     unique_energies = {_style_energy(card, query) for card in cards}
-    unique_bases = {k for k in (_base_outfit_signature(card) for card in cards) if k}
+    unique_bases = {k for k in (_top_bottom_signature(card) for card in cards) if k}
+    enforce_top_limit = len(unique_tops) > 1
     enforce_bottom_limit = len(unique_bottoms) > 1
     enforce_footwear_limit = len(unique_footwear) > 1
     enforce_accessory_limit = len(unique_accessories) > 1
@@ -1482,17 +1654,31 @@ def _select_diverse_cards(cards: List[Dict[str, Any]], query: str, limit: int) -
     selected: List[Dict[str, Any]] = []
     selected_sigs: set[str] = set()
 
+    def _count_value(values: List[str], value: str) -> int:
+        return sum(1 for x in values if x and x == value)
+
     def can_add(card: Dict[str, Any], *, strict: bool) -> bool:
         core = _safe_text(card.get("_style_core_signature"))
         if core in selected_sigs:
             return False
+        top = _role_key(card, "top") or _role_key(card, "dress")
         bottom = _role_key(card, "bottom")
         footwear = _role_key(card, "footwear")
-        base_sig = _base_outfit_signature(card)
+        base_sig = _top_bottom_signature(card)
+        selected_tops = [_role_key(s, "top") or _role_key(s, "dress") for s in selected]
+        selected_bases = [_top_bottom_signature(s) for s in selected]
+
         if enforce_base_variation and base_sig:
-            selected_bases = {_base_outfit_signature(selected_card) for selected_card in selected}
-            if base_sig in selected_bases and len(selected_bases) < len(unique_bases):
+            # Strict mode treats a repeated top+bottom pair as the same outfit, even
+            # when footwear/accessories change. Relaxed mode allows a second pass only
+            # when the wardrobe is too small to fill the requested count.
+            max_base = MAX_TOP_BOTTOM_REUSE if strict else RELAXED_TOP_BOTTOM_REUSE
+            if _count_value(selected_bases, base_sig) >= max_base:
                 return False
+            if strict and base_sig in selected_bases:
+                return False
+        if enforce_top_limit and top and _count_value(selected_tops, top) >= MAX_TOP_REUSE:
+            return False
         if enforce_bottom_limit and bottom:
             if _selected_count(selected, "bottom", bottom) >= MAX_BOTTOM_REUSE:
                 return False
@@ -1514,16 +1700,9 @@ def _select_diverse_cards(cards: List[Dict[str, Any]], query: str, limit: int) -
                 energy = _style_energy(card, query)
                 if energy in {_style_energy(s, query) for s in selected}:
                     return False
-            top_bottom = "|".join([_role_key(card, "top") or _role_key(card, "dress"), bottom])
-            selected_top_bottoms = {
-                "|".join([_role_key(s, "top") or _role_key(s, "dress"), _role_key(s, "bottom")])
-                for s in selected
-            }
-            if top_bottom.strip("|") and top_bottom in selected_top_bottoms:
-                return False
-            if len(selected) < 3:
-                hero = _role_key(card, "top") or _role_key(card, "dress")
-                if hero and hero in {_role_key(s, "top") or _role_key(s, "dress") for s in selected}:
+            if len(selected) < min(3, limit):
+                hero = top
+                if hero and hero in selected_tops:
                     return False
         return True
 
@@ -1601,6 +1780,7 @@ def finalize_style_cards(
         fixed = _canonicalize_card(card, idx)
         if not fixed:
             continue
+        fixed = _curate_accessories_for_card(fixed, query)
         rejection_reason = _hard_rejection_reason(fixed, query)
         if rejection_reason:
             logger.info(

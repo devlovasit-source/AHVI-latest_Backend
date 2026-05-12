@@ -258,9 +258,82 @@ class StyleBoardRenderer:
             else:
                 supports.append(item)
 
+        if self._has_explicit_layout_spec(composition_items):
+            return self._build_spec_layout(items, composition_items, mode)
         if mode == "grid":
             return self._build_grid_layout(items, hero, anchor, supports, accessories)
         return self._build_stack_layout(items, hero, anchor, supports, accessories)
+
+    def _has_explicit_layout_spec(self, composition_items):
+        return any(
+            isinstance(entry, dict) and entry.get("x") is not None and entry.get("y") is not None
+            for entry in composition_items or []
+        )
+
+    def _scale_for_spec_role(self, role, relative_size):
+        try:
+            size = float(relative_size or 0.0)
+        except Exception:
+            size = 0.0
+        role = str(role or "").lower()
+        if role == "hero":
+            return 1.40 if size <= 0 else max(1.20, min(1.55, size / 0.27))
+        if role == "anchor":
+            return 0.94 if size <= 0 else max(0.76, min(1.10, size / 0.23))
+        if role == "accent":
+            return 0.34 if size <= 0 else max(0.24, min(0.46, size / 0.22))
+        return 0.82 if size <= 0 else max(0.58, min(1.05, size / 0.19))
+
+    def _build_spec_layout(self, items, composition_items, mode):
+        layers = {"background": [], "midground": [], "foreground": []}
+        placements = {}
+        by_id = {self._item_id(item): item for item in items or [] if self._item_id(item)}
+
+        def layer_for_z(z):
+            try:
+                z_int = int(z)
+            except Exception:
+                z_int = 2
+            if z_int >= 5:
+                return "foreground"
+            if z_int <= 1:
+                return "background"
+            return "midground"
+
+        placed = set()
+        for entry in composition_items or []:
+            if not isinstance(entry, dict):
+                continue
+            ident = str(entry.get("id") or "").strip()
+            item = by_id.get(ident)
+            if not item:
+                continue
+            role = str(entry.get("role") or "support").lower()
+            layer = layer_for_z(entry.get("z"))
+            try:
+                x = float(entry.get("x"))
+                y = float(entry.get("y"))
+            except Exception:
+                continue
+            rotation = 0 if str(mode).lower() == "grid" else max(-8, min(8, float(entry.get("rotation") or 0)))
+            layers[layer].append(item)
+            placements[ident] = {
+                "x": max(0.06, min(0.94, x)),
+                "y": max(0.06, min(0.94, y)),
+                "scale": self._scale_for_spec_role(role, entry.get("relative_size")),
+                "rotation": rotation,
+                "z": {"background": 1, "midground": 2, "foreground": 3}[layer],
+            }
+            placed.add(ident)
+
+        fallback_positions = [(0.62, 0.52), (0.28, 0.76), (0.82, 0.22), (0.72, 0.34)]
+        for idx, item in enumerate([i for i in items or [] if self._item_id(i) not in placed]):
+            ident = self._item_id(item)
+            x, y = fallback_positions[idx % len(fallback_positions)]
+            layer = "foreground" if self._item_role(item) in {"footwear", "accessory"} else "background"
+            layers[layer].append(item)
+            placements[ident] = {"x": x, "y": y, "scale": 0.62, "rotation": 0, "z": 2}
+        return {"composition": str(mode or "stack"), "layers": layers, "placements": placements}
 
     def _build_stack_layout(self, items, hero, anchor, supports, accessories):
         layers = {"background": [], "midground": [], "foreground": []}
