@@ -9,6 +9,21 @@ from typing import Any, Dict, List, Optional
 from services.category_taxonomy import infer_style_attributes
 
 try:
+    from brain.engines.occasion_interpreter import interpret_occasion_context
+    from brain.engines.occasion_style_rules import (
+        detect_wardrobe_gap,
+        get_occasion_rule,
+        reject_board_for_occasion,
+        score_item_for_occasion,
+    )
+except Exception:  # pragma: no cover - keeps legacy style flow bootable
+    interpret_occasion_context = None
+    detect_wardrobe_gap = None
+    get_occasion_rule = None
+    reject_board_for_occasion = None
+    score_item_for_occasion = None
+
+try:
     from services.r2_storage import R2Storage, R2StorageError
 except Exception:  # pragma: no cover - optional deploy dependency
     R2Storage = None
@@ -551,6 +566,9 @@ def _canonicalize_card(card: Dict[str, Any], index: int) -> Optional[Dict[str, A
 def _occasion_flags(query: str) -> Dict[str, bool]:
     q = str(query or "").lower()
     return {
+        "beach": any(k in q for k in ("beach", "pool", "seaside", "coastal", "sand-friendly", "sand friendly")),
+        "workout": any(k in q for k in ("workout", "gym", "fitness", "training", "yoga", "running")),
+        "brunch": any(k in q for k in ("brunch",)),
         "office": any(k in q for k in ("office", "work", "meeting", "client", "business", "interview", "corporate")),
         "date": any(k in q for k in ("date", "dinner", "night")),
         "party": any(k in q for k in ("party", "club", "after-hours", "night out")),
@@ -666,9 +684,9 @@ def _occasion_kind(query: str) -> str:
     flags = _occasion_flags(query)
     generic_today = any(k in q for k in ("suggest an outfit", "outfit for today", "what should i wear", "wear today", "today outfit"))
     explicitly_relaxed = any(k in q for k in ("casual", "weekend", "sunday", "home", "resort", "beach", "coffee", "errand", "vacation"))
-    if generic_today and not explicitly_relaxed and not any(flags[k] for k in ("date", "party", "travel", "wedding")):
+    if generic_today and not explicitly_relaxed and not any(flags[k] for k in ("beach", "workout", "brunch", "date", "party", "travel", "wedding")):
         return "office"
-    for key in ("office", "date", "party", "travel", "wedding", "casual"):
+    for key in ("beach", "workout", "brunch", "office", "date", "party", "travel", "wedding", "casual"):
         if flags.get(key):
             return key
     return "daily"
@@ -676,6 +694,12 @@ def _occasion_kind(query: str) -> str:
 
 def _style_direction(query: str) -> str:
     q = str(query or "").lower()
+    if _occasion_kind(query) == "beach":
+        return "coastal_casual"
+    if _occasion_kind(query) == "workout":
+        return "training_functional"
+    if _occasion_kind(query) == "brunch":
+        return "daytime_polish"
     if any(k in q for k in ("corporate", "boardroom", "formal", "client", "presentation")):
         return "corporate_office"
     if any(k in q for k in ("creative", "agency", "studio", "design")):
@@ -687,6 +711,12 @@ def _style_direction(query: str) -> str:
     if _occasion_kind(query) == "office":
         return "smart_casual_office"
     flags = _occasion_flags(query)
+    if flags["beach"]:
+        return "coastal_casual"
+    if flags["workout"]:
+        return "training_functional"
+    if flags["brunch"]:
+        return "daytime_polish"
     if flags["office"]:
         return "smart_casual_office"
     if flags["date"]:
@@ -703,6 +733,9 @@ def _style_direction(query: str) -> str:
 
 
 def interpret_occasion(query: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    if interpret_occasion_context is not None:
+        return interpret_occasion_context(query, context)
+
     ctx = _dict(context)
     q = _safe_text(query).lower()
     kind = _occasion_kind(query)
@@ -826,6 +859,85 @@ def _clarification_response(interpretation: Dict[str, Any]) -> Dict[str, Any]:
             "max_questions": 3,
             "reason": _dict(interpretation.get("board_generation_notes")).get("reason"),
             "occasion_interpretation": interpretation,
+        },
+        "audio_job_id": "offline",
+    }
+
+
+def _wardrobe_gap_response(
+    *,
+    query: str,
+    wardrobe: Any,
+    interpretation: Dict[str, Any],
+    finalized: Optional[Dict[str, Any]] = None,
+    result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    notes = _dict(interpretation.get("board_generation_notes"))
+    occasion = _safe_text(interpretation.get("occasion") or notes.get("occasion_kind") or _occasion_kind(query))
+    wardrobe_items = wardrobe if isinstance(wardrobe, list) else []
+    if detect_wardrobe_gap is not None and get_occasion_rule is not None:
+        try:
+            gap = detect_wardrobe_gap(wardrobe_items, occasion, get_occasion_rule(occasion))
+        except Exception:
+            gap = {}
+    else:
+        gap = {}
+    rule = _dict(gap.get("rule"))
+    missing_items = gap.get("missing_items") if isinstance(gap.get("missing_items"), list) else []
+    missing_items = [item for item in missing_items if isinstance(item, dict)][:4]
+    if not missing_items:
+        missing_items = [
+            {"label": "Occasion-ready hero", "reason": "Starts the outfit in the right atmosphere", "cta": "Find this"},
+            {"label": "Right footwear", "reason": "Footwear controls the occasion register", "cta": "Find this"},
+        ]
+    find_chips = [
+        {"label": f"Find {_safe_text(item.get('label')).lower()}", "value": f"find_this:{_safe_text(item.get('label'))}"}
+        for item in missing_items[:2]
+        if _safe_text(item.get("label"))
+    ]
+    chips = (find_chips + [{"label": "Show closest option", "value": "show_closest_safe_option"}])[:3]
+    fallback_message = _safe_text(rule.get("fallback_message")) or "I don't see enough occasion-ready pieces yet."
+    brief = _safe_text(interpretation.get("resolved_brief") or rule.get("resolved_brief") or occasion)
+    message = (
+        f"{fallback_message} For {brief}, I would rather protect the look than force a board that reads wrong."
+    )
+    data = _dict(_dict(finalized).get("data"))
+    data.update(
+        {
+            "outfits": [],
+            "rendered_boards": [],
+            "missing_items": missing_items,
+            "find_this_recommendations": missing_items,
+            "closest_safe_brief": _safe_text(gap.get("closest_safe_brief")) or "clean daily",
+            "occasion_interpretation": interpretation,
+            "wardrobe_gap": {
+                "occasion": occasion,
+                "slot_scores": _dict(gap.get("slot_scores")),
+                "has_enough": bool(gap.get("has_enough")),
+            },
+        }
+    )
+    return {
+        "success": True,
+        "message": message,
+        "board": "style",
+        "type": "missing_occasion_wardrobe",
+        "cards": [],
+        "style_boards": [],
+        "chips": chips,
+        "board_ids": "",
+        "data": data,
+        "meta": {
+            **_dict(_dict(result).get("meta")),
+            **_dict(_dict(finalized).get("meta")),
+            "board_count": 0,
+            "occasion_interpretation": interpretation,
+            "wardrobe_limitation_reason": "missing_occasion_wardrobe",
+            "wardrobe_gap": {
+                "occasion": occasion,
+                "missing_count": len(missing_items),
+                "closest_safe_brief": _safe_text(gap.get("closest_safe_brief")) or "clean daily",
+            },
         },
         "audio_job_id": "offline",
     }
@@ -1183,6 +1295,29 @@ def _occasion_fit_score(card: Dict[str, Any], query: str) -> float:
     ]
     if core_items:
         score += sum(_item_occasion_fitness(item, kind) for item in core_items) / len(core_items)
+        if get_occasion_rule is not None and score_item_for_occasion is not None:
+            try:
+                rule = get_occasion_rule(kind)
+                score += sum(score_item_for_occasion(item, rule) for item in core_items) / len(core_items)
+            except Exception:
+                pass
+    if kind == "beach":
+        if footwear in {"relaxed", "casual", "elevated casual"}:
+            score += 2.0
+        if any(k in text for k in ("linen", "cotton", "shorts", "sandals", "slides", "espadrille", "tote", "sunglasses")):
+            score += 1.5
+        if any(k in text for k in ("black pants", "black trousers", "loafers", "dress shoes", "blazer", "suit", "charcoal")):
+            score -= 8.0
+    elif kind == "brunch":
+        if footwear in {"casual", "elevated casual", "polished", "structured"}:
+            score += 1.2
+        if any(k in text for k in ("linen", "cotton", "dress", "shirt", "jeans", "chino")):
+            score += 0.8
+    elif kind == "workout":
+        if any(k in text for k in ("training", "gym", "shorts", "leggings", "jogger", "running shoes", "sports")):
+            score += 2.0
+        if footwear in {"polished", "structured"} or any(k in text for k in ("loafer", "dress shoes", "blazer")):
+            score -= 7.0
     if kind == "office":
         if formality in {"formal", "smart"}:
             score += 2.0
@@ -1239,6 +1374,13 @@ def _allows_relaxed_footwear(query: str) -> bool:
 
 def _hard_rejection_reason(card: Dict[str, Any], query: str) -> str:
     kind = _occasion_kind(query)
+    if get_occasion_rule is not None and reject_board_for_occasion is not None:
+        try:
+            reason = reject_board_for_occasion(card, kind, get_occasion_rule(kind))
+            if reason:
+                return reason
+        except Exception:
+            pass
     footwear_mood = _footwear_mood(_item_by_role(card, "footwear"))
     if (
         kind in {"office", "date", "wedding"}
@@ -1293,6 +1435,30 @@ _STYLE_DNA_TARGETS = {
         {"style_energy": "minimal/monochrome", "archetype": "Safest Option", "title": "Evening Minimal"},
         {"style_energy": "elevated/casual", "archetype": "Backup Option", "title": "Refined Traditional"},
         {"style_energy": "relaxed/creative", "archetype": "Relaxed Sharp", "title": "Soft Formal"},
+    ],
+    "beach": [
+        {"style_energy": "relaxed/creative", "archetype": "Hero Look", "title": "Coastal Ease"},
+        {"style_energy": "minimal/monochrome", "archetype": "Safest Option", "title": "Resort Minimal"},
+        {"style_energy": "elevated/casual", "archetype": "Relaxed Sharp", "title": "Sunset Casual"},
+        {"style_energy": "polished/social", "archetype": "Elevated Option", "title": "Beach-to-Dinner"},
+        {"style_energy": "expressive/statement", "archetype": "Creative Professional", "title": "Resort Statement"},
+        {"style_energy": "safest/refined", "archetype": "Backup Option", "title": "Clean Coastal"},
+    ],
+    "brunch": [
+        {"style_energy": "polished/social", "archetype": "Hero Look", "title": "Daylight Polish"},
+        {"style_energy": "elevated/casual", "archetype": "Relaxed Sharp", "title": "Garden Easy"},
+        {"style_energy": "relaxed/creative", "archetype": "Creative Professional", "title": "Soft Day Edit"},
+        {"style_energy": "minimal/monochrome", "archetype": "Safest Option", "title": "Quiet Brunch"},
+        {"style_energy": "safest/refined", "archetype": "Elevated Option", "title": "Hotel Sharp"},
+        {"style_energy": "expressive/statement", "archetype": "Backup Option", "title": "Friends-in-Town"},
+    ],
+    "workout": [
+        {"style_energy": "elevated/casual", "archetype": "Hero Look", "title": "Training Clean"},
+        {"style_energy": "minimal/monochrome", "archetype": "Safest Option", "title": "Gym Minimal"},
+        {"style_energy": "relaxed/creative", "archetype": "Relaxed Sharp", "title": "Mobility Reset"},
+        {"style_energy": "polished/social", "archetype": "Elevated Option", "title": "Studio Ready"},
+        {"style_energy": "expressive/statement", "archetype": "Creative Professional", "title": "Active Edge"},
+        {"style_energy": "safest/refined", "archetype": "Backup Option", "title": "Clean Movement"},
     ],
     "daily": [
         {"style_energy": "elevated/casual", "archetype": "Hero Look", "title": "Polished Neutral"},
@@ -1780,6 +1946,19 @@ def finalize_style_cards(
         fixed = _canonicalize_card(card, idx)
         if not fixed:
             continue
+        rejection_reason = _hard_rejection_reason(fixed, query)
+        if rejection_reason:
+            logger.info(
+                "style_flow.card_rejected reason=%s query=%s items=%s",
+                rejection_reason,
+                query,
+                [
+                    _safe_text(item.get("name") or item.get("title"))
+                    for item in fixed.get("items", [])
+                    if isinstance(item, dict)
+                ],
+            )
+            continue
         fixed = _curate_accessories_for_card(fixed, query)
         rejection_reason = _hard_rejection_reason(fixed, query)
         if rejection_reason:
@@ -2216,6 +2395,29 @@ def build_style_flow_response(
         cache_bypass=cache_bypass,
     )
     cards = finalized["cards"]
+    if not cards:
+        gap_kind = _safe_text(
+            occasion_interpretation.get("occasion")
+            or _dict(occasion_interpretation.get("board_generation_notes")).get("occasion_kind")
+            or _occasion_kind(query)
+        )
+        if gap_kind and gap_kind != "daily":
+            total_ms = round((time.perf_counter() - started) * 1000, 2)
+            logger.info(
+                "style_flow.timing user=%s candidates_ms=%s total_ms=%s wardrobe_count=%s cards=0 gap=%s",
+                user_id,
+                candidate_ms,
+                total_ms,
+                len(wardrobe) if isinstance(wardrobe, list) else 0,
+                gap_kind,
+            )
+            return _wardrobe_gap_response(
+                query=query,
+                wardrobe=wardrobe,
+                interpretation=occasion_interpretation,
+                finalized=finalized,
+                result=result,
+            )
     total_ms = round((time.perf_counter() - started) * 1000, 2)
     logger.info(
         "style_flow.timing user=%s candidates_ms=%s total_ms=%s wardrobe_count=%s cards=%s",

@@ -6,6 +6,7 @@ from services.style_flow_service import (
     normalize_style_identity,
 )
 from services.category_taxonomy import infer_style_attributes
+from brain.engines.occasion_style_rules import detect_wardrobe_gap
 
 
 GENERIC_TITLES = {"Signature Combo", "Easy Win", "Today's Edit", "Polished Daily"}
@@ -646,6 +647,74 @@ def test_occasion_interpreter_generates_for_generic_today_without_question():
 
     assert interpreted["ask_user"] is False
     assert "smart casual" in interpreted["resolved_brief"]
+
+
+def test_occasion_interpreter_resolves_beach_brief_without_question():
+    interpreted = interpret_occasion("beach wear", {"module_context": "style"})
+
+    assert interpreted["ask_user"] is False
+    assert interpreted["occasion"] == "beach"
+    assert "sand-friendly" in interpreted["resolved_brief"]
+    assert interpreted["footwear_energy"] == "sand-friendly"
+
+
+def test_beach_rejects_black_trousers_and_loafers():
+    cards = [
+        _card(
+            _item("top-1", "White Office Shirt", "top", "white"),
+            _item("bottom-1", "Black Pants", "bottom"),
+            _item("shoe-1", "Leather Loafers", "footwear"),
+        )
+    ]
+
+    filtered = finalize_style_cards(cards, query="beach wear", default_limit=3)
+
+    assert filtered == []
+
+
+def test_date_rejects_slippers_when_polished_footwear_required():
+    cards = [
+        _card(
+            _item("top-1", "Black Shirt", "top", "black"),
+            _item("bottom-1", "Navy Chinos", "bottom", "navy"),
+            _item("shoe-1", "Leather Slippers", "footwear"),
+        )
+    ]
+
+    filtered = finalize_style_cards(cards, query="date night outfit", default_limit=3)
+
+    assert filtered == []
+
+
+def test_office_rejects_caps_as_polished_filler():
+    card = _card(
+        _item("top-1", "Blue Button-Down Shirt", "top", "blue"),
+        _item("bottom-1", "Grey Trousers", "bottom", "grey"),
+        _item("shoe-1", "Black Loafers", "footwear"),
+    )
+    cap = _item("cap-1", "Blue Cap", "accessory", "blue")
+    card["items"].append(cap)
+    card["accessories"] = [cap]
+
+    filtered = finalize_style_cards([card], query="office meeting outfit", default_limit=3)
+
+    assert filtered == []
+
+
+def test_wardrobe_gap_suggests_find_this_items_for_beach():
+    wardrobe = [
+        _item("top-1", "White Office Shirt", "top", "white"),
+        _item("bottom-1", "Black Pants", "bottom"),
+        _item("shoe-1", "Leather Loafers", "footwear"),
+    ]
+
+    gap = detect_wardrobe_gap(wardrobe, "beach")
+
+    assert gap["has_enough"] is False
+    labels = [item["label"] for item in gap["missing_items"]]
+    assert "Linen shirt" in labels
+    assert any("sandals" in label.lower() or "slides" in label.lower() for label in labels)
+    assert all(item["cta"] == "Find this" for item in gap["missing_items"])
 
 
 def test_final_boards_include_occasion_and_composition_metadata():
