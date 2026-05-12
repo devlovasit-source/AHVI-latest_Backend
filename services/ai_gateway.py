@@ -28,7 +28,7 @@ _POLICIES: Dict[str, GatewayPolicy] = {
     "styling": GatewayPolicy(timeout_seconds=45, model=None),
     "intent": GatewayPolicy(timeout_seconds=20, model=None),
     "vision": GatewayPolicy(
-        timeout_seconds=int(os.getenv("OLLAMA_VISION_TIMEOUT_SECONDS", "45")),
+        timeout_seconds=int(os.getenv("OLLAMA_VISION_TIMEOUT_SECONDS", "8")),
         model=None,
     ),
 }
@@ -346,6 +346,14 @@ def _vision_model_candidates() -> List[str]:
     preferred = str(
         os.getenv("OLLAMA_VISION_MODEL", "llama3.2-vision:latest") or ""
     ).strip()
+    if str(os.getenv("OLLAMA_VISION_ENABLE_FALLBACKS", "false")).strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return [preferred] if preferred else []
+
     fallback_raw = str(
         os.getenv(
             "OLLAMA_VISION_MODEL_FALLBACKS",
@@ -394,6 +402,10 @@ def ollama_vision_json(
 ) -> Tuple[Dict[str, Any], str]:
     rid = str(request_id or get_request_id() or "")
     case = str(usecase or "vision")
+    op_key = _breaker_key(case, "vision_json")
+    if not _breaker_allows(op_key):
+        raise RuntimeError("vision_json circuit breaker open")
+
     p = _policy(case)
     timeout = int(
         timeout_seconds
@@ -421,7 +433,7 @@ def ollama_vision_json(
             response = requests.post(
                 _ollama_generate_url(),
                 json={**payload, "model": model},
-                timeout=timeout,
+                timeout=(min(2, timeout), timeout),
             )
             if response.status_code >= 400:
                 body = (response.text or "").strip()
@@ -441,11 +453,13 @@ def ollama_vision_json(
                     "model_used": model,
                 },
             )
+            _breaker_mark_success(op_key)
             return parsed, model
         except Exception as exc:
             last_error = exc
             continue
 
+    _breaker_mark_failure(op_key)
     _trace(
         "error",
         request_id=rid,

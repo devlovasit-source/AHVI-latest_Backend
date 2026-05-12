@@ -455,6 +455,12 @@ def _vision_extract_attributes(
                 + "Use the garment only; ignore background, body, hanger, mannequin, room, or shadows."
             ),
             image_base64=image_b64,
+            timeout_seconds=int(
+                os.getenv(
+                    "WARDROBE_CAPTURE_VISION_TIMEOUT_SECONDS",
+                    os.getenv("OLLAMA_VISION_TIMEOUT_SECONDS", "8"),
+                )
+            ),
             usecase="vision",
         )
         if isinstance(ai_json, dict):
