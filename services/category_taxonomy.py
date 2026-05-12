@@ -23,7 +23,7 @@ from typing import Dict, Iterable, List, Tuple
 # ---------------------------------------------------------------------------
 CANONICAL_CATEGORY_KEYWORDS: List[Tuple[str, str, List[str]]] = [
     (
-        "Indian Wear",
+        "Traditional",
         "Saree",
         [
             "saree",
@@ -91,9 +91,6 @@ CANONICAL_CATEGORY_KEYWORDS: List[Tuple[str, str, List[str]]] = [
             "chains",
         ],
     ),
-    ("Watches", "Watch", ["watch", "watches"]),
-    ("Belts", "Belt", ["belt", "belts"]),
-    ("Eyewear", "Eyewear", ["sunglass", "sunglasses", "eyewear", "glasses"]),
     (
         "Footwear",
         "Footwear",
@@ -155,7 +152,23 @@ CANONICAL_CATEGORY_KEYWORDS: List[Tuple[str, str, List[str]]] = [
         "Outerwear",
         ["jacket", "coat", "blazer", "outerwear", "cardigan"],
     ),
-    ("Accessories", "Accessory", ["scarf", "hat", "cap"]),
+    (
+        "Accessories",
+        "Accessory",
+        [
+            "watch",
+            "watches",
+            "belt",
+            "belts",
+            "sunglass",
+            "sunglasses",
+            "eyewear",
+            "glasses",
+            "scarf",
+            "hat",
+            "cap",
+        ],
+    ),
 ]
 
 CANONICAL_CATEGORIES: set[str] = {row[0] for row in CANONICAL_CATEGORY_KEYWORDS}
@@ -169,8 +182,15 @@ def normalize_category_from_label(label: str) -> Tuple[str, str]:
     for category, default_sub, keywords in CANONICAL_CATEGORY_KEYWORDS:
         if any(keyword in raw for keyword in keywords):
             sub = raw.title() or default_sub
-            if category == "Indian Wear" and ("sari" in raw or "saree" in raw):
+            if category == "Traditional" and ("sari" in raw or "saree" in raw):
                 sub = "Saree"
+            elif category == "Accessories":
+                if "watch" in raw:
+                    sub = "Watch"
+                elif "belt" in raw:
+                    sub = "Belt"
+                elif any(x in raw for x in ["sunglass", "eyewear", "glasses"]):
+                    sub = "Eyewear"
             return (category, sub)
     return ("Item", "Item")
 

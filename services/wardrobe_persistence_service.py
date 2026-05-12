@@ -216,7 +216,7 @@ def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
             "anarkali",
         ]
     ):
-        return "Indian Wear"
+        return "Traditional"
 
     if has_any(
         [
@@ -276,14 +276,8 @@ def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
     ):
         return "Jewelry"
 
-    if has_any(["watch", "watches"]):
-        return "Watches"
-
-    if has_any(["belt", "belts"]):
-        return "Belts"
-
-    if has_any(["sunglass", "sunglasses", "eyewear", "glasses"]):
-        return "Eyewear"
+    if has_any(["watch", "watches", "belt", "belts", "sunglass", "sunglasses", "eyewear", "glasses"]):
+        return "Accessories"
 
     explicit = str(cat or "").strip().lower()
     explicit_map = {
@@ -297,16 +291,17 @@ def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
         "outerwear": "Outerwear",
         "dresses": "Dresses",
         "dress": "Dresses",
-        "indian wear": "Indian Wear",
+        "indian wear": "Traditional",
+        "traditional": "Traditional",
         "bags": "Bags",
         "bag": "Bags",
         "jewelry": "Jewelry",
         "jewellery": "Jewelry",
-        "watches": "Watches",
-        "watch": "Watches",
-        "belts": "Belts",
-        "belt": "Belts",
-        "eyewear": "Eyewear",
+        "watches": "Accessories",
+        "watch": "Accessories",
+        "belts": "Accessories",
+        "belt": "Accessories",
+        "eyewear": "Accessories",
         "accessories": "Accessories",
         "accessory": "Accessories",
     }
@@ -416,6 +411,10 @@ def normalize_display_name_and_subcategory(
         return raw_name or "Necklace", "Necklace"
     if "watch" in text:
         return raw_name or "Watch", "Watch"
+    if "belt" in text:
+        return raw_name or "Belt", "Belt"
+    if "sunglass" in text or "eyewear" in text or "glasses" in text:
+        return raw_name or "Eyewear", "Eyewear"
 
     return raw_name or raw_sub or "Item", raw_sub or category or "Item"
 
