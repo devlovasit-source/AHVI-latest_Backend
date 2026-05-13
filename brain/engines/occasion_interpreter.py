@@ -40,7 +40,7 @@ def detect_occasion(query: str) -> str:
     if _has_any(q, ("office", "work", "meeting", "client", "business", "interview", "corporate", "boardroom", "presentation")):
         return "office"
     if _has_any(q, ("date", "dinner", "tonight", "evening")):
-        return "date"
+        return "date_night"
     if _has_any(q, ("party", "club", "rave", "after-hours", "night out", "cocktail", "pub", "birthday")):
         return "party"
     if _has_any(q, ("travel", "airport", "flight", "vacation", "trip")):
@@ -84,7 +84,7 @@ def interpret_occasion_context(query: str, context: Optional[Dict[str, Any]] = N
             brief = "relaxed office, intentional smart casual"
         else:
             brief = "smart casual office, clean structure, credible footwear"
-    elif kind == "date":
+    elif kind in {"date", "date_night"}:
         if _has_any(q, ("restaurant", "candle", "dinner date")):
             brief = "polished dinner, low light, intentional but not overworked"
         elif _has_any(q, ("coffee", "day", "afternoon", "walk")):
@@ -142,7 +142,7 @@ def interpret_occasion_context(query: str, context: Optional[Dict[str, Any]] = N
         brief = f"{brief}, heat-conscious"
     elif _has_any(weather, ("cold", "winter")):
         brief = f"{brief}, layered"
-    if time_of_day and kind in {"date", "party"}:
+    if time_of_day and kind in {"date", "date_night", "party"}:
         brief = f"{brief}, {time_of_day}"
 
     return {

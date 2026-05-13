@@ -24,6 +24,13 @@ except Exception:  # pragma: no cover - keeps legacy style flow bootable
     score_item_for_occasion = None
 
 try:
+    from brain.engines.outfit_quality_guard import (
+        reject_board_for_occasion as reject_quality_board_for_occasion,
+    )
+except Exception:  # pragma: no cover - optional during partial deploys
+    reject_quality_board_for_occasion = None
+
+try:
     from services.r2_storage import R2Storage, R2StorageError
 except Exception:  # pragma: no cover - optional deploy dependency
     R2Storage = None
@@ -34,6 +41,77 @@ logger = logging.getLogger("ahvi.style_flow")
 
 STYLE_ACTION_CHIPS = ["More looks", "Next best options", "Try different shoes"]
 TRUST_LAYER_RUNTIME_INFERENCE = str(os.getenv("AHVI_TRUST_LAYER_RUNTIME_INFERENCE", "")).lower() in {"1", "true", "yes"}
+
+_OCCASION_CARD_LANGUAGE = {
+    "date": {
+        "badge": "DATE NIGHT",
+        "titles": [
+            "Soft Statement",
+            "Evening Ease",
+            "Dinner Polish",
+            "Low-Light Casual",
+            "Quiet Confidence",
+            "After-Dark Edit",
+        ],
+        "forbidden_title_words": [
+            "boardroom",
+            "professional",
+            "office",
+            "executive",
+            "corporate",
+            "friday",
+            "client",
+        ],
+    },
+    "date_night": {
+        "badge": "DATE NIGHT",
+        "titles": [
+            "Soft Statement",
+            "Evening Ease",
+            "Dinner Polish",
+            "Low-Light Casual",
+            "Quiet Confidence",
+            "After-Dark Edit",
+        ],
+        "forbidden_title_words": [
+            "boardroom",
+            "professional",
+            "office",
+            "executive",
+            "corporate",
+            "friday",
+            "client",
+        ],
+    },
+    "beach": {
+        "badge": "COASTAL",
+        "titles": [
+            "Coastal Ease",
+            "Resort Minimal",
+            "Sunset Casual",
+            "Beach-to-Dinner",
+            "Airy Edit",
+        ],
+        "forbidden_title_words": [
+            "boardroom",
+            "professional",
+            "office",
+            "executive",
+            "formal",
+        ],
+    },
+    "office": {
+        "badge": "SMART CASUAL",
+        "titles": [
+            "Boardroom Casual",
+            "Executive Minimal",
+            "Clean Friday",
+            "Creative Professional",
+            "Polished Neutral",
+        ],
+        "forbidden_title_words": [],
+    },
+}
 
 
 def _dict(value: Any) -> Dict[str, Any]:
@@ -48,6 +126,93 @@ def _tokens(value: Any) -> set[str]:
     import re
 
     return set(re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).split())
+
+
+_CANONICAL_OCCASIONS = {
+    "date_night",
+    "beach",
+    "office",
+    "brunch",
+    "party",
+    "travel",
+    "workout",
+    "wedding",
+    "casual",
+}
+
+
+def _normalize_occasion_value(value: Any, query: Any = "") -> str:
+    text = " ".join([_safe_text(value), _safe_text(query)]).lower().replace("-", "_")
+    if any(k in text for k in ("date_night", "date night", "date", "dinner", "tonight")):
+        return "date_night"
+    if any(k in text for k in ("beach", "pool", "seaside", "coastal", "resort")):
+        return "beach"
+    if any(k in text for k in ("office", "work", "meeting", "client", "business", "corporate", "boardroom")):
+        return "office"
+    if "brunch" in text:
+        return "brunch"
+    if any(k in text for k in ("party", "club", "rave", "after_hours", "night out", "cocktail")):
+        return "party"
+    if any(k in text for k in ("travel", "airport", "flight", "vacation", "trip")):
+        return "travel"
+    if any(k in text for k in ("workout", "gym", "fitness", "training", "yoga", "running")):
+        return "workout"
+    if any(k in text for k in ("wedding", "reception", "ceremony", "sangeet", "formal event", "event")):
+        return "wedding"
+    if any(k in text for k in ("casual", "daily", "today", "weekend", "errand", "coffee")):
+        return "casual"
+    return _safe_text(value).lower() if _safe_text(value).lower() in _CANONICAL_OCCASIONS else ""
+
+
+def apply_occasion_card_language(cards: List[Dict[str, Any]], occasion: str) -> List[Dict[str, Any]]:
+    normalized = _normalize_occasion_value(occasion)
+    lang = _OCCASION_CARD_LANGUAGE.get(normalized)
+    if not lang:
+        for card in cards or []:
+            if isinstance(card, dict) and normalized:
+                card.setdefault("occasion", normalized)
+        return cards
+
+    titles = list(lang.get("titles") or [])
+    badge = _safe_text(lang.get("badge"))
+    forbidden = [_safe_text(w).lower() for w in (lang.get("forbidden_title_words") or [])]
+
+    for idx, card in enumerate(cards or []):
+        if not isinstance(card, dict):
+            continue
+        title = _safe_text(card.get("title")).lower()
+        if titles and (not title or any(word and word in title for word in forbidden)):
+            card["title"] = titles[idx % len(titles)]
+            card["name"] = card["title"]
+        if badge:
+            card["badge"] = badge
+            card["occasion_label"] = badge
+        card.setdefault("occasion", normalized)
+    return cards
+
+
+def _filter_boards_for_occasion(cards: List[Dict[str, Any]], occasion: str) -> List[Dict[str, Any]]:
+    if reject_quality_board_for_occasion is None:
+        return cards
+    normalized = _normalize_occasion_value(occasion)
+    filtered: List[Dict[str, Any]] = []
+    for card in cards or []:
+        if not isinstance(card, dict):
+            continue
+        try:
+            rejected, reason = reject_quality_board_for_occasion(card, normalized)
+        except Exception:
+            rejected, reason = False, ""
+        if rejected:
+            logger.info(
+                "ahvi.board_rejected occasion=%s reason=%s title=%s",
+                normalized,
+                reason,
+                card.get("title"),
+            )
+            continue
+        filtered.append(card)
+    return filtered
 
 
 def _list_text(value: Any) -> List[str]:
@@ -874,6 +1039,7 @@ def _wardrobe_gap_response(
 ) -> Dict[str, Any]:
     notes = _dict(interpretation.get("board_generation_notes"))
     occasion = _safe_text(interpretation.get("occasion") or notes.get("occasion_kind") or _occasion_kind(query))
+    occasion = _normalize_occasion_value(occasion, query) or occasion
     wardrobe_items = wardrobe if isinstance(wardrobe, list) else []
     if detect_wardrobe_gap is not None and get_occasion_rule is not None:
         try:
@@ -2273,6 +2439,14 @@ def finalize_style_response_payload(
         exclude_signatures=exclude_style_signatures,
         requested_count=requested_board_count if style_action in {"more_options", "more_looks", "next_best"} else None,
     )
+    normalized_occasion = _normalize_occasion_value(
+        occasion_interpretation.get("occasion")
+        or _dict(occasion_interpretation.get("board_generation_notes")).get("occasion_kind")
+        or ctx.get("occasion"),
+        query,
+    )
+    cards = _filter_boards_for_occasion(cards, normalized_occasion)
+    cards = apply_occasion_card_language(cards, normalized_occasion)
     finalize_ms = round((time.perf_counter() - finalize_started) * 1000, 2)
     ids = board_item_ids(cards)
     render_started = time.perf_counter()
@@ -2300,6 +2474,12 @@ def finalize_style_response_payload(
         finalize_ms,
         render_ms,
         style_identity.get("profile_fields_used") or [],
+    )
+    logger.info(
+        "ahvi.final_boards occasion=%s titles=%s badges=%s",
+        normalized_occasion,
+        [c.get("title") for c in cards[:6]],
+        [c.get("badge") or c.get("occasion_label") for c in cards[:6]],
     )
 
     data = {
@@ -2363,6 +2543,19 @@ def build_style_flow_response(
     ctx.setdefault("style_identity", normalize_style_identity(_dict(ctx.get("user_profile"))))
     occasion_interpretation = interpret_occasion(query, ctx)
     ctx["occasion_interpretation"] = occasion_interpretation
+    normalized_occasion = _normalize_occasion_value(
+        occasion_interpretation.get("occasion")
+        or _dict(occasion_interpretation.get("board_generation_notes")).get("occasion_kind")
+        or ctx.get("occasion"),
+        query,
+    )
+    if normalized_occasion:
+        ctx["occasion"] = normalized_occasion
+    logger.info(
+        "ahvi.occasion_context occasion=%s query=%s",
+        normalized_occasion or _occasion_kind(query),
+        query,
+    )
     if (
         occasion_interpretation.get("ask_user")
         and not style_action
@@ -2401,6 +2594,7 @@ def build_style_flow_response(
             or _dict(occasion_interpretation.get("board_generation_notes")).get("occasion_kind")
             or _occasion_kind(query)
         )
+        gap_kind = _normalize_occasion_value(gap_kind, query) or gap_kind
         if gap_kind and gap_kind != "daily":
             total_ms = round((time.perf_counter() - started) * 1000, 2)
             logger.info(

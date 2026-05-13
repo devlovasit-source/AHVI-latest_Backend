@@ -1,4 +1,5 @@
 from services.style_flow_service import (
+    apply_occasion_card_language,
     card_signature,
     finalize_style_cards,
     finalize_style_response_payload,
@@ -7,6 +8,7 @@ from services.style_flow_service import (
 )
 from services.category_taxonomy import infer_style_attributes
 from brain.engines.occasion_style_rules import detect_wardrobe_gap
+from brain.engines.outfit_quality_guard import reject_board_for_occasion
 
 
 GENERIC_TITLES = {"Signature Combo", "Easy Win", "Today's Edit", "Polished Daily"}
@@ -658,6 +660,30 @@ def test_occasion_interpreter_resolves_beach_brief_without_question():
     assert interpreted["footwear_energy"] == "sand-friendly"
 
 
+def test_date_night_blocks_office_language():
+    board = {
+        "title": "Boardroom Casual",
+        "badge": "SMART CASUAL",
+        "explanation": "Office polish",
+        "items": [],
+    }
+
+    rejected, reason = reject_board_for_occasion(board, "date_night")
+
+    assert rejected
+    assert "date_forbidden" in reason
+
+
+def test_date_title_language_replaces_boardroom():
+    cards = [{"title": "Boardroom Casual", "badge": "SMART CASUAL"}]
+
+    fixed = apply_occasion_card_language(cards, "date_night")
+
+    assert fixed[0]["title"] != "Boardroom Casual"
+    assert fixed[0]["badge"] == "DATE NIGHT"
+    assert fixed[0]["occasion"] == "date_night"
+
+
 def test_beach_rejects_black_trousers_and_loafers():
     cards = [
         _card(
@@ -670,6 +696,22 @@ def test_beach_rejects_black_trousers_and_loafers():
     filtered = finalize_style_cards(cards, query="beach wear", default_limit=3)
 
     assert filtered == []
+
+
+def test_quality_guard_beach_rejects_black_trousers_and_loafers():
+    board = {
+        "title": "Refined Casual",
+        "badge": "SMART CASUAL",
+        "items": [
+            {"name": "Black Trousers", "category": "Bottoms"},
+            {"name": "Black Loafers", "category": "Footwear"},
+        ],
+    }
+
+    rejected, reason = reject_board_for_occasion(board, "beach")
+
+    assert rejected
+    assert "beach_forbidden" in reason
 
 
 def test_date_rejects_slippers_when_polished_footwear_required():

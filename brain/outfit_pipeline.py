@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Tuple
 from brain.engines.styling.style_builder import style_engine
 from brain.ml.outfit_ranker import outfit_ranker
 from brain.engines.style_graph_engine import style_graph_engine
-from brain.engines.style_scorer import style_scorer
+from brain.engines.style_scorer import occasion_item_score, normalize_occasion, style_scorer
 from brain.engines.refinement_engine import refinement_engine
 from brain.engines.wardrobe_selector import wardrobe_selector
 from brain.engines.styling.palette_engine import palette_engine
@@ -231,6 +231,37 @@ def _contains_word(text: str, words: List[str]) -> bool:
     """
     parts = set(_tokens(text))
     return any(str(w or "").lower() in parts for w in words)
+
+
+def _normalize_pipeline_occasion(value: Any, context: Dict[str, Any] | None = None) -> str:
+    context = context or {}
+    interpretation = context.get("occasion_interpretation") if isinstance(context.get("occasion_interpretation"), dict) else {}
+    notes = interpretation.get("board_generation_notes") if isinstance(interpretation.get("board_generation_notes"), dict) else {}
+    source = " ".join(
+        str(v or "")
+        for v in [
+            value,
+            context.get("occasion"),
+            interpretation.get("occasion"),
+            notes.get("occasion_kind"),
+            interpretation.get("resolved_brief"),
+            context.get("query"),
+            context.get("user_query"),
+            context.get("prompt"),
+        ]
+    )
+    normalized = normalize_occasion(source)
+    return normalized if normalized in {
+        "date_night",
+        "beach",
+        "office",
+        "brunch",
+        "party",
+        "travel",
+        "workout",
+        "wedding",
+        "casual",
+    } else ""
 
 
 def _has_any(parts: List[str], words: List[str]) -> bool:
@@ -1523,7 +1554,7 @@ def validate_outfit(outfit: Dict[str, Any], context: Dict[str, Any]) -> bool:
 
     top_type = str(top.get("type", "")).lower()
     bottom_type = str(bottom.get("type", "")).lower()
-    occasion = str(context.get("occasion", "")).lower()
+    occasion = _normalize_pipeline_occasion(context.get("occasion"), context)
 
     if "formal" in top_type and "shorts" in _tokens(bottom_type):
         return False
@@ -1580,7 +1611,7 @@ def score_outfit(
     semantic_map: Dict[str, float],
 ) -> Dict[str, Any]:
     weather = str(context.get("weather", "")).lower()
-    occasion = str(context.get("occasion", "")).lower()
+    occasion = _normalize_pipeline_occasion(context.get("occasion"), context)
     style_dna = context.get("style_dna", {}) or {}
 
     weather_score = 0.0
@@ -1614,6 +1645,7 @@ def score_outfit(
             weather_score += 1.0
         if occasion and occasion in occasion_tags:
             occasion_score += 1.0
+        occasion_score += occasion_item_score(item, occasion)
 
         name = str(item.get("name", "")).lower()
         fabric = str(item.get("fabric", "")).lower()
@@ -1904,7 +1936,7 @@ def _closed_loop_fix(
     if not isinstance(outfit, dict) or not wardrobe:
         return outfit
 
-    occasion = str(context.get("occasion") or "").strip().lower()
+    occasion = _normalize_pipeline_occasion(context.get("occasion"), context)
     style_dna = context.get("style_dna", {}) or {}
 
     palette_hexes: List[str] = []
@@ -2280,7 +2312,10 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         # Helpers loaded later in module — only matters at hot-reload edge cases.
         pass
 
-    occasion = str(context.get("occasion", "")).strip().lower()
+    occasion = _normalize_pipeline_occasion(context.get("occasion"), context)
+    if occasion:
+        context = dict(context)
+        context["occasion"] = occasion
 
     if not occasion:
         return {

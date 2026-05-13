@@ -12,6 +12,87 @@ except Exception:  # pragma: no cover - optional Qdrant/dependency path
     memory_scorer = None
 
 
+def _item_blob(item: dict) -> str:
+    return " ".join(
+        str(item.get(k, "") or "")
+        for k in [
+            "name",
+            "category",
+            "subcategory",
+            "sub_category",
+            "color",
+            "material",
+            "fabric",
+            "pattern",
+            "style_tags",
+            "details",
+        ]
+    ).lower()
+
+
+def normalize_occasion(occasion: Any) -> str:
+    text = str(occasion or "").strip().lower().replace("-", "_")
+    if any(w in text for w in ["date_night", "date night", "date", "dinner", "tonight"]):
+        return "date_night"
+    if any(w in text for w in ["beach", "pool", "seaside", "coastal", "resort"]):
+        return "beach"
+    if any(w in text for w in ["office", "corporate_office", "smart_casual_office", "work", "meeting", "client", "boardroom"]):
+        return "office"
+    if "brunch" in text:
+        return "brunch"
+    if any(w in text for w in ["party", "club", "rave", "after_hours", "night out", "cocktail"]):
+        return "party"
+    if any(w in text for w in ["travel", "airport", "flight", "vacation", "trip"]):
+        return "travel"
+    if any(w in text for w in ["workout", "gym", "fitness", "training", "yoga", "running"]):
+        return "workout"
+    if any(w in text for w in ["wedding", "reception", "ceremony", "event"]):
+        return "wedding"
+    if any(w in text for w in ["casual", "daily", "today", "weekend"]):
+        return "casual"
+    return text
+
+
+def occasion_item_score(item: dict, occasion: str) -> float:
+    blob = _item_blob(item)
+    score = 0.0
+    occasion = normalize_occasion(occasion)
+
+    if occasion == "date_night":
+        if any(w in blob for w in ["boardroom", "office", "corporate", "workwear"]):
+            score -= 0.45
+        if any(w in blob for w in ["statement", "print", "watch", "loafers", "evening"]):
+            score += 0.18
+        if any(w in blob for w in ["slipper", "gym", "running", "shorts"]):
+            score -= 0.35
+
+    elif occasion == "beach":
+        if any(
+            w in blob
+            for w in [
+                "linen",
+                "cotton",
+                "shorts",
+                "sandals",
+                "slides",
+                "sunglasses",
+                "tote",
+                "camp collar",
+            ]
+        ):
+            score += 0.35
+        if any(w in blob for w in ["black trousers", "loafers", "dress shoes", "blazer", "formal", "office"]):
+            score -= 0.65
+
+    elif occasion == "office":
+        if any(w in blob for w in ["shirt", "trousers", "loafers", "belt", "watch", "blazer"]):
+            score += 0.20
+        if any(w in blob for w in ["slipper", "slides", "beach", "gym shorts", "running shorts"]):
+            score -= 0.45
+
+    return score
+
+
 class UnifiedStyleScorer:
     """
     Single scoring authority for outfit candidates.
@@ -56,6 +137,7 @@ class UnifiedStyleScorer:
             "refinement": 0.0,
             "exploration": 0.0,
             "footwear_occasion": 0.0,
+            "occasion_item": 0.0,
         }
 
         rules = style_engine.get_scoring_rules(style_dna, context)
@@ -77,6 +159,14 @@ class UnifiedStyleScorer:
         for item in items:
             color = color_normalizer.normalize(item.get("color") or item.get("color_code"))
             item_type = str(item.get("type") or item.get("sub_category") or "").lower()
+            breakdown["occasion_item"] += occasion_item_score(
+                item,
+                context.get("occasion")
+                or context.get("intent")
+                or context.get("query")
+                or context.get("user_query")
+                or "",
+            )
 
             try:
                 rule_delta, rule_reasons = style_engine.score_item_rule_adjustment(
@@ -215,10 +305,13 @@ class UnifiedStyleScorer:
             str(context.get(k) or "").lower()
             for k in ("occasion", "intent", "query", "user_query")
         )
+        normalized = normalize_occasion(text)
+        if normalized:
+            return normalized
         if any(x in text for x in ["office", "meeting", "client", "work"]):
             return "office"
         if any(x in text for x in ["date", "dinner", "night"]):
-            return "date"
+            return "date_night"
         if any(x in text for x in ["party", "club", "after-hours"]):
             return "party"
         return "daily"
@@ -253,7 +346,7 @@ class UnifiedStyleScorer:
                 return -5.0, ["footwear weak for office"], ["office footwear mismatch"]
             if polished:
                 return 1.8, ["office-ready footwear"], []
-        if intent == "date":
+        if intent == "date_night":
             if relaxed or athletic:
                 return -5.0, ["footwear weak for date night"], ["date footwear mismatch"]
             if polished:

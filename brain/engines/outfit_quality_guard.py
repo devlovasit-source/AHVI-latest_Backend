@@ -106,6 +106,107 @@ def _tokens(text: str) -> set[str]:
     return set(re.sub(r"[^a-z0-9]+", " ", _norm(text)).split())
 
 
+def normalize_occasion(occasion: Any) -> str:
+    text = _norm(occasion).replace("-", "_")
+    if any(w in text for w in ["date_night", "date night", "date", "dinner", "tonight"]):
+        return "date_night"
+    if any(w in text for w in ["beach", "pool", "seaside", "coastal", "resort"]):
+        return "beach"
+    if any(w in text for w in ["office", "corporate_office", "smart_casual_office", "work", "meeting", "client", "boardroom"]):
+        return "office"
+    if "brunch" in text:
+        return "brunch"
+    if any(w in text for w in ["party", "club", "rave", "after_hours", "night out", "cocktail"]):
+        return "party"
+    if any(w in text for w in ["travel", "airport", "flight", "vacation", "trip"]):
+        return "travel"
+    if any(w in text for w in ["workout", "gym", "fitness", "training", "yoga", "running"]):
+        return "workout"
+    if any(w in text for w in ["wedding", "reception", "ceremony", "event"]):
+        return "wedding"
+    if any(w in text for w in ["casual", "daily", "today", "weekend"]):
+        return "casual"
+    return text
+
+
+def _board_blob(board: dict) -> str:
+    parts = [
+        board.get("title"),
+        board.get("badge"),
+        board.get("occasion"),
+        board.get("occasion_label"),
+        board.get("explanation"),
+        board.get("why"),
+        board.get("why_it_works"),
+        board.get("style_direction"),
+    ]
+
+    for item in board.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        parts.extend(
+            [
+                item.get("name"),
+                item.get("category"),
+                item.get("subcategory"),
+                item.get("sub_category"),
+                item.get("color"),
+                item.get("material"),
+            ]
+        )
+
+    return " ".join(str(p or "") for p in parts).lower()
+
+
+def reject_board_for_occasion(board: dict, occasion: str) -> Tuple[bool, str]:
+    blob = _board_blob(board)
+    occasion = normalize_occasion(occasion)
+
+    if occasion == "date_night":
+        forbidden = [
+            "boardroom",
+            "professional",
+            "office",
+            "executive",
+            "corporate",
+            "workwear",
+            "clean friday",
+            "client",
+        ]
+        for word in forbidden:
+            if word in blob:
+                return True, f"date_forbidden_{word}"
+
+    if occasion == "beach":
+        forbidden = [
+            "black trousers",
+            "black pants",
+            "loafers",
+            "dress shoes",
+            "blazer",
+            "office",
+            "boardroom",
+            "professional",
+            "formal polish",
+        ]
+        for word in forbidden:
+            if word in blob:
+                return True, f"beach_forbidden_{word}"
+
+    if occasion == "office":
+        forbidden = [
+            "slippers",
+            "beach sandals",
+            "gym shorts",
+            "running shorts",
+        ]
+        for word in forbidden:
+            if word in blob:
+                return True, f"office_forbidden_{word}"
+
+    return False, ""
+
+
 def _role_from_item(item: Dict[str, Any]) -> str:
     if not isinstance(item, dict):
         return ""
@@ -423,6 +524,9 @@ def guard_outfit(
         or outfit.get("use_case")
         or outfit.get("scenario")
     )
+    board_rejected, board_reason = reject_board_for_occasion(outfit, occasion_text or query)
+    if board_rejected:
+        return False, -100, [board_reason], fixed
 
     outfit_text = " ".join([_item_text(top), _item_text(bottom), _item_text(footwear), occasion_text])
     if query:

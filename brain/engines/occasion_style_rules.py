@@ -297,6 +297,8 @@ OCCASION_STYLE_RULES: Dict[str, Dict[str, Any]] = {
 ALIASES = {
     "casual_outing": "casual",
     "daily": "casual",
+    "date_night": "date",
+    "date night": "date",
     "everyday": "casual",
     "event": "wedding",
     "formal_event": "wedding",
