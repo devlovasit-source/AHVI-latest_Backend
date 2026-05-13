@@ -790,3 +790,80 @@ def test_explanations_avoid_banned_catalog_openers():
 
     assert explanations
     assert all(not any(term in text for term in banned) for text in explanations)
+
+
+def test_has_core_slots_true_when_top_bottom_footwear_exist():
+    from services.style_flow_service import _ahvi_has_core_slots
+
+    slot_counts = {
+        "top": 1,
+        "bottom": 1,
+        "footwear": 1,
+        "accessory": 2,
+        "outerwear": 0,
+        "total": 5,
+    }
+
+    assert _ahvi_has_core_slots(slot_counts) is True
+
+
+def test_missing_occasion_response_not_core_missing_for_date():
+    from services.style_flow_service import _ahvi_missing_occasion_response
+
+    slot_counts = {
+        "top": 2,
+        "bottom": 1,
+        "footwear": 2,
+        "accessory": 2,
+        "outerwear": 0,
+        "total": 7,
+    }
+
+    response = _ahvi_missing_occasion_response("date_night", slot_counts)
+
+    assert response["type"] == "missing_occasion_wardrobe"
+    assert "top, bottom, and footwear" not in response["message"]
+    assert "date-night" in response["message"]
+
+
+def test_missing_core_slots_response_only_for_actual_missing_slots():
+    from services.style_flow_service import _ahvi_missing_core_slots_response
+
+    slot_counts = {
+        "top": 0,
+        "bottom": 1,
+        "footwear": 1,
+        "accessory": 0,
+        "outerwear": 0,
+        "total": 2,
+    }
+
+    response = _ahvi_missing_core_slots_response(slot_counts)
+
+    assert response["type"] == "missing_core_wardrobe_slots"
+    assert "top" in response["data"]["missing_slots"]
+    assert "top, bottom, and footwear" in response["message"]
+
+
+def test_closest_date_option_uses_date_language():
+    from services.style_flow_service import _ahvi_pick_closest_safe_board
+
+    cards = [
+        {
+            "title": "Soft Statement",
+            "badge": "DATE NIGHT",
+            "explanation": "Evening direction.",
+            "items": [
+                {"name": "Printed Shirt"},
+                {"name": "Black Pants"},
+                {"name": "Clean Sneakers"},
+            ],
+        },
+    ]
+
+    closest = _ahvi_pick_closest_safe_board(cards, "date_night")
+
+    assert closest is not None
+    assert closest["title"] == "Soft Statement"
+    assert closest["badge"] == "DATE NIGHT"
+    assert "office polish" in closest["explanation"].lower()

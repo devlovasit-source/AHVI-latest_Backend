@@ -215,6 +215,303 @@ def _filter_boards_for_occasion(cards: List[Dict[str, Any]], occasion: str) -> L
     return filtered
 
 
+def _ahvi_item_blob(item: dict) -> str:
+    if not isinstance(item, dict):
+        return ""
+    parts = []
+    for key in (
+        "id",
+        "name",
+        "title",
+        "category",
+        "subcategory",
+        "type",
+        "color",
+        "material",
+        "pattern",
+        "tags",
+        "style_tags",
+        "details",
+    ):
+        value = item.get(key)
+        if isinstance(value, (list, tuple, set)):
+            parts.extend(str(v or "") for v in value)
+        else:
+            parts.append(str(value or ""))
+    return " ".join(parts).lower()
+
+
+def _ahvi_slot_counts(items: list[dict]) -> dict:
+    counts = {
+        "top": 0,
+        "bottom": 0,
+        "footwear": 0,
+        "accessory": 0,
+        "outerwear": 0,
+        "total": 0,
+    }
+    for item in items or []:
+        blob = _ahvi_item_blob(item)
+        counts["total"] += 1
+        if any(
+            w in blob
+            for w in [
+                "shirt",
+                "t-shirt",
+                "tee",
+                "top",
+                "polo",
+                "kurta",
+                "blouse",
+                "sweater",
+                "hoodie",
+            ]
+        ):
+            counts["top"] += 1
+        elif any(w in blob for w in ["pant", "trouser", "jean", "shorts", "skirt", "bottom"]):
+            counts["bottom"] += 1
+        elif any(
+            w in blob
+            for w in [
+                "shoe",
+                "sneaker",
+                "loafer",
+                "boot",
+                "sandal",
+                "slide",
+                "footwear",
+                "slipper",
+            ]
+        ):
+            counts["footwear"] += 1
+        elif any(w in blob for w in ["blazer", "jacket", "coat", "overshirt"]):
+            counts["outerwear"] += 1
+        elif any(
+            w in blob
+            for w in [
+                "watch",
+                "belt",
+                "bag",
+                "jewelry",
+                "jewellery",
+                "ring",
+                "bracelet",
+                "cap",
+                "eyewear",
+                "sunglasses",
+                "chain",
+            ]
+        ):
+            counts["accessory"] += 1
+    return counts
+
+
+def _ahvi_has_core_slots(slot_counts: dict) -> bool:
+    return (
+        int(slot_counts.get("top", 0) or 0) > 0
+        and int(slot_counts.get("bottom", 0) or 0) > 0
+        and int(slot_counts.get("footwear", 0) or 0) > 0
+    )
+
+
+def _ahvi_missing_core_slots_response(slot_counts: dict) -> dict:
+    missing = []
+    if int(slot_counts.get("top", 0) or 0) <= 0:
+        missing.append("top")
+    if int(slot_counts.get("bottom", 0) or 0) <= 0:
+        missing.append("bottom")
+    if int(slot_counts.get("footwear", 0) or 0) <= 0:
+        missing.append("footwear")
+    return {
+        "success": True,
+        "type": "missing_core_wardrobe_slots",
+        "message": (
+            "I couldn't build a complete style board from your wardrobe yet. "
+            "Please add at least one top, bottom, and footwear item."
+        ),
+        "cards": [],
+        "style_boards": [],
+        "data": {
+            "missing_slots": missing,
+            "slot_counts": slot_counts,
+        },
+        "chips": [
+            "Add wardrobe item",
+            "Upload outfit pieces",
+            "Try again",
+        ],
+    }
+
+
+def _ahvi_missing_occasion_response(
+    occasion: str,
+    slot_counts: dict,
+    closest_board: dict | None = None,
+) -> dict:
+    normalized = str(occasion or "").lower()
+    if normalized in {"date", "date_night"}:
+        message = (
+            "I don't see enough strong date-night options yet. "
+            "I'd avoid forcing office styling into an evening brief."
+        )
+        missing_items = [
+            {
+                "label": "Evening shirt",
+                "reason": "Adds date-night personality without looking corporate.",
+                "cta": "Find this",
+            },
+            {
+                "label": "Clean casual footwear",
+                "reason": "Keeps the look polished without turning office-heavy.",
+                "cta": "Find this",
+            },
+            {
+                "label": "One intentional accessory",
+                "reason": "Finishes the look without clutter.",
+                "cta": "Find this",
+            },
+        ]
+        chips = [
+            "Show closest option",
+            "Find evening shirt",
+            "Find clean casual footwear",
+        ]
+    elif normalized == "beach":
+        message = (
+            "I don't see enough beach-ready pieces yet. "
+            "I'd rather not force formal trousers or loafers into a beach brief."
+        )
+        missing_items = [
+            {
+                "label": "Linen shirt",
+                "reason": "Adds breathable coastal texture.",
+                "cta": "Find this",
+            },
+            {
+                "label": "Sandals or slides",
+                "reason": "Makes the look sand-friendly.",
+                "cta": "Find this",
+            },
+            {
+                "label": "Relaxed shorts",
+                "reason": "Fixes the silhouette for beachwear.",
+                "cta": "Find this",
+            },
+        ]
+        chips = [
+            "Show closest option",
+            "Find linen shirt",
+            "Find sandals",
+        ]
+    else:
+        message = (
+            "I don't see enough occasion-ready options yet. "
+            "I'd rather not force a weak look."
+        )
+        missing_items = []
+        chips = [
+            "Show closest option",
+            "Try another occasion",
+        ]
+    payload = {
+        "success": True,
+        "type": "missing_occasion_wardrobe",
+        "message": message,
+        "cards": [],
+        "style_boards": [],
+        "data": {
+            "occasion": normalized,
+            "slot_counts": slot_counts,
+            "missing_items": missing_items,
+            "closest_safe_brief": (
+                "evening casual"
+                if normalized in {"date", "date_night"}
+                else "light casual"
+            ),
+        },
+        "chips": chips,
+    }
+    if closest_board:
+        payload["message"] = (
+            "I don't see a strong date-night range yet, but I found one safe direction. "
+            "I'd avoid anything that reads office-heavy."
+            if normalized in {"date", "date_night"}
+            else "I found one safer direction, but the wardrobe is still thin for this occasion."
+        )
+        payload["cards"] = [closest_board]
+        payload["style_boards"] = [closest_board]
+        payload["data"]["closest_board"] = closest_board
+    return payload
+
+
+def _ahvi_pick_closest_safe_board(cards: list[dict], occasion: str) -> dict | None:
+    normalized = str(occasion or "").lower()
+    if not cards:
+        return None
+    blocked_by_occasion = {
+        "date": [
+            "boardroom",
+            "professional",
+            "office",
+            "executive",
+            "corporate",
+            "clean friday",
+            "workwear",
+            "client",
+        ],
+        "date_night": [
+            "boardroom",
+            "professional",
+            "office",
+            "executive",
+            "corporate",
+            "clean friday",
+            "workwear",
+            "client",
+        ],
+        "beach": [
+            "black trousers",
+            "black pants",
+            "loafers",
+            "dress shoes",
+            "blazer",
+            "office",
+            "professional",
+            "formal",
+        ],
+    }
+    blocked = blocked_by_occasion.get(normalized, [])
+    for original in cards:
+        if not isinstance(original, dict):
+            continue
+        card = dict(original)
+        blob = _ahvi_item_blob(card)
+        for item in card.get("items") or []:
+            blob += " " + _ahvi_item_blob(item)
+        if any(word in blob for word in blocked):
+            continue
+        if normalized in {"date", "date_night"}:
+            card["title"] = "Soft Statement"
+            card["badge"] = "DATE NIGHT"
+            card["occasion_label"] = "DATE NIGHT"
+            card["occasion"] = "date_night"
+            card["explanation"] = (
+                "This is the safest evening direction from the current wardrobe. "
+                "It keeps the read intentional without leaning into office polish."
+            )
+        elif normalized == "beach":
+            card["title"] = "Closest Light Casual Option"
+            card["badge"] = "COASTAL"
+            card["occasion_label"] = "COASTAL"
+            card["occasion"] = "beach"
+            card["explanation"] = (
+                "This is the closest relaxed direction from the current wardrobe, "
+                "but it is not fully beach-ready yet."
+            )
+        return card
+    return None
+
+
 def _list_text(value: Any) -> List[str]:
     if isinstance(value, (list, tuple, set)):
         return [_safe_text(v) for v in value if _safe_text(v)]
@@ -2411,6 +2708,7 @@ def finalize_style_response_payload(
     *,
     user_id: str,
     query: str,
+    wardrobe: Any = None,
     context: Optional[Dict[str, Any]] = None,
     include_base64: bool = False,
     upload_to_r2: bool = False,
@@ -2445,8 +2743,72 @@ def finalize_style_response_payload(
         or ctx.get("occasion"),
         query,
     )
-    cards = _filter_boards_for_occasion(cards, normalized_occasion)
     cards = apply_occasion_card_language(cards, normalized_occasion)
+    wardrobe_items = wardrobe if isinstance(wardrobe, list) else []
+    if not wardrobe_items:
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_items = candidate.get("items")
+            if isinstance(candidate_items, list):
+                wardrobe_items.extend(item for item in candidate_items if isinstance(item, dict))
+            else:
+                wardrobe_items.append(candidate)
+    slot_counts = _ahvi_slot_counts(wardrobe_items)
+    logger.info(
+        "ahvi.wardrobe_slot_counts occasion=%s total=%s top=%s bottom=%s footwear=%s accessory=%s outerwear=%s",
+        normalized_occasion,
+        slot_counts.get("total"),
+        slot_counts.get("top"),
+        slot_counts.get("bottom"),
+        slot_counts.get("footwear"),
+        slot_counts.get("accessory"),
+        slot_counts.get("outerwear"),
+    )
+    if not _ahvi_has_core_slots(slot_counts):
+        logger.info(
+            "ahvi.missing_core_slots occasion=%s slot_counts=%s",
+            normalized_occasion,
+            slot_counts,
+        )
+        return _ahvi_missing_core_slots_response(slot_counts)
+    filtered_cards = []
+    rejected_cards = []
+    for card in cards or []:
+        if not isinstance(card, dict):
+            continue
+        if reject_quality_board_for_occasion is None:
+            rejected, reason = False, ""
+        else:
+            try:
+                rejected, reason = reject_quality_board_for_occasion(card, normalized_occasion)
+            except Exception:
+                rejected, reason = False, ""
+        if rejected:
+            rejected_cards.append((card, reason))
+            logger.info(
+                "ahvi.board_rejected occasion=%s reason=%s title=%s",
+                normalized_occasion,
+                reason,
+                card.get("title"),
+            )
+            continue
+        filtered_cards.append(card)
+    if not filtered_cards:
+        closest_board = _ahvi_pick_closest_safe_board(cards, normalized_occasion)
+        logger.info(
+            "ahvi.missing_occasion_wardrobe occasion=%s rejected=%s slot_counts=%s closest=%s",
+            normalized_occasion,
+            len(rejected_cards),
+            slot_counts,
+            bool(closest_board),
+        )
+        return _ahvi_missing_occasion_response(
+            occasion=normalized_occasion,
+            slot_counts=slot_counts,
+            closest_board=closest_board,
+        )
+    cards = apply_occasion_card_language(filtered_cards, normalized_occasion)
     finalize_ms = round((time.perf_counter() - finalize_started) * 1000, 2)
     ids = board_item_ids(cards)
     render_started = time.perf_counter()
@@ -2579,6 +2941,7 @@ def build_style_flow_response(
         result,
         user_id=user_id,
         query=query,
+        wardrobe=wardrobe,
         context=ctx,
         include_base64=include_base64,
         upload_to_r2=upload_to_r2,
@@ -2587,6 +2950,32 @@ def build_style_flow_response(
         requested_board_count=requested_board_count,
         cache_bypass=cache_bypass,
     )
+    if finalized.get("type") in {"missing_core_wardrobe_slots", "missing_occasion_wardrobe"}:
+        total_ms = round((time.perf_counter() - started) * 1000, 2)
+        logger.info(
+            "style_flow.timing user=%s candidates_ms=%s total_ms=%s wardrobe_count=%s cards=%s fallback=%s",
+            user_id,
+            candidate_ms,
+            total_ms,
+            len(wardrobe) if isinstance(wardrobe, list) else 0,
+            len(finalized.get("cards") or []),
+            finalized.get("type"),
+        )
+        return {
+            **finalized,
+            "board": "style",
+            "board_ids": "",
+            "audio_job_id": "offline",
+            "meta": {
+                "analysis_source": "style_flow_service",
+                "board_count": len(finalized.get("cards") or []),
+                "occasion_interpretation": occasion_interpretation,
+                "timing_ms": {
+                    "candidate_generation": candidate_ms,
+                    "style_flow_total": total_ms,
+                },
+            },
+        }
     cards = finalized["cards"]
     if not cards:
         gap_kind = _safe_text(
