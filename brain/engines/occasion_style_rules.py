@@ -145,12 +145,47 @@ OCCASION_STYLE_RULES: Dict[str, Dict[str, Any]] = {
         "formality_target": 3.6,
         "footwear_energy": "polished",
         "prefer_keywords": ["shirt", "button", "trouser", "chino", "loafer", "leather sneaker", "belt", "watch"],
-        "avoid_keywords": ["beach", "slipper", "slides", "birkenstock", "cap", "gym", "running"],
+        "avoid_keywords": [
+            "beach",
+            "slipper",
+            "slippers",
+            "slides",
+            "slide",
+            "sandal",
+            "sandals",
+            "birkenstock",
+            "espadrille",
+            "espadrilles",
+            "cap",
+            "gym",
+            "running",
+            "embroidered",
+            "embroidery",
+            "sequin",
+            "sequins",
+            "festive",
+            "ethnic",
+            "kurta",
+            "lehenga",
+            "saree",
+            "dhoti",
+            "sherwani",
+        ],
         "preferred_colors": ["white", "blue", "navy", "grey", "black", "cream"],
         "avoid_colors": [],
         "preferred_materials": ["cotton", "wool", "leather"],
         "required_slots": ["top_or_dress", "bottom_or_dress", "footwear"],
-        "forbidden_pairings": [["cap", "office"], ["slippers", "shirt"], ["birkenstock", "trousers"]],
+        "forbidden_pairings": [
+            ["cap", "office"],
+            ["slippers", "shirt"],
+            ["birkenstock", "trousers"],
+            ["sandals", "shirt"],
+            ["sandal", "trouser"],
+            ["embroidered", "trouser"],
+            ["embroidered", "chino"],
+            ["festive", "trouser"],
+            ["kurta", "trouser"],
+        ],
         "fallback_message": "I don't see enough office-ready pieces yet.",
         "missing_recommendations": [
             {"label": "Crisp shirt", "reason": "Gives office structure immediately", "cta": "Find this"},
@@ -440,8 +475,22 @@ def reject_board_for_occasion(card: Dict[str, Any], occasion: str, occasion_rule
     if key in {"office", "date", "wedding"}:
         if any(term in text for term in ("slipper", "slippers", "slide", "slides", "birkenstock")):
             return "relaxed_footwear_blocked_for_occasion"
-    if key == "office" and any(term in text for term in (" cap ", "baseball cap", "bucket hat")):
-        return "headwear_blocked_for_polished_occasion"
+    if key == "office":
+        if any(term in text for term in ("sandal", "sandals", "espadrille", "espadrilles", "flip flop", "flip-flop")):
+            return "casual_footwear_blocked_for_office"
+        if any(term in text for term in ("embroidered", "embroidery", "sequin", "festive")):
+            return "festive_top_blocked_for_office"
+        if any(term in text for term in ("strapless", "cami", "camisole", "corset", "bralette", "crop top", " crop ")):
+            return "revealing_top_blocked_for_office"
+        if any(term in text for term in (" cap ", "baseball cap", "bucket hat")):
+            return "headwear_blocked_for_polished_occasion"
+    if key == "temple_modest":
+        if any(term in text for term in ("strapless", "cami", "camisole", "corset", "bralette", "crop top", " crop ", "deep neck", "low neck", "backless")):
+            return "revealing_top_blocked_for_temple"
+        if any(term in text for term in (" mini ", "mini skirt", "miniskirt", "shorts ")):
+            return "short_bottom_blocked_for_temple"
+        if any(term in text for term in ("combat boots", "chunky boots")):
+            return "heavy_footwear_blocked_for_temple"
     return ""
 
 

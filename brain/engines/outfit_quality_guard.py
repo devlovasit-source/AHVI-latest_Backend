@@ -122,9 +122,13 @@ def normalize_occasion(occasion: Any) -> str:
         return "travel"
     if any(w in text for w in ["workout", "gym", "fitness", "training", "yoga", "running"]):
         return "workout"
+    if any(w in text for w in ["temple_modest", "temple", "mandir", "pooja", "puja", "religious", "shrine", "darshan"]):
+        return "temple_modest"
     if any(w in text for w in ["wedding", "reception", "ceremony", "event"]):
         return "wedding"
-    if any(w in text for w in ["casual", "daily", "today", "weekend"]):
+    if any(w in text for w in ["daily", "today"]):
+        return "daily"
+    if any(w in text for w in ["casual", "weekend"]):
         return "casual"
     return text
 
@@ -199,10 +203,54 @@ def reject_board_for_occasion(board: dict, occasion: str) -> Tuple[bool, str]:
             "beach sandals",
             "gym shorts",
             "running shorts",
+            "strapless",
+            "camisole",
+            " cami ",
+            "corset",
+            "bralette",
+            "crop top",
+            "mini skirt",
+            "miniskirt",
+            "club",
+            "party dress",
+            "embroidered",
+            "sequin",
+            "festive",
+            "flip flop",
+            "flip-flop",
+            "sliders",
+            "slides",
+            "birkenstock",
+            "espadrille",
         ]
         for word in forbidden:
             if word in blob:
-                return True, f"office_forbidden_{word}"
+                return True, f"office_forbidden_{word.strip()}"
+
+    if occasion == "temple_modest":
+        forbidden = [
+            "strapless",
+            "camisole",
+            " cami ",
+            "corset",
+            "bralette",
+            "crop top",
+            " crop ",
+            "shorts",
+            "mini skirt",
+            "miniskirt",
+            " mini ",
+            "club",
+            "party dress",
+            "deep neck",
+            "low neck",
+            "backless",
+            "combat boots",
+            "chunky boots",
+        ]
+        for word in forbidden:
+            if word in blob:
+                return True, f"temple_forbidden_{word.strip()}"
 
     return False, ""
 
@@ -374,6 +422,10 @@ def _is_beach_or_relaxed_context(context_text: str) -> bool:
     return any(x in context_text for x in ["beach", "pool", "resort", "vacation", "holiday", "errand", "lounge"])
 
 
+def _is_temple_context(context_text: str) -> bool:
+    return any(x in context_text for x in ["temple", "mandir", "pooja", "puja", "religious", "shrine", "darshan", "temple_modest"])
+
+
 def _is_rain_context(context_text: str) -> bool:
     return any(x in context_text for x in ["rain", "rainy", "storm", "wet", "monsoon"])
 
@@ -423,8 +475,27 @@ def _contextual_occasion_weather_adjustment(
     is_date_evening = _is_date_or_evening_context(context_text)
     is_office = _is_office_context(context_text)
     is_beach_relaxed = _is_beach_or_relaxed_context(context_text)
+    is_temple = _is_temple_context(context_text)
     is_rain = _is_rain_context(context_text)
     is_hot = _is_hot_context(context_text)
+
+    if is_temple:
+        temple_blob = " ".join([top_text, bottom_text, accessory_text])
+        if any(t in temple_blob for t in ("saree", "sari", "kurta", "kurti", "salwar", "anarkali", "dupatta", "long skirt")):
+            delta += 14
+            reasons.append("Traditional silhouette fits temple etiquette")
+        if any(t in temple_blob for t in ("modest", "covered", "long sleeve", "full sleeve")):
+            delta += 6
+            reasons.append("Modest coverage suits temple context")
+        if any(t in temple_blob for t in ("strapless", "cami", "camisole", "crop", "mini", "shorts", "backless", "deep neck", "low neck", "club", "party")):
+            delta -= 40
+            reasons.append("Revealing/club silhouette weakens temple respect")
+        if any(t in footwear_text for t in ("combat", "chunky boots", "heel ", "high heel")):
+            delta -= 14
+            reasons.append("Heavy/western footwear feels off for temple")
+        elif any(t in footwear_text for t in ("sandal", "sandals", "flat", "kolhapuri", "juti", "mojari")):
+            delta += 6
+            reasons.append("Easy-off footwear suits temple etiquette")
 
     if footwear:
         if is_date_evening:
