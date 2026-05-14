@@ -8,6 +8,7 @@ import requests
 from services.embedding_service import embedding_service
 from services.category_taxonomy import infer_style_attributes
 from services.qdrant_service import qdrant_service
+from services.wardrobe_taxonomy import normalize as _taxonomy_normalize
 
 # =========================
 # ENV CONFIG
@@ -179,15 +180,16 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
 # CATEGORY NORMALIZATION
 # =========================
 def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
-    """
-    Final save-time category normalization.
+    """Final save-time category. Delegates to canonical taxonomy module."""
+    category, _ = _taxonomy_normalize(cat, name, sub_category)
+    return category
 
-    Strong garment/accessory signals override weak explicit categories.
-    This prevents:
-    - bags saving as Accessories
-    - jewelry saving as Accessories
-    - saree saving as Accessories
-    - one-piece dress / mini dress saving as Tops
+
+def _legacy_normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
+    """
+    Legacy fallback (kept for reference). Strong garment/accessory signals
+    override weak explicit categories. New code should use normalize_category
+    which now delegates to services.wardrobe_taxonomy.
     """
 
     text = " ".join(
@@ -204,18 +206,9 @@ def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
 
     # Strong overrides FIRST. These must run before trusting explicit
     # "Tops" / "Accessories" labels from vision or older clients.
-    if has_any(
-        [
-            "saree",
-            "sari",
-            "lehenga",
-            "dupatta",
-            "sherwani",
-            "kurta",
-            "kurti",
-            "anarkali",
-        ]
-    ):
+    if has_any(["saree", "sari", "lehenga"]):
+        return "Dresses"
+    if has_any(["dupatta", "sherwani", "kurta", "kurti", "anarkali"]):
         return "Traditional"
 
     if has_any(
@@ -374,7 +367,8 @@ def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
     if has_any(["jacket", "coat", "blazer", "outerwear", "cardigan", "overshirt"]):
         return "Outerwear"
 
-    return "Accessories"
+    # Unknown / low-confidence items must NOT silently land in Accessories.
+    return "Needs Review"
 
 
 def normalize_display_name_and_subcategory(

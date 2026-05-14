@@ -30,6 +30,10 @@ from services.wardrobe_persistence_service import (
     persist_selected_items,
     update_item_labels,
 )
+from services.wardrobe_taxonomy import (
+    normalize_item as _taxonomy_normalize_item,
+    build_review_card as _taxonomy_review_card,
+)
 from prompts.core_prompts import WARDROBE_CAPTURE_PROMPT
 
 router = APIRouter(prefix="/api/wardrobe/capture", tags=["wardrobe-capture"])
@@ -812,44 +816,42 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         items.append(detected)
 
     if not items:
+        # No vision detection — preserve the image and surface a manual
+        # review card. Never dead-end with "No items detected".
+        review = _taxonomy_review_card(
+            image_url="",
+            image_base64=str(request.image_base64 or ""),
+            reason="no_detection",
+        )
         items = [
             {
                 "item_id": str(uuid.uuid4()),
-                "name": "Fallback Item",
-                "category": "Tops",
-                "sub_category": "Item",
                 "color_code": "#000000",
                 "color_name": "black",
                 "pattern": "plain",
-                "occasions": ["casual"],
+                "occasions": [],
                 "confidence": 0.3,
                 "label_source": "manual_fallback",
-                "requires_manual_entry": True,
                 "reasoning": "fallback_no_detection",
                 "bbox": [],
-                **_infer_style_attributes(
-                    {
-                        "name": "Fallback Item",
-                        "category": "Tops",
-                        "sub_category": "Item",
-                        "pattern": "plain",
-                        "color_name": "black",
-                        "occasions": ["casual"],
-                    }
-                ),
                 "raw_url": None,
                 "masked_url": None,
                 "normalized_url": None,
                 "image_url": None,
                 "imageUrl": None,
                 "raw_image_base64": None,
-                "masked_image_base64": None,
                 "upload_error": "",
                 "pixel_hash": "",
                 "duplicate": _duplicate_result(checked=False, is_duplicate=False),
                 "image_embedding": [],
+                **review,
             }
         ]
+
+    # Canonical taxonomy normalization for capture preview.
+    # Ensures the frontend never sees: Sari→Accessories, polo→Bottoms,
+    # one-piece→Tops, or unknowns silently labeled Accessories.
+    items = [_taxonomy_normalize_item(item) for item in items if isinstance(item, dict)]
 
     save_result = None
     save_state = "skipped"
@@ -1132,12 +1134,20 @@ async def analyze_capture_batch(
     for index, result in enumerate(results):
         if isinstance(result, Exception):
             errors.append({"index": index, "error": str(result)})
+            review = _taxonomy_review_card(
+                image_base64=str(images[index] or ""),
+                reason=f"analyze_failed:{result}",
+            )
+            review["item_id"] = str(uuid.uuid4())
+            review["source_image_index"] = index
+            review["batch_index"] = index
+            all_items.append(review)
             per_image.append(
                 {
                     "index": index,
                     "success": False,
-                    "count": 0,
-                    "items": [],
+                    "count": 1,
+                    "items": [review],
                     "error": str(result),
                 }
             )
