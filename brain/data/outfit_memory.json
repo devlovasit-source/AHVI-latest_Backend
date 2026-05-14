@@ -6079,6 +6079,11 @@
       ],
       "liked_outfits": [],
       "disliked_outfits": []
+    },
+    "test": {
+      "recent_outfits": [],
+      "liked_outfits": [],
+      "disliked_outfits": []
     }
   }
 }
