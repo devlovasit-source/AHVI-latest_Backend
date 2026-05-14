@@ -1374,42 +1374,50 @@ def _wardrobe_gap_response(
             {"label": "Occasion-ready hero", "reason": "Starts the outfit in the right atmosphere", "cta": "Find this"},
             {"label": "Right footwear", "reason": "Footwear controls the occasion register", "cta": "Find this"},
         ]
-find_chips = [
-    {
-        "label": f"Find {_safe_text(item.get('label')).lower()}",
-        "value": f"find_this:{_safe_text(item.get('label'))}",
-    }
-    for item in missing_items[:2]
-    if _safe_text(item.get("label"))
-]
+    find_chips = [
+        {
+            "label": f"Find {_safe_text(item.get('label')).lower()}",
+            "value": f"find_this:{_safe_text(item.get('label'))}",
+        }
+        for item in missing_items[:2]
+        if _safe_text(item.get("label"))
+    ]
 
-chips = (
-    [{"label": "Show closest option", "value": "show_closest_safe_option"}]
-    + find_chips
-)[:3]
+    chips = (
+        [{"label": "Show closest option", "value": "show_closest_safe_option"}]
+        + find_chips
+    )[:3]
 
-normalized_occasion = _safe_text(occasion).lower().replace("-", "_").replace(" ", "_")
+    normalized_occasion = (
+        _safe_text(occasion).lower().replace("-", "_").replace(" ", "_")
+    )
 
-if normalized_occasion in {"date", "date_night", "datenight"}:
-    message = (
-        "I don't see enough strong date-night options yet. "
-        "I'd avoid forcing office styling into an evening brief."
-    )
-elif normalized_occasion in {"beach", "beach_wear", "beachwear", "coastal"}:
-    message = (
-        "I don't see enough beach-ready pieces yet. "
-        "I'd rather not force formal trousers or loafers into a beach brief."
-    )
-else:
-    brief = _safe_text(
-        interpretation.get("resolved_brief")
-        or rule.get("resolved_brief")
-        or occasion
-    )
-    message = (
-        "I don't see enough occasion-ready options yet. "
-        f"For {brief}, I would rather protect the look than force a board that reads wrong."
-    )
+    if normalized_occasion in {"date", "date_night", "datenight"}:
+        message = (
+            "I don't see enough strong date-night options yet. "
+            "I'd avoid forcing office styling into an evening brief."
+        )
+    elif normalized_occasion in {"beach", "beach_wear", "beachwear", "coastal"}:
+        message = (
+            "I don't see enough beach-ready pieces yet. "
+            "I'd rather not force formal trousers or loafers into a beach brief."
+        )
+    elif normalized_occasion in {"temple_modest", "temple", "mandir", "pooja", "puja"}:
+        message = (
+            "I don't see enough temple-ready modest pieces yet. "
+            "I'd rather not force a club or office silhouette into a temple brief."
+        )
+    else:
+        brief = _safe_text(
+            interpretation.get("resolved_brief")
+            or rule.get("resolved_brief")
+            or occasion
+        )
+        message = (
+            "I don't see enough occasion-ready options yet. "
+            f"For {brief}, I would rather protect the look than force a board that reads wrong."
+        )
+
     data = _dict(_dict(finalized).get("data"))
     data.update(
         {
@@ -1426,6 +1434,14 @@ else:
             },
         }
     )
+
+    logger.info(
+        "ahvi.return_response type=missing_occasion_wardrobe occasion=%s message=%s chips=%s",
+        occasion,
+        message,
+        chips,
+    )
+
     return {
         "success": True,
         "message": message,
