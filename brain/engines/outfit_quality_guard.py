@@ -693,6 +693,63 @@ def _stable_item_key(item: Dict[str, Any]) -> str:
     )
 
 
+def _enforce_outfit_diversity(outfits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Reject look-alike boards before they reach the carousel.
+
+    Rules:
+      - same top+bottom pair → only the highest-scoring instance kept
+      - same dress → only the highest-scoring instance kept
+      - shoe-only / accessory-only swaps are not new looks
+      - same bottom appears at most twice across the deck
+    """
+    if not outfits:
+        return outfits
+
+    sorted_outfits = sorted(
+        outfits, key=lambda x: float(x.get("score") or 0), reverse=True
+    )
+
+    seen_pair: set[str] = set()
+    seen_dress: set[str] = set()
+    bottom_count: Dict[str, int] = {}
+    surviving: List[Dict[str, Any]] = []
+
+    for outfit in sorted_outfits:
+        top, bottom, footwear, _ = _extract_outfit_slots(outfit)
+        top_key = _stable_item_key(top)
+        bottom_key = _stable_item_key(bottom)
+        dress_key = _stable_item_key(outfit.get("dress") or {})
+        if not dress_key:
+            # Treat any item with role=dress inside items[] as a dress slot.
+            for item in outfit.get("items") or []:
+                if isinstance(item, dict) and _role_from_item(item) == "dress":
+                    dress_key = _stable_item_key(item)
+                    break
+
+        if dress_key:
+            if dress_key in seen_dress:
+                continue
+            seen_dress.add(dress_key)
+            surviving.append(outfit)
+            continue
+
+        pair_key = f"{top_key}|{bottom_key}" if top_key and bottom_key else ""
+        if pair_key and pair_key in seen_pair:
+            # Same top+bottom already present — shoe/accessory variation only.
+            continue
+        if bottom_key:
+            used = bottom_count.get(bottom_key, 0)
+            if used >= 2:
+                continue
+            bottom_count[bottom_key] = used + 1
+        if pair_key:
+            seen_pair.add(pair_key)
+
+        surviving.append(outfit)
+
+    return surviving
+
+
 def _apply_bottom_reuse_cooldown(outfits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Demote repeated bottoms before the pipeline diversifier builds cards.
 
@@ -787,5 +844,6 @@ def filter_and_guard_outfits(
 
     guarded.sort(key=lambda x: float(x.get("score") or 0), reverse=True)
     guarded = _apply_bottom_reuse_cooldown(guarded)
+    guarded = _enforce_outfit_diversity(guarded)
     return guarded
 
