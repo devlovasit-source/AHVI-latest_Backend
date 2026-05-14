@@ -50,6 +50,14 @@ for _ln in ("ahvi", "ahvi.main", "ahvi.routers.chat"):
 logger = logging.getLogger("ahvi.main")
 ROUTER_LOAD_STATUS: dict[str, dict[str, Any]] = {}
 REQUIRED_ROUTERS = set(settings.required_routers or [])
+SERVICE_TAG = str(os.getenv("AHVI_SERVICE_TAG") or "board-intel-gap-msg").strip()
+SERVICE_REVISION = str(
+    os.getenv("K_REVISION")
+    or os.getenv("GIT_SHA")
+    or os.getenv("APP_REVISION")
+    or os.getenv("APP_RELEASE")
+    or ""
+).strip()
 
 
 def _mark_router_skipped(module_name: str, reason: str):
@@ -536,6 +544,7 @@ async def auth_guard_middleware(request: Request, call_next):
     if (
         path == "/"
         or path.startswith("/health")
+        or path == "/api/health"
         or path == "/api/notifications/health"
         or path.startswith("/api/notifications/dispatch-due")
         or path.startswith("/docs")
@@ -601,6 +610,7 @@ async def rate_limit_middleware(request: Request, call_next):
         and not isinstance(getattr(request.state, "user", None), dict)
         and path != "/"
         and not path.startswith("/health")
+        and path != "/api/health"
         and path != "/api/notifications/health"
         and not path.startswith("/api/notifications/dispatch-due")
         and not path.startswith("/docs")
@@ -694,6 +704,11 @@ if vision_router:
 
 if wardrobe_capture_router:
     app.include_router(wardrobe_capture_router)
+    try:
+        from routers.wardrobe_capture import wardrobe_router as _wardrobe_admin_router
+        app.include_router(_wardrobe_admin_router)
+    except Exception:
+        _mark_router_skipped("routers.wardrobe_capture.wardrobe_router", "import_failed")
 
 if bg_router:
     app.include_router(bg_router, prefix="/api/background")
@@ -796,6 +811,14 @@ def root():
     return {"message": "AHVI backend running"}
 
 
+def _health_identity() -> Dict[str, str]:
+    return {
+        "service": "ahvi-backend",
+        "tag": SERVICE_TAG,
+        "revision": SERVICE_REVISION,
+    }
+
+
 @app.get("/health")
 async def health_check():
     required_router_failures = [
@@ -825,6 +848,7 @@ async def health_check():
     ready = not required_router_failures
     status_text = "online" if ready else "degraded"
     return {
+        **_health_identity(),
         "status": status_text,
         "ready": ready,
         "checks": {
@@ -836,6 +860,11 @@ async def health_check():
             "celery_configured": celery_ready,
         },
     }
+
+
+@app.get("/api/health")
+async def api_health_check():
+    return await health_check()
 
 
 async def _probe_redis(timeout: float) -> Dict[str, Any]:

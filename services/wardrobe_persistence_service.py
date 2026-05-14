@@ -688,8 +688,89 @@ def persist_selected_items(
     }
 
 
+def _fetch_document(document_id: str) -> Dict[str, Any]:
+    if not _appwrite_ready():
+        raise RuntimeError("Appwrite wardrobe persistence is not configured.")
+    url = (
+        f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
+        f"/collections/{APPWRITE_COLLECTION_ID}/documents/{document_id}"
+    )
+    res = requests.get(url, headers=HEADERS, timeout=15)
+    if res.status_code == 404:
+        raise LookupError(f"Wardrobe item not found: {document_id}")
+    if res.status_code not in (200, 201):
+        raise RuntimeError(f"Appwrite fetch error: {res.status_code} {res.text}")
+    return res.json()
+
+
+def _patch_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    url = (
+        f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
+        f"/collections/{APPWRITE_COLLECTION_ID}/documents/{document_id}"
+    )
+    res = requests.patch(url, headers=HEADERS, json={"data": data}, timeout=20)
+    if res.status_code not in (200, 201):
+        raise RuntimeError(f"Appwrite update error: {res.status_code} {res.text}")
+    return res.json()
+
+
+def update_item_labels(
+    *,
+    user_id: str,
+    item_id: str,
+    name: Any = None,
+    category: Any = None,
+    subcategory: Any = None,
+    color: Any = None,
+    material: Any = None,
+    tags: Any = None,
+) -> Dict[str, Any]:
+    """Owner-verified update of wardrobe item labels via Appwrite server key."""
+    user_id = _safe_text(user_id)
+    item_id = _safe_text(item_id)
+    if not user_id:
+        raise PermissionError("Missing user_id.")
+    if not item_id:
+        raise ValueError("Missing item_id.")
+
+    existing = _fetch_document(item_id)
+    owner = _safe_text(existing.get("user_id") or existing.get("userId"))
+    if owner and owner != user_id:
+        raise PermissionError("Item does not belong to user.")
+
+    raw_category = category if category is not None else existing.get("category")
+    raw_name = name if name is not None else existing.get("name")
+    raw_sub = subcategory if subcategory is not None else existing.get("sub_category") or existing.get("subcategory")
+
+    normalized_category = normalize_category(raw_category, raw_name, raw_sub)
+    display_name, normalized_sub = normalize_display_name_and_subcategory(
+        raw_name,
+        raw_sub,
+        normalized_category,
+    )
+
+    patch: Dict[str, Any] = {
+        "name": display_name,
+        "category": normalized_category,
+        "sub_category": normalized_sub,
+    }
+    if color is not None:
+        patch["color"] = _safe_text(color)
+    if material is not None:
+        patch["material"] = _safe_text(material)
+    if tags is not None:
+        patch["tags"] = _normalize_list(tags)
+
+    updated = _patch_document(item_id, patch)
+    return {
+        "success": True,
+        "item": updated,
+    }
+
+
 __all__ = [
     "persist_selected_items",
     "normalize_category",
     "normalize_display_name_and_subcategory",
+    "update_item_labels",
 ]

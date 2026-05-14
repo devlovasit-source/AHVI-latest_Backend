@@ -26,10 +26,63 @@ from services.image_embedding_service import encode_image_url
 from services.image_fingerprint import compute_hash_from_base64, compute_hash_from_url
 from services.qdrant_service import qdrant_service
 from services.r2_storage import R2Storage
-from services.wardrobe_persistence_service import persist_selected_items
+from services.wardrobe_persistence_service import (
+    persist_selected_items,
+    update_item_labels,
+)
 from prompts.core_prompts import WARDROBE_CAPTURE_PROMPT
 
 router = APIRouter(prefix="/api/wardrobe/capture", tags=["wardrobe-capture"])
+wardrobe_router = APIRouter(prefix="/api/wardrobe", tags=["wardrobe"])
+
+
+class UpdateLabelsRequest(BaseModel):
+    user_id: str
+    item_id: str
+    name: str | None = None
+    category: str | None = None
+    subcategory: str | None = None
+    color: str | None = None
+    material: str | None = None
+    tags: List[str] | None = None
+
+
+@wardrobe_router.post("/update-labels")
+def update_labels(http_request: Request, request: UpdateLabelsRequest):
+    user_id = _effective_user_id(http_request, request.user_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Missing user_id")
+    if not request.item_id.strip():
+        raise HTTPException(status_code=400, detail="Missing item_id")
+
+    try:
+        result = update_item_labels(
+            user_id=user_id,
+            item_id=request.item_id.strip(),
+            name=request.name,
+            category=request.category,
+            subcategory=request.subcategory,
+            color=request.color,
+            material=request.material,
+            tags=request.tags,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        logger.exception("update_labels_failed")
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    logger.info(
+        "ahvi.update_labels user_id=%s item_id=%s category=%s",
+        user_id,
+        request.item_id,
+        request.category,
+    )
+    return result
 
 
 class CaptureAnalyzeRequest(BaseModel):
