@@ -42,6 +42,16 @@ logger = logging.getLogger("ahvi.style_flow")
 STYLE_ACTION_CHIPS = ["More looks", "Next best options", "Try different shoes"]
 TRUST_LAYER_RUNTIME_INFERENCE = str(os.getenv("AHVI_TRUST_LAYER_RUNTIME_INFERENCE", "")).lower() in {"1", "true", "yes"}
 
+_OCCASION_FORBIDDEN_OFFICE = [
+    "boardroom",
+    "professional",
+    "office",
+    "executive",
+    "corporate",
+    "friday",
+    "client",
+]
+
 _OCCASION_CARD_LANGUAGE = {
     "date": {
         "badge": "DATE NIGHT",
@@ -49,19 +59,10 @@ _OCCASION_CARD_LANGUAGE = {
             "Soft Statement",
             "Evening Ease",
             "Dinner Polish",
-            "Low-Light Casual",
-            "Quiet Confidence",
             "After-Dark Edit",
+            "Quiet Confidence",
         ],
-        "forbidden_title_words": [
-            "boardroom",
-            "professional",
-            "office",
-            "executive",
-            "corporate",
-            "friday",
-            "client",
-        ],
+        "forbidden_title_words": _OCCASION_FORBIDDEN_OFFICE,
     },
     "date_night": {
         "badge": "DATE NIGHT",
@@ -69,47 +70,64 @@ _OCCASION_CARD_LANGUAGE = {
             "Soft Statement",
             "Evening Ease",
             "Dinner Polish",
-            "Low-Light Casual",
-            "Quiet Confidence",
             "After-Dark Edit",
+            "Quiet Confidence",
         ],
-        "forbidden_title_words": [
-            "boardroom",
-            "professional",
-            "office",
-            "executive",
-            "corporate",
-            "friday",
-            "client",
-        ],
+        "forbidden_title_words": _OCCASION_FORBIDDEN_OFFICE,
     },
     "beach": {
-        "badge": "COASTAL",
+        "badge": "BEACH",
         "titles": [
             "Coastal Ease",
-            "Resort Minimal",
-            "Sunset Casual",
-            "Beach-to-Dinner",
-            "Airy Edit",
+            "Resort Casual",
+            "Light Vacation",
+            "Beach Ready",
         ],
-        "forbidden_title_words": [
-            "boardroom",
-            "professional",
-            "office",
-            "executive",
-            "formal",
-        ],
+        "forbidden_title_words": _OCCASION_FORBIDDEN_OFFICE + ["formal"],
     },
     "office": {
-        "badge": "SMART CASUAL",
+        "badge": "OFFICE",
         "titles": [
             "Boardroom Casual",
-            "Executive Minimal",
-            "Clean Friday",
             "Creative Professional",
-            "Polished Neutral",
+            "Clean Friday",
+            "Executive Minimal",
         ],
         "forbidden_title_words": [],
+    },
+    "daily": {
+        "badge": "DAILY",
+        "titles": [
+            "Polished Neutral",
+            "Sharp Daily",
+            "Smart Ease",
+            "Clean Edit",
+            "Refined Casual",
+            "Easy Daily",
+        ],
+        "forbidden_title_words": _OCCASION_FORBIDDEN_OFFICE,
+    },
+    "casual": {
+        "badge": "CASUAL",
+        "titles": [
+            "Polished Neutral",
+            "Sharp Daily",
+            "Smart Ease",
+            "Clean Edit",
+            "Refined Casual",
+            "Easy Daily",
+        ],
+        "forbidden_title_words": _OCCASION_FORBIDDEN_OFFICE + ["formal"],
+    },
+    "temple_modest": {
+        "badge": "TEMPLE",
+        "titles": [
+            "Modest Grace",
+            "Soft Traditional",
+            "Temple Ready",
+            "Respectful Ease",
+        ],
+        "forbidden_title_words": _OCCASION_FORBIDDEN_OFFICE + ["club", "party", "strapless", "crop"],
     },
 }
 
@@ -138,11 +156,15 @@ _CANONICAL_OCCASIONS = {
     "workout",
     "wedding",
     "casual",
+    "daily",
+    "temple_modest",
 }
 
 
 def _normalize_occasion_value(value: Any, query: Any = "") -> str:
     text = " ".join([_safe_text(value), _safe_text(query)]).lower().replace("-", "_")
+    if any(k in text for k in ("temple_modest", "temple", "mandir", "pooja", "puja", "religious", "shrine", "darshan")):
+        return "temple_modest"
     if any(k in text for k in ("date_night", "date night", "date", "dinner", "tonight")):
         return "date_night"
     if any(k in text for k in ("beach", "pool", "seaside", "coastal", "resort")):
@@ -159,7 +181,9 @@ def _normalize_occasion_value(value: Any, query: Any = "") -> str:
         return "workout"
     if any(k in text for k in ("wedding", "reception", "ceremony", "sangeet", "formal event", "event")):
         return "wedding"
-    if any(k in text for k in ("casual", "daily", "today", "weekend", "errand", "coffee")):
+    if any(k in text for k in ("daily", "today")):
+        return "daily"
+    if any(k in text for k in ("casual", "weekend", "errand", "coffee")):
         return "casual"
     return _safe_text(value).lower() if _safe_text(value).lower() in _CANONICAL_OCCASIONS else ""
 
@@ -1028,6 +1052,7 @@ def _canonicalize_card(card: Dict[str, Any], index: int) -> Optional[Dict[str, A
 def _occasion_flags(query: str) -> Dict[str, bool]:
     q = str(query or "").lower()
     return {
+        "temple_modest": any(k in q for k in ("temple", "mandir", "pooja", "puja", "religious", "shrine", "darshan")),
         "beach": any(k in q for k in ("beach", "pool", "seaside", "coastal", "sand-friendly", "sand friendly")),
         "workout": any(k in q for k in ("workout", "gym", "fitness", "training", "yoga", "running")),
         "brunch": any(k in q for k in ("brunch",)),
@@ -1036,7 +1061,7 @@ def _occasion_flags(query: str) -> Dict[str, bool]:
         "party": any(k in q for k in ("party", "club", "after-hours", "night out")),
         "travel": any(k in q for k in ("travel", "airport", "flight", "vacation", "trip")),
         "wedding": any(k in q for k in ("wedding", "reception", "ceremony", "sangeet", "formal event", "event")),
-        "casual": any(k in q for k in ("casual", "daily", "today", "weekend", "errand", "coffee")),
+        "casual": any(k in q for k in ("casual", "weekend", "errand", "coffee")),
     }
 
 
@@ -1142,15 +1167,11 @@ def _coherence_score(card: Dict[str, Any]) -> float:
 
 
 def _occasion_kind(query: str) -> str:
-    q = str(query or "").lower()
     flags = _occasion_flags(query)
-    generic_today = any(k in q for k in ("suggest an outfit", "outfit for today", "what should i wear", "wear today", "today outfit"))
-    explicitly_relaxed = any(k in q for k in ("casual", "weekend", "sunday", "home", "resort", "beach", "coffee", "errand", "vacation"))
-    if generic_today and not explicitly_relaxed and not any(flags[k] for k in ("beach", "workout", "brunch", "date", "party", "travel", "wedding")):
-        return "office"
-    for key in ("beach", "workout", "brunch", "office", "date", "party", "travel", "wedding", "casual"):
+    for key in ("temple_modest", "beach", "workout", "brunch", "office", "date", "party", "travel", "wedding", "casual"):
         if flags.get(key):
             return key
+    # Generic "today"/"daily"/no signal → daily, NOT office.
     return "daily"
 
 
@@ -1353,16 +1374,41 @@ def _wardrobe_gap_response(
             {"label": "Occasion-ready hero", "reason": "Starts the outfit in the right atmosphere", "cta": "Find this"},
             {"label": "Right footwear", "reason": "Footwear controls the occasion register", "cta": "Find this"},
         ]
-    find_chips = [
-        {"label": f"Find {_safe_text(item.get('label')).lower()}", "value": f"find_this:{_safe_text(item.get('label'))}"}
-        for item in missing_items[:2]
-        if _safe_text(item.get("label"))
-    ]
-    chips = (find_chips + [{"label": "Show closest option", "value": "show_closest_safe_option"}])[:3]
-    fallback_message = _safe_text(rule.get("fallback_message")) or "I don't see enough occasion-ready pieces yet."
-    brief = _safe_text(interpretation.get("resolved_brief") or rule.get("resolved_brief") or occasion)
+find_chips = [
+    {
+        "label": f"Find {_safe_text(item.get('label')).lower()}",
+        "value": f"find_this:{_safe_text(item.get('label'))}",
+    }
+    for item in missing_items[:2]
+    if _safe_text(item.get("label"))
+]
+
+chips = (
+    [{"label": "Show closest option", "value": "show_closest_safe_option"}]
+    + find_chips
+)[:3]
+
+normalized_occasion = _safe_text(occasion).lower().replace("-", "_").replace(" ", "_")
+
+if normalized_occasion in {"date", "date_night", "datenight"}:
     message = (
-        f"{fallback_message} For {brief}, I would rather protect the look than force a board that reads wrong."
+        "I don't see enough strong date-night options yet. "
+        "I'd avoid forcing office styling into an evening brief."
+    )
+elif normalized_occasion in {"beach", "beach_wear", "beachwear", "coastal"}:
+    message = (
+        "I don't see enough beach-ready pieces yet. "
+        "I'd rather not force formal trousers or loafers into a beach brief."
+    )
+else:
+    brief = _safe_text(
+        interpretation.get("resolved_brief")
+        or rule.get("resolved_brief")
+        or occasion
+    )
+    message = (
+        "I don't see enough occasion-ready options yet. "
+        f"For {brief}, I would rather protect the look than force a board that reads wrong."
     )
     data = _dict(_dict(finalized).get("data"))
     data.update(

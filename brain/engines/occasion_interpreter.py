@@ -15,29 +15,29 @@ def _has_any(text: str, values: tuple[str, ...]) -> bool:
 
 def detect_occasion(query: str) -> str:
     q = _text(query)
-    generic_today = _has_any(
-        q,
-        (
-            "suggest an outfit",
-            "outfit for today",
-            "what should i wear",
-            "wear today",
-            "today outfit",
-        ),
-    )
-    explicitly_relaxed = _has_any(
-        q,
-        ("casual", "weekend", "sunday", "home", "resort", "beach", "coffee", "errand", "vacation"),
-    )
+    if _has_any(q, ("temple", "mandir", "pooja", "puja", "religious", "shrine", "darshan")):
+        return "temple_modest"
     if _has_any(q, ("beach", "pool", "seaside", "coastal", "sand-friendly", "sand friendly")):
         return "beach"
     if _has_any(q, ("gym", "workout", "fitness", "training", "yoga", "run ", "running")):
         return "workout"
     if _has_any(q, ("brunch",)):
         return "brunch"
-    if generic_today and not explicitly_relaxed:
-        return "office"
-    if _has_any(q, ("office", "work", "meeting", "client", "business", "interview", "corporate", "boardroom", "presentation")):
+    if _has_any(
+        q,
+        (
+            "office",
+            "work",
+            "meeting",
+            "client",
+            "business",
+            "interview",
+            "corporate",
+            "boardroom",
+            "presentation",
+            "formal work",
+        ),
+    ):
         return "office"
     if _has_any(q, ("date", "dinner", "tonight", "evening")):
         return "date_night"
@@ -47,8 +47,9 @@ def detect_occasion(query: str) -> str:
         return "travel"
     if _has_any(q, ("wedding", "reception", "ceremony", "sangeet", "formal event", "event")):
         return "wedding"
-    if _has_any(q, ("casual", "daily", "today", "weekend", "errand", "coffee")):
+    if _has_any(q, ("casual", "weekend", "sunday", "home", "errand", "coffee", "resort")):
         return "casual"
+    # Generic "today"/"daily"/no signal → daily (aliased to casual rule)
     return "daily"
 
 
@@ -69,8 +70,8 @@ def interpret_occasion_context(query: str, context: Optional[Dict[str, Any]] = N
     reason = "context_sufficient"
     chips: List[Dict[str, str]] = []
 
-    if kind == "beach":
-        brief = "coastal casual, breathable, sand-friendly"
+    if kind == "temple_modest":
+        brief = "modest, respectful, covered shoulders, soft palette, traditional ease"
     elif kind == "workout":
         brief = "workout-ready, breathable, movement friendly"
     elif kind == "brunch":
@@ -133,6 +134,8 @@ def interpret_occasion_context(query: str, context: Optional[Dict[str, Any]] = N
             )
     elif kind == "casual":
         brief = "clean daily, comfortable but intentional"
+    elif kind == "daily":
+        brief = "smart daily, clean casual, easy and intentional"
     else:
         brief = "elevated daily, smart casual, repeat-aware"
 
