@@ -1,7 +1,7 @@
 import os
 import re
 import uuid
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import requests
 
@@ -712,7 +712,14 @@ def _fetch_document(document_id: str) -> Dict[str, Any]:
     return res.json()
 
 
-def _patch_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+def _patch_document(document_id: str, data: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    """PATCH a document, returning (response_json, dropped_keys).
+
+    On 'Unknown attribute' the schema is missing a key. Rather than
+    failing the whole update, retry without the offending key and tell
+    the caller which keys were dropped so the user can be warned that
+    the save was partial.
+    """
     url = (
         f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
         f"/collections/{APPWRITE_COLLECTION_ID}/documents/{document_id}"
@@ -723,30 +730,38 @@ def _patch_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
             url, headers=HEADERS, json={"data": payload}, timeout=20
         )
 
-    res = post(data)
+    dropped: List[str] = []
+    attempt = dict(data)
+    # Allow a small number of retries — Appwrite's error message reports
+    # ONE missing attribute at a time so we may need multiple passes.
+    for _ in range(4):
+        res = post(attempt)
+        if res.status_code in (200, 201):
+            return res.json(), dropped
 
-    # Mirror _create_document's "unknown attribute" retry. If the schema
-    # rejects a single key, strip it and retry — better than failing the
-    # whole label edit.
-    if res.status_code not in (200, 201):
         body_lower = str(res.text or "").lower()
-        if "unknown attribute" in body_lower or "invalid document structure" in body_lower:
-            import re as _re
-            # Try to find the offending attribute name from the error.
-            m = _re.search(r"unknown attribute[:\s]+\"?([\w_]+)", body_lower)
-            stripped = dict(data)
-            if m:
-                stripped.pop(m.group(1), None)
-            else:
-                # Fallback: drop optional fields one by one.
-                for k in ("occasions", "color_code", "sub_category"):
-                    stripped.pop(k, None)
-            if stripped and stripped != data:
-                res = post(stripped)
+        if "unknown attribute" not in body_lower and "invalid document structure" not in body_lower:
+            raise RuntimeError(f"Appwrite update error: {res.status_code} {res.text}")
 
-    if res.status_code not in (200, 201):
-        raise RuntimeError(f"Appwrite update error: {res.status_code} {res.text}")
-    return res.json()
+        import re as _re
+        m = _re.search(r"unknown attribute[:\s]+\"?([\w_]+)", body_lower)
+        before = dict(attempt)
+        if m:
+            key = m.group(1)
+            attempt.pop(key, None)
+            dropped.append(key)
+        else:
+            for k in ("occasions", "color_code", "sub_category", "material"):
+                if attempt.pop(k, None) is not None:
+                    dropped.append(k)
+                    break
+        if attempt == before or not attempt:
+            raise RuntimeError(f"Appwrite update error: {res.status_code} {res.text}")
+
+    # Exhausted retries.
+    raise RuntimeError(
+        f"Appwrite update exhausted retries after dropping {dropped}"
+    )
 
 
 def update_item_labels(
@@ -827,14 +842,25 @@ def update_item_labels(
     )
 
     try:
-        updated = _patch_document(item_id, patch)
+        updated, dropped_keys = _patch_document(item_id, patch)
     except RuntimeError as exc:
         log.error("ahvi.update_labels.patch_failed item=%s err=%s", item_id, exc)
         raise
 
+    if dropped_keys:
+        log.warning(
+            "ahvi.update_labels.partial item=%s dropped=%s",
+            item_id, dropped_keys,
+        )
+
     return {
         "success": True,
         "item": updated,
+        # Partial-save warning so the frontend can show a toast if user
+        # cares (e.g. 'Saved, but tags weren't stored — collection
+        # schema is missing the field').
+        "dropped_keys": dropped_keys,
+        "partial": bool(dropped_keys),
     }
 
 
