@@ -1416,14 +1416,31 @@ def _module_llm_response(
         logger.warning("chat.module_chat_failed module=%s error=%s", module_key, str(exc)[:180])
         answer = lightweight_chat(user_message)
 
+    answer_text = str(answer or "").strip()
+    # Canonical AHVI chat response shape. Every chat endpoint
+    # (/api/text, /api/chat/module-chat) MUST return this same envelope
+    # so the frontend parser doesn't have to special-case the source.
     return {
         "success": True,
-        "response": str(answer or "").strip(),
-        "module": module_key,
         "type": "module_chat",
+        "module": module_key,
+        # Three keys carrying the same payload — different clients pick
+        # different keys. Keep them aligned to avoid empty-message bugs.
+        "response": answer_text,
+        "message_text": answer_text,
+        "message": {"role": "assistant", "content": answer_text},
+        "cards": [],
+        "style_boards": [],
         "chips": [],
-        "data": {"module": module_key},
-        "meta": {"mode": module_key},
+        "data": {
+            "module": module_key,
+            "rendered_boards": [],
+            "outfits": [],
+        },
+        "meta": {
+            "mode": module_key,
+            "board_count": 0,
+        },
     }
 
 

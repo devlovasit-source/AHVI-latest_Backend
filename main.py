@@ -744,13 +744,29 @@ if not chat_router:
             message = "I will assume smart casual for now: choose one clean hero piece, pair it with a neutral base, and finish with footwear or an accessory that matches the occasion."
         else:
             message = "I can help with that. Tell me a little more, or ask me to style an outfit, plan your day, or build a capsule wardrobe."
+        # Canonical AHVI chat response shape — kept in sync with
+        # routers/chat.py:_module_llm_response so clients don't need to
+        # special-case the fallback path.
         return {
             "success": True,
-            "message": message,
+            "type": "fallback_chat",
+            "module": "fallback",
             "response": message,
+            "message_text": message,
+            "message": {"role": "assistant", "content": message},
             "cards": [],
-            "data": {"outfits": [], "rendered_boards": []},
-            "meta": {"mode": "fallback", "chat_router_loaded": False},
+            "style_boards": [],
+            "chips": [],
+            "data": {
+                "module": "fallback",
+                "rendered_boards": [],
+                "outfits": [],
+            },
+            "meta": {
+                "mode": "fallback",
+                "chat_router_loaded": False,
+                "board_count": 0,
+            },
         }
 
 
