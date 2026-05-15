@@ -874,44 +874,27 @@ def update_item_labels(
     if not item_id:
         raise ValueError("Missing item_id.")
 
-    existing, source_collection, source_database = _fetch_document(
-        item_id,
-        override_collection_id=_safe_text(override_collection_id),
-        override_database_id=_safe_text(override_database_id),
-    )
-    # Schema uses userId (camelCase) — accept user_id too for legacy docs.
-    owner = _safe_text(existing.get("userId") or existing.get("user_id"))
-    if not owner:
-        # Missing owner: protect by refusing, otherwise anyone could edit.
-        raise PermissionError("Wardrobe item has no owner. Refusing update.")
-    if owner != user_id:
-        log.warning(
-            "ahvi.update_labels.forbidden item=%s owner=%s requester=%s",
-            item_id, owner, user_id,
+    # Build the patch BEFORE we know what `existing` looks like. We only
+    # need `existing` for ownership verification, not for field defaults,
+    # because we always treat missing inputs as 'do not change'.
+    patch: Dict[str, Any] = {}
+    if name is not None:
+        patch["name"] = _safe_text(name) or None
+    if category is not None or name is not None or subcategory is not None:
+        normalized_category = normalize_category(
+            category if category is not None else None,
+            name if name is not None else None,
+            subcategory if subcategory is not None else None,
         )
-        raise PermissionError("Item does not belong to user.")
-
-    raw_category = category if category is not None else existing.get("category")
-    raw_name = name if name is not None else existing.get("name")
-    raw_sub = (
-        subcategory
-        if subcategory is not None
-        else existing.get("sub_category") or existing.get("subcategory")
-    )
-
-    normalized_category = normalize_category(raw_category, raw_name, raw_sub)
-    display_name, normalized_sub = normalize_display_name_and_subcategory(
-        raw_name,
-        raw_sub,
-        normalized_category,
-    )
-
-    # Only write attributes the outfits collection actually has.
-    patch: Dict[str, Any] = {
-        "name": display_name,
-        "category": normalized_category,
-        "sub_category": normalized_sub,
-    }
+        display_name, normalized_sub = normalize_display_name_and_subcategory(
+            _safe_text(name),
+            _safe_text(subcategory),
+            normalized_category,
+        )
+        if name is not None:
+            patch["name"] = display_name
+        patch["category"] = normalized_category
+        patch["sub_category"] = normalized_sub
     if color is not None:
         # Schema uses color_code, not color.
         patch["color_code"] = _safe_text(color)
@@ -921,18 +904,82 @@ def update_item_labels(
         patch["occasions"] = _normalize_list(tags)
     # material is not in the schema; ignore to avoid 'Unknown attribute'.
 
-    log.info(
-        "ahvi.update_labels user=%s item=%s collection=%s category=%s sub=%s",
-        user_id, item_id, source_collection, normalized_category, normalized_sub,
-    )
+    if not patch:
+        raise ValueError("Nothing to update.")
 
-    try:
-        updated, dropped_keys = _patch_document(
-            item_id, patch, source_collection, source_database
+    # Strategy: PATCH-first, GET-fallback.
+    #
+    # Old flow (GET then PATCH) lost a round-trip and meant a single 404
+    # on GET aborted the whole update — even when the client knew exactly
+    # which collection holds the doc. New flow: try the client-supplied
+    # location's PATCH straight away. If that 404s, only THEN walk env
+    # candidates with GET to discover the right collection.
+    target_db_override = _safe_text(override_database_id)
+    target_col_override = _safe_text(override_collection_id)
+    source_collection = target_col_override or APPWRITE_COLLECTION_ID or ""
+    source_database = target_db_override or APPWRITE_DATABASE_ID or ""
+    updated: Dict[str, Any] | None = None
+    dropped_keys: List[str] = []
+
+    if target_db_override and target_col_override:
+        log.info(
+            "ahvi.update_labels.direct user=%s item=%s db=%s col=%s patch_keys=%s",
+            user_id, item_id, target_db_override, target_col_override, list(patch.keys()),
         )
-    except RuntimeError as exc:
-        log.error("ahvi.update_labels.patch_failed item=%s err=%s", item_id, exc)
-        raise
+        try:
+            updated, dropped_keys = _patch_document(
+                item_id, patch, target_col_override, target_db_override
+            )
+        except RuntimeError as exc:
+            msg = str(exc)
+            if " 404 " not in f" {msg} " and "404" not in msg:
+                # Real error (auth/schema) — propagate
+                log.error("ahvi.update_labels.direct_failed item=%s err=%s", item_id, exc)
+                raise
+            log.warning(
+                "ahvi.update_labels.direct_404 item=%s db=%s col=%s — falling back to env walk",
+                item_id, target_db_override, target_col_override,
+            )
+
+    if updated is None:
+        # GET-walk fallback. Locates the document across every known
+        # outfits collection, verifies ownership, then PATCHes there.
+        existing, source_collection, source_database = _fetch_document(
+            item_id,
+            override_collection_id=target_col_override,
+            override_database_id=target_db_override,
+        )
+        owner = _safe_text(existing.get("userId") or existing.get("user_id"))
+        if not owner:
+            raise PermissionError("Wardrobe item has no owner. Refusing update.")
+        if owner != user_id:
+            log.warning(
+                "ahvi.update_labels.forbidden item=%s owner=%s requester=%s",
+                item_id, owner, user_id,
+            )
+            raise PermissionError("Item does not belong to user.")
+        try:
+            updated, dropped_keys = _patch_document(
+                item_id, patch, source_collection, source_database
+            )
+        except RuntimeError as exc:
+            log.error("ahvi.update_labels.patch_failed item=%s err=%s", item_id, exc)
+            raise
+
+    # Post-patch ownership verification (only needed when we skipped the
+    # GET pre-check). Cheap because `updated` is already in memory.
+    final_owner = _safe_text(updated.get("userId") or updated.get("user_id"))
+    if final_owner and final_owner != user_id:
+        log.error(
+            "ahvi.update_labels.owner_mismatch_after_patch item=%s owner=%s requester=%s",
+            item_id, final_owner, user_id,
+        )
+        raise PermissionError("Item does not belong to user.")
+
+    log.info(
+        "ahvi.update_labels.ok user=%s item=%s collection=%s patch_keys=%s dropped=%s",
+        user_id, item_id, source_collection, list(patch.keys()), dropped_keys,
+    )
 
     if dropped_keys:
         log.warning(
