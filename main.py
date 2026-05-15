@@ -549,6 +549,7 @@ async def auth_guard_middleware(request: Request, call_next):
         or path.startswith("/api/notifications/dispatch-due")
         or path.startswith("/docs")
         or path.startswith("/openapi")
+        or path == "/api/wardrobe/diagnostics"
     ):
         # Note: dispatch-due is intentionally bypassed here — the route enforces
         # its own NOTIFICATIONS_DISPATCH_SECRET.
