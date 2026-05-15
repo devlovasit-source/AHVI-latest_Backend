@@ -702,7 +702,33 @@ def _patch_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
         f"/collections/{APPWRITE_COLLECTION_ID}/documents/{document_id}"
     )
-    res = requests.patch(url, headers=HEADERS, json={"data": data}, timeout=20)
+
+    def post(payload: Dict[str, Any]):
+        return requests.patch(
+            url, headers=HEADERS, json={"data": payload}, timeout=20
+        )
+
+    res = post(data)
+
+    # Mirror _create_document's "unknown attribute" retry. If the schema
+    # rejects a single key, strip it and retry — better than failing the
+    # whole label edit.
+    if res.status_code not in (200, 201):
+        body_lower = str(res.text or "").lower()
+        if "unknown attribute" in body_lower or "invalid document structure" in body_lower:
+            import re as _re
+            # Try to find the offending attribute name from the error.
+            m = _re.search(r"unknown attribute[:\s]+\"?([\w_]+)", body_lower)
+            stripped = dict(data)
+            if m:
+                stripped.pop(m.group(1), None)
+            else:
+                # Fallback: drop optional fields one by one.
+                for k in ("occasions", "color_code", "sub_category"):
+                    stripped.pop(k, None)
+            if stripped and stripped != data:
+                res = post(stripped)
+
     if res.status_code not in (200, 201):
         raise RuntimeError(f"Appwrite update error: {res.status_code} {res.text}")
     return res.json()
@@ -719,7 +745,17 @@ def update_item_labels(
     material: Any = None,
     tags: Any = None,
 ) -> Dict[str, Any]:
-    """Owner-verified update of wardrobe item labels via Appwrite server key."""
+    """Owner-verified update of wardrobe item labels via Appwrite server key.
+
+    Only writes attributes that exist in the outfits collection schema:
+      name, category, sub_category, color_code, occasions
+
+    Unknown frontend keys (tags, material) are mapped or dropped so the
+    Appwrite PATCH never fails with 'Unknown attribute'.
+    """
+    import logging
+    log = logging.getLogger("ahvi.wardrobe_persistence")
+
     user_id = _safe_text(user_id)
     item_id = _safe_text(item_id)
     if not user_id:
@@ -728,13 +764,25 @@ def update_item_labels(
         raise ValueError("Missing item_id.")
 
     existing = _fetch_document(item_id)
-    owner = _safe_text(existing.get("user_id") or existing.get("userId"))
-    if owner and owner != user_id:
+    # Schema uses userId (camelCase) — accept user_id too for legacy docs.
+    owner = _safe_text(existing.get("userId") or existing.get("user_id"))
+    if not owner:
+        # Missing owner: protect by refusing, otherwise anyone could edit.
+        raise PermissionError("Wardrobe item has no owner. Refusing update.")
+    if owner != user_id:
+        log.warning(
+            "ahvi.update_labels.forbidden item=%s owner=%s requester=%s",
+            item_id, owner, user_id,
+        )
         raise PermissionError("Item does not belong to user.")
 
     raw_category = category if category is not None else existing.get("category")
     raw_name = name if name is not None else existing.get("name")
-    raw_sub = subcategory if subcategory is not None else existing.get("sub_category") or existing.get("subcategory")
+    raw_sub = (
+        subcategory
+        if subcategory is not None
+        else existing.get("sub_category") or existing.get("subcategory")
+    )
 
     normalized_category = normalize_category(raw_category, raw_name, raw_sub)
     display_name, normalized_sub = normalize_display_name_and_subcategory(
@@ -743,19 +791,32 @@ def update_item_labels(
         normalized_category,
     )
 
+    # Only write attributes the outfits collection actually has.
     patch: Dict[str, Any] = {
         "name": display_name,
         "category": normalized_category,
         "sub_category": normalized_sub,
     }
     if color is not None:
-        patch["color"] = _safe_text(color)
-    if material is not None:
-        patch["material"] = _safe_text(material)
+        # Schema uses color_code, not color.
+        patch["color_code"] = _safe_text(color)
+    # tags from the frontend edit dialog are the user's chosen occasions
+    # — map them to the canonical occasions[] field.
     if tags is not None:
-        patch["tags"] = _normalize_list(tags)
+        patch["occasions"] = _normalize_list(tags)
+    # material is not in the schema; ignore to avoid 'Unknown attribute'.
 
-    updated = _patch_document(item_id, patch)
+    log.info(
+        "ahvi.update_labels user=%s item=%s category=%s sub=%s",
+        user_id, item_id, normalized_category, normalized_sub,
+    )
+
+    try:
+        updated = _patch_document(item_id, patch)
+    except RuntimeError as exc:
+        log.error("ahvi.update_labels.patch_failed item=%s err=%s", item_id, exc)
+        raise
+
     return {
         "success": True,
         "item": updated,
