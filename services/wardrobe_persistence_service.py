@@ -708,55 +708,80 @@ def persist_selected_items(
     }
 
 
-def _fetch_document(document_id: str) -> Tuple[Dict[str, Any], str]:
-    """GET document, returning (doc_json, collection_id_used).
+def _fetch_document(
+    document_id: str,
+    *,
+    override_collection_id: str = "",
+    override_database_id: str = "",
+) -> Tuple[Dict[str, Any], str, str]:
+    """GET document, returning (doc_json, collection_id_used, database_id_used).
 
-    On 404 in the primary collection, retry against every known
-    outfits collection env var. Logs which collection actually held
-    the document so future deploys can confirm the env is right.
+    When the client passes their own collection_id / database_id we
+    try those FIRST — that eliminates the 'Update failed: Not Found'
+    pattern caused by Cloud Run env vars drifting from the client's
+    Appwrite location.
     """
     import logging
     log = logging.getLogger("ahvi.wardrobe_persistence")
 
-    if not _appwrite_ready():
+    if not _appwrite_ready() and not override_collection_id:
         raise RuntimeError("Appwrite wardrobe persistence is not configured.")
+
+    # Build candidate list. Client overrides come first; env candidates
+    # are added afterwards as fallback. Dedup while preserving order.
+    candidate_dbs: List[str] = []
+    candidate_cols: List[str] = []
+    for db in (override_database_id, APPWRITE_DATABASE_ID):
+        if db and db not in candidate_dbs:
+            candidate_dbs.append(db)
+    for col in [override_collection_id, *(_KNOWN_COLLECTIONS or [])]:
+        if col and col not in candidate_cols:
+            candidate_cols.append(col)
+
+    if not candidate_dbs or not candidate_cols:
+        raise RuntimeError(
+            f"No Appwrite db/collection to try: dbs={candidate_dbs} cols={candidate_cols}"
+        )
 
     last_body = ""
     last_status = 0
-    for collection_id in _KNOWN_COLLECTIONS or [APPWRITE_COLLECTION_ID]:
-        if not collection_id:
-            continue
-        url = (
-            f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
-            f"/collections/{collection_id}/documents/{document_id}"
-        )
-        log.info(
-            "ahvi.fetch_doc db=%s col=%s id=%s",
-            APPWRITE_DATABASE_ID, collection_id, document_id,
-        )
-        res = requests.get(url, headers=HEADERS, timeout=15)
-        if res.status_code in (200, 201):
-            if collection_id != APPWRITE_COLLECTION_ID:
-                log.warning(
-                    "ahvi.fetch_doc.fallback_hit primary=%s actual=%s id=%s",
-                    APPWRITE_COLLECTION_ID, collection_id, document_id,
-                )
-            return res.json(), collection_id
-        last_status = res.status_code
-        last_body = str(res.text or "")[:300]
-        if res.status_code == 404:
-            log.warning(
-                "ahvi.fetch_doc.not_found db=%s col=%s id=%s body=%s",
-                APPWRITE_DATABASE_ID, collection_id, document_id, last_body,
+    tried: List[str] = []
+
+    for db_id in candidate_dbs:
+        for col_id in candidate_cols:
+            tried.append(f"{db_id}/{col_id}")
+            url = (
+                f"{APPWRITE_ENDPOINT}/databases/{db_id}"
+                f"/collections/{col_id}/documents/{document_id}"
             )
-            continue
-        raise RuntimeError(
-            f"Appwrite fetch error: {res.status_code} {res.text}"
-        )
+            log.info(
+                "ahvi.fetch_doc db=%s col=%s id=%s",
+                db_id, col_id, document_id,
+            )
+            res = requests.get(url, headers=HEADERS, timeout=15)
+            if res.status_code in (200, 201):
+                if col_id != APPWRITE_COLLECTION_ID or db_id != APPWRITE_DATABASE_ID:
+                    log.warning(
+                        "ahvi.fetch_doc.fallback_hit primary=%s/%s actual=%s/%s id=%s",
+                        APPWRITE_DATABASE_ID, APPWRITE_COLLECTION_ID,
+                        db_id, col_id, document_id,
+                    )
+                return res.json(), col_id, db_id
+            last_status = res.status_code
+            last_body = str(res.text or "")[:300]
+            if res.status_code == 404:
+                log.warning(
+                    "ahvi.fetch_doc.not_found db=%s col=%s id=%s body=%s",
+                    db_id, col_id, document_id, last_body,
+                )
+                continue
+            raise RuntimeError(
+                f"Appwrite fetch error: {res.status_code} {res.text}"
+            )
 
     raise LookupError(
-        f"Wardrobe item not found in any known collection: id={document_id} "
-        f"tried={_KNOWN_COLLECTIONS} last_status={last_status} body={last_body}"
+        f"Wardrobe item not found in any known location: id={document_id} "
+        f"tried={tried} last_status={last_status} body={last_body}"
     )
 
 
@@ -764,21 +789,18 @@ def _patch_document(
     document_id: str,
     data: Dict[str, Any],
     collection_id: str = "",
+    database_id: str = "",
 ) -> Tuple[Dict[str, Any], List[str]]:
     """PATCH a document, returning (response_json, dropped_keys).
 
-    On 'Unknown attribute' the schema is missing a key. Rather than
-    failing the whole update, retry without the offending key and tell
-    the caller which keys were dropped so the user can be warned that
-    the save was partial.
-
-    collection_id defaults to the configured primary collection but
-    callers (e.g. update_item_labels after _fetch_document fallback)
-    can supply the collection the document actually lives in.
+    Caller (update_item_labels) supplies the exact db + collection
+    that _fetch_document confirmed holds the document, so we PATCH the
+    right document on the first try.
     """
     target_collection = collection_id or APPWRITE_COLLECTION_ID
+    target_database = database_id or APPWRITE_DATABASE_ID
     url = (
-        f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
+        f"{APPWRITE_ENDPOINT}/databases/{target_database}"
         f"/collections/{target_collection}/documents/{document_id}"
     )
 
@@ -831,6 +853,8 @@ def update_item_labels(
     color: Any = None,
     material: Any = None,
     tags: Any = None,
+    override_collection_id: str = "",
+    override_database_id: str = "",
 ) -> Dict[str, Any]:
     """Owner-verified update of wardrobe item labels via Appwrite server key.
 
@@ -850,7 +874,11 @@ def update_item_labels(
     if not item_id:
         raise ValueError("Missing item_id.")
 
-    existing, source_collection = _fetch_document(item_id)
+    existing, source_collection, source_database = _fetch_document(
+        item_id,
+        override_collection_id=_safe_text(override_collection_id),
+        override_database_id=_safe_text(override_database_id),
+    )
     # Schema uses userId (camelCase) — accept user_id too for legacy docs.
     owner = _safe_text(existing.get("userId") or existing.get("user_id"))
     if not owner:
@@ -899,7 +927,9 @@ def update_item_labels(
     )
 
     try:
-        updated, dropped_keys = _patch_document(item_id, patch, source_collection)
+        updated, dropped_keys = _patch_document(
+            item_id, patch, source_collection, source_database
+        )
     except RuntimeError as exc:
         log.error("ahvi.update_labels.patch_failed item=%s err=%s", item_id, exc)
         raise

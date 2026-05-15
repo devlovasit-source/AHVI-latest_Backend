@@ -49,6 +49,11 @@ class UpdateLabelsRequest(BaseModel):
     color: str | None = None
     material: str | None = None
     tags: List[str] | None = None
+    # Client-supplied Appwrite location. When the client passes these,
+    # backend uses them directly instead of guessing from env vars —
+    # eliminates 'Update failed: Not Found' from env mismatch.
+    collection_id: str | None = None
+    database_id: str | None = None
 
 
 @wardrobe_router.post("/update-labels")
@@ -69,6 +74,8 @@ def update_labels(http_request: Request, request: UpdateLabelsRequest):
             color=request.color,
             material=request.material,
             tags=request.tags,
+            override_collection_id=request.collection_id,
+            override_database_id=request.database_id,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
