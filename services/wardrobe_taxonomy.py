@@ -21,6 +21,8 @@ CATEGORIES = {
     "Jewelry",
     "Accessories",
     "Traditional",
+    "Skincare",
+    "Makeup",
     "Needs Review",
 }
 
@@ -41,6 +43,61 @@ def _blob(*parts: Any) -> Tuple[str, List[str]]:
     return text, _tokens(text)
 
 
+def _skincare_subcategory(name: Any, sub_category: Any) -> str:
+    """Pick a sensible subcategory for a Skincare item.
+
+    Falls back to the user's own sub_category text, then to 'Skincare'
+    so the column is never empty.
+    """
+    blob = " ".join([str(name or ""), str(sub_category or "")]).lower()
+    if "sunscreen" in blob or "spf" in blob or "sunblock" in blob:
+        return "Sunscreen"
+    if "moisturizer" in blob or "moisturiser" in blob or "lotion" in blob:
+        return "Moisturizer"
+    if "serum" in blob:
+        return "Serum"
+    if "cleanser" in blob or "face wash" in blob or "facewash" in blob:
+        return "Cleanser"
+    if "toner" in blob:
+        return "Toner"
+    if "exfoliator" in blob or "scrub" in blob:
+        return "Exfoliator"
+    if "mask" in blob:
+        return "Mask"
+    raw_sub = str(sub_category or "").strip()
+    return raw_sub or "Skincare"
+
+
+def _makeup_subcategory(name: Any, sub_category: Any) -> str:
+    blob = " ".join([str(name or ""), str(sub_category or "")]).lower()
+    if "lipstick" in blob:
+        return "Lipstick"
+    if "lip gloss" in blob or "lipgloss" in blob:
+        return "Lip Gloss"
+    if "lip balm" in blob or "lipbalm" in blob:
+        return "Lip Balm"
+    if "mascara" in blob:
+        return "Mascara"
+    if "eyeliner" in blob or "kajal" in blob:
+        return "Eyeliner"
+    if "foundation" in blob:
+        return "Foundation"
+    if "concealer" in blob:
+        return "Concealer"
+    if "blush" in blob:
+        return "Blush"
+    if "bronzer" in blob:
+        return "Bronzer"
+    if "highlighter" in blob:
+        return "Highlighter"
+    if "eyeshadow" in blob:
+        return "Eyeshadow"
+    if "compact" in blob or "primer" in blob:
+        return "Primer"
+    raw_sub = str(sub_category or "").strip()
+    return raw_sub or "Makeup"
+
+
 def normalize(
     category: Any = "",
     name: Any = "",
@@ -56,6 +113,29 @@ def normalize(
 
     def has(words: List[str]) -> bool:
         return _has_any(text, toks, words)
+
+    # Honour explicit user-supplied category for non-garment categories
+    # FIRST. When a user opens the edit dialog and picks 'Skincare' or
+    # 'Makeup' for a sunscreen / lipstick, we must keep that choice even
+    # though the item's name doesn't contain a recognised garment token.
+    explicit_raw = str(category or "").strip().lower()
+    if explicit_raw in {"skincare", "skin care"}:
+        return "Skincare", _skincare_subcategory(name, sub_category)
+    if explicit_raw in {"makeup", "make up", "make-up", "cosmetics"}:
+        return "Makeup", _makeup_subcategory(name, sub_category)
+    if explicit_raw in {"needs review", "needs_review", "review"}:
+        return "Needs Review", "Needs Review"
+
+    # Strong product keyword detection — covers items whose name implies
+    # the category even when the user didn't pick it explicitly.
+    if has(["sunscreen", "spf", "moisturizer", "moisturiser", "serum",
+            "cleanser", "toner", "facewash", "face wash", "lotion",
+            "sunblock", "exfoliator", "retinol", "vitamin c"]):
+        return "Skincare", _skincare_subcategory(name, sub_category)
+    if has(["lipstick", "lip gloss", "lipgloss", "lip balm", "mascara",
+            "eyeliner", "foundation", "concealer", "blush", "bronzer",
+            "highlighter", "kajal", "eyeshadow", "compact", "primer"]):
+        return "Makeup", _makeup_subcategory(name, sub_category)
 
     # Saree / lehenga first — these are Dresses, NOT Accessories or Traditional.
     if has(["saree", "sari"]):
@@ -177,6 +257,14 @@ def normalize(
         "bag": ("Bags", "Bag"),
         "jewelry": ("Jewelry", "Jewelry"),
         "jewellery": ("Jewelry", "Jewelry"),
+        "accessories": ("Accessories", "Accessory"),
+        "accessory": ("Accessories", "Accessory"),
+        "skincare": ("Skincare", "Skincare"),
+        "skin care": ("Skincare", "Skincare"),
+        "makeup": ("Makeup", "Makeup"),
+        "make up": ("Makeup", "Makeup"),
+        "make-up": ("Makeup", "Makeup"),
+        "cosmetics": ("Makeup", "Makeup"),
     }
     if explicit in explicit_map:
         return explicit_map[explicit]
