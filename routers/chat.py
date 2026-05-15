@@ -1402,19 +1402,36 @@ def _module_llm_response(
             messages.append({"role": role, "content": content[:1200]})
     messages.append({"role": "user", "content": user_message})
 
+    answer: str = ""
+    started_at = time.perf_counter()
     try:
         answer = chat_completion(
             messages,
             system_instruction=system_instruction,
             user_profile=user_profile,
             signals={"context_mode": module_key},
-            timeout_seconds=45,
+            # Hard cap LLM call at 30s so the module-chat endpoint always
+            # returns within the frontend's 75s budget. If the LLM is slow,
+            # we'd rather ship lightweight_chat() than time the user out.
+            timeout_seconds=30,
             options={"temperature": 0.45, "max_output_tokens": 320},
             usecase=f"{module_key}_chat",
         )
     except Exception as exc:
-        logger.warning("chat.module_chat_failed module=%s error=%s", module_key, str(exc)[:180])
+        elapsed = time.perf_counter() - started_at
+        logger.warning(
+            "chat.module_chat_failed module=%s elapsed=%.2fs error=%s",
+            module_key, elapsed, str(exc)[:180],
+        )
+        answer = ""
+    if not str(answer or "").strip():
+        # Always return something. lightweight_chat covers greetings and
+        # falls through to a generic helpful sentence for anything else.
         answer = lightweight_chat(user_message)
+    logger.info(
+        "chat.module_chat_ok module=%s elapsed=%.2fs len=%s",
+        module_key, time.perf_counter() - started_at, len(answer),
+    )
 
     answer_text = str(answer or "").strip()
     # Canonical AHVI chat response shape. Every chat endpoint
