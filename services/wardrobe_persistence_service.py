@@ -16,12 +16,38 @@ from services.wardrobe_taxonomy import normalize as _taxonomy_normalize
 APPWRITE_ENDPOINT = os.getenv("APPWRITE_ENDPOINT")
 APPWRITE_PROJECT_ID = os.getenv("APPWRITE_PROJECT_ID")
 APPWRITE_API_KEY = os.getenv("APPWRITE_API_KEY")
-APPWRITE_DATABASE_ID = os.getenv("APPWRITE_DATABASE_ID")
-APPWRITE_COLLECTION_ID = (
-    os.getenv("APPWRITE_COLLECTION_OUTFITS")
-    or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_OUTFITS")
-    or os.getenv("APPWRITE_COLLECTION_ID")
+APPWRITE_DATABASE_ID = (
+    os.getenv("APPWRITE_DATABASE_ID")
+    or os.getenv("EXPO_PUBLIC_APPWRITE_DATABASE_ID")
 )
+
+
+def _all_known_outfits_collections() -> List[str]:
+    """Every env var name we've ever used for the outfits collection.
+
+    Cloud Run + Expo + legacy deploys have set different combinations.
+    update_item_labels probes them in order on 404 so users don't get
+    'Not Found' just because the env var the code reads first happens
+    to be empty or pointing at an older collection.
+    """
+    candidates: List[str] = []
+    seen: set[str] = set()
+    for name in (
+        "APPWRITE_COLLECTION_OUTFITS",
+        "EXPO_PUBLIC_APPWRITE_COLLECTION_OUTFITS",
+        "APPWRITE_COLLECTION_ID",
+        "APPWRITE_OUTFITS_COLLECTION_ID",
+        "APPWRITE_WARDROBE_COLLECTION_ID",
+    ):
+        val = os.getenv(name)
+        if val and val not in seen:
+            candidates.append(val)
+            seen.add(val)
+    return candidates
+
+
+_KNOWN_COLLECTIONS = _all_known_outfits_collections()
+APPWRITE_COLLECTION_ID = _KNOWN_COLLECTIONS[0] if _KNOWN_COLLECTIONS else None
 
 HEADERS = {
     "X-Appwrite-Project": APPWRITE_PROJECT_ID or "",
@@ -682,47 +708,78 @@ def persist_selected_items(
     }
 
 
-def _fetch_document(document_id: str) -> Dict[str, Any]:
+def _fetch_document(document_id: str) -> Tuple[Dict[str, Any], str]:
+    """GET document, returning (doc_json, collection_id_used).
+
+    On 404 in the primary collection, retry against every known
+    outfits collection env var. Logs which collection actually held
+    the document so future deploys can confirm the env is right.
+    """
     import logging
     log = logging.getLogger("ahvi.wardrobe_persistence")
 
     if not _appwrite_ready():
         raise RuntimeError("Appwrite wardrobe persistence is not configured.")
-    url = (
-        f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
-        f"/collections/{APPWRITE_COLLECTION_ID}/documents/{document_id}"
-    )
-    log.info(
-        "ahvi.fetch_doc db=%s col=%s id=%s",
-        APPWRITE_DATABASE_ID, APPWRITE_COLLECTION_ID, document_id,
-    )
-    res = requests.get(url, headers=HEADERS, timeout=15)
-    if res.status_code == 404:
-        log.warning(
-            "ahvi.fetch_doc.not_found db=%s col=%s id=%s body=%s",
-            APPWRITE_DATABASE_ID, APPWRITE_COLLECTION_ID, document_id,
-            str(res.text)[:300],
+
+    last_body = ""
+    last_status = 0
+    for collection_id in _KNOWN_COLLECTIONS or [APPWRITE_COLLECTION_ID]:
+        if not collection_id:
+            continue
+        url = (
+            f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
+            f"/collections/{collection_id}/documents/{document_id}"
         )
-        raise LookupError(
-            f"Wardrobe item not found: id={document_id} "
-            f"collection={APPWRITE_COLLECTION_ID}"
+        log.info(
+            "ahvi.fetch_doc db=%s col=%s id=%s",
+            APPWRITE_DATABASE_ID, collection_id, document_id,
         )
-    if res.status_code not in (200, 201):
-        raise RuntimeError(f"Appwrite fetch error: {res.status_code} {res.text}")
-    return res.json()
+        res = requests.get(url, headers=HEADERS, timeout=15)
+        if res.status_code in (200, 201):
+            if collection_id != APPWRITE_COLLECTION_ID:
+                log.warning(
+                    "ahvi.fetch_doc.fallback_hit primary=%s actual=%s id=%s",
+                    APPWRITE_COLLECTION_ID, collection_id, document_id,
+                )
+            return res.json(), collection_id
+        last_status = res.status_code
+        last_body = str(res.text or "")[:300]
+        if res.status_code == 404:
+            log.warning(
+                "ahvi.fetch_doc.not_found db=%s col=%s id=%s body=%s",
+                APPWRITE_DATABASE_ID, collection_id, document_id, last_body,
+            )
+            continue
+        raise RuntimeError(
+            f"Appwrite fetch error: {res.status_code} {res.text}"
+        )
+
+    raise LookupError(
+        f"Wardrobe item not found in any known collection: id={document_id} "
+        f"tried={_KNOWN_COLLECTIONS} last_status={last_status} body={last_body}"
+    )
 
 
-def _patch_document(document_id: str, data: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+def _patch_document(
+    document_id: str,
+    data: Dict[str, Any],
+    collection_id: str = "",
+) -> Tuple[Dict[str, Any], List[str]]:
     """PATCH a document, returning (response_json, dropped_keys).
 
     On 'Unknown attribute' the schema is missing a key. Rather than
     failing the whole update, retry without the offending key and tell
     the caller which keys were dropped so the user can be warned that
     the save was partial.
+
+    collection_id defaults to the configured primary collection but
+    callers (e.g. update_item_labels after _fetch_document fallback)
+    can supply the collection the document actually lives in.
     """
+    target_collection = collection_id or APPWRITE_COLLECTION_ID
     url = (
         f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
-        f"/collections/{APPWRITE_COLLECTION_ID}/documents/{document_id}"
+        f"/collections/{target_collection}/documents/{document_id}"
     )
 
     def post(payload: Dict[str, Any]):
@@ -793,7 +850,7 @@ def update_item_labels(
     if not item_id:
         raise ValueError("Missing item_id.")
 
-    existing = _fetch_document(item_id)
+    existing, source_collection = _fetch_document(item_id)
     # Schema uses userId (camelCase) — accept user_id too for legacy docs.
     owner = _safe_text(existing.get("userId") or existing.get("user_id"))
     if not owner:
@@ -837,12 +894,12 @@ def update_item_labels(
     # material is not in the schema; ignore to avoid 'Unknown attribute'.
 
     log.info(
-        "ahvi.update_labels user=%s item=%s category=%s sub=%s",
-        user_id, item_id, normalized_category, normalized_sub,
+        "ahvi.update_labels user=%s item=%s collection=%s category=%s sub=%s",
+        user_id, item_id, source_collection, normalized_category, normalized_sub,
     )
 
     try:
-        updated, dropped_keys = _patch_document(item_id, patch)
+        updated, dropped_keys = _patch_document(item_id, patch, source_collection)
     except RuntimeError as exc:
         log.error("ahvi.update_labels.patch_failed item=%s err=%s", item_id, exc)
         raise

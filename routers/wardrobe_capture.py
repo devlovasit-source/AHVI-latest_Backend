@@ -89,6 +89,31 @@ def update_labels(http_request: Request, request: UpdateLabelsRequest):
     return result
 
 
+@wardrobe_router.get("/diagnostics")
+def wardrobe_diagnostics(http_request: Request):
+    """One-shot health check — confirms backend sees the same Appwrite
+    DB + collection ids the frontend uses. Hit this with any auth and
+    compare values to your client's Env.appwrite* constants.
+    """
+    from services.wardrobe_persistence_service import (
+        APPWRITE_ENDPOINT,
+        APPWRITE_PROJECT_ID,
+        APPWRITE_DATABASE_ID,
+        APPWRITE_COLLECTION_ID,
+        _KNOWN_COLLECTIONS,
+        _appwrite_ready,
+    )
+    return {
+        "appwrite_ready": _appwrite_ready(),
+        "endpoint": APPWRITE_ENDPOINT,
+        "project_id": APPWRITE_PROJECT_ID,
+        "database_id": APPWRITE_DATABASE_ID,
+        "primary_collection_id": APPWRITE_COLLECTION_ID,
+        "all_known_collection_ids": list(_KNOWN_COLLECTIONS),
+        "user_id": _effective_user_id(http_request, ""),
+    }
+
+
 class CaptureAnalyzeRequest(BaseModel):
     user_id: str
     image_base64: str = Field(..., min_length=20)
