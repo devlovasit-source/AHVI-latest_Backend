@@ -683,15 +683,30 @@ def persist_selected_items(
 
 
 def _fetch_document(document_id: str) -> Dict[str, Any]:
+    import logging
+    log = logging.getLogger("ahvi.wardrobe_persistence")
+
     if not _appwrite_ready():
         raise RuntimeError("Appwrite wardrobe persistence is not configured.")
     url = (
         f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
         f"/collections/{APPWRITE_COLLECTION_ID}/documents/{document_id}"
     )
+    log.info(
+        "ahvi.fetch_doc db=%s col=%s id=%s",
+        APPWRITE_DATABASE_ID, APPWRITE_COLLECTION_ID, document_id,
+    )
     res = requests.get(url, headers=HEADERS, timeout=15)
     if res.status_code == 404:
-        raise LookupError(f"Wardrobe item not found: {document_id}")
+        log.warning(
+            "ahvi.fetch_doc.not_found db=%s col=%s id=%s body=%s",
+            APPWRITE_DATABASE_ID, APPWRITE_COLLECTION_ID, document_id,
+            str(res.text)[:300],
+        )
+        raise LookupError(
+            f"Wardrobe item not found: id={document_id} "
+            f"collection={APPWRITE_COLLECTION_ID}"
+        )
     if res.status_code not in (200, 201):
         raise RuntimeError(f"Appwrite fetch error: {res.status_code} {res.text}")
     return res.json()
