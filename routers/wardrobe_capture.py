@@ -98,9 +98,10 @@ def update_labels(http_request: Request, request: UpdateLabelsRequest):
 
 @wardrobe_router.get("/diagnostics")
 def wardrobe_diagnostics(http_request: Request):
-    """One-shot health check — confirms backend sees the same Appwrite
-    DB + collection ids the frontend uses. Hit this with any auth and
-    compare values to your client's Env.appwrite* constants.
+    """Public health check — confirms backend sees the same Appwrite
+    DB + collection ids the frontend uses. Compare values to your
+    client's Env.appwrite* constants. Returns only public configuration,
+    never API keys.
     """
     from services.wardrobe_persistence_service import (
         APPWRITE_ENDPOINT,
@@ -110,6 +111,12 @@ def wardrobe_diagnostics(http_request: Request):
         _KNOWN_COLLECTIONS,
         _appwrite_ready,
     )
+    # Read user_id WITHOUT triggering the 401 raise.
+    user_id_optional = ""
+    try:
+        user_id_optional = _request_user_id(http_request)
+    except Exception:
+        user_id_optional = ""
     return {
         "appwrite_ready": _appwrite_ready(),
         "endpoint": APPWRITE_ENDPOINT,
@@ -117,7 +124,7 @@ def wardrobe_diagnostics(http_request: Request):
         "database_id": APPWRITE_DATABASE_ID,
         "primary_collection_id": APPWRITE_COLLECTION_ID,
         "all_known_collection_ids": list(_KNOWN_COLLECTIONS),
-        "user_id": _effective_user_id(http_request, ""),
+        "user_id": user_id_optional,
     }
 
 
