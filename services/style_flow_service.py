@@ -2614,6 +2614,14 @@ def render_style_boards(
     include_base64: bool,
     upload_to_r2: bool = False,
 ) -> List[Dict[str, Any]]:
+    """Render multiple style boards in parallel.
+
+    Each card's `style_board_renderer.render(board)` is CPU+I/O heavy
+    (Pillow drawing + R2 upload), and previously they ran serially in a
+    for-loop. For 6 cards that meant 6-18s of cumulative blocking. We now
+    fan out across a ThreadPoolExecutor so the total wall time becomes
+    roughly max(card_render) rather than sum(card_render).
+    """
     if not cards:
         return []
     if not include_base64 and not upload_to_r2:
@@ -2626,7 +2634,6 @@ def render_style_boards(
         except Exception:
             storage = None
 
-    rendered: List[Dict[str, Any]] = []
     style_dna = _dict(context.get("style_dna"))
     try:
         from brain.engines.style_board_engine import style_board_engine
@@ -2635,12 +2642,12 @@ def render_style_boards(
         logger.warning("style board renderer unavailable: %s", exc)
         return []
 
-    for idx, card in enumerate(cards):
+    def _build_one_board(card: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         items = card.get("items") if isinstance(card.get("items"), list) else []
         if not items:
-            continue
-        board = {}
-        image_bytes = b""
+            return None
+        board: Dict[str, Any] = {}
+        image_bytes: bytes = b""
         try:
             board = style_board_engine.build_board(
                 {
@@ -2675,7 +2682,36 @@ def render_style_boards(
             )
             image_bytes = style_board_renderer.render(board)
         except Exception as exc:
-            logger.warning("style board render failed user=%s idx=%s error=%s", user_id, idx, exc)
+            logger.warning(
+                "style board render failed user=%s error=%s",
+                user_id, exc,
+            )
+            image_bytes = b""
+
+        return {"card": card, "board": board, "image_bytes": image_bytes, "items": items}
+
+    # Render boards in parallel. Workers capped at min(len(cards), 4) so we
+    # don't oversubscribe CPU on small Cloud Run instances.
+    from concurrent.futures import ThreadPoolExecutor
+    rendered_results: List[Optional[Dict[str, Any]]] = []
+    worker_cap = max(1, min(len(cards), 4))
+    render_started = time.perf_counter()
+    with ThreadPoolExecutor(max_workers=worker_cap) as pool:
+        rendered_results = list(pool.map(_build_one_board, cards))
+    render_ms = round((time.perf_counter() - render_started) * 1000, 1)
+    logger.info(
+        "ahvi.board_render.timing user=%s cards=%s workers=%s total_ms=%s",
+        user_id, len(cards), worker_cap, render_ms,
+    )
+
+    rendered: List[Dict[str, Any]] = []
+    for idx, prepared in enumerate(rendered_results):
+        if prepared is None:
+            continue
+        card = prepared["card"]
+        board = prepared["board"]
+        image_bytes = prepared["image_bytes"]
+        items = prepared["items"]
 
         image_base64 = base64.b64encode(image_bytes).decode("ascii") if include_base64 and image_bytes else None
         image_url = None
