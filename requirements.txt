@@ -19,3 +19,14 @@ mediapipe==0.10.14
 python-multipart>=0.0.18
 google-genai==1.16.1
 
+# ──────────────────────────────────────────────────────────────────────────
+# OPTIONAL: semantic retrieval (sentence-transformers + torch ≈ 700MB image).
+# Disabled by default to keep cold-start fast and Cloud Run image lean.
+# services.embedding_service.embeddings_enabled() returns False when this is
+# missing, and brain.outfit_pipeline._semantic_retrieval() short-circuits to
+# an empty result. The 62s production style-flow latency was traced to this
+# path being loaded but uncached — leave commented unless you also size up
+# Cloud Run memory to ≥ 4Gi.
+#
+# sentence-transformers==3.0.1
+# ──────────────────────────────────────────────────────────────────────────

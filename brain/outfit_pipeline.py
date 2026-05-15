@@ -1,4 +1,5 @@
 # ================= AHVI CLEAN STYLE FLOW FIX V1 APPLIED =================
+import asyncio
 import hashlib
 import json
 import logging
@@ -19,7 +20,9 @@ from brain.engines.wardrobe_selector import wardrobe_selector
 from brain.engines.styling.palette_engine import palette_engine
 from services import ai_gateway
 from services.appwrite_proxy import AppwriteProxy
-from services.embedding_service import get_model
+from services.embedding_service import embedding_service, get_model
+
+logger = logging.getLogger("ahvi.outfit_pipeline")
 from services.qdrant_service import qdrant_service
 from brain.engines.outfit_quality_guard import filter_and_guard_outfits
 import re
@@ -797,49 +800,164 @@ def _index_outfit_vector(user_id: str, outfit: Dict[str, Any], label: str) -> No
         return
 
 
+def _build_semantic_query_text(context: Dict[str, Any]) -> str:
+    query_text = " ".join(
+        [
+            str(context.get("query", "")),
+            str(context.get("occasion", "")),
+            str(context.get("weather", "")),
+            str(context.get("time_of_day", "")),
+            str((context.get("style_dna", {}) or {}).get("style", "")),
+            " ".join(
+                (context.get("style_dna", {}) or {}).get("preferred_colors", [])
+            ),
+        ]
+    ).strip()
+    return query_text or "daily outfit"
+
+
+def _semantic_results_to_wardrobe(
+    results: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], Dict[str, float]]:
+    wardrobe_items: List[Dict[str, Any]] = []
+    semantic_map: Dict[str, float] = {}
+    for row in results:
+        payload = row.get("payload", {}) if isinstance(row, dict) else {}
+        normalized = _normalize_item(payload, str(payload.get("category", "item")))
+        item_id = normalized.get("id")
+        if not item_id:
+            continue
+        semantic_map[item_id] = max(
+            float(semantic_map.get(item_id, 0.0)), float(row.get("score", 0.0))
+        )
+        wardrobe_items.append(normalized)
+    return wardrobe_items, semantic_map
+
+
+_QUERY_VECTOR_CACHE: Dict[str, List[float]] = {}
+_QUERY_VECTOR_CACHE_LIMIT = 256
+_SEMANTIC_RETRIEVAL_LIMIT = int(os.getenv("AHVI_SEMANTIC_LIMIT", "20"))
+
+
+def _cached_query_vector(query_text: str) -> List[float]:
+    """LRU-ish cache for query vectors. Tail-trims when over limit.
+
+    On cache hit we skip the 200ms-3s encode entirely, which is the
+    dominant cost of repeated 'Suggest an outfit for today' style flows
+    where most users send the same handful of queries.
+    """
+    cached = _QUERY_VECTOR_CACHE.get(query_text)
+    if cached is not None:
+        return cached
+
+    if not embedding_service.enabled:
+        return []
+
+    try:
+        vec = embedding_service.encode_text(query_text)
+    except Exception:
+        return []
+
+    if vec:
+        if len(_QUERY_VECTOR_CACHE) >= _QUERY_VECTOR_CACHE_LIMIT:
+            # drop one arbitrary entry — Python 3.7+ dict preserves insertion order
+            try:
+                _QUERY_VECTOR_CACHE.pop(next(iter(_QUERY_VECTOR_CACHE)))
+            except StopIteration:
+                pass
+        _QUERY_VECTOR_CACHE[query_text] = vec
+    return vec
+
+
 def _semantic_retrieval(
     user_id: str,
     context: Dict[str, Any],
 ) -> Tuple[List[Dict[str, Any]], Dict[str, float]]:
+    """Sync semantic retrieval with timing + caching.
+
+    Was previously the dominant slow path: a 62s style-flow latency in
+    production was almost entirely the cold-load of sentence-transformers
+    plus repeated encode() of the same query text. Now:
+      - query-text vector is cached per-process (LRU-ish)
+      - retrieval limit reduced from 40 to 20 (env-tunable)
+      - timing is logged per stage so future regressions are visible
+    """
+    if not qdrant_service.enabled():
+        return [], {}
+
+    import time as _time
+    started = _time.perf_counter()
+
+    try:
+        if not embedding_service.enabled:
+            logger.debug("ahvi.semantic.skip reason=embeddings_disabled")
+            return [], {}
+
+        query_text = _build_semantic_query_text(context)
+        encode_started = _time.perf_counter()
+        query_vector = _cached_query_vector(query_text)
+        encode_ms = round((_time.perf_counter() - encode_started) * 1000, 1)
+        if not query_vector:
+            logger.info("ahvi.semantic.encode_empty query=%r encode_ms=%s", query_text[:80], encode_ms)
+            return [], {}
+
+        fetch_started = _time.perf_counter()
+        results = qdrant_service.semantic_retrieve(
+            query_vector, user_id=user_id, limit=_SEMANTIC_RETRIEVAL_LIMIT
+        )
+        fetch_ms = round((_time.perf_counter() - fetch_started) * 1000, 1)
+
+        wardrobe_items, semantic_map = _semantic_results_to_wardrobe(results)
+
+        total_ms = round((_time.perf_counter() - started) * 1000, 1)
+        logger.info(
+            "ahvi.semantic.timing user=%s encode_ms=%s fetch_ms=%s total_ms=%s "
+            "limit=%s results=%s cache_size=%s",
+            user_id, encode_ms, fetch_ms, total_ms,
+            _SEMANTIC_RETRIEVAL_LIMIT, len(wardrobe_items),
+            len(_QUERY_VECTOR_CACHE),
+        )
+        return wardrobe_items, semantic_map
+    except Exception as exc:
+        total_ms = round((_time.perf_counter() - started) * 1000, 1)
+        logger.warning("ahvi.semantic.failed user=%s err=%s total_ms=%s", user_id, exc, total_ms)
+        return [], {}
+
+
+async def _semantic_retrieval_async(
+    user_id: str,
+    context: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], Dict[str, float]]:
+    """Async-friendly semantic retrieval — does NOT freeze the event loop.
+
+    Root cause of the 62s style-flow latency: SentenceTransformer.encode is
+    CPU-bound (200ms-3s) but was being called inline from an async route,
+    so even though the work was modest the loop was unable to handle the
+    request concurrently. asyncio.to_thread() hands the encode to a thread
+    so the event loop keeps serving other connections.
+    """
     if not qdrant_service.enabled():
         return [], {}
 
     try:
-        query_text = " ".join(
-            [
-                str(context.get("query", "")),
-                str(context.get("occasion", "")),
-                str(context.get("weather", "")),
-                str(context.get("time_of_day", "")),
-                str((context.get("style_dna", {}) or {}).get("style", "")),
-                " ".join(
-                    (context.get("style_dna", {}) or {}).get("preferred_colors", [])
-                ),
-            ]
-        ).strip()
-        if not query_text:
-            query_text = "daily outfit"
+        from services.embedding_service import embeddings_enabled, encode_text_async
 
-        model = get_model()
-        query_vector = model.encode(query_text).tolist()
-        results = qdrant_service.semantic_retrieve(
-            query_vector, user_id=user_id, limit=40
+        if not embeddings_enabled():
+            return [], {}
+
+        query_text = _build_semantic_query_text(context)
+        query_vector = await encode_text_async(query_text)
+        if not query_vector:
+            return [], {}
+
+        # Run the Qdrant fetch in a thread too — qdrant-client is sync.
+        results = await asyncio.to_thread(
+            qdrant_service.semantic_retrieve,
+            query_vector,
+            user_id,
+            40,
         )
-
-        wardrobe_items: List[Dict[str, Any]] = []
-        semantic_map: Dict[str, float] = {}
-        for row in results:
-            payload = row.get("payload", {}) if isinstance(row, dict) else {}
-            normalized = _normalize_item(payload, str(payload.get("category", "item")))
-            item_id = normalized.get("id")
-            if not item_id:
-                continue
-            semantic_map[item_id] = max(
-                float(semantic_map.get(item_id, 0.0)), float(row.get("score", 0.0))
-            )
-            wardrobe_items.append(normalized)
-
-        return wardrobe_items, semantic_map
+        return _semantic_results_to_wardrobe(results)
     except Exception:
         return [], {}
 
