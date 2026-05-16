@@ -170,7 +170,10 @@ def test_backfill_targets_metadata_table_and_dry_run_does_not_write(monkeypatch)
     monkeypatch.setattr(
         backfill_style_metadata,
         "_upsert_style_metadata",
-        lambda **kwargs: writes.append(kwargs) or "updated",
+        lambda proxy, doc_id, payload: writes.append(
+            {"proxy": proxy, "doc_id": doc_id, "payload": payload}
+        )
+        or "updated",
     )
 
     dry = backfill_style_metadata.run(dry_run=True)
@@ -179,5 +182,5 @@ def test_backfill_targets_metadata_table_and_dry_run_does_not_write(monkeypatch)
 
     real = backfill_style_metadata.run(dry_run=False)
     assert real == {"updated": 1, "created": 0, "skipped": 0, "failed": 0}
-    assert writes[0]["item_id"] == "item_1"
-    assert writes[0]["user_id"] == "user_1"
+    assert writes[0]["doc_id"] == "item_1"
+    assert writes[0]["payload"]["userId"] == "user_1"

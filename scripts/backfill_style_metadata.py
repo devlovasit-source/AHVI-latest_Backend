@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 from typing import Any, Dict
 
@@ -9,15 +10,41 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from services.appwrite_proxy import AppwriteProxy
-from services.wardrobe_persistence_service import _upsert_style_metadata
+from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
 from services.wardrobe_intelligence_service import enrich_wardrobe_item
 
 log = logging.getLogger("ahvi.backfill_style_metadata")
+STYLE_METADATA_RESOURCE = "wardrobe_style_metadata"
+_SAFE_DOC_ID_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 
 
 def _doc_id(doc: Dict[str, Any]) -> str:
     return str(doc.get("$id") or doc.get("id") or doc.get("document_id") or "").strip()
+
+
+def _safe_document_id(value: Any) -> str:
+    safe = _SAFE_DOC_ID_RE.sub("_", str(value or "")).strip("._-")
+    return (safe or "metadata")[:36]
+
+
+def _metadata_payload(doc_id: str, user_id: str, doc: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "item_id": doc_id,
+        "userId": user_id,
+        "style_metadata": json.dumps(enrich_wardrobe_item(doc)),
+    }
+
+
+def _upsert_style_metadata(proxy: AppwriteProxy, doc_id: str, payload: Dict[str, Any]) -> str:
+    metadata_id = _safe_document_id(doc_id)
+    try:
+        proxy.update_document(STYLE_METADATA_RESOURCE, metadata_id, payload)
+        return "updated"
+    except AppwriteProxyError as exc:
+        if "404" not in str(exc):
+            raise
+    proxy.create_document(STYLE_METADATA_RESOURCE, payload, document_id=metadata_id)
+    return "created"
 
 
 def run(limit: int = 100, dry_run: bool = False) -> Dict[str, int]:
@@ -42,14 +69,11 @@ def run(limit: int = 100, dry_run: bool = False) -> Dict[str, int]:
             if not doc_id:
                 skipped += 1
                 continue
-            payload = {
-                "item_id": doc_id,
-                "userId": str(doc.get("userId") or doc.get("user_id") or "").strip(),
-                "style_metadata": json.dumps(enrich_wardrobe_item(doc)),
-            }
-            if not payload["userId"]:
+            user_id = str(doc.get("userId") or doc.get("user_id") or "").strip()
+            if not user_id:
                 skipped += 1
                 continue
+            payload = _metadata_payload(doc_id, user_id, doc)
             if dry_run:
                 log.info(
                     "dry_run metadata doc=%s payload=%s",
@@ -59,11 +83,7 @@ def run(limit: int = 100, dry_run: bool = False) -> Dict[str, int]:
                 updated += 1
                 continue
             try:
-                result = _upsert_style_metadata(
-                    item_id=doc_id,
-                    user_id=payload["userId"],
-                    item_payload=doc,
-                )
+                result = _upsert_style_metadata(proxy, doc_id, payload)
                 if result == "created":
                     created += 1
                 else:
