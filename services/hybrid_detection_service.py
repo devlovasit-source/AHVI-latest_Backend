@@ -15,7 +15,7 @@ from services.r2_storage import R2Storage, R2StorageError
 # =========================
 # CONFIG
 # =========================
-MAX_ITEMS = 5
+MAX_ITEMS = max(1, int(os.getenv("WARDROBE_CAPTURE_MAX_ITEMS", "6") or "6"))
 RESIZE_LIMIT = 640
 
 HF_TOKEN = os.getenv("HF_TOKEN")
