@@ -10,6 +10,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from services.appwrite_proxy import AppwriteProxy
+from services.wardrobe_persistence_service import _upsert_style_metadata
 from services.wardrobe_intelligence_service import enrich_wardrobe_item
 
 log = logging.getLogger("ahvi.backfill_style_metadata")
@@ -23,6 +24,7 @@ def run(limit: int = 100, dry_run: bool = False) -> Dict[str, int]:
     proxy = AppwriteProxy()
     offset = 0
     updated = 0
+    created = 0
     skipped = 0
     failed = 0
 
@@ -40,14 +42,32 @@ def run(limit: int = 100, dry_run: bool = False) -> Dict[str, int]:
             if not doc_id:
                 skipped += 1
                 continue
-            payload = {"style_metadata": json.dumps(enrich_wardrobe_item(doc))}
+            payload = {
+                "item_id": doc_id,
+                "userId": str(doc.get("userId") or doc.get("user_id") or "").strip(),
+                "style_metadata": json.dumps(enrich_wardrobe_item(doc)),
+            }
+            if not payload["userId"]:
+                skipped += 1
+                continue
             if dry_run:
-                log.info("dry_run doc=%s style_metadata=%s", doc_id, payload["style_metadata"])
+                log.info(
+                    "dry_run metadata doc=%s payload=%s",
+                    doc_id,
+                    json.dumps(payload, ensure_ascii=False),
+                )
                 updated += 1
                 continue
             try:
-                proxy.update_document("outfits", doc_id, payload)
-                updated += 1
+                result = _upsert_style_metadata(
+                    item_id=doc_id,
+                    user_id=payload["userId"],
+                    item_payload=doc,
+                )
+                if result == "created":
+                    created += 1
+                else:
+                    updated += 1
             except Exception as exc:
                 failed += 1
                 log.warning("backfill failed doc=%s err=%s", doc_id, exc)
@@ -57,7 +77,7 @@ def run(limit: int = 100, dry_run: bool = False) -> Dict[str, int]:
             break
         offset += len(docs)
 
-    return {"updated": updated, "skipped": skipped, "failed": failed}
+    return {"updated": updated, "created": created, "skipped": skipped, "failed": failed}
 
 
 if __name__ == "__main__":

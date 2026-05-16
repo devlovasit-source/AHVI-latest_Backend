@@ -1,7 +1,7 @@
-"""Check whether the Appwrite outfits collection has style_metadata.
+"""Check whether the Appwrite wardrobe_style_metadata table is ready.
 
-This is intentionally read-only. Add style_metadata as a string attribute in
-Appwrite before expecting wardrobe intelligence metadata to persist there.
+This is intentionally read-only. The outfits table should not need a
+style_metadata column; metadata now persists in a companion table.
 """
 
 from __future__ import annotations
@@ -18,10 +18,9 @@ def main() -> int:
     api_key = os.getenv("APPWRITE_API_KEY") or ""
     database_id = os.getenv("APPWRITE_DATABASE_ID") or os.getenv("EXPO_PUBLIC_APPWRITE_DATABASE_ID") or ""
     collection_id = (
-        os.getenv("APPWRITE_COLLECTION_OUTFITS")
-        or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_OUTFITS")
-        or os.getenv("APPWRITE_COLLECTION_ID")
-        or ""
+        os.getenv("APPWRITE_COLLECTION_WARDROBE_STYLE_METADATA")
+        or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_WARDROBE_STYLE_METADATA")
+        or "wardrobe_style_metadata"
     )
     missing = [
         name
@@ -30,7 +29,7 @@ def main() -> int:
             "APPWRITE_PROJECT_ID": project_id,
             "APPWRITE_API_KEY": api_key,
             "APPWRITE_DATABASE_ID": database_id,
-            "APPWRITE_COLLECTION_OUTFITS": collection_id,
+            "APPWRITE_COLLECTION_WARDROBE_STYLE_METADATA": collection_id,
         }.items()
         if not value
     ]
@@ -49,15 +48,14 @@ def main() -> int:
         return 1
 
     attrs = response.json().get("attributes") or []
-    found = next((attr for attr in attrs if attr.get("key") == "style_metadata"), None)
-    if not found:
-        print("style_metadata: missing. Create it as a string attribute before full metadata persistence.")
+    required = {"item_id", "userId", "style_metadata"}
+    found = {str(attr.get("key") or "") for attr in attrs}
+    missing_attrs = sorted(required - found)
+    if missing_attrs:
+        print(f"wardrobe_style_metadata missing attributes: {', '.join(missing_attrs)}")
         return 1
 
-    print(
-        "style_metadata: present "
-        f"type={found.get('type')} size={found.get('size')} status={found.get('status')}"
-    )
+    print("wardrobe_style_metadata: ready")
     return 0
 
 

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import uuid
@@ -7,6 +8,7 @@ from typing import Any, Dict, List, Tuple
 import requests
 
 from services.embedding_service import embedding_service
+from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
 from services.category_taxonomy import infer_style_attributes
 from services.qdrant_service import qdrant_service
 from services.wardrobe_taxonomy import normalize as _taxonomy_normalize
@@ -56,6 +58,8 @@ HEADERS = {
     "X-Appwrite-Key": APPWRITE_API_KEY or "",
     "Content-Type": "application/json",
 }
+
+STYLE_METADATA_RESOURCE = "wardrobe_style_metadata"
 
 
 # =========================
@@ -213,6 +217,75 @@ def _unknown_attribute_from_appwrite_error(body: Any) -> str:
         flags=re.IGNORECASE,
     )
     return match.group(1) if match else ""
+
+
+def _style_metadata_payload(
+    *,
+    item_id: str,
+    user_id: str,
+    item_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    style_meta = enrich_wardrobe_item(item_payload if isinstance(item_payload, dict) else {})
+    return {
+        "item_id": _safe_text(item_id),
+        "userId": _safe_text(user_id),
+        "style_metadata": json.dumps(style_meta),
+    }
+
+
+def _upsert_style_metadata(
+    *,
+    item_id: str,
+    user_id: str,
+    item_payload: Dict[str, Any],
+) -> str:
+    doc_id = _safe_document_id(item_id)
+    payload = _style_metadata_payload(
+        item_id=doc_id,
+        user_id=user_id,
+        item_payload=item_payload,
+    )
+    proxy = AppwriteProxy()
+    try:
+        proxy.update_document(STYLE_METADATA_RESOURCE, doc_id, payload)
+        return "updated"
+    except AppwriteProxyError as exc:
+        if "404" not in str(exc):
+            raise
+    proxy.create_document(STYLE_METADATA_RESOURCE, payload, document_id=doc_id)
+    return "created"
+
+
+def _persist_style_metadata_nonfatal(
+    *,
+    item_id: str,
+    user_id: str,
+    item_payload: Dict[str, Any],
+    source: str,
+) -> str:
+    try:
+        result = _upsert_style_metadata(
+            item_id=item_id,
+            user_id=user_id,
+            item_payload=item_payload,
+        )
+        logging.getLogger("ahvi.wardrobe_persistence").info(
+            "ahvi.style_metadata.%s item=%s user=%s source=%s",
+            result,
+            item_id,
+            user_id,
+            source,
+        )
+        return result
+    except Exception as exc:
+        logging.getLogger("ahvi.wardrobe_persistence").warning(
+            "ahvi.style_metadata.failed item=%s user=%s source=%s err=%s",
+            item_id,
+            user_id,
+            source,
+            exc,
+        )
+        return "failed"
 
 
 # =========================
@@ -523,19 +596,6 @@ def _build_appwrite_doc(
         "worn": int(item.get("worn") or 0),
         "liked": bool(item.get("liked") or False),
         "qdrant_point_id": file_id,
-        "style_metadata": json.dumps(
-            enrich_wardrobe_item(
-                {
-                    **item,
-                    "name": name,
-                    "category": category,
-                    "subcategory": sub_category,
-                    "sub_category": sub_category,
-                    "colors": [color],
-                    "tags": occasions,
-                }
-            )
-        ),
     }
     if pixel_hash:
         doc["pixel_hash"] = pixel_hash
@@ -645,6 +705,21 @@ def persist_selected_items(
             style_attrs = doc.pop("_style_attrs", {})
 
             created = _create_document(file_id, doc)
+            metadata_payload = {
+                **item,
+                **doc,
+                **created,
+                "subcategory": doc.get("sub_category"),
+                "sub_category": doc.get("sub_category"),
+                "colors": [doc.get("color_code")],
+                "tags": doc.get("occasions"),
+            }
+            _persist_style_metadata_nonfatal(
+                item_id=file_id,
+                user_id=user_id,
+                item_payload=metadata_payload,
+                source="save_selected",
+            )
 
             try:
                 pixel_hash = _safe_text(
@@ -927,19 +1002,6 @@ def update_item_labels(
     # — map them to the canonical occasions[] field.
     if tags is not None:
         patch["occasions"] = _normalize_list(tags)
-    if any(key in patch for key in ("name", "category", "sub_category", "color_code", "occasions")):
-        patch["style_metadata"] = json.dumps(
-            enrich_wardrobe_item(
-                {
-                    "name": patch.get("name") if "name" in patch else name,
-                    "category": patch.get("category") if "category" in patch else category,
-                    "subcategory": patch.get("sub_category") if "sub_category" in patch else subcategory,
-                    "sub_category": patch.get("sub_category") if "sub_category" in patch else subcategory,
-                    "colors": [patch.get("color_code") if "color_code" in patch else color],
-                    "tags": patch.get("occasions") if "occasions" in patch else tags,
-                }
-            )
-        )
     # material is not in the schema; ignore to avoid 'Unknown attribute'.
 
     if not patch:
@@ -999,7 +1061,6 @@ def update_item_labels(
         merged_payload = {**existing, **patch}
         merged_payload["subcategory"] = merged_payload.get("subcategory") or merged_payload.get("sub_category")
         merged_payload["tags"] = merged_payload.get("occasions")
-        patch["style_metadata"] = json.dumps(enrich_wardrobe_item(merged_payload))
         try:
             updated, dropped_keys = _patch_document(
                 item_id, patch, source_collection, source_database
@@ -1017,6 +1078,19 @@ def update_item_labels(
             item_id, final_owner, user_id,
         )
         raise PermissionError("Item does not belong to user.")
+
+    metadata_payload = {**updated}
+    metadata_payload["subcategory"] = (
+        metadata_payload.get("subcategory") or metadata_payload.get("sub_category")
+    )
+    metadata_payload["tags"] = metadata_payload.get("occasions")
+    metadata_payload["colors"] = [metadata_payload.get("color_code")]
+    _persist_style_metadata_nonfatal(
+        item_id=item_id,
+        user_id=user_id,
+        item_payload=metadata_payload,
+        source="update_labels",
+    )
 
     log.info(
         "ahvi.update_labels.ok user=%s item=%s collection=%s patch_keys=%s dropped=%s",
