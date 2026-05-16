@@ -510,6 +510,35 @@ def _extract_first_vision_item(ai_json: Dict[str, Any]) -> Dict[str, Any]:
     return ai_json
 
 
+def _vision_says_item_is_known(label_source: str, category: str, name: str) -> bool:
+    """Return true when vision produced enough signal to skip manual review."""
+    if not str(label_source or "").startswith("vision"):
+        return False
+    category_key = str(category or "").strip().lower()
+    name_key = str(name or "").strip().lower()
+    if category_key in {"", "item", "unknown", "needs review", "needs_review", "review"}:
+        return False
+    if name_key in {"", "item", "unknown", "review item", "needs review"}:
+        return False
+    return True
+
+
+def _normalize_capture_preview_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize taxonomy and keep successful vision results out of review state."""
+    normalized = _taxonomy_normalize_item(item)
+    if not isinstance(normalized, dict):
+        return normalized
+
+    if _vision_says_item_is_known(
+        str(normalized.get("label_source") or ""),
+        str(normalized.get("category") or ""),
+        str(normalized.get("name") or ""),
+    ):
+        normalized["requires_manual_entry"] = False
+        normalized["needs_review"] = False
+    return normalized
+
+
 def _vision_extract_attributes(
     masked_url: str, fallback_label: str, image_base64: str = ""
 ) -> Dict[str, Any]:
@@ -561,6 +590,14 @@ def _vision_extract_attributes(
         )
         if isinstance(ai_json, dict):
             ai_item = _extract_first_vision_item(ai_json)
+            logger.info(
+                "ahvi.capture_vision_item name=%s category=%s sub_category=%s color=%s confidence=%s",
+                _clean_label_text(ai_item.get("name"), "", 80),
+                _clean_label_text(ai_item.get("category"), "", 50),
+                _clean_label_text(ai_item.get("sub_category"), "", 50),
+                _clean_label_text(ai_item.get("color_name"), "", 40),
+                ai_item.get("confidence"),
+            )
             base.update(
                 {
                     "name": _clean_label_text(ai_item.get("name"), base["name"]),
@@ -745,7 +782,8 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         if category_corrected and label_source == "vision":
             label_source = "vision+rules"
         requires_manual_entry = bool(
-            vision.get("requires_manual_entry") or label_source != "vision"
+            vision.get("requires_manual_entry")
+            or not _vision_says_item_is_known(label_source, category, vision.get("name") or "")
         )
 
         embedding = []
@@ -890,7 +928,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
     # Canonical taxonomy normalization for capture preview.
     # Ensures the frontend never sees: Sari→Accessories, polo→Bottoms,
     # one-piece→Tops, or unknowns silently labeled Accessories.
-    items = [_taxonomy_normalize_item(item) for item in items if isinstance(item, dict)]
+    items = [_normalize_capture_preview_item(item) for item in items if isinstance(item, dict)]
 
     save_result = None
     save_state = "skipped"

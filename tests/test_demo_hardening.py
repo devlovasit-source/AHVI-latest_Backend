@@ -185,13 +185,7 @@ class DemoHardeningTests(unittest.TestCase):
     def test_wardrobe_label_vision_contract(self):
         from routers import wardrobe_capture
 
-        class FakeResponse:
-            content = b"image-bytes"
-
-            def raise_for_status(self):
-                return None
-
-        with patch.object(wardrobe_capture.requests, "get", return_value=FakeResponse()), patch.object(
+        with patch.object(
             wardrobe_capture.ai_gateway,
             "ollama_vision_json",
             return_value=(
@@ -206,7 +200,9 @@ class DemoHardeningTests(unittest.TestCase):
                 {},
             ),
         ):
-            label = wardrobe_capture._vision_extract_attributes("https://example.test/item.png", "item")
+            label = wardrobe_capture._vision_extract_attributes(
+                "", "item", "data:image/png;base64,aW1hZ2UtYnl0ZXM="
+            )
 
         self.assertEqual(label["name"], "Blue checked shirt")
         self.assertEqual(label["category"], "Tops")
@@ -216,6 +212,43 @@ class DemoHardeningTests(unittest.TestCase):
         self.assertEqual(label["occasions"], ["casual", "work"])
         self.assertEqual(label["label_source"], "vision")
         self.assertFalse(label["requires_manual_entry"])
+
+    def test_wardrobe_vision_rules_does_not_force_review(self):
+        from routers import wardrobe_capture
+
+        item = {
+            "name": "Blue button-down shirt",
+            "category": "Tops",
+            "sub_category": "Shirt",
+            "confidence": 0.72,
+            "label_source": "vision+rules",
+            "requires_manual_entry": True,
+            "needs_review": True,
+        }
+
+        normalized = wardrobe_capture._normalize_capture_preview_item(item)
+
+        self.assertEqual(normalized["category"], "Tops")
+        self.assertFalse(normalized["requires_manual_entry"])
+        self.assertFalse(normalized["needs_review"])
+
+    def test_wardrobe_vision_name_recovery_clears_review_flag(self):
+        from routers import wardrobe_capture
+
+        item = {
+            "name": "Blue button-down shirt",
+            "category": "Item",
+            "sub_category": "Item",
+            "confidence": 0.72,
+            "label_source": "vision",
+            "requires_manual_entry": True,
+        }
+
+        normalized = wardrobe_capture._normalize_capture_preview_item(item)
+
+        self.assertEqual(normalized["category"], "Tops")
+        self.assertFalse(normalized["requires_manual_entry"])
+        self.assertFalse(normalized.get("needs_review", False))
 
     def test_wardrobe_persistence_saves_raw_and_masked_urls(self):
         import services.wardrobe_persistence_service as persistence
