@@ -1462,6 +1462,7 @@ def _module_llm_response(
 
 
 @router.post("/module-chat")
+@router.post("/chat/module-chat")
 def module_chat(request: ModuleChatRequest, http_request: Request):
     module = _normalize_module_name(request.module)
     profile = dict(request.user_profile or {})
