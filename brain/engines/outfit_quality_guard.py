@@ -4,6 +4,11 @@ import logging
 from typing import Any, Dict, List, Tuple
 
 from brain.engines.style_rules_engine import style_engine
+from services.wardrobe_intelligence_service import (
+    _style_meta,
+    board_has_occasion_conflict,
+    normalize_occasion as normalize_style_occasion,
+)
 
 logger = logging.getLogger("ahvi.outfit_quality_guard")
 
@@ -116,8 +121,12 @@ def normalize_occasion(occasion: Any) -> str:
         return "office"
     if "brunch" in text:
         return "brunch"
-    if any(w in text for w in ["party", "club", "rave", "after_hours", "night out", "cocktail"]):
-        return "party"
+    if any(w in text for w in ["rave", "club"]):
+        return "rave"
+    if "cocktail" in text:
+        return "cocktail"
+    if any(w in text for w in ["party", "house_party", "after_hours", "night out"]):
+        return "house_party"
     if any(w in text for w in ["travel", "airport", "flight", "vacation", "trip"]):
         return "travel"
     if any(w in text for w in ["workout", "gym", "fitness", "training", "yoga", "running"]):
@@ -163,6 +172,8 @@ def _board_blob(board: dict) -> str:
 
 
 def reject_board_for_occasion(board: dict, occasion: str) -> Tuple[bool, str]:
+    if board_has_occasion_conflict(board, occasion):
+        return True, f"metadata_forbidden_{normalize_style_occasion(occasion)}"
     blob = _board_blob(board)
     occasion = normalize_occasion(occasion)
 
@@ -407,7 +418,16 @@ def _is_relaxed_footwear(item: Dict[str, Any]) -> bool:
 
 def _is_male_blocked_item(item: Dict[str, Any]) -> bool:
     text = _item_text(item)
-    return any(blocked in text for blocked in MALE_BLOCKED_CATEGORIES)
+    toks = _tokens(text)
+    for blocked in MALE_BLOCKED_CATEGORIES:
+        clean = blocked.replace("_", " ")
+        if len(clean) <= 3:
+            if clean in toks:
+                return True
+            continue
+        if clean in text:
+            return True
+    return False
 
 
 def _is_date_or_evening_context(context_text: str) -> bool:

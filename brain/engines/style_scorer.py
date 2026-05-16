@@ -1,5 +1,11 @@
 from typing import Any, Dict, List, Tuple
 
+from services.wardrobe_intelligence_service import (
+    _style_meta,
+    normalize_occasion as normalize_style_occasion,
+    score_item_for_occasion,
+)
+
 from brain.engines.color_normalizer import color_normalizer
 from brain.engines.style_graph_engine import style_graph_engine
 from brain.engines.style_rules_engine import style_engine
@@ -31,6 +37,7 @@ def _item_blob(item: dict) -> str:
 
 
 def normalize_occasion(occasion: Any) -> str:
+    meta_occasion = normalize_style_occasion(occasion)
     text = str(occasion or "").strip().lower().replace("-", "_")
     if any(w in text for w in ["date_night", "date night", "date", "dinner", "tonight"]):
         return "date_night"
@@ -40,8 +47,12 @@ def normalize_occasion(occasion: Any) -> str:
         return "office"
     if "brunch" in text:
         return "brunch"
-    if any(w in text for w in ["party", "club", "rave", "after_hours", "night out", "cocktail"]):
-        return "party"
+    if "rave" in text or "club" in text:
+        return "rave"
+    if "cocktail" in text:
+        return "cocktail"
+    if any(w in text for w in ["party", "house_party", "after_hours", "night out"]):
+        return "house_party"
     if any(w in text for w in ["travel", "airport", "flight", "vacation", "trip"]):
         return "travel"
     if any(w in text for w in ["workout", "gym", "fitness", "training", "yoga", "running"]):
@@ -50,12 +61,12 @@ def normalize_occasion(occasion: Any) -> str:
         return "wedding"
     if any(w in text for w in ["casual", "daily", "today", "weekend"]):
         return "casual"
-    return text
+    return meta_occasion or text
 
 
 def occasion_item_score(item: dict, occasion: str) -> float:
     blob = _item_blob(item)
-    score = 0.0
+    score = float(score_item_for_occasion(item, occasion))
     occasion = normalize_occasion(occasion)
 
     if occasion == "date_night":
@@ -159,14 +170,14 @@ class UnifiedStyleScorer:
         for item in items:
             color = color_normalizer.normalize(item.get("color") or item.get("color_code"))
             item_type = str(item.get("type") or item.get("sub_category") or "").lower()
-            breakdown["occasion_item"] += occasion_item_score(
-                item,
+            occasion_text = (
                 context.get("occasion")
                 or context.get("intent")
                 or context.get("query")
                 or context.get("user_query")
-                or "",
+                or ""
             )
+            breakdown["occasion_item"] += occasion_item_score(item, occasion_text)
 
             try:
                 rule_delta, rule_reasons = style_engine.score_item_rule_adjustment(

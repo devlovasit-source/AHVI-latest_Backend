@@ -102,6 +102,10 @@ def interpret_occasion_context(query: str, context: Optional[Dict[str, Any]] = N
                 ("Rooftop easy", "date_rooftop_easy"),
                 ("Daytime quiet", "date_daytime_quiet"),
             )
+    elif kind == "beach":
+        brief = "beach ready, sand-friendly, relaxed resort casual"
+        confidence = "high"
+        reason = "beach_context_detected"
     elif kind == "party":
         if _has_any(q, ("rave", "club", "edm", "festival")):
             brief = "rave party, after-hours energy, movement friendly, expressive edge"
@@ -135,7 +139,7 @@ def interpret_occasion_context(query: str, context: Optional[Dict[str, Any]] = N
     elif kind == "casual":
         brief = "clean daily, comfortable but intentional"
     elif kind == "daily":
-        brief = "smart daily, clean casual, easy and intentional"
+        brief = "smart daily, smart casual, clean casual, easy and intentional"
     else:
         brief = "elevated daily, smart casual, repeat-aware"
 

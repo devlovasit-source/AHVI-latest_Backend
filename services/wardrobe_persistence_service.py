@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import uuid
@@ -9,6 +10,7 @@ from services.embedding_service import embedding_service
 from services.category_taxonomy import infer_style_attributes
 from services.qdrant_service import qdrant_service
 from services.wardrobe_taxonomy import normalize as _taxonomy_normalize
+from services.wardrobe_intelligence_service import enrich_wardrobe_item
 
 # =========================
 # ENV CONFIG
@@ -189,7 +191,7 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
 
     res = post(data)
 
-    optional_keys = {"pixel_hash", "image_embedding", "image_vector"}
+    optional_keys = {"pixel_hash", "image_embedding", "image_vector", "style_metadata"}
     if res.status_code not in (200, 201) and optional_keys.intersection(data):
         body = str(res.text or "").lower()
         if "unknown attribute" in body or "invalid document structure" in body:
@@ -510,6 +512,19 @@ def _build_appwrite_doc(
         "worn": int(item.get("worn") or 0),
         "liked": bool(item.get("liked") or False),
         "qdrant_point_id": file_id,
+        "style_metadata": json.dumps(
+            enrich_wardrobe_item(
+                {
+                    **item,
+                    "name": name,
+                    "category": category,
+                    "subcategory": sub_category,
+                    "sub_category": sub_category,
+                    "colors": [color],
+                    "tags": occasions,
+                }
+            )
+        ),
     }
     if pixel_hash:
         doc["pixel_hash"] = pixel_hash
@@ -902,6 +917,19 @@ def update_item_labels(
     # — map them to the canonical occasions[] field.
     if tags is not None:
         patch["occasions"] = _normalize_list(tags)
+    if any(key in patch for key in ("name", "category", "sub_category", "color_code", "occasions")):
+        patch["style_metadata"] = json.dumps(
+            enrich_wardrobe_item(
+                {
+                    "name": patch.get("name") if "name" in patch else name,
+                    "category": patch.get("category") if "category" in patch else category,
+                    "subcategory": patch.get("sub_category") if "sub_category" in patch else subcategory,
+                    "sub_category": patch.get("sub_category") if "sub_category" in patch else subcategory,
+                    "colors": [patch.get("color_code") if "color_code" in patch else color],
+                    "tags": patch.get("occasions") if "occasions" in patch else tags,
+                }
+            )
+        )
     # material is not in the schema; ignore to avoid 'Unknown attribute'.
 
     if not patch:
@@ -958,6 +986,10 @@ def update_item_labels(
                 item_id, owner, user_id,
             )
             raise PermissionError("Item does not belong to user.")
+        merged_payload = {**existing, **patch}
+        merged_payload["subcategory"] = merged_payload.get("subcategory") or merged_payload.get("sub_category")
+        merged_payload["tags"] = merged_payload.get("occasions")
+        patch["style_metadata"] = json.dumps(enrich_wardrobe_item(merged_payload))
         try:
             updated, dropped_keys = _patch_document(
                 item_id, patch, source_collection, source_database

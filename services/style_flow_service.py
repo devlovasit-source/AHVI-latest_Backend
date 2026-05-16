@@ -152,6 +152,9 @@ _CANONICAL_OCCASIONS = {
     "office",
     "brunch",
     "party",
+    "house_party",
+    "rave",
+    "cocktail",
     "travel",
     "workout",
     "wedding",
@@ -173,8 +176,12 @@ def _normalize_occasion_value(value: Any, query: Any = "") -> str:
         return "office"
     if "brunch" in text:
         return "brunch"
-    if any(k in text for k in ("party", "club", "rave", "after_hours", "night out", "cocktail")):
-        return "party"
+    if any(k in text for k in ("rave", "club")):
+        return "rave"
+    if "cocktail" in text:
+        return "cocktail"
+    if any(k in text for k in ("party", "house_party", "after_hours", "night out")):
+        return "house_party"
     if any(k in text for k in ("travel", "airport", "flight", "vacation", "trip")):
         return "travel"
     if any(k in text for k in ("workout", "gym", "fitness", "training", "yoga", "running")):
@@ -457,10 +464,7 @@ def _ahvi_missing_occasion_response(
     }
     if closest_board:
         payload["message"] = (
-            "I don't see a strong date-night range yet, but I found one safe direction. "
-            "I'd avoid anything that reads office-heavy."
-            if normalized in {"date", "date_night"}
-            else "I found one safer direction, but the wardrobe is still thin for this occasion."
+            "I don't see strong occasion-ready pieces yet, but I found one safe direction."
         )
         payload["cards"] = [closest_board]
         payload["style_boards"] = [closest_board]
@@ -514,6 +518,12 @@ def _ahvi_pick_closest_safe_board(cards: list[dict], occasion: str) -> dict | No
             blob += " " + _ahvi_item_blob(item)
         if any(word in blob for word in blocked):
             continue
+        try:
+            from services.wardrobe_intelligence_service import board_has_occasion_conflict
+            if board_has_occasion_conflict(card, normalized):
+                continue
+        except Exception:
+            pass
         if normalized in {"date", "date_night"}:
             card["title"] = "Soft Statement"
             card["badge"] = "DATE NIGHT"
@@ -1192,6 +1202,8 @@ def _style_direction(query: str) -> str:
     if any(k in q for k in ("friday", "relaxed office", "casual friday")):
         return "friday_office"
     if _occasion_kind(query) == "office":
+        return "smart_casual_office"
+    if _occasion_kind(query) == "daily":
         return "smart_casual_office"
     flags = _occasion_flags(query)
     if flags["beach"]:
@@ -1913,6 +1925,13 @@ def _hard_rejection_reason(card: Dict[str, Any], query: str) -> str:
         and not _allows_relaxed_footwear(query)
     ):
         return "relaxed_footwear_blocked_for_occasion"
+    if (
+        kind == "daily"
+        and _style_direction(query) == "smart_casual_office"
+        and footwear_mood == "relaxed sandal"
+        and not _allows_relaxed_footwear(query)
+    ):
+        return "relaxed_footwear_blocked_for_smart_daily"
     if kind in {"office", "date", "wedding"}:
         for item in card.get("accessories", []) or []:
             if isinstance(item, dict) and _accessory_type(item) == "headwear" and not _allows_headwear(query):
