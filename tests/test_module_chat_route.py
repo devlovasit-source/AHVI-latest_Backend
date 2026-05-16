@@ -32,3 +32,25 @@ def test_module_chat_legacy_nested_route_exists(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["type"] == "module_chat"
+
+
+def test_skincare_module_chat_replaces_truncated_spf_answer(monkeypatch):
+    monkeypatch.setattr(
+        chat,
+        "chat_completion",
+        lambda *args, **kwargs: "To recommend the best SPF, I need a bit more detail about",
+    )
+
+    result = chat._module_llm_response(
+        module="skincare",
+        user_message="Best SPF for my skin",
+        history=[],
+        context_data={},
+        user_profile={},
+    )
+
+    answer = result["message"]["content"]
+    assert result["type"] == "module_chat"
+    assert "skin type" in answer
+    assert "sun exposure" in answer
+    assert answer.endswith(".")

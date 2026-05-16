@@ -77,6 +77,7 @@ def recommend_workout(
         if item.get("skipped")
     ]
     payload = req.model_dump(exclude_none=True)
+    payload.setdefault("profile", user or {})
     payload["recent_skipped_workout_ids"] = list(
         dict.fromkeys((payload.get("recent_skipped_workout_ids") or []) + skipped)
     )
@@ -103,6 +104,7 @@ def today_workout(user=Depends(get_current_user)):
             "duration": 12,
             "location": "home",
             "equipment": "none",
+            "profile": user or {},
         },
     )
     cards = _recommendations(context, limit=1)

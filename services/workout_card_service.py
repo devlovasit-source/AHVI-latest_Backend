@@ -36,6 +36,20 @@ def _exercises(session: Dict[str, Any]) -> List[Dict[str, Any]]:
     return exercises[:8]
 
 
+def _display_title(session: Dict[str, Any], context: Dict[str, Any]) -> str:
+    title = str(session.get("title") or "Today's Workout").strip()
+    gender = str(context.get("gender") or "universal").lower().strip()
+    session_gender = str(session.get("gender") or "").lower().strip()
+    if gender == "universal" or session_gender == "universal":
+        title = re.sub(
+            r"^(?:Women|Men|Universal)\s+(?:\u2014|-)\s+",
+            "",
+            title,
+            flags=re.IGNORECASE,
+        )
+    return title or "Today's Workout"
+
+
 def build_workout_card(session: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     duration = int(session.get("duration_min") or context.get("duration") or 20)
     equipment = ", ".join(session.get("equipment") or []) or "none"
@@ -44,7 +58,7 @@ def build_workout_card(session: Dict[str, Any], context: Dict[str, Any]) -> Dict
     card = {
         "id": session.get("key"),
         "type": "workout_card",
-        "title": session.get("title") or "Today’s Workout",
+        "title": _display_title(session, context),
         "subtitle": f"{duration} min · {equipment}",
         "duration_minutes": duration,
         "intensity": intensity,

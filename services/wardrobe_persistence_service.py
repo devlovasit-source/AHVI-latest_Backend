@@ -204,6 +204,17 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     return res.json()
 
 
+def _unknown_attribute_from_appwrite_error(body: Any) -> str:
+    text = str(body or "")
+    normalized = text.replace('\\"', '"').replace("\\'", "'")
+    match = re.search(
+        r"unknown attribute[:\s]+(?:[\"'])?([A-Za-z0-9_]+)",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    return match.group(1) if match else ""
+
+
 # =========================
 # CATEGORY NORMALIZATION
 # =========================
@@ -833,19 +844,18 @@ def _patch_document(
         if res.status_code in (200, 201):
             return res.json(), dropped
 
-        body_lower = str(res.text or "").lower()
+        body_text = str(res.text or "")
+        body_lower = body_text.lower()
         if "unknown attribute" not in body_lower and "invalid document structure" not in body_lower:
             raise RuntimeError(f"Appwrite update error: {res.status_code} {res.text}")
 
-        import re as _re
-        m = _re.search(r"unknown attribute[:\s]+\"?([\w_]+)", body_lower)
         before = dict(attempt)
-        if m:
-            key = m.group(1)
+        key = _unknown_attribute_from_appwrite_error(body_text)
+        if key:
             attempt.pop(key, None)
             dropped.append(key)
         else:
-            for k in ("occasions", "color_code", "sub_category", "material"):
+            for k in ("style_metadata", "occasions", "color_code", "sub_category", "material"):
                 if attempt.pop(k, None) is not None:
                     dropped.append(k)
                     break

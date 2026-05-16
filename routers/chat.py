@@ -1360,6 +1360,41 @@ def _normalize_module_name(module: str) -> str:
     return value if value in allowed else "chat"
 
 
+def _looks_incomplete_module_answer(answer: Any) -> bool:
+    text = str(answer or "").strip()
+    if not text:
+        return True
+    if len(text) < 80 and not re.search(r"[.!?)]$", text):
+        return True
+    tail = text.lower().rstrip(" .,:;")
+    incomplete_endings = (
+        "about",
+        "because",
+        "including",
+        "such as",
+        "based on",
+        "depending on",
+        "i need",
+        "i need a bit more detail about",
+    )
+    return any(tail.endswith(ending) for ending in incomplete_endings)
+
+
+def _module_fallback_answer(module_key: str, user_message: str) -> str:
+    message = str(user_message or "").lower()
+    if module_key == "skincare" and any(
+        token in message for token in ("spf", "sunscreen", "sun screen", "sunblock")
+    ):
+        return (
+            "For SPF, I need your skin type, sensitivity, acne tendency, preferred finish, "
+            "and how much sun exposure you expect. As a safe starting point, choose a broad-spectrum "
+            "SPF 30 or higher, use enough product, and reapply every 2-3 hours outdoors. If your skin "
+            "stings easily, look for fragrance-free mineral SPF; if it is oily or acne-prone, choose a "
+            "lightweight non-comedogenic gel or fluid."
+        )
+    return lightweight_chat(user_message)
+
+
 def _state_user_id(http_request: Request) -> str:
     state_user = getattr(http_request.state, "user", None)
     if isinstance(state_user, dict):
@@ -1424,10 +1459,10 @@ def _module_llm_response(
             module_key, elapsed, str(exc)[:180],
         )
         answer = ""
-    if not str(answer or "").strip():
+    if _looks_incomplete_module_answer(answer):
         # Always return something. lightweight_chat covers greetings and
         # falls through to a generic helpful sentence for anything else.
-        answer = lightweight_chat(user_message)
+        answer = _module_fallback_answer(module_key, user_message)
     logger.info(
         "chat.module_chat_ok module=%s elapsed=%.2fs len=%s",
         module_key, time.perf_counter() - started_at, len(answer),

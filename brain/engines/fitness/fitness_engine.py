@@ -49,6 +49,10 @@ class FitnessEngine:
         if input_data.get("goal") in self.goal_routes:
             candidates &= set(self.goal_routes[input_data["goal"]])
 
+        # Gender filter
+        if input_data.get("gender") in self.gender_routes:
+            candidates &= set(self.gender_routes[input_data["gender"]])
+
         # Duration filter
         if str(input_data.get("duration")) in self.duration_routes:
             candidates &= set(self.duration_routes[str(input_data["duration"])])
@@ -70,19 +74,19 @@ class FitnessEngine:
     def relaxed_fallback(self, input_data, limit=3):
         candidate_keys = list(self.sessions.keys())
         filters = [
+            ("gender", self.gender_routes, input_data.get("gender")),
+            ("goal", self.goal_routes, input_data.get("goal")),
+            ("duration", self.duration_routes, str(input_data.get("duration"))),
             ("location", self.location_routes, input_data.get("location")),
             ("equipment", self.equipment_routes, input_data.get("equipment")),
-            ("duration", self.duration_routes, str(input_data.get("duration"))),
             ("constraint", self.constraint_routes, input_data.get("constraint")),
-            ("goal", self.goal_routes, input_data.get("goal")),
-            ("gender", self.gender_routes, input_data.get("gender")),
         ]
+        filters = [(name, routes, value) for name, routes, value in filters if value in routes]
 
         for keep_count in range(len(filters), 0, -1):
             candidates = set(candidate_keys)
             for _, routes, value in filters[:keep_count]:
-                if value in routes:
-                    candidates &= set(routes[value])
+                candidates &= set(routes[value])
             ordered = [self.sessions[k] for k in candidate_keys if k in candidates]
             if ordered:
                 return ordered[:limit]

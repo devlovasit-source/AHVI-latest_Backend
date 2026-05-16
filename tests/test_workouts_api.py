@@ -62,6 +62,53 @@ class WorkoutApiTests(unittest.TestCase):
         self.assertIn("outfit_pairing", result)
         self.assertIn("reminders", result)
 
+    def test_missing_gender_routes_to_universal_workout(self):
+        from brain.engines.fitness.fitness_engine import fitness_engine
+        from brain.engines.fitness.workout_ranker import workout_ranker
+        from services.workout_card_service import build_workout_card
+        from services.workout_context_service import build_workout_context
+
+        context = build_workout_context(
+            "user_1",
+            {"goal": "general_fitness", "duration": 10, "location": "home", "equipment": "none"},
+        )
+        ranked = workout_ranker.rank(
+            fitness_engine.filter_sessions(context)
+            or fitness_engine.relaxed_fallback(context),
+            context,
+            limit=1,
+        )
+        card = build_workout_card(ranked[0], context)
+
+        self.assertEqual(context["gender"], "universal")
+        self.assertEqual(ranked[0]["gender"], "universal")
+        self.assertNotIn("Women", card["title"])
+
+    def test_male_profile_does_not_return_women_workout(self):
+        from brain.engines.fitness.fitness_engine import fitness_engine
+        from brain.engines.fitness.workout_ranker import workout_ranker
+        from services.workout_context_service import build_workout_context
+
+        context = build_workout_context(
+            "user_1",
+            {
+                "goal": "general_fitness",
+                "duration": 10,
+                "location": "home",
+                "equipment": "none",
+                "profile": {"gender": "male"},
+            },
+        )
+        ranked = workout_ranker.rank(
+            fitness_engine.filter_sessions(context)
+            or fitness_engine.relaxed_fallback(context),
+            context,
+            limit=1,
+        )
+
+        self.assertEqual(context["gender"], "men")
+        self.assertEqual(ranked[0]["gender"], "men")
+
     def test_ranker_demotes_recently_skipped_workouts(self):
         from brain.engines.fitness.workout_ranker import WorkoutRanker
 

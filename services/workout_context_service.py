@@ -39,6 +39,40 @@ def _weather_context(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _normalize_gender(value: Any) -> str | None:
+    raw = str(value or "").lower().strip()
+    if not raw:
+        return None
+    if raw in {"m", "male", "man", "men", "mens", "boy"}:
+        return "men"
+    if raw in {"f", "female", "woman", "women", "womens", "girl"}:
+        return "women"
+    if raw in {"unisex", "neutral", "genderless", "any", "all", "universal"}:
+        return "universal"
+    return None
+
+
+def _gender_from_payload(payload: Dict[str, Any]) -> str:
+    direct = _normalize_gender(payload.get("gender"))
+    if direct:
+        return direct
+
+    profile = payload.get("profile") or {}
+    if not isinstance(profile, dict):
+        profile = {}
+    style_prefs = profile.get("stylePreferences") or profile.get("style_preferences") or {}
+    if not isinstance(style_prefs, dict):
+        style_prefs = {}
+
+    for source in (profile, style_prefs):
+        for key in ("fitness_gender", "style_gender", "gender", "preferred_gender", "target_gender"):
+            gender = _normalize_gender(source.get(key))
+            if gender:
+                return gender
+
+    return "universal"
+
+
 def build_workout_context(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     weather = _weather_context(payload)
     duration = payload.get("duration") or payload.get("duration_minutes") or 20
@@ -58,7 +92,7 @@ def build_workout_context(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
     return {
         "user_id": user_id,
         "goal": str(payload.get("goal") or "general_fitness").lower().strip(),
-        "gender": str(payload.get("gender") or "").lower().strip() or None,
+        "gender": _gender_from_payload(payload),
         "duration": duration,
         "location": location,
         "equipment": equipment,
