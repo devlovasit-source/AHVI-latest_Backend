@@ -302,7 +302,7 @@ class DemoHardeningTests(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertEqual(captured["data"]["image_url"], "https://raw.example/item.png")
-        self.assertEqual(captured["data"]["raw_url"], "https://raw.example/item.png")
+        self.assertNotIn("raw_url", captured["data"])
         self.assertEqual(captured["data"]["masked_url"], "https://masked.example/item.png")
         self.assertEqual(captured["data"]["userId"], "user_auth")
         self.assertEqual(captured["qdrant"]["image_url"], "https://masked.example/item.png")

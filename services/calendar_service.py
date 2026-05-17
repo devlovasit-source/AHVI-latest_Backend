@@ -92,6 +92,14 @@ def _build_document(user_id: str, payload: Dict[str, Any], *, existing: Dict[str
         raise ValueError("start_time is required")
     metadata = payload.get("metadata", existing.get("metadata", {}))
     metadata_string = metadata if isinstance(metadata, str) and metadata.strip() else _metadata_to_string(metadata)
+    occasion = _safe_str(
+        payload.get("occasion")
+        or payload.get("category")
+        or payload.get("type")
+        or existing.get("occasion")
+        or existing.get("type")
+        or "plan"
+    )
     return {
         "userId": _safe_str(user_id),
         "title": title,
@@ -99,6 +107,7 @@ def _build_document(user_id: str, payload: Dict[str, Any], *, existing: Dict[str
         "start_time": start_time,
         "end_time": _safe_str(payload.get("end_time") or payload.get("endTime") or payload.get("endAtISO") or existing.get("end_time", "")),
         "timezone": _safe_str(payload.get("timezone", existing.get("timezone", ""))),
+        "occasion": occasion,
         "type": _safe_str(payload.get("type", existing.get("type", "plan")) or "plan"),
         "source": _safe_str(payload.get("source", existing.get("source", "ahvi")) or "ahvi"),
         "status": _safe_str(payload.get("status", existing.get("status", "scheduled")) or "scheduled"),
@@ -153,6 +162,7 @@ def parse_plan_text_to_payload(
         "source": "ahvi_add_plan",
         "status": "scheduled",
         "metadata": {"original_text": raw, "category": event_type},
+        "occasion": event_type,
     }
 
 

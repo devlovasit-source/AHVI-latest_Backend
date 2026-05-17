@@ -45,6 +45,7 @@ class CalendarMedLogTests(unittest.TestCase):
 
         self.assertEqual(proxy.created[0][0], "calendar_events")
         self.assertEqual(proxy.created[0][1]["userId"], "user_1")
+        self.assertEqual(proxy.created[0][1]["occasion"], "plan")
         self.assertNotIn("user_id", proxy.created[0][1])
         self.assertEqual(event["user_id"], "user_1")
 
@@ -58,6 +59,7 @@ class CalendarMedLogTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["type"], "Office")
+        self.assertEqual(payload["occasion"], "Office")
         self.assertEqual(payload["timezone"], "Asia/Kolkata")
         self.assertIn("2026-05-19T10:00:00+05:30", payload["start_time"])
 

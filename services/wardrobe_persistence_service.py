@@ -584,9 +584,9 @@ def _build_appwrite_doc(
     )
 
     # Must match Appwrite outfits collection schema exactly.
-    # image_url must point to the cleanest available asset for downstream
-    # chat/style-board rendering. Add `normalized_url` as an optional String
-    # attribute in Appwrite before deploying this file.
+    # Keep raw_url out of the Appwrite document unless the collection schema
+    # explicitly adds it. Qdrant/search payloads can still use cleaner masked
+    # assets below without breaking Appwrite writes.
     final_image_url = raw_url or normalized_url or masked_url
     pixel_hash = _safe_text(
         item.get("pixel_hash") or item.get("pixelHash") or item.get("masked_pixel_hash")
@@ -594,7 +594,6 @@ def _build_appwrite_doc(
 
     doc = {
         "image_url": final_image_url,
-        "raw_url": raw_url or final_image_url,
         "category": category,
         "userId": user_id,
         "status": "active",
