@@ -29,6 +29,7 @@ from services.style_flow_service import (
     card_signature as style_card_signature,
     finalize_style_response_payload,
 )
+from services.module_chat_service import handle_module_chat
 
 try:
     from services.job_tracker import job_tracker
@@ -1301,8 +1302,10 @@ class DailyCardsRequest(BaseModel):
 class ModuleChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     history: List[Dict[str, str]] = Field(default_factory=list, max_length=20)
-    module: str = Field(..., min_length=2, max_length=32)
+    module: str | None = Field(default=None, min_length=2, max_length=32)
+    domain: str | None = Field(default=None, min_length=2, max_length=32)
     context_data: Dict[str, Any] = Field(default_factory=dict)
+    context: Dict[str, Any] = Field(default_factory=dict)
     user_profile: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -1356,7 +1359,10 @@ def _normalize_module_name(module: str) -> str:
         "meal",
         "diet",
         "fitness",
+        "planner",
     }
+    if value in {"plan", "planning", "reminder", "reminders"}:
+        return "planner"
     return value if value in allowed else "chat"
 
 
@@ -1382,17 +1388,109 @@ def _looks_incomplete_module_answer(answer: Any) -> bool:
 
 def _module_fallback_answer(module_key: str, user_message: str) -> str:
     message = str(user_message or "").lower()
-    if module_key == "skincare" and any(
-        token in message for token in ("spf", "sunscreen", "sun screen", "sunblock")
-    ):
+    if module_key == "skincare":
+        if any(token in message for token in ("spf", "sunscreen", "sun screen", "sunblock")):
+            return (
+                "For SPF, choose a broad-spectrum SPF 30 or higher and apply it generously every morning. "
+                "If your skin is oily or acne-prone, try a lightweight non-comedogenic gel or fluid. "
+                "If your skin is dry or sensitive, look for a fragrance-free moisturizing sunscreen. Reapply "
+                "every 2-3 hours outdoors."
+            )
+        if "dry" in message:
+            return (
+                "For dry skin, keep the routine simple: gentle cleanser, hydrating serum if you use one, "
+                "moisturizer, and SPF in the morning. At night, cleanse and use a richer moisturizer. "
+                "Avoid harsh scrubs if your skin feels tight or irritated."
+            )
+        if "oily" in message:
+            return (
+                "For oily skin, use a gentle cleanser, lightweight moisturizer, and non-comedogenic SPF. "
+                "A niacinamide serum can be a reasonable option if your skin tolerates it. Avoid stripping "
+                "the skin, because that can make oiliness feel worse."
+            )
+        if "acne" in message or "pimple" in message or "breakout" in message:
+            return (
+                "For acne-prone skin, keep it gentle: mild cleanser, lightweight moisturizer, and SPF. "
+                "Introduce actives slowly and avoid layering too many strong products at once. For painful, "
+                "persistent, or worsening acne, check with a dermatologist."
+            )
+        if "night" in message:
+            return (
+                "A simple night routine: cleanse, apply a gentle hydrating step if you use one, then moisturize. "
+                "If you use treatments, add only one at a time and watch how your skin reacts."
+            )
         return (
-            "For SPF, I need your skin type, sensitivity, acne tendency, preferred finish, "
-            "and how much sun exposure you expect. As a safe starting point, choose a broad-spectrum "
-            "SPF 30 or higher, use enough product, and reapply every 2-3 hours outdoors. If your skin "
-            "stings easily, look for fragrance-free mineral SPF; if it is oily or acne-prone, choose a "
-            "lightweight non-comedogenic gel or fluid."
+            "I can help with a simple skincare routine. A safe baseline is gentle cleanser, moisturizer, "
+            "and broad-spectrum SPF in the morning, then cleanser and moisturizer at night. Tell me your "
+            "skin type or concern for a more tailored routine."
+        )
+    if module_key in {"diet", "meal"}:
+        if "protein" in message and "breakfast" in message:
+            return (
+                "For a high-protein breakfast, try Greek yogurt with fruit and nuts, eggs with whole-grain toast, "
+                "paneer or tofu scramble, or oats with milk and seeds. Keep portions aligned with your appetite "
+                "and dietary preferences."
+            )
+        if "pre" in message and "workout" in message:
+            return (
+                "A simple pre-workout meal is easy-to-digest carbs plus a little protein, such as banana with "
+                "yogurt, toast with peanut butter, or oats. Give yourself enough time to digest before training."
+            )
+        if "post" in message and "workout" in message:
+            return (
+                "Post-workout, aim for protein plus carbs and fluids. Examples: rice with dal or chicken, eggs "
+                "and toast, yogurt with fruit, or tofu with a grain bowl."
+            )
+        if "hydrat" in message or "water" in message:
+            return (
+                "For hydration, sip water through the day and add electrolytes when you sweat heavily or train "
+                "in heat. Use thirst, urine color, and workout intensity as practical cues."
+            )
+        if "weight loss" in message or "lose weight" in message:
+            return (
+                "For weight-loss meal ideas, build plates around lean protein, vegetables or fruit, high-fiber "
+                "carbs, and a small amount of healthy fat. Keep it sustainable and avoid extreme restriction."
+            )
+        return (
+            "I can help with meal ideas. A balanced option is protein, fiber-rich carbs, vegetables or fruit, "
+            "and enough fluids. Tell me your goal, dietary preference, or meal timing for a sharper suggestion."
+        )
+    if module_key in {"planner", "calendar"}:
+        return (
+            "I can help structure this plan. Reminder sync is coming next, so for now I will not mark reminders "
+            "as saved. Share the tasks, deadline, and rough priority, and I will organize the day."
         )
     return lightweight_chat(user_message)
+
+
+def _module_response_envelope(
+    module_key: str,
+    answer: str,
+    chips: List[Any] | None = None,
+) -> Dict[str, Any]:
+    answer_text = str(answer or "").strip()
+    return {
+        "success": True,
+        "type": "module_response",
+        "module": module_key,
+        "domain": module_key,
+        "response": answer_text,
+        "message_text": answer_text,
+        "message": answer_text,
+        "cards": [],
+        "style_boards": [],
+        "chips": chips or [],
+        "data": {
+            "module": module_key,
+            "message": answer_text,
+            "rendered_boards": [],
+            "outfits": [],
+        },
+        "meta": {
+            "mode": module_key,
+            "board_count": 0,
+        },
+    }
 
 
 def _state_user_id(http_request: Request) -> str:
@@ -1474,18 +1572,19 @@ def _module_llm_response(
     # so the frontend parser doesn't have to special-case the source.
     return {
         "success": True,
-        "type": "module_chat",
+        "type": "module_response",
         "module": module_key,
         # Three keys carrying the same payload — different clients pick
         # different keys. Keep them aligned to avoid empty-message bugs.
         "response": answer_text,
         "message_text": answer_text,
-        "message": {"role": "assistant", "content": answer_text},
+        "message": answer_text,
         "cards": [],
         "style_boards": [],
         "chips": [],
         "data": {
             "module": module_key,
+            "message": answer_text,
             "rendered_boards": [],
             "outfits": [],
         },
@@ -1498,18 +1597,31 @@ def _module_llm_response(
 
 @router.post("/module-chat")
 @router.post("/chat/module-chat")
-def module_chat(request: ModuleChatRequest, http_request: Request):
-    module = _normalize_module_name(request.module)
+async def module_chat(request: ModuleChatRequest, http_request: Request):
+    module = _normalize_module_name(request.domain or request.module or "")
     profile = dict(request.user_profile or {})
     user_id = _state_user_id(http_request)
     if user_id:
         profile["user_id"] = user_id
+    user_message = str(request.message or "").strip()
+
+    if module in {"skincare", "diet", "meal", "planner", "calendar", "medi", "bills", "fitness"}:
+        return await handle_module_chat(
+            {
+                "domain": module,
+                "module": module,
+                "message": user_message,
+                "context": {**(request.context_data or {}), **(request.context or {})},
+                "user_profile": profile,
+            },
+            user_id=user_id,
+        )
 
     return _module_llm_response(
         module=module,
-        user_message=str(request.message or "").strip(),
+        user_message=user_message,
         history=request.history,
-        context_data=request.context_data,
+        context_data={**(request.context_data or {}), **(request.context or {})},
         user_profile=profile,
     )
 

@@ -770,6 +770,25 @@ if not chat_router:
             },
         }
 
+    @app.post("/api/module-chat")
+    @app.post("/api/chat/module-chat")
+    def fallback_module_chat(payload: Dict[str, Any]):
+        message = str(payload.get("message") or "").strip()
+        if not message:
+            messages = payload.get("messages") or []
+            if messages and isinstance(messages, list):
+                last = messages[-1] or {}
+                if isinstance(last, dict):
+                    message = str(last.get("content") or "").strip()
+        response = fallback_text_chat(
+            _FallbackChatRequest(messages=[_FallbackMessage(role="user", content=message)])
+        )
+        response["type"] = "module_response"
+        response["module"] = str(
+            payload.get("domain") or payload.get("module") or "chat"
+        ).strip().lower()
+        return response
+
 
 # -------------------------
 # HEALTH
