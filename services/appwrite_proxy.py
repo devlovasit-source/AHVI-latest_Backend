@@ -741,11 +741,35 @@ class AppwriteProxy:
         collection_id = self._collection_id(resource)
         return self._request("GET", self._url(collection_id, document_id))
 
+    def _normalize_user_field(self, resource: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Translate user_id/userId to whatever the target collection
+        actually requires. Many services in this repo were written with
+        snake_case keys; most Appwrite collections require camelCase.
+        Without this step every calendar/med_logs/etc save returns 400
+        "Missing required attribute userId".
+        """
+        target = self.user_field_map.get(resource)
+        if not target:
+            return data
+        if target in data and str(data[target] or "").strip():
+            return data
+        out = dict(data)
+        # Try common alternate keys.
+        candidate = (
+            out.pop("user_id", None)
+            or out.pop("userId", None)
+            or out.pop("$id", None)
+        )
+        if candidate:
+            out[target] = str(candidate)
+        return out
+
     def create_document(
         self, resource: str, data: Dict[str, Any], document_id: str = "unique()"
     ) -> Dict[str, Any]:
         resource = self._normalize_resource(resource)
         collection_id = self._collection_id(resource)
+        data = self._normalize_user_field(resource, data)
         payload = {"documentId": document_id, "data": data}
         return self._request("POST", self._url(collection_id), payload=payload)
 
@@ -754,6 +778,7 @@ class AppwriteProxy:
     ) -> Dict[str, Any]:
         resource = self._normalize_resource(resource)
         collection_id = self._collection_id(resource)
+        data = self._normalize_user_field(resource, data)
         payload = {"data": data}
         return self._request(
             "PATCH", self._url(collection_id, document_id), payload=payload

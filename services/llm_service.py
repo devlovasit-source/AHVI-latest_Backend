@@ -31,7 +31,7 @@ load_dotenv()
 AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama").strip().lower()
 
 # Gemini / Vertex config
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-001")
 GOOGLE_CLOUD_PROJECT = (
     os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCP_PROJECT") or "ahvi-485510"
 )
@@ -169,7 +169,14 @@ Task:
 
         return tone_engine.apply(text, user_profile=user_profile, signals=signals)
     except Exception as exc:
-        logger.warning("Gemini text call failed: %s", exc)
+        # Loud log so we can SEE Gemini auth/model/region failures in
+        # Cloud Logging instead of silently falling through to Ollama
+        # (which doesn't exist on Cloud Run, leaving every user with the
+        # canned "This looks well put together and balanced." text).
+        logger.error(
+            "llm.gemini_call_failed model=%s location=%s err_type=%s err=%s",
+            GEMINI_MODEL, GOOGLE_CLOUD_LOCATION, type(exc).__name__, str(exc)[:300],
+        )
         return None
 
 
