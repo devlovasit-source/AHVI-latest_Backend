@@ -420,6 +420,7 @@ class AppwriteProxy:
     ) -> Dict[str, Any]:
         resource = self._normalize_resource(resource)
         collection_id = self._collection_id(resource)
+        data = self._normalize_user_field(resource, data)
         url = self._url(collection_id)
         payload: Dict[str, Any] = {
             "documentId": document_id or "unique()",
@@ -432,6 +433,7 @@ class AppwriteProxy:
     ) -> Dict[str, Any]:
         resource = self._normalize_resource(resource)
         collection_id = self._collection_id(resource)
+        data = self._normalize_user_field(resource, data)
         url = self._url(collection_id, document_id)
         return await self._request_async("PATCH", url, payload={"data": data})
 

@@ -518,9 +518,46 @@ def _vision_says_item_is_known(label_source: str, category: str, name: str) -> b
     name_key = str(name or "").strip().lower()
     if category_key in {"", "item", "unknown", "needs review", "needs_review", "review"}:
         return False
-    if name_key in {"", "item", "unknown", "review item", "needs review"}:
+    if name_key in {
+        "",
+        "item",
+        "unknown",
+        "review item",
+        "reviewed item",
+        "needs review",
+        "needs_review",
+    }:
         return False
     return True
+
+
+def _best_effort_item_name(item: Dict[str, Any], original: Dict[str, Any] | None = None) -> str:
+    original = original or {}
+    raw_name = str(item.get("name") or item.get("label") or "").strip()
+    if raw_name.lower() not in {
+        "",
+        "item",
+        "unknown",
+        "review item",
+        "reviewed item",
+        "needs review",
+        "needs_review",
+    }:
+        return raw_name.title()
+    color = str(item.get("color_name") or "").strip()
+    sub = str(
+        original.get("sub_category")
+        or original.get("subcategory")
+        or item.get("sub_category")
+        or item.get("subcategory")
+        or ""
+    ).strip()
+    category = str(item.get("category") or "").strip()
+    noun = sub if sub.lower() not in {"", "item", "unknown", "needs review"} else category
+    if noun.lower() in {"", "item", "unknown", "needs review", "needs_review"}:
+        noun = "Wardrobe Item"
+    label = " ".join(part for part in [color, noun] if part).strip()
+    return label.title() or "Wardrobe Item"
 
 
 def _normalize_capture_preview_item(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -528,6 +565,7 @@ def _normalize_capture_preview_item(item: Dict[str, Any]) -> Dict[str, Any]:
     normalized = _taxonomy_normalize_item(item)
     if not isinstance(normalized, dict):
         return normalized
+    normalized["name"] = _best_effort_item_name(normalized, item)
 
     if _vision_says_item_is_known(
         str(normalized.get("label_source") or ""),
@@ -720,7 +758,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
 
     detection_state = "single_garment_demo"
     if str(
-        os.getenv("WARDROBE_CAPTURE_SINGLE_GARMENT_MODE", "true")
+        os.getenv("WARDROBE_CAPTURE_SINGLE_GARMENT_MODE", "false")
     ).strip().lower() in {"1", "true", "yes", "on"}:
         detected_items = [
             await _full_image_fallback_item(image, source_bytes, "single_garment_mode")

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from services.appwrite_proxy import AppwriteProxy
 
 CALENDAR_RESOURCE = "calendar_events"
+logger = logging.getLogger(__name__)
 
 
 def _iso_now() -> str:
@@ -90,7 +93,7 @@ def _build_document(user_id: str, payload: Dict[str, Any], *, existing: Dict[str
     metadata = payload.get("metadata", existing.get("metadata", {}))
     metadata_string = metadata if isinstance(metadata, str) and metadata.strip() else _metadata_to_string(metadata)
     return {
-        "user_id": _safe_str(user_id),
+        "userId": _safe_str(user_id),
         "title": title,
         "description": _safe_str(payload.get("description", existing.get("description", ""))),
         "start_time": start_time,
@@ -109,8 +112,57 @@ def _build_document(user_id: str, payload: Dict[str, Any], *, existing: Dict[str
     }
 
 
+def parse_plan_text_to_payload(
+    text: str,
+    *,
+    category: str | None = None,
+    timezone_name: str = "Asia/Kolkata",
+    now: datetime | None = None,
+) -> Dict[str, Any]:
+    raw = _safe_str(text)
+    if len(raw) < 2:
+        raise ValueError("text is required")
+    base = now or datetime.now(timezone.utc)
+    day = base.date()
+    lower = raw.lower()
+    if "day after tomorrow" in lower:
+        day = (base + timedelta(days=2)).date()
+    elif "tomorrow" in lower:
+        day = (base + timedelta(days=1)).date()
+    match = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", lower)
+    hour = 9
+    minute = 0
+    if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2) or 0)
+        meridiem = match.group(3)
+        if meridiem == "pm" and hour < 12:
+            hour += 12
+        elif meridiem == "am" and hour == 12:
+            hour = 0
+        hour = max(0, min(hour, 23))
+        minute = max(0, min(minute, 59))
+    start = datetime(day.year, day.month, day.day, hour, minute, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+    event_type = _safe_str(category) or "plan"
+    return {
+        "title": raw,
+        "description": raw,
+        "start_time": start.isoformat(),
+        "timezone": timezone_name,
+        "type": event_type,
+        "source": "ahvi_add_plan",
+        "status": "scheduled",
+        "metadata": {"original_text": raw, "category": event_type},
+    }
+
+
 def create_calendar_event(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     data = _build_document(user_id, payload)
+    logger.info(
+        "calendar_events.create payload_keys=%s userId_present=%s",
+        list(data.keys()),
+        bool(data.get("userId")),
+    )
     doc = AppwriteProxy().create_document(CALENDAR_RESOURCE, data)
     return _normalize_doc(doc)
 

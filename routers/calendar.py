@@ -17,6 +17,7 @@ from services.calendar_service import (
     get_calendar_event,
     list_calendar_events,
     list_today_calendar_events,
+    parse_plan_text_to_payload,
     update_calendar_event,
 )
 from services.task_queue import enqueue_task
@@ -60,6 +61,12 @@ class CalendarEventCreateRequest(BaseModel):
     venue_address: str | None = None
     reminder_minutes: int | None = 30
     metadata: Dict[str, Any] | str | None = None
+
+
+class CalendarPlanTextCreateRequest(BaseModel):
+    text: str = Field(..., min_length=2, max_length=500)
+    category: str | None = Field(default="Plan", max_length=80)
+    timezone: str | None = Field(default="Asia/Kolkata", max_length=80)
 
 
 class CalendarEventUpdateRequest(BaseModel):
@@ -110,6 +117,23 @@ def create_event(req: CalendarEventCreateRequest, user=Depends(get_current_user)
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
         print("❌ /calendar/events create error:\n", traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Calendar event create failed")
+
+
+@router.post("/events/from-text")
+def create_event_from_text(req: CalendarPlanTextCreateRequest, user=Depends(get_current_user)):
+    try:
+        payload = parse_plan_text_to_payload(
+            req.text,
+            category=req.category,
+            timezone_name=req.timezone or "Asia/Kolkata",
+        )
+        event = create_calendar_event(_user_id(user), payload)
+        return {"success": True, "event": event}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        print("calendar /events/from-text create error:\n", traceback.format_exc())
         raise HTTPException(status_code=500, detail="Calendar event create failed")
 
 

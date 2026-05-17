@@ -129,6 +129,7 @@ boards_router = _load_optional_router("routers.boards")
 feedback_router = _load_optional_router("routers.feedback")
 ops_router = _load_optional_router("routers.ops")
 calendar_router = _load_optional_router("routers.calendar")
+med_logs_router = _load_optional_router("routers.med_logs")
 notifications_router = _load_optional_router("routers.notifications")
 workouts_router = _load_optional_router("routers.workouts")
 
@@ -687,6 +688,9 @@ if ops_router:
 
 if calendar_router:
     app.include_router(calendar_router, prefix="/api")
+
+if med_logs_router:
+    app.include_router(med_logs_router, prefix="/api")
 
 if notifications_router:
     app.include_router(notifications_router)

@@ -546,6 +546,19 @@ def _build_appwrite_doc(
         item.get("name") or item.get("label") or sub_category,
         "Item",
     )
+    if name.strip().lower() in {
+        "item",
+        "unknown",
+        "review item",
+        "reviewed item",
+        "needs review",
+        "needs_review",
+    }:
+        color_name = _safe_text(item.get("color_name") or item.get("color"))
+        noun = sub_category if sub_category.strip().lower() not in {"", "item", "unknown"} else ""
+        if not noun:
+            noun = _safe_text(item.get("category"), "Wardrobe Item")
+        name = " ".join(part for part in [color_name, noun] if part).strip() or "Wardrobe Item"
 
     category = normalize_category(item.get("category"), name, sub_category)
     name, sub_category = normalize_display_name_and_subcategory(
@@ -574,13 +587,14 @@ def _build_appwrite_doc(
     # image_url must point to the cleanest available asset for downstream
     # chat/style-board rendering. Add `normalized_url` as an optional String
     # attribute in Appwrite before deploying this file.
-    final_image_url = normalized_url or masked_url or raw_url
+    final_image_url = raw_url or normalized_url or masked_url
     pixel_hash = _safe_text(
         item.get("pixel_hash") or item.get("pixelHash") or item.get("masked_pixel_hash")
     )
 
     doc = {
         "image_url": final_image_url,
+        "raw_url": raw_url or final_image_url,
         "category": category,
         "userId": user_id,
         "status": "active",
@@ -757,7 +771,7 @@ def persist_selected_items(
                         "type": str(doc["sub_category"]).lower(),
                         "category": doc["category"],
                         "color": doc["color_code"],
-                        "image_url": doc.get("image_url") or masked_url,
+                        "image_url": masked_url or normalized_url or doc.get("image_url"),
                         "pixel_hash": pixel_hash,
                         "embedding": embedding,
                         "formality": style_attrs.get("formality"),
@@ -776,7 +790,7 @@ def persist_selected_items(
                             "type": str(doc["sub_category"]).lower(),
                             "category": doc["category"],
                             "color": doc["color_code"],
-                            "image_url": doc.get("image_url") or masked_url,
+                            "image_url": masked_url or normalized_url or doc.get("image_url"),
                             "masked_url": masked_url,
                             "normalized_url": normalized_url,
                             "pixel_hash": pixel_hash,

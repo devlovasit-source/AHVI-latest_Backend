@@ -1392,9 +1392,9 @@ def _module_fallback_answer(module_key: str, user_message: str) -> str:
         if any(token in message for token in ("spf", "sunscreen", "sun screen", "sunblock")):
             return (
                 "For SPF, choose a broad-spectrum SPF 30 or higher and apply it generously every morning. "
-                "If your skin is oily or acne-prone, try a lightweight non-comedogenic gel or fluid. "
+                "Match it to your skin type: if your skin is oily or acne-prone, try a lightweight non-comedogenic gel or fluid. "
                 "If your skin is dry or sensitive, look for a fragrance-free moisturizing sunscreen. Reapply "
-                "every 2-3 hours outdoors."
+                "every 2-3 hours outdoors, especially with longer sun exposure."
             )
         if "dry" in message:
             return (
@@ -1471,12 +1471,12 @@ def _module_response_envelope(
     answer_text = str(answer or "").strip()
     return {
         "success": True,
-        "type": "module_response",
+        "type": "module_chat",
         "module": module_key,
         "domain": module_key,
         "response": answer_text,
         "message_text": answer_text,
-        "message": answer_text,
+        "message": {"role": "assistant", "content": answer_text},
         "cards": [],
         "style_boards": [],
         "chips": chips or [],
@@ -1572,13 +1572,13 @@ def _module_llm_response(
     # so the frontend parser doesn't have to special-case the source.
     return {
         "success": True,
-        "type": "module_response",
+        "type": "module_chat",
         "module": module_key,
         # Three keys carrying the same payload — different clients pick
         # different keys. Keep them aligned to avoid empty-message bugs.
         "response": answer_text,
         "message_text": answer_text,
-        "message": answer_text,
+        "message": {"role": "assistant", "content": answer_text},
         "cards": [],
         "style_boards": [],
         "chips": [],

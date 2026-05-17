@@ -250,6 +250,24 @@ class DemoHardeningTests(unittest.TestCase):
         self.assertFalse(normalized["requires_manual_entry"])
         self.assertFalse(normalized.get("needs_review", False))
 
+    def test_wardrobe_reviewed_item_label_gets_best_effort_name(self):
+        from routers import wardrobe_capture
+
+        item = {
+            "name": "reviewed item",
+            "category": "Bottoms",
+            "sub_category": "Trousers",
+            "color_name": "black",
+            "confidence": 0.52,
+            "label_source": "heuristic",
+            "requires_manual_entry": True,
+        }
+
+        normalized = wardrobe_capture._normalize_capture_preview_item(item)
+
+        self.assertEqual(normalized["name"], "Black Trousers")
+        self.assertNotEqual(normalized["name"].lower(), "reviewed item")
+
     def test_wardrobe_persistence_saves_raw_and_masked_urls(self):
         import services.wardrobe_persistence_service as persistence
 

@@ -2955,6 +2955,24 @@ def finalize_style_response_payload(
         style_identity.get("profile_fields_used") or [],
     )
     logger.info(
+        "style_board.generate request_id=%s user_id=%s source=%s prompt=%s interpreted_occasion=%s wardrobe_item_count=%s selected_item_ids=%s accessory_count=%s cache_hit=%s fallback_used=%s fallback_reason=%s",
+        _safe_text(ctx.get("request_id") or ctx.get("requestId")),
+        user_id,
+        _safe_text(ctx.get("source") or _dict(ctx.get("signals")).get("source") or "style_flow"),
+        query,
+        normalized_occasion,
+        len(wardrobe_items),
+        ids,
+        sum(
+            len([x for x in (card.get("accessories") or []) if isinstance(x, dict)])
+            for card in cards
+            if isinstance(card, dict)
+        ),
+        False,
+        False,
+        "",
+    )
+    logger.info(
         "ahvi.final_boards occasion=%s titles=%s badges=%s",
         normalized_occasion,
         [c.get("title") for c in cards[:6]],
