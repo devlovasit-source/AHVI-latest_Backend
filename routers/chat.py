@@ -2210,6 +2210,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
         and not _clarification_in
         and " Â· " not in user_input
     ):
+        _fallback_recovered_prompt = ""
         for _hist_msg in reversed(list(request.messages or [])[:-1]):
             _hist_role = str(getattr(_hist_msg, "role", "") or "").strip().lower()
             if _hist_role and _hist_role != "user":
@@ -2226,8 +2227,17 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 _is_explicit_style_request(_hist_text, request.module_context)
                 or _ahvi_style_occasion(_hist_text) != "today"
             ):
-                _history_recovered_prompt = _hist_text
-                break
+                if (
+                    " · " in _hist_text
+                    or " Ã‚Â· " in _hist_text
+                    or _is_explicit_style_request(_hist_text, request.module_context)
+                ):
+                    _history_recovered_prompt = _hist_text
+                    break
+                if not _fallback_recovered_prompt:
+                    _fallback_recovered_prompt = _hist_text
+        if not _history_recovered_prompt:
+            _history_recovered_prompt = _fallback_recovered_prompt
         if _history_recovered_prompt:
             _previous_in = _history_recovered_prompt
             user_input = _history_recovered_prompt
