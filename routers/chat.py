@@ -2298,6 +2298,34 @@ def text_chat(request: TextChatRequest, http_request: Request):
                     user_input,
                 )
 
+    _occasion_chip_values = {
+        "office": "Office outfit",
+        "casual": "Casual outfit",
+        "date": "Date outfit tonight",
+        "party": "Party outfit tonight",
+        "travel": "Airport travel outfit",
+        "workout": "Workout outfit",
+    }
+    _cache_key_for_style = _style_context_cache_key()
+    if (
+        _cache_key_for_style
+        and _lower_input in _occasion_chip_values
+        and not _resolved_in
+        and not _previous_in
+        and not _clarification_in
+    ):
+        _cached_prompt = str(_STYLE_CONTEXT_CACHE.get(_cache_key_for_style) or "").strip()
+        if _cached_prompt and _cached_prompt.lower() != _lower_input:
+            _chip_label = _occasion_chip_values[_lower_input]
+            user_input = f"{_cached_prompt} · {_chip_label}"
+            _lower_input = user_input.strip().lower()
+            logger.info(
+                "style_clarification_context_recovered user_id=%s chip=%s resolved_prompt=%r",
+                _log_user_id,
+                _chip_label,
+                user_input,
+            )
+
     if _action_key:
         logger.info(
             "style_action_context_received action=%s original_prompt=%r resolved_prompt=%r session_id=%s current_look_id=%s",
