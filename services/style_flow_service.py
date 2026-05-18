@@ -2875,6 +2875,10 @@ def finalize_style_response_payload(
         or ctx.get("occasion"),
         query,
     )
+    safety_action = (style_action or "").strip().lower()
+    closest_option_requested = safety_action in {
+        "show_closest_option", "closest_option", "show_closest",
+    }
     cards = apply_occasion_card_language(cards, normalized_occasion)
     wardrobe_items = wardrobe if isinstance(wardrobe, list) else []
     if not wardrobe_items:
@@ -2936,19 +2940,60 @@ def finalize_style_response_payload(
         filtered_cards.append(card)
     if not filtered_cards:
         closest_board = _ahvi_pick_closest_safe_board(cards, normalized_occasion)
-        logger.info(
-            "ahvi.missing_occasion_wardrobe occasion=%s rejected=%s slot_counts=%s closest=%s",
-            normalized_occasion,
-            len(rejected_cards),
-            slot_counts,
-            bool(closest_board),
-        )
-        return _ahvi_missing_occasion_response(
-            occasion=normalized_occasion,
-            slot_counts=slot_counts,
-            closest_board=closest_board,
-        )
-    cards = apply_occasion_card_language(filtered_cards, normalized_occasion)
+        closest_rejected_reason = ""
+        if closest_option_requested and not closest_board:
+            closest_source = None
+            if rejected_cards:
+                closest_source, closest_rejected_reason = rejected_cards[0]
+            else:
+                for candidate in candidates:
+                    if isinstance(candidate, dict) and isinstance(candidate.get("items"), list):
+                        closest_source = candidate
+                        closest_rejected_reason = "finalizer_filtered_all"
+                        break
+            if closest_source:
+                closest_board = dict(closest_source)
+        if closest_option_requested and closest_board:
+            closest_board["title"] = "Closest wardrobe option"
+            closest_board["badge"] = "CLOSEST OPTION"
+            closest_board["occasion_label"] = "CLOSEST OPTION"
+            closest_board["occasion"] = normalized_occasion
+            closest_board["why_it_works"] = (
+                "This is the closest complete option from your wardrobe, but it still "
+                "needs refinement for the occasion."
+            )
+            closest_board["explanation"] = closest_board["why_it_works"]
+            closest_board.setdefault("score_meta", {})
+            closest_board["score_meta"].update(
+                {
+                    "occasion_reject": True,
+                    "closest_option_override": True,
+                    "closest_option_reason": closest_rejected_reason,
+                }
+            )
+            logger.info(
+                "style_closest_option_from_rejected user_id=%s occasion=%s reason=%s",
+                user_id,
+                normalized_occasion,
+                closest_rejected_reason,
+            )
+        if closest_option_requested and closest_board:
+            filtered_cards = [closest_board]
+        else:
+            logger.info(
+                "ahvi.missing_occasion_wardrobe occasion=%s rejected=%s slot_counts=%s closest=%s",
+                normalized_occasion,
+                len(rejected_cards),
+                slot_counts,
+                bool(closest_board),
+            )
+            return _ahvi_missing_occasion_response(
+                occasion=normalized_occasion,
+                slot_counts=slot_counts,
+                closest_board=closest_board,
+            )
+    if filtered_cards:
+        cards = apply_occasion_card_language(filtered_cards, normalized_occasion)
     finalize_ms = round((time.perf_counter() - finalize_started) * 1000, 2)
     ids = board_item_ids(cards)
     render_started = time.perf_counter()
@@ -3015,11 +3060,6 @@ def finalize_style_response_payload(
         from brain.engines.style_scorer import occasion_confidence_threshold
     except Exception:
         occasion_confidence_threshold = None  # type: ignore
-
-    safety_action = (style_action or "").strip().lower()
-    closest_option_requested = safety_action in {
-        "show_closest_option", "closest_option", "show_closest",
-    }
 
     occasion_scores = []
     for c in cards:

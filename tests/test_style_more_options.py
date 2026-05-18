@@ -826,6 +826,33 @@ def test_missing_occasion_response_not_core_missing_for_date():
     assert "date-night" in response["message"]
 
 
+def test_show_closest_option_can_return_rejected_complete_board():
+    result = {
+        "cards": [
+            _card(
+                _item("top-1", "White Shirt", "top", "white"),
+                _item("bottom-1", "Black Pants", "bottom"),
+                _item("shoe-1", "Leather Loafers", "footwear"),
+            )
+        ],
+        "outfits": [],
+    }
+
+    response = finalize_style_response_payload(
+        result,
+        user_id="u1",
+        query="beach wear",
+        style_action="show_closest_option",
+        include_base64=False,
+    )
+
+    assert response["meta"]["closest_option"] is True
+    assert response["meta"]["board_count"] == 1
+    assert response["cards"][0]["title"] == "Closest wardrobe option"
+    assert response["cards"][0]["score_meta"]["closest_option_override"] is True
+    assert response.get("type") != "missing_occasion_wardrobe"
+
+
 def test_missing_core_slots_response_only_for_actual_missing_slots():
     from services.style_flow_service import _ahvi_missing_core_slots_response
 
