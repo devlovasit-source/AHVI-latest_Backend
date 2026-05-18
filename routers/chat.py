@@ -2211,6 +2211,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
         and " Â· " not in user_input
     ):
         for _hist_msg in reversed(list(request.messages or [])[:-1]):
+            _hist_role = str(getattr(_hist_msg, "role", "") or "").strip().lower()
+            if _hist_role and _hist_role != "user":
+                continue
             _hist_text = str(getattr(_hist_msg, "content", "") or "").strip()
             _hist_key = _hist_text.lower()
             if (
