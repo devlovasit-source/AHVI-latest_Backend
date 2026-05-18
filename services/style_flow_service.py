@@ -461,7 +461,11 @@ def _ahvi_missing_occasion_response(
         ]
     payload = {
         "success": True,
-        "type": "missing_occasion_wardrobe",
+        "type": (
+            "weak_occasion_match"
+            if _ahvi_has_core_slots(slot_counts)
+            else "missing_occasion_wardrobe"
+        ),
         "message": message,
         "cards": [],
         "style_boards": [],
@@ -469,6 +473,7 @@ def _ahvi_missing_occasion_response(
             "occasion": normalized,
             "slot_counts": slot_counts,
             "missing_items": missing_items,
+            "weak_occasion_match": _ahvi_has_core_slots(slot_counts),
             "closest_safe_brief": (
                 "evening casual"
                 if normalized in {"date", "date_night"}
@@ -2845,6 +2850,9 @@ def finalize_style_response_payload(
     include_base64: bool = False,
     upload_to_r2: bool = False,
     style_action: str = "",
+    show_closest_option: bool = False,
+    allow_closest_option: bool = False,
+    closest: bool = False,
     exclude_style_signatures: Any = None,
     requested_board_count: Optional[int] = None,
     cache_bypass: bool = True,
@@ -2875,10 +2883,23 @@ def finalize_style_response_payload(
         or ctx.get("occasion"),
         query,
     )
-    safety_action = (style_action or "").strip().lower()
-    closest_option_requested = safety_action in {
-        "show_closest_option", "closest_option", "show_closest",
-    }
+    safety_action = (style_action or ctx.get("style_action") or "").strip().lower()
+    closest_option_requested = (
+        safety_action in {"show_closest_option", "closest_option", "show_closest"}
+        or bool(show_closest_option)
+        or bool(allow_closest_option)
+        or bool(closest)
+        or bool(ctx.get("show_closest_option"))
+        or bool(ctx.get("allow_closest_option"))
+        or bool(ctx.get("closest"))
+    )
+    logger.info(
+        "style_flow.closest_requested user=%s occasion=%s closest_requested=%s style_action=%s",
+        user_id,
+        normalized_occasion,
+        closest_option_requested,
+        safety_action,
+    )
     cards = apply_occasion_card_language(cards, normalized_occasion)
     wardrobe_items = wardrobe if isinstance(wardrobe, list) else []
     if not wardrobe_items:
@@ -2959,8 +2980,9 @@ def finalize_style_response_payload(
             closest_board["occasion_label"] = "CLOSEST OPTION"
             closest_board["occasion"] = normalized_occasion
             closest_board["why_it_works"] = (
-                "This is the closest complete option from your wardrobe, but it still "
-                "needs refinement for the occasion."
+                "This is the closest wardrobe-based option I found, but it still "
+                "needs refinement for this occasion. I would improve it with a "
+                "linen/cotton shirt and sandals."
             )
             closest_board["explanation"] = closest_board["why_it_works"]
             closest_board.setdefault("score_meta", {})
@@ -3208,6 +3230,9 @@ def build_style_flow_response(
     include_base64: bool = False,
     upload_to_r2: bool = False,
     style_action: str = "",
+    show_closest_option: bool = False,
+    allow_closest_option: bool = False,
+    closest: bool = False,
     exclude_style_signatures: Any = None,
     requested_board_count: Optional[int] = None,
     cache_bypass: bool = True,
@@ -3231,10 +3256,32 @@ def build_style_flow_response(
     )
     if normalized_occasion:
         ctx["occasion"] = normalized_occasion
+    closest_requested = (
+        str(style_action or ctx.get("style_action") or "").strip().lower()
+        in {"show_closest_option", "closest_option", "show_closest"}
+        or bool(show_closest_option)
+        or bool(allow_closest_option)
+        or bool(closest)
+        or bool(ctx.get("show_closest_option"))
+        or bool(ctx.get("allow_closest_option"))
+        or bool(ctx.get("closest"))
+    )
+    if closest_requested:
+        style_action = "show_closest_option"
+        ctx["style_action"] = "show_closest_option"
+        ctx["show_closest_option"] = True
+        ctx["allow_closest_option"] = True
+        ctx["closest"] = True
     logger.info(
         "ahvi.occasion_context occasion=%s query=%s",
         normalized_occasion or _occasion_kind(query),
         query,
+    )
+    logger.info(
+        "style_flow.closest_requested user=%s occasion=%s closest_requested=%s",
+        user_id,
+        normalized_occasion,
+        closest_requested,
     )
     if (
         occasion_interpretation.get("ask_user")
@@ -3264,11 +3311,18 @@ def build_style_flow_response(
         include_base64=include_base64,
         upload_to_r2=upload_to_r2,
         style_action=style_action,
+        show_closest_option=closest_requested,
+        allow_closest_option=closest_requested,
+        closest=closest_requested,
         exclude_style_signatures=exclude_style_signatures,
         requested_board_count=requested_board_count,
         cache_bypass=cache_bypass,
     )
-    if finalized.get("type") in {"missing_core_wardrobe_slots", "missing_occasion_wardrobe"}:
+    if finalized.get("type") in {
+        "missing_core_wardrobe_slots",
+        "missing_occasion_wardrobe",
+        "weak_occasion_match",
+    }:
         total_ms = round((time.perf_counter() - started) * 1000, 2)
         logger.info(
             "style_flow.timing user=%s candidates_ms=%s total_ms=%s wardrobe_count=%s cards=%s fallback=%s",
@@ -3328,14 +3382,21 @@ def build_style_flow_response(
         len(wardrobe) if isinstance(wardrobe, list) else 0,
         len(cards),
     )
-    return {
-        "success": bool(cards),
-        "message": result.get("context")
+    response_message = (
+        "This is the closest wardrobe-based option I found, but it still needs "
+        f"refinement for {str(query or normalized_occasion).replace(' · ', ' ').strip()}. "
+        "I would improve it with a linen/cotton shirt and sandals."
+        if cards and closest_requested
+        else result.get("context")
         or (
             "I pulled together wardrobe-based looks that match your request, occasion, and style profile."
             if cards
             else "I couldn't build a reliable style board from your wardrobe yet."
-        ),
+        )
+    )
+    return {
+        "success": bool(cards),
+        "message": response_message,
         "board": "style",
         "type": "cards" if cards else "missing_outfit_cards",
         "cards": cards,

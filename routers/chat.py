@@ -1125,7 +1125,21 @@ def _demo_style_board_payload(
     request_wardrobe,
     user_profile=None,
     style_action: str = "",
+    show_closest_option: bool = False,
+    allow_closest_option: bool = False,
+    closest: bool = False,
 ):
+    closest_requested = (
+        str(style_action or "").strip().lower() == "show_closest_option"
+        or bool(show_closest_option)
+        or bool(allow_closest_option)
+        or bool(closest)
+    )
+    if closest_requested:
+        style_action = "show_closest_option"
+        show_closest_option = True
+        allow_closest_option = True
+        closest = True
     profile = _ahvi_resolve_effective_user_profile(user_id, user_profile or {})
     wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
     wardrobe = [
@@ -1154,6 +1168,9 @@ def _demo_style_board_payload(
             },
             include_base64=False,
             style_action=style_action,
+            show_closest_option=show_closest_option,
+            allow_closest_option=allow_closest_option,
+            closest=closest,
             cache_bypass=True,
         )
     except Exception as exc:
@@ -1602,6 +1619,9 @@ class TextChatRequest(BaseModel):
     include_base64: bool = False
     wardrobe: Any = None
     style_action: str | None = None
+    show_closest_option: bool = False
+    allow_closest_option: bool = False
+    closest: bool = False
     exclude_style_signatures: List[str] = Field(default_factory=list)
     requested_board_count: int | None = None
     # Style-session context handoff. Frontend should attach these on
@@ -1614,6 +1634,7 @@ class TextChatRequest(BaseModel):
     previous_prompt: str | None = Field(default=None, max_length=600)
     resolved_prompt: str | None = Field(default=None, max_length=600)
     current_look_id: str | None = Field(default=None, max_length=80)
+    context: Dict[str, Any] = Field(default_factory=dict)
     style_context: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -2146,6 +2167,29 @@ def text_chat(request: TextChatRequest, http_request: Request):
             _resolved_in = str(getattr(payload, "resolved_prompt", None) or "").strip()
             _previous_in = str(getattr(payload, "previous_prompt", None) or "").strip()
             _clarification_in = str(getattr(payload, "clarification", None) or "").strip()
+            _style_context_in = (
+                getattr(payload, "style_context", None)
+                if isinstance(getattr(payload, "style_context", None), dict)
+                else {}
+            )
+            _request_context_in = (
+                getattr(payload, "context", None)
+                if isinstance(getattr(payload, "context", None), dict)
+                else {}
+            )
+            if _request_context_in and not _style_context_in:
+                _style_context_in = _request_context_in
+            if _style_context_in:
+                _resolved_in = _resolved_in or str(
+                    _style_context_in.get("resolved_prompt")
+                    or _style_context_in.get("resolvedPrompt")
+                    or ""
+                ).strip()
+                _previous_in = _previous_in or str(
+                    _style_context_in.get("original_prompt")
+                    or _style_context_in.get("originalPrompt")
+                    or ""
+                ).strip()
 
         _action_label = str(_action_label or "").strip()
         _action_key = _action_label.lower()
@@ -2158,6 +2202,11 @@ def text_chat(request: TextChatRequest, http_request: Request):
             style_action = _ACTION_LABEL_TO_STYLE_ACTION.get(_lower_input)
         if style_action and not request.style_action:
             request.style_action = style_action
+        if style_action == "show_closest_option":
+            request.style_action = "show_closest_option"
+            request.show_closest_option = True
+            request.allow_closest_option = True
+            request.closest = True
 
         logger.info(
             "style_action_context_parsed user_id=%s prompt=%r action_label=%r action=%r",
@@ -2279,6 +2328,16 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 _action_key or request.style_action,
                 user_input,
             )
+            if request.style_action == "show_closest_option":
+                request.show_closest_option = True
+                request.allow_closest_option = True
+                request.closest = True
+                logger.info(
+                    "style_closest_option_requested user_id=%s recovered_prompt=%r style_action=%s",
+                    _log_user_id,
+                    user_input,
+                    request.style_action,
+                )
     else:
         _cache_key_for_style = _style_context_cache_key()
         if (
@@ -2432,6 +2491,24 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # -------------------------
     style_query = _is_explicit_style_request(user_input, request.module_context)
     style_action = str(request.style_action or "").strip().lower()
+    closest_requested = (
+        style_action == "show_closest_option"
+        or bool(request.show_closest_option)
+        or bool(request.allow_closest_option)
+        or bool(request.closest)
+    )
+    if closest_requested:
+        style_action = "show_closest_option"
+        request.style_action = "show_closest_option"
+        request.show_closest_option = True
+        request.allow_closest_option = True
+        request.closest = True
+        logger.info(
+            "style_closest_option_requested user_id=%s recovered_prompt=%r style_action=%s",
+            user_id,
+            user_input,
+            style_action,
+        )
     visual_context = (
         str(request.module_context or "").lower() in {"style", "wardrobe"}
         or style_query
@@ -2625,6 +2702,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 "time_of_day": weather_data.get("time_of_day"),
                 "signals": {"user_message_style": user_message_style},
                 "style_action": style_action,
+                "show_closest_option": closest_requested,
+                "allow_closest_option": closest_requested,
+                "closest": closest_requested,
                 "exclude_style_signatures": [
                     str(x or "").strip().lower()
                     for x in (request.exclude_style_signatures or [])
@@ -2765,6 +2845,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 request.wardrobe,
                 effective_user_profile,
                 style_action=style_action,
+                show_closest_option=closest_requested,
+                allow_closest_option=closest_requested,
+                closest=closest_requested,
             )
             if style_payload.get("cards"):
                 cards_payload = style_payload.get("cards") or []
@@ -2861,6 +2944,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
             },
             include_base64=include_base64_for_chat,
             style_action=style_action,
+            show_closest_option=closest_requested,
+            allow_closest_option=closest_requested,
+            closest=closest_requested,
             exclude_style_signatures=request.exclude_style_signatures,
             requested_board_count=request.requested_board_count,
             cache_bypass=bool(cache_visual_boards),

@@ -821,7 +821,7 @@ def test_missing_occasion_response_not_core_missing_for_date():
 
     response = _ahvi_missing_occasion_response("date_night", slot_counts)
 
-    assert response["type"] == "missing_occasion_wardrobe"
+    assert response["type"] == "weak_occasion_match"
     assert "top, bottom, and footwear" not in response["message"]
     assert "date-night" in response["message"]
 

@@ -2458,6 +2458,19 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     if occasion:
         context = dict(context)
         context["occasion"] = occasion
+    closest_requested = (
+        str(context.get("style_action") or "").strip().lower()
+        in {"show_closest_option", "closest_option", "show_closest"}
+        or bool(context.get("show_closest_option"))
+        or bool(context.get("allow_closest_option"))
+        or bool(context.get("closest"))
+    )
+    if closest_requested:
+        context = dict(context)
+        context["style_action"] = "show_closest_option"
+        context["show_closest_option"] = True
+        context["allow_closest_option"] = True
+        context["closest"] = True
 
     if not occasion:
         return {
@@ -2820,6 +2833,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         )
 
         # AHVI editorial quality guard: remove weak/bad combinations before memory, indexing and card rendering.
+        pre_guard_ranked = list(ranked or [])
         try:
             ranked = filter_and_guard_outfits(
                 ranked,
@@ -2845,6 +2859,32 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             )
         except Exception as e:
             logging.getLogger(__name__).warning("outfit_quality_guard_failed: %s", e)
+        if closest_requested and not ranked and pre_guard_ranked:
+            closest_outfit = deepcopy(pre_guard_ranked[0])
+            closest_outfit.setdefault("score_meta", {})
+            closest_score_meta = closest_outfit["score_meta"]
+            closest_outfit["title"] = "Closest wardrobe option"
+            closest_outfit["badge"] = "CLOSEST OPTION"
+            closest_outfit["occasion_label"] = "CLOSEST OPTION"
+            closest_score_meta.update(
+                {
+                    "closest_option": True,
+                    "weak_match": True,
+                    "needs_refinement": True,
+                    "occasion_reject_overridden": True,
+                }
+            )
+            ranked = [closest_outfit]
+            logging.getLogger("ahvi.outfit_pipeline").info(
+                "style_closest_option_from_rejected user_id=%s occasion=%s score=%s reasons=%s",
+                user_id,
+                occasion,
+                closest_score_meta.get("occasion_compatibility_score")
+                or closest_outfit.get("score"),
+                closest_score_meta.get("occasion_penalties")
+                or closest_score_meta.get("closest_option_reason")
+                or [],
+            )
 
         user_memory["recent_outfits"] = ranked + user_memory.get("recent_outfits", [])
         user_memory["recent_outfits"] = user_memory["recent_outfits"][:30]

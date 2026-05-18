@@ -208,3 +208,6 @@ def test_style_fallback_forwards_style_action(monkeypatch):
 
     assert response["cards"]
     assert captured["style_action"] == "show_closest_option"
+    assert captured["show_closest_option"] is True
+    assert captured["allow_closest_option"] is True
+    assert captured["closest"] is True
