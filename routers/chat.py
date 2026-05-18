@@ -1584,6 +1584,17 @@ class TextChatRequest(BaseModel):
     style_action: str | None = None
     exclude_style_signatures: List[str] = Field(default_factory=list)
     requested_board_count: int | None = None
+    # Style-session context handoff. Frontend should attach these on
+    # chip / button / retry presses so the backend never sees a bare
+    # label ("Next best options", "Try again", "Casual beach walk")
+    # without the originating prompt.
+    action: str | None = Field(default=None, max_length=64)
+    clarification: str | None = Field(default=None, max_length=120)
+    session_id: str | None = Field(default=None, max_length=80)
+    previous_prompt: str | None = Field(default=None, max_length=600)
+    resolved_prompt: str | None = Field(default=None, max_length=600)
+    current_look_id: str | None = Field(default=None, max_length=80)
+    style_context: Dict[str, Any] = Field(default_factory=dict)
 
 
 class OutfitFeedbackRequest(BaseModel):
@@ -1968,6 +1979,89 @@ def text_chat(request: TextChatRequest, http_request: Request):
 
     if not user_input:
         raise HTTPException(status_code=400, detail="Empty message")
+
+    # ──────────────────────────────────────────────────────────────────
+    # CHIP / BUTTON / RETRY CONTEXT RESOLUTION
+    # ──────────────────────────────────────────────────────────────────
+    # The FE may send action chips (Next best options / More looks /
+    # Make it casual) or a retry. These need the original style
+    # context, not the bare label. Either:
+    #   (a) action + resolved_prompt is set → use resolved_prompt
+    #   (b) clarification is set → merge with previous_prompt
+    #   (c) bare action label arrives without context → ask the user
+    #       which look to continue from instead of running the
+    #       orchestrator on the label text alone.
+    _BARE_ACTION_PROMPTS = {
+        "try again", "next best options", "more looks", "try different shoes",
+        "make it casual", "make it polished", "use my wardrobe",
+        "ask me 2 questions",
+    }
+    _action_label = (request.action or "").strip().lower()
+    _resolved_in = (request.resolved_prompt or "").strip()
+    _previous_in = (request.previous_prompt or "").strip()
+    _clarification_in = (request.clarification or "").strip()
+
+    if _clarification_in and _previous_in and " · " not in user_input:
+        user_input = f"{_previous_in} · {_clarification_in}"
+        logger.info(
+            "style_clarification_selected user_id=%s original_prompt=%r selected_chip=%r resolved_prompt=%r",
+            "", _previous_in, _clarification_in, user_input,
+        )
+    elif _resolved_in and _resolved_in.lower() != user_input.lower():
+        # FE sent a resolved prompt explicitly — trust it.
+        user_input = _resolved_in
+
+    if _action_label:
+        logger.info(
+            "style_action_context_received action=%s original_prompt=%r resolved_prompt=%r session_id=%s current_look_id=%s",
+            _action_label, _previous_in, user_input,
+            request.session_id or "", request.current_look_id or "",
+        )
+
+    # Detect bare action prompts (no context attached). Reject early
+    # rather than letting the orchestrator chase "Next best options"
+    # as if it were a brand new style request.
+    _lower_input = user_input.strip().lower()
+    _is_bare_action = (
+        _lower_input in _BARE_ACTION_PROMPTS
+        and not _resolved_in
+        and not _previous_in
+        and not _clarification_in
+        and " · " not in user_input
+    )
+    if _is_bare_action:
+        logger.warning(
+            "frontend_context_missing action=%s prompt=%r",
+            _action_label or _lower_input, user_input,
+        )
+        chips = [
+            {"label": "Start new style request", "value": "What should I wear today?"},
+            {"label": "Use my wardrobe", "value": "Use my wardrobe"},
+            {"label": "Beach wear", "value": "Beach wear"},
+            {"label": "Office wear", "value": "Office wear"},
+        ]
+        return {
+            "success": True,
+            "ok": True,
+            "type": "context_required",
+            "intent": "style",
+            "message": {
+                "role": "assistant",
+                "content": "I need the previous style context to continue. What look should I build from?",
+            },
+            "message_text": "I need the previous style context to continue. What look should I build from?",
+            "response": "I need the previous style context to continue. What look should I build from?",
+            "chips": chips,
+            "cards": [],
+            "style_boards": [],
+            "data": {
+                "intent": "style",
+                "requires_context": True,
+                "missing_context_for_action": _action_label or _lower_input,
+            },
+            "meta": {"mode": "context_required"},
+            "audio_job_id": "offline",
+        }
 
     # SECURITY: user_id MUST come from the authenticated bearer token.
     # Falling back to request body / "user_1" sentinel allows cross-account

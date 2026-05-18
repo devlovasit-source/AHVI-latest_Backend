@@ -824,6 +824,20 @@ def filter_and_guard_outfits(
 ) -> List[Dict[str, Any]]:
     guarded: List[Dict[str, Any]] = []
 
+    # Lazy import to avoid circular: style_scorer also imports from this
+    # package indirectly via wardrobe_intelligence_service.
+    try:
+        from brain.engines.style_scorer import score_occasion_compatibility
+    except Exception:
+        score_occasion_compatibility = None  # type: ignore
+
+    occasion_context = {
+        "occasion": intent,
+        "interpreted_occasion": intent,
+        "prompt": query,
+        "resolved_prompt": query,
+    }
+
     for outfit in outfits or []:
         allowed, penalty, reasons, fixed = guard_outfit(
             outfit=outfit,
@@ -834,6 +848,43 @@ def filter_and_guard_outfits(
 
         if not allowed:
             continue
+
+        # Global occasion compatibility — applies to every occasion, not
+        # just beach. Drops outfits that hard-reject on the matrix and
+        # demotes outfits that fall below the min_required_score.
+        if score_occasion_compatibility is not None:
+            occ_result = score_occasion_compatibility(fixed, occasion_context)
+            fixed.setdefault("score_meta", {})
+            fixed["score_meta"].update({
+                "occasion_compatibility_score": occ_result["score"],
+                "occasion_boosts": occ_result["boosts"],
+                "occasion_penalties": occ_result["penalties"],
+                "occasion_reject": occ_result["reject"],
+                "occasion_reason": occ_result["reason"],
+                "occasion_resolved": occ_result["occasion"],
+            })
+            if occ_result["reject"]:
+                logger.info(
+                    "outfit_quality_editorial_rank reason='occasion_mismatch: %s for %s' score_meta=%s",
+                    ", ".join(occ_result["penalties"][:3]) or occ_result["reason"],
+                    occ_result["occasion"] or "?",
+                    fixed["score_meta"],
+                )
+                # Drop entirely.
+                continue
+            # Apply occasion-aware weighting:
+            # +20 for a perfect fit, +0 at the midpoint, large negative
+            # for poor fits so colour-only matches don't win.
+            occ_delta = (occ_result["score"] - 0.5) * 40.0
+            penalty += occ_delta
+            if occ_result["penalties"]:
+                reasons = list(reasons) + [
+                    f"occasion_penalty:{p}" for p in occ_result["penalties"][:3]
+                ]
+            if occ_result["boosts"]:
+                reasons = list(reasons) + [
+                    f"occasion_boost:{b}" for b in occ_result["boosts"][:3]
+                ]
 
         fixed["_quality_guard_penalty"] = penalty
         fixed["_quality_guard_reasons"] = reasons

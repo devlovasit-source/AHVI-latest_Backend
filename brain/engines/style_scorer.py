@@ -1,10 +1,403 @@
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from services.wardrobe_intelligence_service import (
     _style_meta,
     normalize_occasion as normalize_style_occasion,
     score_item_for_occasion,
 )
+
+
+# ============================================================
+# GLOBAL OCCASION COMPATIBILITY MATRIX
+# ============================================================
+# One source of truth for "what reads right for this occasion".
+# Consumed by score_occasion_compatibility() and the quality guard.
+# Per-occasion lists are intentionally short and high-signal so a
+# single matching token can move the score decisively. All terms are
+# lowercase substring matches against the item/outfit blob.
+
+OCCASION_COMPATIBILITY_RULES: Dict[str, Dict[str, Any]] = {
+    "beach": {
+        "boost_terms": [
+            "linen", "cotton", "breathable", "relaxed", "shorts", "sandals",
+            "slides", "espadrille", "espadrilles", "camp collar", "tank",
+            "tote", "open collar", "resort", "white", "pastel", "sky blue",
+            "swim", "boardshort",
+        ],
+        "hard_penalty_terms": [
+            "satin", "shiny", "glossy", "sequin", "formal shirt",
+            "dress shirt", "blazer", "wool", "leather shoes", "oxford",
+            "derby", "monk strap", "dress pants", "business",
+        ],
+        "reject_if_terms": [
+            "blazer", "wool", "tuxedo", "formal suit",
+        ],
+        "preferred_formality": "casual",
+        "min_required_score": 0.45,
+    },
+    "office": {
+        "boost_terms": [
+            "shirt", "button", "trouser", "chino", "loafer", "leather sneaker",
+            "blazer", "structured", "smart casual", "muted", "navy", "grey",
+            "white", "black", "watch", "belt",
+        ],
+        "hard_penalty_terms": [
+            "flip flop", "flip-flop", "swimwear", "gym shorts", "running shorts",
+            "shiny sequin", "beachwear", "tank", "crop top", "shorts",
+        ],
+        "reject_if_terms": [
+            "swimwear", "swim trunks", "flip flop", "flip-flop",
+        ],
+        "preferred_formality": "smart_casual",
+        "min_required_score": 0.5,
+    },
+    "date": {
+        "boost_terms": [
+            "polished", "fitted", "intentional", "loafer", "chelsea boot",
+            "watch", "leather sneaker", "knit", "evening", "minimal",
+            "burgundy", "cream", "navy",
+        ],
+        "hard_penalty_terms": [
+            "gym", "track", "athletic", "running", "flip flop",
+            "oversized hoodie", "cargo", "boardroom", "client",
+            "professional", "corporate",
+        ],
+        "reject_if_terms": [],
+        "preferred_formality": "smart_casual",
+        "min_required_score": 0.45,
+    },
+    "party": {
+        "boost_terms": [
+            "print", "pattern", "shirt", "dress", "boots", "leather sneaker",
+            "statement", "black", "burgundy", "silver", "gold accent",
+        ],
+        "hard_penalty_terms": [
+            "office", "corporate", "workwear", "gym", "running shoes",
+        ],
+        "reject_if_terms": [],
+        "preferred_formality": "social",
+        "min_required_score": 0.45,
+    },
+    "gym": {
+        "boost_terms": [
+            "performance", "stretch", "breathable", "training", "sneaker",
+            "running shoe", "athletic", "tech", "moisture wicking",
+            "joggers", "shorts", "tee", "tank",
+        ],
+        "hard_penalty_terms": [
+            "jeans", "denim", "formal shirt", "blazer", "loafer",
+            "leather", "dress shoes", "jewelry",
+        ],
+        "reject_if_terms": [
+            "blazer", "tuxedo", "formal suit",
+        ],
+        "preferred_formality": "athletic",
+        "min_required_score": 0.55,
+    },
+    "workout": {
+        "boost_terms": [
+            "performance", "stretch", "breathable", "training", "sneaker",
+            "running shoe", "athletic", "tech", "joggers", "shorts", "tee",
+        ],
+        "hard_penalty_terms": [
+            "jeans", "denim", "formal shirt", "blazer", "loafer",
+            "leather", "dress shoes",
+        ],
+        "reject_if_terms": [],
+        "preferred_formality": "athletic",
+        "min_required_score": 0.55,
+    },
+    "wedding": {
+        "boost_terms": [
+            "kurta", "sherwani", "saree", "lehenga", "suit", "blazer",
+            "dress shoes", "oxford", "loafer", "silk", "satin",
+            "embroidered", "festive", "elevated",
+        ],
+        "hard_penalty_terms": [
+            "basic tee", "running shoes", "gym", "shorts", "beach", "tank",
+            "flip flop", "flip-flop",
+        ],
+        "reject_if_terms": [],
+        "preferred_formality": "formal",
+        "min_required_score": 0.55,
+    },
+    "festive": {
+        "boost_terms": [
+            "embroidered", "silk", "satin", "elevated", "kurta",
+            "saree", "dress shoes", "ethnic",
+        ],
+        "hard_penalty_terms": [
+            "gym", "running shoes", "athletic", "track pants",
+        ],
+        "reject_if_terms": [],
+        "preferred_formality": "smart",
+        "min_required_score": 0.5,
+    },
+    "dinner": {
+        "boost_terms": [
+            "polished", "shirt", "trouser", "loafer", "leather sneaker",
+            "blazer", "knit",
+        ],
+        "hard_penalty_terms": [
+            "gym shorts", "flip flop", "tank", "athletic shoes",
+        ],
+        "reject_if_terms": [],
+        "preferred_formality": "smart_casual",
+        "min_required_score": 0.45,
+    },
+    "travel": {
+        "boost_terms": [
+            "comfort", "layers", "sneaker", "breathable", "stretch",
+            "wrinkle-resistant", "tee", "joggers", "tote", "backpack",
+            "hoodie", "easy",
+        ],
+        "hard_penalty_terms": [
+            "stiff", "tuxedo", "tight formal", "patent leather", "stilettos",
+            "very heavy formalwear",
+        ],
+        "reject_if_terms": [],
+        "preferred_formality": "casual",
+        "min_required_score": 0.45,
+    },
+    "airport": {
+        "boost_terms": [
+            "comfort", "layers", "sneaker", "breathable", "stretch",
+            "joggers", "hoodie", "tee", "tote",
+        ],
+        "hard_penalty_terms": [
+            "stilettos", "heels", "tuxedo", "patent leather", "stiff formal",
+        ],
+        "reject_if_terms": [],
+        "preferred_formality": "casual",
+        "min_required_score": 0.45,
+    },
+    "business": {
+        "boost_terms": [
+            "blazer", "suit", "dress shirt", "trouser", "loafer", "oxford",
+            "derby", "watch", "tie",
+        ],
+        "hard_penalty_terms": [
+            "flip flop", "gym shorts", "tank", "beach", "running shoes",
+            "swim", "shorts",
+        ],
+        "reject_if_terms": [
+            "swim", "flip flop",
+        ],
+        "preferred_formality": "formal",
+        "min_required_score": 0.5,
+    },
+    "casual": {
+        "boost_terms": [
+            "tee", "shirt", "jeans", "chino", "sneaker", "hoodie",
+            "relaxed", "easy",
+        ],
+        "hard_penalty_terms": [
+            "tuxedo", "ball gown", "formal evening",
+        ],
+        "reject_if_terms": [],
+        "preferred_formality": "casual",
+        "min_required_score": 0.4,
+    },
+    "rain": {
+        "boost_terms": [
+            "waterproof", "boot", "chelsea boot", "leather boot", "jacket",
+            "rain", "synthetic", "dark sneaker",
+        ],
+        "hard_penalty_terms": [
+            "suede", "canvas", "white sneaker", "cream sneaker", "slipper",
+            "sandals", "open shoe",
+        ],
+        "reject_if_terms": [],
+        "preferred_formality": None,
+        "min_required_score": 0.4,
+    },
+    "winter": {
+        "boost_terms": [
+            "wool", "cashmere", "knit", "coat", "boot", "layered",
+            "scarf", "thermal",
+        ],
+        "hard_penalty_terms": [
+            "tank", "shorts", "linen", "open sandal", "swim",
+        ],
+        "reject_if_terms": [],
+        "preferred_formality": None,
+        "min_required_score": 0.4,
+    },
+    "summer": {
+        "boost_terms": [
+            "linen", "cotton", "breathable", "shorts", "tee", "sandal",
+            "white", "pastel", "light",
+        ],
+        "hard_penalty_terms": [
+            "wool", "heavy coat", "thermal", "fur",
+        ],
+        "reject_if_terms": [],
+        "preferred_formality": None,
+        "min_required_score": 0.4,
+    },
+}
+
+
+# Alias normalization for prompts the FE / orchestrator may pass.
+_OCCASION_ALIASES: Dict[str, str] = {
+    "casual beach walk": "beach",
+    "beach vacation": "beach",
+    "beach day": "beach",
+    "poolside": "beach",
+    "poolside day": "beach",
+    "resort dinner": "beach",
+    "client meeting": "office",
+    "office meeting": "office",
+    "casual office day": "office",
+    "office wear": "office",
+    "boardroom": "office",
+    "corporate": "office",
+    "business meeting": "business",
+    "date night": "date",
+    "dinner date": "date",
+    "coffee date": "date",
+    "movie date": "date",
+    "date_night": "date",
+    "date night": "date",
+    "house_party": "party",
+    "house party": "party",
+    "club night": "party",
+    "dinner party": "party",
+    "airport outfit": "airport",
+    "airport look": "airport",
+    "road trip": "travel",
+    "day trip": "travel",
+    "overnight trip": "travel",
+    "strength training": "gym",
+    "cardio": "gym",
+    "yoga": "gym",
+    "indian wedding": "wedding",
+    "western wedding": "wedding",
+    "reception": "wedding",
+}
+
+
+def _resolve_occasion(context: Dict[str, Any]) -> str:
+    """Pick an occasion from any of the keys the orchestrator may send."""
+    candidates = [
+        context.get("occasion"),
+        context.get("interpreted_occasion"),
+        context.get("occasion_slug"),
+        context.get("event_type"),
+        context.get("style_intent"),
+        context.get("resolved_prompt"),
+        context.get("prompt"),
+    ]
+    for raw in candidates:
+        if not raw:
+            continue
+        text = str(raw).strip().lower()
+        if not text:
+            continue
+        # Try alias first (more specific phrases win).
+        for alias, target in _OCCASION_ALIASES.items():
+            if alias in text:
+                return target
+        normalized = normalize_occasion(text)
+        if normalized:
+            return normalized
+    return ""
+
+
+def _outfit_blob(outfit: Dict[str, Any]) -> str:
+    """Flatten outfit + every item into a single lower-case blob."""
+    parts: List[str] = []
+    for key in ("title", "vibe", "aesthetic", "style_direction", "explanation"):
+        val = outfit.get(key)
+        if val:
+            parts.append(str(val))
+    for item in outfit.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        parts.append(_item_blob(item))
+    return " ".join(parts).lower()
+
+
+def score_occasion_compatibility(
+    outfit: Dict[str, Any], context: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Score how well an outfit fits the inferred occasion.
+
+    Returns:
+      {
+        "score":  float in [0, 1]  (1 == great fit)
+        "raw_score": float          (signed, can be negative)
+        "boosts":   [str]
+        "penalties":[str]
+        "reject":   bool
+        "reason":   str
+        "occasion": str
+      }
+    """
+    occasion = _resolve_occasion(context)
+    if not occasion or occasion not in OCCASION_COMPATIBILITY_RULES:
+        # Unknown occasion → don't penalize, but report neutral.
+        return {
+            "score": 0.5,
+            "raw_score": 0.0,
+            "boosts": [],
+            "penalties": [],
+            "reject": False,
+            "reason": "occasion_unknown" if not occasion else f"no_rules_for_{occasion}",
+            "occasion": occasion,
+        }
+
+    rules = OCCASION_COMPATIBILITY_RULES[occasion]
+    blob = _outfit_blob(outfit)
+
+    boosts: List[str] = []
+    penalties: List[str] = []
+    raw = 0.0
+
+    for term in rules.get("boost_terms", []):
+        if term and term in blob:
+            boosts.append(term)
+            raw += 1.0
+    for term in rules.get("hard_penalty_terms", []):
+        if term and term in blob:
+            penalties.append(term)
+            raw -= 1.5
+
+    # Reject when a hard reject term is present AND no boost balances it.
+    reject = False
+    for term in rules.get("reject_if_terms", []):
+        if term and term in blob:
+            reject = True
+            penalties.append(f"reject_term:{term}")
+            break
+
+    # Normalize to [0, 1] using a soft tanh-like curve: each ±1 point
+    # nudges score ~0.1 around the 0.5 midpoint.
+    soft = 0.5 + 0.1 * raw
+    score = max(0.0, min(1.0, soft))
+
+    min_required = float(rules.get("min_required_score") or 0.45)
+    reason = ""
+    if reject:
+        reason = f"hard_reject:{penalties[-1] if penalties else 'forbidden_term'}"
+    elif score < min_required:
+        reason = f"below_min:{score:.2f}<{min_required:.2f}"
+    elif boosts:
+        reason = f"fits:{boosts[0]}"
+
+    return {
+        "score": score,
+        "raw_score": raw,
+        "boosts": boosts,
+        "penalties": penalties,
+        "reject": reject or score < min_required - 0.15,
+        "reason": reason,
+        "occasion": occasion,
+        "min_required_score": min_required,
+    }
+
+
+
 
 from brain.engines.color_normalizer import color_normalizer
 from brain.engines.style_graph_engine import style_graph_engine
