@@ -14,7 +14,12 @@ from typing import Any, Dict, List, Tuple
 from brain.engines.styling.style_builder import style_engine
 from brain.ml.outfit_ranker import outfit_ranker
 from brain.engines.style_graph_engine import style_graph_engine
-from brain.engines.style_scorer import occasion_item_score, normalize_occasion, style_scorer
+from brain.engines.style_scorer import (
+    normalize_occasion,
+    score_occasion_compatibility,
+    score_weather_compatibility,
+    style_scorer,
+)
 from brain.engines.refinement_engine import refinement_engine
 from brain.engines.wardrobe_selector import wardrobe_selector
 from brain.engines.styling.palette_engine import palette_engine
@@ -1746,11 +1751,14 @@ def score_outfit(
 
     colors = []
     item_ids = []
+    outfit_items = []
 
     for part in ("master_piece", "top", "bottom", "dress", "shoes", "outerwear"):
         item = outfit.get(part, {}) or {}
         if not item:
             continue
+        if isinstance(item, dict):
+            outfit_items.append(item)
         color = str(item.get("color", "")).lower()
         colors.append(color)
 
@@ -1759,21 +1767,20 @@ def score_outfit(
             item_ids.append(item_id)
             semantic_relevance += float(semantic_map.get(item_id, 0.0))
 
-        weather_tags = [str(v).lower() for v in item.get("weather_tags", [])]
-        occasion_tags = [str(v).lower() for v in item.get("occasion_tags", [])]
-
-        if weather and weather in weather_tags:
-            weather_score += 1.0
-        if occasion and occasion in occasion_tags:
-            occasion_score += 1.0
-        occasion_score += occasion_item_score(item, occasion)
-
-        name = str(item.get("name", "")).lower()
-        fabric = str(item.get("fabric", "")).lower()
-        if fabric and fabric in rules.get("preferred_fabrics", []):
-            occasion_score += 0.4
-        if name and name in rules.get("avoided_items", []):
-            occasion_score -= 1.0
+    outfit_view = {**outfit, "items": outfit.get("items") or outfit_items}
+    occasion_result = score_occasion_compatibility(
+        outfit_view,
+        {
+            **context,
+            "occasion": occasion,
+            "prompt": context.get("query") or context.get("prompt"),
+        },
+    )
+    weather_result = score_weather_compatibility(outfit_view, context)
+    occasion_score = (float(occasion_result.get("score") or 0.5) - 0.5) * 8.0
+    weather_score = (float(weather_result.get("score") or 0.5) - 0.5) * 3.0
+    if occasion_result.get("reject"):
+        occasion_score -= 8.0
 
     color_intelligence = _color_score(
         colors, [str(c).lower() for c in style_dna.get("preferred_colors", [])]
@@ -1827,6 +1834,9 @@ def score_outfit(
 
     features = {
         "occasion_rules": round(occasion_score + weather_score, 4),
+        "occasion_compatibility": round(float(occasion_result.get("score") or 0.5), 4),
+        "weather_compatibility": round(float(weather_result.get("score") or 0.5), 4),
+        "occasion_reject": 1.0 if occasion_result.get("reject") else 0.0,
         "color_intelligence": round(color_intelligence, 4),
         "layering": round(layering_score, 4),
         "style_graph": round(style_graph_bonus, 4),
@@ -1839,6 +1849,17 @@ def score_outfit(
     scored["score"] = round(base_score, 3)
     scored["ml_features"] = features
     scored["score_breakdown"] = features
+    scored.setdefault("score_meta", {})
+    scored["score_meta"].update(
+        {
+            "occasion_profile": occasion_result.get("profile") or {},
+            "occasion_compatibility_score": occasion_result.get("score"),
+            "occasion_compatibility": occasion_result,
+            "occasion_penalties": occasion_result.get("penalties", []),
+            "occasion_reject": occasion_result.get("reject", False),
+            "weather_compatibility": weather_result,
+        }
+    )
     return scored
 
 

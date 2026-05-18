@@ -355,13 +355,43 @@ def _resolve_occasion(context: Dict[str, Any]) -> str:
     return ""
 
 
+def resolve_occasion_profile(occasion: Any, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return normalized occasion rules used by scoring and guard layers."""
+    ctx = dict(context or {})
+    if occasion:
+        ctx.setdefault("occasion", occasion)
+    resolved = _resolve_occasion(ctx)
+    rules = OCCASION_COMPATIBILITY_RULES.get(resolved, {})
+    return {
+        "occasion": resolved,
+        "preferred_formality": rules.get("preferred_formality"),
+        "min_required_score": float(rules.get("min_required_score") or 0.45),
+        "confidence_threshold": occasion_confidence_threshold(resolved),
+        "has_rules": bool(rules),
+    }
+
+
 def _outfit_blob(outfit: Dict[str, Any]) -> str:
     """Flatten outfit + every item into a single lower-case blob."""
     parts: List[str] = []
-    for key in ("title", "vibe", "aesthetic", "style_direction", "explanation"):
+    for key in (
+        "title",
+        "vibe",
+        "aesthetic",
+        "style_direction",
+        "explanation",
+        "occasion",
+        "intent",
+        "use_case",
+        "scenario",
+    ):
         val = outfit.get(key)
         if val:
             parts.append(str(val))
+    for slot in ("master_piece", "top", "bottom", "dress", "shoes", "footwear", "outerwear"):
+        item = outfit.get(slot)
+        if isinstance(item, dict):
+            parts.append(_item_blob(item))
     for item in outfit.get("items") or []:
         if not isinstance(item, dict):
             continue
@@ -385,7 +415,8 @@ def score_occasion_compatibility(
         "occasion": str
       }
     """
-    occasion = _resolve_occasion(context)
+    profile = resolve_occasion_profile(None, context)
+    occasion = str(profile.get("occasion") or "")
     if not occasion or occasion not in OCCASION_COMPATIBILITY_RULES:
         # Unknown occasion → don't penalize, but report neutral.
         return {
@@ -396,6 +427,8 @@ def score_occasion_compatibility(
             "reject": False,
             "reason": "occasion_unknown" if not occasion else f"no_rules_for_{occasion}",
             "occasion": occasion,
+            "profile": profile,
+            "min_required_score": float(profile.get("min_required_score") or 0.45),
         }
 
     rules = OCCASION_COMPATIBILITY_RULES[occasion]
@@ -444,7 +477,43 @@ def score_occasion_compatibility(
         "reject": reject or score < min_required - 0.15,
         "reason": reason,
         "occasion": occasion,
+        "profile": profile,
         "min_required_score": min_required,
+    }
+
+
+def score_weather_compatibility(
+    outfit: Dict[str, Any], context: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Score weather realism using the same compatibility engine."""
+    text = str(
+        (context or {}).get("weather")
+        or (context or {}).get("condition")
+        or (context or {}).get("season")
+        or ""
+    ).strip().lower()
+    weather_key = ""
+    if any(w in text for w in ("rain", "monsoon", "wet")):
+        weather_key = "rain"
+    elif any(w in text for w in ("winter", "cold", "chilly")):
+        weather_key = "winter"
+    elif any(w in text for w in ("summer", "hot", "humid", "warm")):
+        weather_key = "summer"
+    if not weather_key:
+        return {
+            "score": 0.5,
+            "raw_score": 0.0,
+            "boosts": [],
+            "penalties": [],
+            "reject": False,
+            "reason": "weather_unknown",
+            "weather": text,
+        }
+    result = score_occasion_compatibility(outfit, {"occasion": weather_key})
+    return {
+        **result,
+        "weather": weather_key,
+        "reason": result.get("reason") or f"weather:{weather_key}",
     }
 
 
@@ -593,6 +662,8 @@ class UnifiedStyleScorer:
             "exploration": 0.0,
             "footwear_occasion": 0.0,
             "occasion_item": 0.0,
+            "occasion_compatibility": 0.0,
+            "weather_compatibility": 0.0,
         }
 
         rules = style_engine.get_scoring_rules(style_dna, context)
@@ -613,6 +684,24 @@ class UnifiedStyleScorer:
             # leaked into editorial explanations and read as a
             # fake-positive when occasion score was actually weak.
             reasons.append("graph_pairing_strong")
+
+        outfit_view = {"items": items}
+        occasion_result = score_occasion_compatibility(outfit_view, context)
+        weather_result = score_weather_compatibility(outfit_view, context)
+        breakdown["occasion_compatibility"] = (
+            (float(occasion_result.get("score") or 0.5) - 0.5) * 8.0
+        )
+        breakdown["weather_compatibility"] = (
+            (float(weather_result.get("score") or 0.5) - 0.5) * 3.0
+        )
+        if occasion_result.get("boosts"):
+            reasons.append(f"occasion_fit:{occasion_result['boosts'][0]}")
+        if occasion_result.get("penalties"):
+            warnings.extend(
+                f"occasion_penalty:{p}" for p in occasion_result["penalties"][:3]
+            )
+        if occasion_result.get("reject"):
+            warnings.append(f"occasion_reject:{occasion_result.get('reason') or 'low_fit'}")
 
         for item in items:
             color = color_normalizer.normalize(item.get("color") or item.get("color_code"))
@@ -703,6 +792,12 @@ class UnifiedStyleScorer:
                 for key, value in breakdown.items()
             },
             "rejection_warnings": list(dict.fromkeys(warnings))[:5],
+            "occasion_profile": occasion_result.get("profile") or {},
+            "occasion_compatibility": occasion_result,
+            "occasion_compatibility_score": occasion_result.get("score"),
+            "occasion_penalties": occasion_result.get("penalties", []),
+            "occasion_reject": occasion_result.get("reject", False),
+            "weather_compatibility": weather_result,
         }
 
     def _graph_score(self, items: List[Dict[str, Any]], graph: Dict[str, Any]) -> float:
