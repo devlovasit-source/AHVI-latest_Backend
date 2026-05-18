@@ -48,7 +48,14 @@ _CHAT_CACHE_MAX_ITEMS = max(64, int(os.getenv("CHAT_CACHE_MAX_ITEMS", "512")))
 _CHAT_CACHE_TTL_SECONDS = max(15, int(os.getenv("CHAT_CACHE_TTL_SECONDS", "60")))
 _WEATHER_CACHE_MAX_ITEMS = max(32, int(os.getenv("WEATHER_CACHE_MAX_ITEMS", "256")))
 _WEATHER_CACHE_TTL_SECONDS = max(60, int(os.getenv("WEATHER_CACHE_TTL_SECONDS", "900")))
-_ORCH_TIMEOUT_SECONDS = max(2, int(os.getenv("CHAT_ORCHESTRATOR_TIMEOUT_SECONDS", "8")))
+_ORCH_TIMEOUT_SECONDS = max(
+    2,
+    int(
+        os.getenv("ORCHESTRATOR_TIMEOUT_SECONDS")
+        or os.getenv("CHAT_ORCHESTRATOR_TIMEOUT_SECONDS")
+        or "20"
+    ),
+)
 _ORCHESTRATOR_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
     # Default reduced from 8 -> 3 to avoid oversubscribing 1-vCPU Cloud Run
     # instances under default concurrency=80. Override via env if needed.
@@ -166,27 +173,108 @@ def _structured_error_response(
     }
 
 
+_OCCASION_CLARIFICATION_CHIPS: Dict[str, List[Dict[str, str]]] = {
+    "beach": [
+        {"label": "Beach vacation", "value": "Beach vacation"},
+        {"label": "Poolside day", "value": "Poolside day"},
+        {"label": "Resort dinner", "value": "Resort dinner"},
+        {"label": "Casual beach walk", "value": "Casual beach walk"},
+        {"label": "Use my wardrobe", "value": "Use my wardrobe"},
+    ],
+    "office": [
+        {"label": "Office meeting", "value": "Office meeting"},
+        {"label": "Casual office day", "value": "Casual office day"},
+        {"label": "Client meeting", "value": "Client meeting"},
+        {"label": "Use my wardrobe", "value": "Use my wardrobe"},
+    ],
+    "party": [
+        {"label": "House party", "value": "House party"},
+        {"label": "Club night", "value": "Club night"},
+        {"label": "Dinner party", "value": "Dinner party"},
+        {"label": "Use my wardrobe", "value": "Use my wardrobe"},
+    ],
+    "date": [
+        {"label": "Dinner date", "value": "Dinner date"},
+        {"label": "Coffee date", "value": "Coffee date"},
+        {"label": "Movie date", "value": "Movie date"},
+        {"label": "Use my wardrobe", "value": "Use my wardrobe"},
+    ],
+    "travel": [
+        {"label": "Airport outfit", "value": "Airport outfit"},
+        {"label": "Road trip", "value": "Road trip"},
+        {"label": "Day trip", "value": "Day trip"},
+        {"label": "Overnight trip", "value": "Overnight trip"},
+        {"label": "Use my wardrobe", "value": "Use my wardrobe"},
+    ],
+    "gym": [
+        {"label": "Strength training", "value": "Strength training"},
+        {"label": "Cardio", "value": "Cardio"},
+        {"label": "Yoga", "value": "Yoga"},
+        {"label": "Use my wardrobe", "value": "Use my wardrobe"},
+    ],
+    "workout": [
+        {"label": "Strength training", "value": "Strength training"},
+        {"label": "Cardio", "value": "Cardio"},
+        {"label": "Yoga", "value": "Yoga"},
+        {"label": "Use my wardrobe", "value": "Use my wardrobe"},
+    ],
+    "wedding": [
+        {"label": "Indian wedding", "value": "Indian wedding"},
+        {"label": "Western wedding", "value": "Western wedding"},
+        {"label": "Reception", "value": "Reception"},
+        {"label": "Use my wardrobe", "value": "Use my wardrobe"},
+    ],
+}
+
+
+def _clarification_chips_for_occasion(occasion: Optional[str]) -> List[Dict[str, str]]:
+    """Pick a set of clarification chips tuned to the inferred occasion.
+
+    Falls back to a broad set when the occasion is unknown so the user
+    still has something useful to tap.
+    """
+    key = str(occasion or "").lower().strip()
+    if key in _OCCASION_CLARIFICATION_CHIPS:
+        return list(_OCCASION_CLARIFICATION_CHIPS[key])
+    return [
+        {"label": "Office", "value": "Office outfit"},
+        {"label": "Casual", "value": "Casual outfit"},
+        {"label": "Date", "value": "Date outfit tonight"},
+        {"label": "Party", "value": "Party outfit tonight"},
+        {"label": "Travel", "value": "Airport travel outfit"},
+        {"label": "Use my wardrobe", "value": "Use my wardrobe"},
+    ]
+
+
 def _style_clarification_response(query: str, interpretation: Dict[str, Any]) -> Dict[str, Any]:
-    chips = interpretation.get("chips") if isinstance(interpretation.get("chips"), list) else []
-    if not chips:
-        chips = [
-            {"label": "Office", "value": "office outfit"},
-            {"label": "Casual", "value": "casual outfit"},
-            {"label": "Date", "value": "date outfit tonight"},
-            {"label": "Party", "value": "party outfit tonight"},
-            {"label": "Travel", "value": "airport travel outfit"},
-            {"label": "Workout", "value": "workout outfit"},
-        ]
-    message = (
-        "What are we dressing for today? Pick an occasion, or tell me the weather, timing, mood, and any dress code."
+    occasion = (
+        (interpretation.get("board_generation_notes") or {}).get("occasion_kind")
+        or interpretation.get("occasion")
+        or interpretation.get("interpreted_occasion")
     )
+    # Prefer interpretation-provided chips, otherwise use occasion-specific set.
+    interp_chips = interpretation.get("chips") if isinstance(interpretation.get("chips"), list) else []
+    chips = interp_chips or _clarification_chips_for_occasion(occasion)
+
+    occasion_label = str(occasion or "").strip()
+    if occasion_label:
+        pretty = occasion_label.replace("_", " ").title()
+        message = (
+            f"{pretty} — got it. What are you dressing for?"
+        )
+    else:
+        message = (
+            "Got it. What are you dressing for today? Pick one of these or add a detail like weather, time, or vibe."
+        )
     return {
         "success": True,
         "ok": True,
-        "type": "style_clarification",
+        "type": "clarification",
+        "intent": "style",
         "message": {"role": "assistant", "content": message},
         "message_text": message,
         "response": message,
+        "text": message,
         "cards": [],
         "style_boards": [],
         "chips": chips,
@@ -194,6 +282,10 @@ def _style_clarification_response(query: str, interpretation: Dict[str, Any]) ->
         "data": {
             "outfits": [],
             "rendered_boards": [],
+            "intent": "style",
+            "requires_clarification": True,
+            "original_prompt": query,
+            "interpreted_occasion": occasion_label or None,
             "clarification": {
                 "prompt": query,
                 "questions": ["occasion", "weather/timing", "mood/style", "comfort/dress code"],
@@ -208,21 +300,113 @@ def _style_clarification_response(query: str, interpretation: Dict[str, Any]) ->
     }
 
 
+_VAGUE_STYLE_LITERALS = {
+    "outfit for today",
+    "suggest outfit for today",
+    "suggest an outfit for today",
+    "style me",
+    "what should i wear",
+    "what to wear",
+    "outfit",
+    "daily wear",
+    "today outfit",
+}
+
+# Broad fashion words that, when used alone or in a 1-4 word prompt,
+# need clarification before we burn 10s of orchestrator time.
+_BROAD_FASHION_TOKENS = {
+    "wear",
+    "outfit",
+    "style",
+    "look",
+    "beach",
+    "office",
+    "party",
+    "date",
+    "travel",
+    "gym",
+    "wedding",
+    "casual",
+    "formal",
+    "vacation",
+    "workout",
+    "dinner",
+    "brunch",
+}
+
+# Signals that mean the prompt already has enough context. If ANY of
+# these appear we let the orchestrator run.
+_SPECIFICITY_TOKENS = {
+    # weather / timing
+    "rain", "rainy", "cold", "hot", "humid", "summer", "winter", "monsoon",
+    "tomorrow", "today", "tonight", "morning", "evening", "afternoon",
+    "weekend", "monday", "tuesday", "wednesday", "thursday", "friday",
+    "saturday", "sunday",
+    # wardrobe / item anchors
+    "my wardrobe", "wardrobe", "use my", "with my", "from my", "linen",
+    "denim", "shirt", "trouser", "jeans", "skirt", "saree", "kurta",
+    "blazer", "dress", "shoes", "sneakers", "loafers", "white", "black",
+    "blue", "red", "green", "pink", "navy", "cream", "beige",
+    # event detail / venue
+    "rooftop", "candle", "ceremony", "reception", "interview", "meeting",
+    "boardroom", "client", "presentation", "airport", "trip", "hike",
+    # gender / body / preference
+    "men", "women", "male", "female", "petite", "tall", "curvy", "modest",
+    "ethnic", "western",
+}
+
+
 def _is_vague_style_prompt(text: str) -> bool:
+    """Legacy literal check; kept as a fast pre-pass."""
     normalized = re.sub(r"[^a-z0-9\s]", " ", str(text or "").lower()).strip()
     normalized = re.sub(r"\s+", " ", normalized)
-    vague = {
-        "outfit for today",
-        "suggest outfit for today",
-        "suggest an outfit for today",
-        "style me",
-        "what should i wear",
-        "what to wear",
-        "outfit",
-        "daily wear",
-        "today outfit",
-    }
-    return normalized in vague
+    return normalized in _VAGUE_STYLE_LITERALS
+
+
+def _needs_style_clarification(
+    prompt: str, interpreted_occasion: Optional[str] = None
+) -> bool:
+    """Decide whether a style prompt is too vague to burn orchestrator time.
+
+    Returns True when the prompt is short (1-4 words), contains a broad
+    fashion term, and lacks any specificity signal (weather/time/anchor
+    item/event detail). Empty / non-style prompts return False so they
+    don't accidentally divert non-style flows.
+    """
+    text = str(prompt or "").strip().lower()
+    if not text:
+        return False
+
+    if _is_vague_style_prompt(text):
+        return True
+
+    normalized = re.sub(r"[^a-z0-9\s]", " ", text)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    tokens = normalized.split() if normalized else []
+    if not tokens:
+        return False
+
+    # Only short prompts are candidates for clarification. Anything 5+
+    # words usually has enough signal; let the orchestrator decide.
+    if len(tokens) > 4:
+        return False
+
+    has_broad = (
+        any(t in _BROAD_FASHION_TOKENS for t in tokens)
+        or any(b in normalized for b in _BROAD_FASHION_TOKENS)
+    )
+    if not has_broad:
+        return False
+
+    # Multi-word phrases too (e.g. "use my wardrobe").
+    has_specificity = (
+        any(t in _SPECIFICITY_TOKENS for t in tokens)
+        or any(s in normalized for s in _SPECIFICITY_TOKENS)
+    )
+    if has_specificity:
+        return False
+
+    return True
 
 
 def _weather_cache_key(lat: Any, lon: Any) -> str:
@@ -1877,7 +2061,16 @@ def text_chat(request: TextChatRequest, http_request: Request):
         english_input = user_input
         target_lang = "en"
 
-    if visual_context:
+    # Style clarification guard. Run for EVERY style-shaped prompt, not
+    # only when visual_context is set, so vague 1-4 word prompts like
+    # "beach wear" never enter the 8-20s orchestrator round-trip.
+    style_intent_candidate = (
+        visual_context
+        or (request.module_context or "").lower() in {"style", "wardrobe", "daily_wear"}
+        or _ahvi_style_occasion(english_input) in {"beach", "office", "party", "date", "travel", "workout", "wedding", "gym"}
+    )
+
+    if style_intent_candidate:
         try:
             style_interpretation = interpret_occasion(
                 english_input,
@@ -1890,15 +2083,25 @@ def text_chat(request: TextChatRequest, http_request: Request):
             )
         except Exception:
             style_interpretation = {"board_generation_notes": {"occasion_kind": _ahvi_style_occasion(english_input)}}
-        intent_status = "clarify" if _is_vague_style_prompt(english_input) else "generate"
+        interpreted_occasion = (
+            (style_interpretation.get("board_generation_notes") or {}).get("occasion_kind")
+            or _ahvi_style_occasion(english_input)
+        )
+        needs_clarify = _needs_style_clarification(english_input, interpreted_occasion)
+        intent_status = "clarify" if needs_clarify else "generate"
         logger.info(
-            "style_intent user_id=%s intent_status=%s prompt=%s interpreted_occasion=%s",
+            "style_intent user_id=%s intent_status=%s prompt=%s interpreted_occasion=%s visual_context=%s",
             user_id,
             intent_status,
             english_input,
-            (style_interpretation.get("board_generation_notes") or {}).get("occasion_kind"),
+            interpreted_occasion,
+            bool(visual_context),
         )
-        if intent_status == "clarify":
+        if needs_clarify:
+            logger.info(
+                "style_clarification_triggered user_id=%s prompt=%r interpreted_occasion=%s reason=short_or_vague_style_prompt",
+                user_id, english_input, interpreted_occasion,
+            )
             return _style_clarification_response(english_input, style_interpretation)
 
     # -------------------------
@@ -1995,18 +2198,44 @@ def text_chat(request: TextChatRequest, http_request: Request):
             },
         )
 
+    _orch_started = time.time()
+    logger.info(
+        "chat.orchestrator_start user_id=%s prompt=%r timeout_seconds=%s module=%s",
+        user_id, english_input, _ORCH_TIMEOUT_SECONDS, request.module_context or "",
+    )
     try:
         result = _ORCHESTRATOR_EXECUTOR.submit(run).result(
             timeout=_ORCH_TIMEOUT_SECONDS
         )
+        logger.info(
+            "chat.orchestrator_success user_id=%s prompt=%r latency_ms=%s",
+            user_id, english_input, int((time.time() - _orch_started) * 1000),
+        )
     except concurrent.futures.TimeoutError:
-        logger.exception("chat.orchestrator_timeout user_id=%s prompt=%s", user_id, english_input)
+        logger.warning(
+            "chat.orchestrator_timeout user_id=%s prompt=%r timeout_seconds=%s",
+            user_id, english_input, _ORCH_TIMEOUT_SECONDS,
+        )
+        # Softer recovery. Always carries a Try-again chip whose VALUE is
+        # the original prompt, so the FE retry resends the same query
+        # (not the literal word "Try again"). Plus directional chips so
+        # the user can narrow without retyping.
         return _structured_error_response(
-            code="style_timeout" if visual_context else "chat_timeout",
-            message="AHVI's styling engine timed out. Please try again in a moment.",
+            code="ORCHESTRATOR_TIMEOUT",
+            message="AHVI needs a little more context to style this well. What kind of look should I build?",
             status_type="provider_timeout",
-            details={"timeout_seconds": _ORCH_TIMEOUT_SECONDS, "module_context": request.module_context or ""},
-            chips=[{"label": "Try again", "value": english_input}],
+            details={
+                "timeout_seconds": _ORCH_TIMEOUT_SECONDS,
+                "module_context": request.module_context or "",
+                "original_prompt": english_input,
+            },
+            chips=[
+                {"label": "Try again", "value": english_input},
+                {"label": "Use my wardrobe", "value": f"{english_input} · Use my wardrobe"},
+                {"label": "Make it casual", "value": f"{english_input} · casual"},
+                {"label": "Make it polished", "value": f"{english_input} · polished"},
+                {"label": "Ask me 2 questions", "value": f"{english_input} · ask me 2 questions"},
+            ],
         )
     except Exception as exc:
         logger.exception("chat.orchestrator_exception user_id=%s prompt=%s", user_id, english_input)
@@ -2014,7 +2243,11 @@ def text_chat(request: TextChatRequest, http_request: Request):
             code="style_generation_error" if visual_context else "chat_generation_error",
             message="AHVI hit a backend error while preparing this. Please try again in a moment.",
             status_type="backend_error",
-            details={"error": str(exc)[:240], "module_context": request.module_context or ""},
+            details={
+                "error": str(exc)[:240],
+                "module_context": request.module_context or "",
+                "original_prompt": english_input,
+            },
             chips=[{"label": "Try again", "value": english_input}],
         )
 
