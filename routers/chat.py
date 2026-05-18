@@ -2198,9 +2198,17 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # Style clarification guard. Run for EVERY style-shaped prompt, not
     # only when visual_context is set, so vague 1-4 word prompts like
     # "beach wear" never enter the 8-20s orchestrator round-trip.
+    # Earlier we keyed off _ahvi_style_occasion, but that helper doesn't
+    # recognise "beach" / "gym" / "wedding" as occasion tokens, so
+    # "beach wear" fell through to the LLM path and returned an empty
+    # body, which the FE rendered as "I'm having trouble thinking
+    # right now." The clarification helper itself already has a
+    # precise short-prompt + broad-fashion-token + specificity check,
+    # so just call it directly.
     style_intent_candidate = (
         visual_context
         or (request.module_context or "").lower() in {"style", "wardrobe", "daily_wear"}
+        or _needs_style_clarification(english_input)
         or _ahvi_style_occasion(english_input) in {"beach", "office", "party", "date", "travel", "workout", "wedding", "gym"}
     )
 
