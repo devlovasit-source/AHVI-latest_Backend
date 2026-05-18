@@ -256,6 +256,25 @@ def _style_clarification_response(query: str, interpretation: Dict[str, Any]) ->
     interp_chips = interpretation.get("chips") if isinstance(interpretation.get("chips"), list) else []
     chips = interp_chips or _clarification_chips_for_occasion(occasion)
 
+    # Pre-merge each chip's value with the original prompt so a chip
+    # tap in the FE retransmits the full intent ("beach wear · Beach
+    # vacation") and won't re-trigger the same clarification loop.
+    original = str(query or "").strip()
+    if original:
+        merged: List[Dict[str, str]] = []
+        for chip in chips:
+            if not isinstance(chip, dict):
+                continue
+            label = str(chip.get("label") or chip.get("value") or "").strip()
+            raw_value = str(chip.get("value") or label).strip()
+            if not label or not raw_value:
+                continue
+            already_merged = " · " in raw_value or raw_value.lower().startswith(original.lower())
+            value = raw_value if already_merged else f"{original} · {raw_value}"
+            merged.append({"label": label, "value": value})
+        if merged:
+            chips = merged
+
     occasion_label = str(occasion or "").strip()
     if occasion_label:
         pretty = occasion_label.replace("_", " ").title()
