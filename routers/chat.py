@@ -846,6 +846,12 @@ def _fetch_wardrobe_for_style(
 
 def _ahvi_style_occasion(query_text):
     q = str(query_text or "").lower()
+    if any(k in q for k in ["beach", "pool", "seaside", "coastal", "resort"]):
+        return "beach"
+    if any(k in q for k in ["gym", "workout", "fitness", "training", "yoga"]):
+        return "workout"
+    if any(k in q for k in ["wedding", "reception", "ceremony", "sangeet"]):
+        return "wedding"
     if any(k in q for k in ["date", "dinner", "night"]):
         return "date night"
     if any(k in q for k in ["office", "meeting", "work", "client"]):
@@ -1324,10 +1330,14 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
         "party outfit",
         "travel outfit",
         "airport outfit",
+        "beach outfit",
+        "beach wear",
+        "beachwear",
         "wedding outfit",
         "brunch outfit",
         "dinner outfit",
         "gym outfit",
+        "workout outfit",
     ]
     if any(p in q for p in explicit_phrases):
         return True
@@ -1339,6 +1349,7 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
         "party",
         "travel",
         "airport",
+        "beach",
         "wedding",
         "brunch",
         "dinner",
@@ -1818,6 +1829,63 @@ def _module_response_envelope(
     }
 
 
+def _module_style_response_envelope(
+    module_key: str,
+    style_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    payload = style_payload if isinstance(style_payload, dict) else {}
+    raw_message = payload.get("message") or payload.get("message_text") or payload.get("response")
+    if isinstance(raw_message, dict):
+        answer_text = str(raw_message.get("content") or "").strip()
+    else:
+        answer_text = str(raw_message or "").strip()
+    if not answer_text:
+        answer_text = (
+            "I can help style that. Add a little context like weather, timing, or dress code "
+            "and I will build the look."
+        )
+
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    cards = payload.get("cards") if isinstance(payload.get("cards"), list) else []
+    style_boards = (
+        payload.get("style_boards")
+        if isinstance(payload.get("style_boards"), list)
+        else cards
+    )
+    merged_data = {
+        **data,
+        "module": module_key,
+        "message": answer_text,
+        "rendered_boards": data.get("rendered_boards") or data.get("boards") or [],
+        "outfits": data.get("outfits") or cards,
+    }
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+
+    return {
+        **payload,
+        # Module chat succeeded even when the style payload is a helpful
+        # missing-wardrobe response. Keep that distinct from transport/provider
+        # failure so the app does not render its generic thinking fallback.
+        "success": True,
+        "module": module_key,
+        "domain": module_key,
+        "response": answer_text,
+        "message_text": answer_text,
+        "message": {"role": "assistant", "content": answer_text},
+        "cards": cards,
+        "style_boards": style_boards,
+        "chips": payload.get("chips") if isinstance(payload.get("chips"), list) else [],
+        "board_ids": str(payload.get("board_ids") or ""),
+        "data": merged_data,
+        "meta": {
+            **meta,
+            "mode": meta.get("mode") or "style_module_chat",
+            "board_count": len(cards),
+            "style_payload_success": bool(payload.get("success", True)),
+        },
+    }
+
+
 def _state_user_id(http_request: Request) -> str:
     state_user = getattr(http_request.state, "user", None)
     if isinstance(state_user, dict):
@@ -1929,6 +1997,7 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
     if user_id:
         profile["user_id"] = user_id
     user_message = str(request.message or "").strip()
+    merged_context = {**(request.context_data or {}), **(request.context or {})}
 
     if module in {"skincare", "diet", "meal", "planner", "calendar", "medi", "bills", "fitness"}:
         return await handle_module_chat(
@@ -1936,17 +2005,36 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
                 "domain": module,
                 "module": module,
                 "message": user_message,
-                "context": {**(request.context_data or {}), **(request.context or {})},
+                "context": merged_context,
                 "user_profile": profile,
             },
             user_id=user_id,
         )
 
+    if module in {"style", "wardrobe", "daily_wear"} and (
+        _is_explicit_style_request(user_message, module)
+        or _needs_style_clarification(user_message, _ahvi_style_occasion(user_message))
+    ):
+        wardrobe = (
+            merged_context.get("wardrobe")
+            or merged_context.get("outfits")
+            or merged_context.get("items")
+            or request.context_data.get("wardrobe")
+            or request.context.get("wardrobe")
+        )
+        style_payload = _demo_style_board_payload(
+            user_id=user_id or str(profile.get("user_id") or profile.get("$id") or ""),
+            query_text=user_message,
+            request_wardrobe=wardrobe,
+            user_profile=profile,
+        )
+        return _module_style_response_envelope(module, style_payload)
+
     return _module_llm_response(
         module=module,
         user_message=user_message,
         history=request.history,
-        context_data={**(request.context_data or {}), **(request.context or {})},
+        context_data=merged_context,
         user_profile=profile,
     )
 
@@ -2007,20 +2095,95 @@ def text_chat(request: TextChatRequest, http_request: Request):
         "closest option": "show_closest_option",
         "show_closest_option": "show_closest_option",
         "next best options": "more_options",
+        "next_best_options": "more_options",
         "more looks": "more_options",
+        "more_looks": "more_options",
         "try different shoes": "more_options",
+        "try_different_shoes": "more_options",
+        "try again": "retry",
+        "retry": "retry",
     }
-    _injected_style_action = (
-        _ACTION_LABEL_TO_STYLE_ACTION.get(_action_label)
-        or _ACTION_LABEL_TO_STYLE_ACTION.get(_lower_input_for_action := user_input.strip().lower())
-        or ""
-    )
-    if _injected_style_action and not request.style_action:
-        request.style_action = _injected_style_action
-    _action_label = (request.action or "").strip().lower()
-    _resolved_in = (request.resolved_prompt or "").strip()
-    _previous_in = (request.previous_prompt or "").strip()
-    _clarification_in = (request.clarification or "").strip()
+    _action_label = ""
+    _action_key = ""
+    style_action = None
+    _resolved_in = ""
+    _previous_in = ""
+    _clarification_in = ""
+    _lower_input = user_input.strip().lower()
+    _log_user_id = _state_user_id(http_request) or str(request.user_id or request.userID or "").strip()
+
+    try:
+        payload: Any = request
+        prompt = user_input
+        if isinstance(payload, dict):
+            _action_label = (
+                payload.get("action")
+                or payload.get("message")
+                or payload.get("prompt")
+                or prompt
+                or ""
+            )
+            _resolved_in = str(payload.get("resolved_prompt") or "").strip()
+            _previous_in = str(payload.get("previous_prompt") or "").strip()
+            _clarification_in = str(payload.get("clarification") or "").strip()
+        else:
+            _action_label = (
+                getattr(payload, "action", None)
+                or getattr(payload, "message", None)
+                or getattr(payload, "prompt", None)
+                or prompt
+                or ""
+            )
+            _resolved_in = str(getattr(payload, "resolved_prompt", None) or "").strip()
+            _previous_in = str(getattr(payload, "previous_prompt", None) or "").strip()
+            _clarification_in = str(getattr(payload, "clarification", None) or "").strip()
+
+        _action_label = str(_action_label or "").strip()
+        _action_key = _action_label.lower()
+        style_action = (
+            _ACTION_LABEL_TO_STYLE_ACTION.get(_action_key)
+            if _action_key
+            else None
+        )
+        if not style_action and _lower_input:
+            style_action = _ACTION_LABEL_TO_STYLE_ACTION.get(_lower_input)
+        if style_action and not request.style_action:
+            request.style_action = style_action
+
+        logger.info(
+            "style_action_context_parsed user_id=%s prompt=%r action_label=%r action=%r",
+            _log_user_id,
+            prompt,
+            _action_label,
+            style_action,
+        )
+    except Exception:
+        logger.exception(
+            "style_action_parse_failed user_id=%s prompt=%r",
+            _log_user_id,
+            user_input,
+        )
+        _action_label = ""
+        _action_key = ""
+        style_action = None
+        safe_message = (
+            "What are we dressing for today? Pick an occasion, or tell me the weather, "
+            "timing, mood, and any dress code."
+        )
+        return {
+            "success": True,
+            "response": safe_message,
+            "message": safe_message,
+            "text": safe_message,
+            "type": "clarification",
+            "chips": ["Office", "Casual", "Date", "Party", "Travel", "Workout"],
+            "data": {
+                "intent": "style",
+                "requires_clarification": True,
+                "safe_recovery": True,
+                "original_prompt": user_input,
+            },
+        }
 
     if _clarification_in and _previous_in and " · " not in user_input:
         user_input = f"{_previous_in} · {_clarification_in}"
@@ -2032,10 +2195,10 @@ def text_chat(request: TextChatRequest, http_request: Request):
         # FE sent a resolved prompt explicitly — trust it.
         user_input = _resolved_in
 
-    if _action_label:
+    if _action_key:
         logger.info(
             "style_action_context_received action=%s original_prompt=%r resolved_prompt=%r session_id=%s current_look_id=%s",
-            _action_label, _previous_in, user_input,
+            _action_key, _previous_in, user_input,
             request.session_id or "", request.current_look_id or "",
         )
 
@@ -2053,7 +2216,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
     if _is_bare_action:
         logger.warning(
             "frontend_context_missing action=%s prompt=%r",
-            _action_label or _lower_input, user_input,
+            _action_key or _lower_input, user_input,
         )
         chips = [
             {"label": "Start new style request", "value": "What should I wear today?"},
@@ -2078,7 +2241,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "data": {
                 "intent": "style",
                 "requires_context": True,
-                "missing_context_for_action": _action_label or _lower_input,
+                "missing_context_for_action": _action_key or _lower_input,
             },
             "meta": {"mode": "context_required"},
             "audio_job_id": "offline",
