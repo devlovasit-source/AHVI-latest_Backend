@@ -104,6 +104,7 @@ class _TTLLRUCache:
 
 _CHAT_CACHE = _TTLLRUCache(_CHAT_CACHE_MAX_ITEMS, _CHAT_CACHE_TTL_SECONDS)
 _WEATHER_CACHE = _TTLLRUCache(_WEATHER_CACHE_MAX_ITEMS, _WEATHER_CACHE_TTL_SECONDS)
+_STYLE_CONTEXT_CACHE = _TTLLRUCache(512, 15 * 60)
 
 
 def lightweight_chat(text: str) -> str:
@@ -2195,6 +2196,22 @@ def text_chat(request: TextChatRequest, http_request: Request):
         # FE sent a resolved prompt explicitly — trust it.
         user_input = _resolved_in
 
+    def _style_context_cache_key() -> str:
+        return str(_log_user_id or request.session_id or "").strip()
+
+    def _is_richer_style_prompt(candidate: str, current: str = "") -> bool:
+        cand = str(candidate or "").strip()
+        cur = str(current or "").strip()
+        if not cand:
+            return False
+        cand_has_merge = " · " in cand or " Â· " in cand or " Ã‚Â· " in cand
+        cur_has_merge = " · " in cur or " Â· " in cur or " Ã‚Â· " in cur
+        if cand_has_merge and not cur_has_merge:
+            return True
+        if cand_has_merge == cur_has_merge and len(cand) > len(cur):
+            return True
+        return False
+
     # Older frontend builds may send only the chip label ("Show closest
     # option") even though the /api/text payload still contains prior chat
     # messages. Recover the last real style prompt from history so action
@@ -2238,6 +2255,12 @@ def text_chat(request: TextChatRequest, http_request: Request):
                     _fallback_recovered_prompt = _hist_text
         if not _history_recovered_prompt:
             _history_recovered_prompt = _fallback_recovered_prompt
+        _cached_prompt = ""
+        _cache_key_for_style = _style_context_cache_key()
+        if _cache_key_for_style:
+            _cached_prompt = str(_STYLE_CONTEXT_CACHE.get(_cache_key_for_style) or "").strip()
+        if _is_richer_style_prompt(_cached_prompt, _history_recovered_prompt):
+            _history_recovered_prompt = _cached_prompt
         if _history_recovered_prompt:
             _previous_in = _history_recovered_prompt
             user_input = _history_recovered_prompt
@@ -2248,6 +2271,24 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 _action_key or request.style_action,
                 user_input,
             )
+    else:
+        _cache_key_for_style = _style_context_cache_key()
+        if (
+            _cache_key_for_style
+            and _lower_input not in _BARE_ACTION_PROMPTS
+            and (
+                _is_explicit_style_request(user_input, request.module_context)
+                or _ahvi_style_occasion(user_input) != "today"
+            )
+        ):
+            _existing_prompt = str(_STYLE_CONTEXT_CACHE.get(_cache_key_for_style) or "").strip()
+            if _is_richer_style_prompt(user_input, _existing_prompt) or not _existing_prompt:
+                _STYLE_CONTEXT_CACHE.set(_cache_key_for_style, user_input)
+                logger.info(
+                    "style_action_context_cached user_id=%s prompt=%r",
+                    _log_user_id,
+                    user_input,
+                )
 
     if _action_key:
         logger.info(
