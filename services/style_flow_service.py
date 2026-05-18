@@ -353,13 +353,28 @@ def _ahvi_missing_core_slots_response(slot_counts: dict) -> dict:
         missing.append("bottom")
     if int(slot_counts.get("footwear", 0) or 0) <= 0:
         missing.append("footwear")
+    present = []
+    if int(slot_counts.get("top", 0) or 0) > 0:
+        present.append("top")
+    if int(slot_counts.get("bottom", 0) or 0) > 0:
+        present.append("bottom")
+    if int(slot_counts.get("footwear", 0) or 0) > 0:
+        present.append("footwear")
+    if present:
+        message = (
+            f"I found your {', '.join(present)} slot"
+            f"{'' if len(present) == 1 else 's'}, but I still need "
+            f"{' and '.join(missing)} to complete this look. "
+            "A complete board needs top, bottom, and footwear."
+        )
+    else:
+        message = (
+            "I need at least one top, one bottom, and one footwear item before I can build a real style board."
+        )
     return {
         "success": True,
         "type": "missing_core_wardrobe_slots",
-        "message": (
-            "I couldn't build a complete style board from your wardrobe yet. "
-            "Please add at least one top, bottom, and footwear item."
-        ),
+        "message": message,
         "cards": [],
         "style_boards": [],
         "data": {
@@ -2873,7 +2888,8 @@ def finalize_style_response_payload(
                 wardrobe_items.append(candidate)
     slot_counts = _ahvi_slot_counts(wardrobe_items)
     logger.info(
-        "ahvi.wardrobe_slot_counts occasion=%s total=%s top=%s bottom=%s footwear=%s accessory=%s outerwear=%s",
+        "style_board.slot_audit user_id=%s occasion=%s raw_wardrobe_count=%s top_count=%s bottom_count=%s footwear_count=%s accessory_count=%s outerwear_count=%s normalized_categories=%s",
+        user_id,
         normalized_occasion,
         slot_counts.get("total"),
         slot_counts.get("top"),
@@ -2881,6 +2897,13 @@ def finalize_style_response_payload(
         slot_counts.get("footwear"),
         slot_counts.get("accessory"),
         slot_counts.get("outerwear"),
+        {
+            "top": slot_counts.get("top"),
+            "bottom": slot_counts.get("bottom"),
+            "footwear": slot_counts.get("footwear"),
+            "accessory": slot_counts.get("accessory"),
+            "outerwear": slot_counts.get("outerwear"),
+        },
     )
     if not _ahvi_has_core_slots(slot_counts):
         logger.info(

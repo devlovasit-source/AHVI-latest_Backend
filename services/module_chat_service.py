@@ -49,7 +49,27 @@ def _envelope(
 
 async def handle_diet_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
     lower = message.lower()
-    if "protein" in lower and "breakfast" in lower:
+    if "low" in lower and "carb" in lower and ("dinner" in lower or "night" in lower):
+        reply = (
+            "For a low-carb dinner, build the plate around protein plus vegetables: grilled paneer, tofu, eggs, fish, or chicken with sauteed greens, salad, or soup. "
+            "Keep sauces light and skip large rice/roti portions tonight."
+        )
+    elif "weight gain" in lower or "gain weight" in lower or "bulk" in lower:
+        reply = (
+            "For healthy weight gain, add a steady calorie surplus with protein at each meal: milk or curd, eggs/paneer/tofu/chicken, dal, rice or roti, nuts, and smoothies. "
+            "Aim for consistency rather than very large single meals."
+        )
+    elif "non vegetarian" in lower or "non-vegetarian" in lower or "chicken" in lower or "fish" in lower:
+        reply = (
+            "A non-vegetarian plan can use eggs or Greek yogurt at breakfast, chicken/fish with rice or roti at lunch, and lean protein with vegetables at dinner. "
+            "Balance it with fiber, fluids, and not every meal needs to be heavy."
+        )
+    elif "weekly" in lower or "week" in lower:
+        reply = (
+            "For a weekly meal plan, rotate protein sources and repeat easy staples: two high-protein breakfasts, two simple lunches, two lighter dinners, and one flexible meal. "
+            "Tell me veg/non-veg and goal if you want a day-by-day plan."
+        )
+    elif "protein" in lower and "breakfast" in lower:
         reply = (
             "For a high-protein breakfast, try Greek yogurt with fruit and nuts, eggs with "
             "whole-grain toast, paneer or tofu scramble, or oats with milk and seeds. Keep it "
@@ -125,10 +145,9 @@ async def handle_skincare_chat(message: str, context: Dict[str, Any], user_id: s
 
 async def handle_calendar_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
     reply = (
-        "I can help structure this plan. Reminder sync is coming next, so for now I will not mark "
-        "reminders as saved. Share your tasks, deadline, and rough priority, and I will organize the day."
+        "Use Add Plan to save this to your calendar. Tell me the task, category, and time, and I will help phrase it clearly before saving."
     )
-    return _envelope(domain="calendar", message=reply, chips=["Plan my day", "Prioritize tasks", "Reminder sync"])
+    return _envelope(domain="calendar", message=reply, chips=["Plan my day", "Prioritize tasks", "Add plan"])
 
 
 async def handle_medi_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
@@ -160,10 +179,28 @@ async def handle_bills_chat(message: str, context: Dict[str, Any], user_id: str)
 
 
 async def handle_fitness_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
-    reply = (
-        "For fitness, I can help with workout prep, safe exercise structure, and outfit pairing. "
-        "Tell me your goal, time available, equipment, and any constraints."
-    )
+    lower = message.lower()
+    if "hiit" in lower:
+        reply = (
+            "HIIT plan: warm up 5 minutes, then 30 seconds work / 30 seconds rest for squats, mountain climbers, push-ups, high knees, and plank jacks. "
+            "Repeat 3-4 rounds, cool down 5 minutes, and wear breathable stretch pieces with secure footwear."
+        )
+    elif "strength" in lower or "muscle" in lower:
+        reply = (
+            "Strength plan: 3-4 sets each of squats, hip hinges, push movements, rows, and core. Keep reps controlled, rest 60-90 seconds, and progress slowly."
+        )
+    elif "yoga" in lower or "stretch" in lower:
+        reply = (
+            "Mobility plan: 5 minutes breathing, cat-cow, hip openers, hamstring stretch, thoracic rotations, and a gentle cooldown. Wear soft stretch pieces that do not restrict movement."
+        )
+    elif "outfit" in lower or "wardrobe" in lower:
+        reply = (
+            "For a workout outfit, choose breathable top, flexible bottom, and supportive footwear. If one slot is missing from wardrobe, add that piece before I pair a complete training look."
+        )
+    else:
+        reply = (
+            "Tell me workout type, time available, intensity, equipment, and any constraints. I will build the session around those details instead of giving a generic routine."
+        )
     return _envelope(domain="fitness", message=reply, chips=["Quick workout", "Outfit help", "Stretching"])
 
 

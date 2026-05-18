@@ -28,6 +28,7 @@ from services.style_flow_service import (
     build_style_flow_response,
     card_signature as style_card_signature,
     finalize_style_response_payload,
+    interpret_occasion,
 )
 from services.module_chat_service import handle_module_chat
 
@@ -110,8 +111,118 @@ def lightweight_chat(text: str) -> str:
     return "I can help with style, planning, and wardrobe advice. Tell me what you want to solve."
 
 
-def _cache_key(text, user_id):
-    return f"{user_id}:{text.lower().strip()}"
+def _wardrobe_hash(wardrobe: Any) -> str:
+    if not isinstance(wardrobe, list):
+        return "no_wardrobe"
+    rows: List[str] = []
+    for item in wardrobe:
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            "|".join(
+                str(item.get(k) or "").strip().lower()
+                for k in ("id", "$id", "name", "category", "sub_category", "subcategory", "color")
+            )
+        )
+    return hashlib.sha1("\n".join(sorted(rows)).encode("utf-8")).hexdigest()
+
+
+def _cache_key(text, user_id, *, module_context: str = "", wardrobe: Any = None, occasion: str = "", weather: Any = None):
+    parts = [
+        str(user_id or "").strip(),
+        str(module_context or "").strip().lower(),
+        str(text or "").strip().lower(),
+        str(occasion or "").strip().lower(),
+        str(weather or "").strip().lower(),
+        _wardrobe_hash(wardrobe),
+    ]
+    return hashlib.sha1("::".join(parts).encode("utf-8")).hexdigest()
+
+
+def _structured_error_response(
+    *,
+    code: str,
+    message: str,
+    status_type: str = "error",
+    details: Optional[Dict[str, Any]] = None,
+    chips: Optional[List[Any]] = None,
+) -> Dict[str, Any]:
+    safe_message = str(message or "AHVI could not complete this request.").strip()
+    return {
+        "ok": False,
+        "success": False,
+        "type": status_type,
+        "message": {"role": "assistant", "content": safe_message},
+        "message_text": safe_message,
+        "response": safe_message,
+        "cards": [],
+        "style_boards": [],
+        "chips": chips or [],
+        "board_ids": "",
+        "data": {"outfits": [], "rendered_boards": [], "error": {"code": code, "message": safe_message, "details": details or {}}},
+        "error": {"code": code, "message": safe_message, "details": details or {}},
+        "meta": {"error_code": code, **(details or {})},
+        "audio_job_id": "offline",
+    }
+
+
+def _style_clarification_response(query: str, interpretation: Dict[str, Any]) -> Dict[str, Any]:
+    chips = interpretation.get("chips") if isinstance(interpretation.get("chips"), list) else []
+    if not chips:
+        chips = [
+            {"label": "Office", "value": "office outfit"},
+            {"label": "Casual", "value": "casual outfit"},
+            {"label": "Date", "value": "date outfit tonight"},
+            {"label": "Party", "value": "party outfit tonight"},
+            {"label": "Travel", "value": "airport travel outfit"},
+            {"label": "Workout", "value": "workout outfit"},
+        ]
+    message = (
+        "What are we dressing for today? Pick an occasion, or tell me the weather, timing, mood, and any dress code."
+    )
+    return {
+        "success": True,
+        "ok": True,
+        "type": "style_clarification",
+        "message": {"role": "assistant", "content": message},
+        "message_text": message,
+        "response": message,
+        "cards": [],
+        "style_boards": [],
+        "chips": chips,
+        "board_ids": "",
+        "data": {
+            "outfits": [],
+            "rendered_boards": [],
+            "clarification": {
+                "prompt": query,
+                "questions": ["occasion", "weather/timing", "mood/style", "comfort/dress code"],
+            },
+        },
+        "meta": {
+            "mode": "style_intent_clarification",
+            "intent_status": "clarify",
+            "occasion_interpretation": interpretation,
+        },
+        "audio_job_id": "offline",
+    }
+
+
+def _is_vague_style_prompt(text: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9\s]", " ", str(text or "").lower()).strip()
+    normalized = re.sub(r"\s+", " ", normalized)
+    vague = {
+        "outfit for today",
+        "suggest outfit for today",
+        "suggest an outfit for today",
+        "style me",
+        "what should i wear",
+        "what to wear",
+        "outfit",
+        "daily wear",
+        "today outfit",
+    }
+    return normalized in vague
 
 
 def _weather_cache_key(lat: Any, lon: Any) -> str:
@@ -1707,13 +1818,19 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # -------------------------
     # CACHE
     # -------------------------
-    cache_key = _cache_key(user_input, user_id)
     style_query = _is_explicit_style_request(user_input, request.module_context)
     style_action = str(request.style_action or "").strip().lower()
     visual_context = (
         str(request.module_context or "").lower() in {"style", "wardrobe"}
         or style_query
         or bool(style_action)
+    )
+    cache_key = _cache_key(
+        user_input,
+        user_id,
+        module_context=str(request.module_context or ""),
+        wardrobe=request.wardrobe,
+        occasion=_ahvi_style_occasion(user_input) if visual_context else "",
     )
     include_base64_for_chat = bool(request.include_base64 and _CHAT_INCLUDE_BASE64_ALLOWED)
     if request.include_base64 and not _CHAT_INCLUDE_BASE64_ALLOWED:
@@ -1759,6 +1876,30 @@ def text_chat(request: TextChatRequest, http_request: Request):
     except Exception:
         english_input = user_input
         target_lang = "en"
+
+    if visual_context:
+        try:
+            style_interpretation = interpret_occasion(
+                english_input,
+                {
+                    "module_context": request.module_context or "style",
+                    "user_profile": effective_user_profile,
+                    "wardrobe": request.wardrobe,
+                    "weather": weather_data.get("condition") if "weather_data" in locals() else None,
+                },
+            )
+        except Exception:
+            style_interpretation = {"board_generation_notes": {"occasion_kind": _ahvi_style_occasion(english_input)}}
+        intent_status = "clarify" if _is_vague_style_prompt(english_input) else "generate"
+        logger.info(
+            "style_intent user_id=%s intent_status=%s prompt=%s interpreted_occasion=%s",
+            user_id,
+            intent_status,
+            english_input,
+            (style_interpretation.get("board_generation_notes") or {}).get("occasion_kind"),
+        )
+        if intent_status == "clarify":
+            return _style_clarification_response(english_input, style_interpretation)
 
     # -------------------------
     # GENERAL CHAT / LLM ROUTE
@@ -1859,73 +2000,23 @@ def text_chat(request: TextChatRequest, http_request: Request):
             timeout=_ORCH_TIMEOUT_SECONDS
         )
     except concurrent.futures.TimeoutError:
-        style_payload = (
-            _demo_style_board_payload(user_id, english_input, request.wardrobe, effective_user_profile)
-            if visual_context
-            else {}
+        logger.exception("chat.orchestrator_timeout user_id=%s prompt=%s", user_id, english_input)
+        return _structured_error_response(
+            code="style_timeout" if visual_context else "chat_timeout",
+            message="AHVI's styling engine timed out. Please try again in a moment.",
+            status_type="provider_timeout",
+            details={"timeout_seconds": _ORCH_TIMEOUT_SECONDS, "module_context": request.module_context or ""},
+            chips=[{"label": "Try again", "value": english_input}],
         )
-        fallback_message = style_payload.get("message") or (
-            "AHVI is still warming the styling engine, but here is a safe look: keep one hero piece, pair it with a clean neutral base, and add one polished accessory."
-            if visual_context
-            else lightweight_chat(english_input)
-        )
-        return {
-            "success": True,
-            "message": tone_engine.apply(
-                fallback_message,
-                user_profile=effective_user_profile,
-                signals={
-                    "context_mode": request.module_context or "style",
-                    "user_message_style": user_message_style,
-                },
-                context={"module_context": request.module_context},
-            ),
-            "type": style_payload.get("type") or "style_fallback",
-            "cards": style_payload.get("cards") or [],
-            "chips": style_payload.get("chips") or (_ahvi_style_action_chips() if style_payload.get("cards") else []),
-            "board_ids": style_payload.get("board_ids") or "",
-            "data": style_payload.get("data") or {"outfits": [], "rendered_boards": []},
-            "meta": {
-                "mode": "timeout_fallback",
-                "timeout_seconds": _ORCH_TIMEOUT_SECONDS,
-                **(style_payload.get("meta") or {}),
-            },
-            "audio_job_id": "offline",
-        }
     except Exception as exc:
-        style_payload = (
-            _demo_style_board_payload(user_id, english_input, request.wardrobe, effective_user_profile)
-            if visual_context
-            else {}
+        logger.exception("chat.orchestrator_exception user_id=%s prompt=%s", user_id, english_input)
+        return _structured_error_response(
+            code="style_generation_error" if visual_context else "chat_generation_error",
+            message="AHVI hit a backend error while preparing this. Please try again in a moment.",
+            status_type="backend_error",
+            details={"error": str(exc)[:240], "module_context": request.module_context or ""},
+            chips=[{"label": "Try again", "value": english_input}],
         )
-        fallback_message = style_payload.get("message") or (
-            lightweight_chat(english_input)
-            if not visual_context
-            else "I will assume smart casual for now: choose one clean hero piece, pair it with a neutral base, and finish with footwear or an accessory that matches the occasion."
-        )
-        return {
-            "success": True,
-            "message": tone_engine.apply(
-                fallback_message,
-                user_profile=effective_user_profile,
-                signals={
-                    "context_mode": request.module_context or "style",
-                    "user_message_style": user_message_style,
-                },
-                context={"module_context": request.module_context},
-            ),
-            "type": style_payload.get("type") or "style_fallback",
-            "cards": style_payload.get("cards") or [],
-            "chips": style_payload.get("chips") or (_ahvi_style_action_chips() if style_payload.get("cards") else []),
-            "board_ids": style_payload.get("board_ids") or "",
-            "data": style_payload.get("data") or {"outfits": [], "rendered_boards": []},
-            "meta": {
-                "mode": "error_fallback",
-                "error": str(exc)[:160],
-                **(style_payload.get("meta") or {}),
-            },
-            "audio_job_id": "offline",
-        }
 
     message = result.get("message") or ""
     if isinstance(message, dict):
