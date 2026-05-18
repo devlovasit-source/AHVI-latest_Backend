@@ -167,3 +167,44 @@ def test_text_chat_bare_style_action_recovers_previous_prompt_from_history():
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Authenticated user is required"
+
+
+def test_style_fallback_forwards_style_action(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(
+        chat,
+        "_ahvi_resolve_effective_user_profile",
+        lambda user_id, user_profile=None: {"user_id": user_id},
+    )
+    monkeypatch.setattr(
+        chat,
+        "_fetch_wardrobe_for_style",
+        lambda user_id, request_wardrobe: [{"id": "top-1", "category": "top"}],
+    )
+    monkeypatch.setattr(chat, "_ahvi_item_allowed_for_user_profile", lambda *args, **kwargs: True)
+
+    def fake_build_style_flow_response(**kwargs):
+        captured.update(kwargs)
+        return {
+            "success": True,
+            "message": "Closest option ready.",
+            "type": "cards",
+            "cards": [{"id": "look-1", "items": []}],
+            "style_boards": [{"id": "look-1", "items": []}],
+            "data": {"outfits": [{"id": "look-1"}]},
+            "meta": {},
+        }
+
+    monkeypatch.setattr(chat, "build_style_flow_response", fake_build_style_flow_response)
+
+    response = chat._demo_style_board_payload(
+        "user-1",
+        "beach wear · Casual beach walk",
+        request_wardrobe=[],
+        user_profile={},
+        style_action="show_closest_option",
+    )
+
+    assert response["cards"]
+    assert captured["style_action"] == "show_closest_option"

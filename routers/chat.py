@@ -1119,7 +1119,13 @@ def _ahvi_style_action_chips() -> List[str]:
     return list(STYLE_ACTION_CHIPS)
 
 
-def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profile=None):
+def _demo_style_board_payload(
+    user_id,
+    query_text,
+    request_wardrobe,
+    user_profile=None,
+    style_action: str = "",
+):
     profile = _ahvi_resolve_effective_user_profile(user_id, user_profile or {})
     wardrobe = _fetch_wardrobe_for_style(user_id, request_wardrobe)
     wardrobe = [
@@ -1147,6 +1153,7 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
                 },
             },
             include_base64=False,
+            style_action=style_action,
             cache_bypass=True,
         )
     except Exception as exc:
@@ -1210,6 +1217,7 @@ def _demo_style_board_payload(user_id, query_text, request_wardrobe, user_profil
         "wardrobe_count": len(wardrobe),
         "style_gender": _ahvi_profile_style_gender(profile),
         "occasion": occasion,
+        "style_action": style_action or None,
     }
     return response
 
@@ -2724,7 +2732,11 @@ def text_chat(request: TextChatRequest, http_request: Request):
         )
         if visual_context and not has_visual_board:
             style_payload = _demo_style_board_payload(
-                user_id, english_input, request.wardrobe, effective_user_profile
+                user_id,
+                english_input,
+                request.wardrobe,
+                effective_user_profile,
+                style_action=style_action,
             )
             if style_payload.get("cards"):
                 cards_payload = style_payload.get("cards") or []
