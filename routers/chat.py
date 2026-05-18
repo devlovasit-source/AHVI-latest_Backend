@@ -1995,7 +1995,28 @@ def text_chat(request: TextChatRequest, http_request: Request):
         "try again", "next best options", "more looks", "try different shoes",
         "make it casual", "make it polished", "use my wardrobe",
         "ask me 2 questions",
+        # Weak-match recovery chips:
+        "show closest option", "show closest", "closest option",
+        "try another occasion", "find missing item", "use safer outfit",
     }
+    # Map action labels → orchestrator style_action so the safety gate
+    # can unlock the closest-option path / more-looks path.
+    _ACTION_LABEL_TO_STYLE_ACTION = {
+        "show closest option": "show_closest_option",
+        "show closest": "show_closest_option",
+        "closest option": "show_closest_option",
+        "show_closest_option": "show_closest_option",
+        "next best options": "more_options",
+        "more looks": "more_options",
+        "try different shoes": "more_options",
+    }
+    _injected_style_action = (
+        _ACTION_LABEL_TO_STYLE_ACTION.get(_action_label)
+        or _ACTION_LABEL_TO_STYLE_ACTION.get(_lower_input_for_action := user_input.strip().lower())
+        or ""
+    )
+    if _injected_style_action and not request.style_action:
+        request.style_action = _injected_style_action
     _action_label = (request.action or "").strip().lower()
     _resolved_in = (request.resolved_prompt or "").strip()
     _previous_in = (request.previous_prompt or "").strip()

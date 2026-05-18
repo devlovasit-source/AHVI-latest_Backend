@@ -336,7 +336,11 @@ class StyleEngine:
 
         if keys.intersection(boosts):
             score += 0.8
-            reasons.append("occasion appropriate")
+            # Internal scoring reason only — surfaced to the user via the
+            # safety-gate copy after a real threshold check. The generic
+            # 'occasion appropriate' label was misleading when the
+            # underlying outfit only matched on a single boost token.
+            reasons.append("aligns_with_occasion")
 
         color = str(item.get("color") or "").lower()
         if color and color in set(rules.get("preferred_colors") or []):

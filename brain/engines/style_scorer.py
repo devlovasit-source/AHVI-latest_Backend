@@ -8,6 +8,53 @@ from services.wardrobe_intelligence_service import (
 
 
 # ============================================================
+# FINAL STYLE SAFETY GATE — PER-OCCASION CONFIDENCE THRESHOLDS
+# ============================================================
+# Used by the response assembly layer to decide whether an outfit is
+# strong enough to show as a confident recommendation. Below the
+# threshold we emit a weak_match response and let the user pick:
+# "Show closest option", "Try another occasion", etc.
+
+OCCASION_CONFIDENCE_THRESHOLDS: Dict[str, float] = {
+    # High-stakes occasions need a stronger fit.
+    "office": 0.72,
+    "business": 0.72,
+    "interview": 0.72,
+    "date": 0.72,
+    "date_night": 0.72,
+    "wedding": 0.72,
+    "festive": 0.72,
+
+    # Forgiving day-to-day occasions tolerate a softer match.
+    "casual": 0.62,
+    "travel": 0.62,
+    "airport": 0.62,
+
+    # Mid bar.
+    "beach": 0.65,
+    "party": 0.65,
+    "gym": 0.65,
+    "workout": 0.65,
+    "dinner": 0.65,
+}
+
+_DEFAULT_CONFIDENCE_THRESHOLD = 0.68
+
+
+def occasion_confidence_threshold(occasion: Any) -> float:
+    """Return the min occasion_compatibility_score we'll show as
+    a confident recommendation. Used by the safety gate.
+    """
+    key = str(occasion or "").strip().lower().replace("-", "_")
+    if key in OCCASION_CONFIDENCE_THRESHOLDS:
+        return OCCASION_CONFIDENCE_THRESHOLDS[key]
+    normalized = normalize_occasion(key) if key else ""
+    if normalized in OCCASION_CONFIDENCE_THRESHOLDS:
+        return OCCASION_CONFIDENCE_THRESHOLDS[normalized]
+    return _DEFAULT_CONFIDENCE_THRESHOLD
+
+
+# ============================================================
 # GLOBAL OCCASION COMPATIBILITY MATRIX
 # ============================================================
 # One source of truth for "what reads right for this occasion".
@@ -37,13 +84,17 @@ OCCASION_COMPATIBILITY_RULES: Dict[str, Dict[str, Any]] = {
     },
     "office": {
         "boost_terms": [
-            "shirt", "button", "trouser", "chino", "loafer", "leather sneaker",
-            "blazer", "structured", "smart casual", "muted", "navy", "grey",
-            "white", "black", "watch", "belt",
+            "plain shirt", "muted", "button", "trouser", "chino", "loafer",
+            "leather sneaker", "minimal sneaker", "blazer", "structured",
+            "smart casual", "navy", "grey", "white", "black", "watch",
+            "belt", "minimal", "clean",
         ],
         "hard_penalty_terms": [
             "flip flop", "flip-flop", "swimwear", "gym shorts", "running shorts",
-            "shiny sequin", "beachwear", "tank", "crop top", "shorts",
+            "shiny", "satin", "glossy", "sequin", "loud print",
+            "loud pattern", "festive", "embroidered", "party shoes",
+            "red loafers", "neon", "bright orange", "bright yellow",
+            "beachwear", "tank", "crop top", "shorts", "open shirt",
         ],
         "reject_if_terms": [
             "swimwear", "swim trunks", "flip flop", "flip-flop",
@@ -558,7 +609,10 @@ class UnifiedStyleScorer:
         graph_score = self._graph_score(items, graph or {})
         breakdown["style_graph"] = graph_score
         if graph_score > 1:
-            reasons.append("items pair well together")
+            # Internal-only reason. The generic 'items pair well' copy
+            # leaked into editorial explanations and read as a
+            # fake-positive when occasion score was actually weak.
+            reasons.append("graph_pairing_strong")
 
         for item in items:
             color = color_normalizer.normalize(item.get("color") or item.get("color_code"))

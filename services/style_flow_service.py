@@ -3002,6 +3002,121 @@ def finalize_style_response_payload(
         [c.get("badge") or c.get("occasion_label") for c in cards[:6]],
     )
 
+    # ─────────────────────────────────────────────────────────────
+    # FINAL STYLE SAFETY GATE
+    # ─────────────────────────────────────────────────────────────
+    # Suppress confident boards when the best card's occasion
+    # compatibility falls below the per-occasion threshold. Two
+    # exceptions:
+    #   1. user explicitly asked to see the closest option
+    #   2. user is asking for more variants of an already-confident set
+    #      (style_action ∈ more_options/more_looks/next_best/show_closest)
+    try:
+        from brain.engines.style_scorer import occasion_confidence_threshold
+    except Exception:
+        occasion_confidence_threshold = None  # type: ignore
+
+    safety_action = (style_action or "").strip().lower()
+    closest_option_requested = safety_action in {
+        "show_closest_option", "closest_option", "show_closest",
+    }
+
+    occasion_scores = []
+    for c in cards:
+        if not isinstance(c, dict):
+            continue
+        sm = c.get("score_meta") if isinstance(c.get("score_meta"), dict) else {}
+        s = sm.get("occasion_compatibility_score")
+        if isinstance(s, (int, float)):
+            occasion_scores.append(float(s))
+    best_occasion_score = max(occasion_scores) if occasion_scores else None
+    threshold = (
+        occasion_confidence_threshold(normalized_occasion)
+        if occasion_confidence_threshold is not None
+        else 0.68
+    )
+
+    weak_match = (
+        bool(cards)
+        and best_occasion_score is not None
+        and best_occasion_score < threshold
+        and not closest_option_requested
+    )
+
+    if weak_match:
+        logger.info(
+            "style_safety_gate_triggered user_id=%s occasion=%s best_score=%.2f threshold=%.2f cards=%s",
+            user_id, normalized_occasion, best_occasion_score, threshold, len(cards),
+        )
+        logger.info(
+            "style_weak_match_suppressed user_id=%s occasion=%s reason=below_confidence",
+            user_id, normalized_occasion,
+        )
+        weak_msg = (
+            "I checked your wardrobe against the occasion. I found a few close matches, "
+            "but none are strong enough to recommend confidently yet. I can show the "
+            "closest option, adjust the occasion, or suggest what item would complete the look."
+        )
+        return {
+            "success": True,
+            "ok": True,
+            "type": "weak_match",
+            "intent": "style",
+            "message": {"role": "assistant", "content": weak_msg},
+            "message_text": weak_msg,
+            "response": weak_msg,
+            "cards": [],
+            "style_boards": [],
+            "board_ids": "",
+            "chips": [
+                {"label": "Show closest option", "value": "show_closest_option"},
+                {"label": "Try another occasion", "value": "Try another occasion"},
+                {"label": "Find missing item", "value": "Find missing item"},
+                {"label": "Use safer outfit", "value": "Use safer outfit"},
+            ],
+            "data": {
+                "outfits": [],
+                "rendered_boards": [],
+                "weak_match": True,
+                "occasion_score": best_occasion_score,
+                "occasion": normalized_occasion,
+                "threshold": threshold,
+                "requires_user_confirmation": True,
+                "original_prompt": query,
+            },
+            "meta": {
+                "mode": "weak_match",
+                "occasion_compatibility_threshold": threshold,
+                "occasion_compatibility_best": best_occasion_score,
+                "style_action": style_action or None,
+                "occasion_interpretation": occasion_interpretation,
+            },
+            "audio_job_id": "offline",
+        }
+
+    if closest_option_requested:
+        logger.info(
+            "style_closest_option_requested user_id=%s occasion=%s best_score=%s",
+            user_id, normalized_occasion,
+            f"{best_occasion_score:.2f}" if best_occasion_score is not None else "n/a",
+        )
+        # Re-label cards so we never falsely advertise an ideal fit.
+        for c in cards[:1]:
+            if isinstance(c, dict):
+                c["title"] = "Closest wardrobe option"
+                c["why_it_works"] = (
+                    "This is the closest match from your wardrobe, but it still "
+                    "needs refinement for the occasion."
+                )
+                c["badge"] = (c.get("badge") or "CLOSEST OPTION")
+
+    logger.info(
+        "occasion_score_applied user_id=%s occasion=%s best_score=%s threshold=%.2f closest=%s",
+        user_id, normalized_occasion,
+        f"{best_occasion_score:.2f}" if best_occasion_score is not None else "n/a",
+        threshold, closest_option_requested,
+    )
+
     data = {
         "outfits": cards,
         "visual_intelligence": visual_intelligence_from_outfit(raw_outfits[0]) if raw_outfits and isinstance(raw_outfits[0], dict) else {},
@@ -3009,6 +3124,8 @@ def finalize_style_response_payload(
         "rendered_boards": rendered or cards,
         "board_item_ids": ids,
         "board_metadata": _board_metadata_summary(cards),
+        "occasion_score": best_occasion_score,
+        "occasion": normalized_occasion,
     }
     return {
         "cards": cards,
@@ -3026,6 +3143,9 @@ def finalize_style_response_payload(
             "style_cache_bypass": bool(cache_bypass),
             "style_identity": style_identity,
             "occasion_interpretation": occasion_interpretation,
+            "occasion_compatibility_score": best_occasion_score,
+            "occasion_compatibility_threshold": threshold,
+            "closest_option": closest_option_requested,
             "profile_sources": {
                 "appwrite_profile": bool(style_identity.get("profile_fields_used")),
                 "request_profile": bool(_dict(ctx.get("user_profile"))),
