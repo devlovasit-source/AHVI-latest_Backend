@@ -144,3 +144,26 @@ def test_text_chat_bare_style_action_requires_context_without_crash():
     assert body["type"] == "context_required"
     assert body["data"]["requires_context"] is True
     assert body["data"]["missing_context_for_action"] == "show closest option"
+
+
+def test_text_chat_bare_style_action_recovers_previous_prompt_from_history():
+    app = FastAPI()
+    app.include_router(chat.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/text",
+        json={
+            "messages": [
+                {"role": "user", "content": "Beach wear · Casual beach walk"},
+                {
+                    "role": "assistant",
+                    "content": "I checked your wardrobe against the occasion. I found a few close matches.",
+                },
+                {"role": "user", "content": "Show closest option"},
+            ]
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authenticated user is required"

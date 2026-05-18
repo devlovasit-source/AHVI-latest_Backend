@@ -2195,6 +2195,47 @@ def text_chat(request: TextChatRequest, http_request: Request):
         # FE sent a resolved prompt explicitly — trust it.
         user_input = _resolved_in
 
+    # Older frontend builds may send only the chip label ("Show closest
+    # option") even though the /api/text payload still contains prior chat
+    # messages. Recover the last real style prompt from history so action
+    # chips can continue the existing request instead of asking the user to
+    # start over.
+    _lower_input = user_input.strip().lower()
+    _history_recovered_prompt = ""
+    if (
+        _lower_input in _BARE_ACTION_PROMPTS
+        and request.style_action
+        and not _resolved_in
+        and not _previous_in
+        and not _clarification_in
+        and " Â· " not in user_input
+    ):
+        for _hist_msg in reversed(list(request.messages or [])[:-1]):
+            _hist_text = str(getattr(_hist_msg, "content", "") or "").strip()
+            _hist_key = _hist_text.lower()
+            if (
+                not _hist_text
+                or _hist_key in _BARE_ACTION_PROMPTS
+                or _hist_key in {"try again", "retry"}
+            ):
+                continue
+            if (
+                _is_explicit_style_request(_hist_text, request.module_context)
+                or _ahvi_style_occasion(_hist_text) != "today"
+            ):
+                _history_recovered_prompt = _hist_text
+                break
+        if _history_recovered_prompt:
+            _previous_in = _history_recovered_prompt
+            user_input = _history_recovered_prompt
+            _lower_input = user_input.strip().lower()
+            logger.info(
+                "style_action_context_recovered user_id=%s action=%s recovered_prompt=%r",
+                _log_user_id,
+                _action_key or request.style_action,
+                user_input,
+            )
+
     if _action_key:
         logger.info(
             "style_action_context_received action=%s original_prompt=%r resolved_prompt=%r session_id=%s current_look_id=%s",
