@@ -1391,6 +1391,9 @@ def _wardrobe_gap_response(
     occasion = _safe_text(interpretation.get("occasion") or notes.get("occasion_kind") or _occasion_kind(query))
     occasion = _normalize_occasion_value(occasion, query) or occasion
     wardrobe_items = wardrobe if isinstance(wardrobe, list) else []
+    slot_counts = _ahvi_slot_counts(wardrobe_items)
+    has_core_slots = _ahvi_has_core_slots(slot_counts)
+    response_type = "weak_occasion_match" if has_core_slots else "missing_occasion_wardrobe"
     if detect_wardrobe_gap is not None and get_occasion_rule is not None:
         try:
             gap = detect_wardrobe_gap(wardrobe_items, occasion, get_occasion_rule(occasion))
@@ -1416,7 +1419,7 @@ def _wardrobe_gap_response(
     ]
 
     chips = (
-        [{"label": "Show closest option", "value": "show_closest_safe_option"}]
+        [{"label": "Show closest option", "value": "show_closest_option"}]
         + find_chips
     )[:3]
 
@@ -1461,14 +1464,18 @@ def _wardrobe_gap_response(
             "occasion_interpretation": interpretation,
             "wardrobe_gap": {
                 "occasion": occasion,
+                "slot_counts": slot_counts,
                 "slot_scores": _dict(gap.get("slot_scores")),
                 "has_enough": bool(gap.get("has_enough")),
+                "weak_occasion_match": has_core_slots,
+                "reason": response_type,
             },
         }
     )
 
     logger.info(
-        "ahvi.return_response type=missing_occasion_wardrobe occasion=%s message=%s chips=%s",
+        "ahvi.return_response type=%s occasion=%s message=%s chips=%s",
+        response_type,
         occasion,
         message,
         chips,
@@ -1478,7 +1485,7 @@ def _wardrobe_gap_response(
         "success": True,
         "message": message,
         "board": "style",
-        "type": "missing_occasion_wardrobe",
+        "type": response_type,
         "cards": [],
         "style_boards": [],
         "chips": chips,
@@ -1489,10 +1496,12 @@ def _wardrobe_gap_response(
             **_dict(_dict(finalized).get("meta")),
             "board_count": 0,
             "occasion_interpretation": interpretation,
-            "wardrobe_limitation_reason": "missing_occasion_wardrobe",
+            "wardrobe_limitation_reason": response_type,
             "wardrobe_gap": {
                 "occasion": occasion,
                 "missing_count": len(missing_items),
+                "slot_counts": slot_counts,
+                "weak_occasion_match": has_core_slots,
                 "closest_safe_brief": _safe_text(gap.get("closest_safe_brief")) or "clean daily",
             },
         },

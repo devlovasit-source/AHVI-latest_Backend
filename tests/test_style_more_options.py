@@ -826,6 +826,40 @@ def test_missing_occasion_response_not_core_missing_for_date():
     assert "date-night" in response["message"]
 
 
+def test_wardrobe_gap_response_classifies_slot_present_as_weak_match():
+    from services.style_flow_service import _wardrobe_gap_response
+
+    wardrobe = [
+        _item("top-1", "White Office Shirt", "top", "white"),
+        _item("bottom-1", "Black Pants", "bottom"),
+        _item("shoe-1", "Leather Loafers", "footwear"),
+    ]
+
+    response = _wardrobe_gap_response(
+        query="beach wear",
+        wardrobe=wardrobe,
+        interpretation={"occasion": "beach"},
+    )
+
+    assert response["type"] == "weak_occasion_match"
+    assert response["chips"][0]["value"] == "show_closest_option"
+    assert response["data"]["wardrobe_gap"]["weak_occasion_match"] is True
+    assert response["meta"]["wardrobe_limitation_reason"] == "weak_occasion_match"
+
+
+def test_wardrobe_gap_response_stays_missing_when_core_slots_absent():
+    from services.style_flow_service import _wardrobe_gap_response
+
+    response = _wardrobe_gap_response(
+        query="beach wear",
+        wardrobe=[_item("top-1", "White Office Shirt", "top", "white")],
+        interpretation={"occasion": "beach"},
+    )
+
+    assert response["type"] == "missing_occasion_wardrobe"
+    assert response["data"]["wardrobe_gap"]["weak_occasion_match"] is False
+
+
 def test_show_closest_option_can_return_rejected_complete_board():
     result = {
         "cards": [
