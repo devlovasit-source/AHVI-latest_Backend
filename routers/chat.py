@@ -1961,6 +1961,25 @@ def _detect_visual_board_type(message: str, module: str = "") -> str:
     return ""
 
 
+# Module summary cards — diet/meds/bills/etc chips that should render the
+# user's REAL Appwrite data instead of a hardcoded demo card.
+_MODULE_SUMMARY_INTENTS: Dict[str, tuple] = {
+    "medicines": ("my medicines", "medicines", "my meds", "todays medicines"),
+}
+
+
+def _detect_module_summary(message: str) -> str:
+    """Return a module key for a summary-card intent, else ''."""
+    text = re.sub(r"[^a-z0-9 ]+", " ", str(message or "").lower())
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return ""
+    for module, phrases in _MODULE_SUMMARY_INTENTS.items():
+        if text in phrases:
+            return module
+    return ""
+
+
 def _build_visual_board_envelope(
     *,
     board_type: str,
@@ -2183,6 +2202,14 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
         profile["user_id"] = user_id
     user_message = str(request.message or "").strip()
     merged_context = {**(request.context_data or {}), **(request.context or {})}
+
+    _ms_module = _detect_module_summary(user_message)
+    if _ms_module and user_id:
+        from services.module_summary_service import build_module_summary
+
+        _ms_card = build_module_summary(_ms_module, user_id)
+        if _ms_card:
+            return _ms_card
 
     _vb_type = _detect_visual_board_type(user_message, module)
     if _vb_type:
@@ -2647,6 +2674,22 @@ def text_chat(request: TextChatRequest, http_request: Request):
         request.user_profile if isinstance(request.user_profile, dict) else {},
     )
     profile_ms = round((time.perf_counter() - profile_started) * 1000, 2)
+
+    # -------------------------
+    # MODULE SUMMARY CARD FAST PATH
+    # -------------------------
+    # "My medicines" etc. return the user's real Appwrite data as a
+    # module_card, replacing the old hardcoded demo cards.
+    _ms_module = _detect_module_summary(user_input)
+    if _ms_module:
+        from services.module_summary_service import build_module_summary
+
+        _ms_card = build_module_summary(_ms_module, user_id)
+        if _ms_card:
+            logger.info(
+                "chat.module_summary_route user_id=%s module=%s", user_id, _ms_module
+            )
+            return _ms_card
 
     # -------------------------
     # VISUAL BOARD FAST PATH
