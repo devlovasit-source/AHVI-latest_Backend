@@ -190,6 +190,238 @@ def delete_saved_board(*, document_id: str, user_id: str = ""):
     proxy.delete_document("saved_boards", document_id)
 
 
+# =========================
+# VISUAL BOARD ADAPTERS
+# =========================
+# Reshape existing module engine output into the AHVI "visual_board"
+# response contract rendered by lib/widgets/ahvi_visual_board.dart.
+# These adapters do NOT duplicate engine logic: callers pass the engine
+# result in, and the adapter maps it (or falls back to a safe default
+# board when no engine result is available).
+
+
+def _visual_board(
+    board_type: str,
+    title: str,
+    subtitle: str,
+    sections: list,
+    *,
+    principles: Optional[list] = None,
+    why_this_plan: str = "",
+) -> Dict[str, Any]:
+    return {
+        "response_type": "visual_board",
+        "board_type": board_type,
+        "title": title,
+        "subtitle": subtitle,
+        "principles": principles or [],
+        "sections": sections or [],
+        "why_this_plan": why_this_plan or "",
+    }
+
+
+def _checklist_items(values: Any) -> list:
+    items = []
+    for value in values or []:
+        label = str(value or "").strip()
+        if label:
+            items.append({"label": label})
+    return items
+
+
+def build_diet_visual_board(engine_result=None, user_context=None) -> Dict[str, Any]:
+    why = ""
+    if isinstance(engine_result, dict):
+        why = str(
+            engine_result.get("why_this_plan")
+            or engine_result.get("message")
+            or ""
+        ).strip()
+    if not why and isinstance(user_context, dict):
+        why = str(user_context.get("diet_summary") or "").strip()
+    if not why:
+        why = (
+            "This keeps the day balanced without strict dieting. Each meal includes "
+            "protein, fibre and slow carbs so energy stays steady."
+        )
+
+    principles = [
+        {"label": "Vegetables", "value": "50% of plate"},
+        {"label": "Protein", "value": "Palm-size"},
+        {"label": "Fat", "value": "Healthy fat"},
+        {"label": "Carbs", "value": "Whole-food carbs"},
+    ]
+    sections = [
+        {
+            "title": "Breakfast",
+            "layout": "meal_options",
+            "items": [
+                {"name": "Overnight oats", "pairing": "berries and nuts"},
+                {"name": "Chia pudding", "pairing": "coconut and fruit"},
+                {"name": "Eggs", "pairing": "roasted vegetables"},
+            ],
+        },
+        {
+            "title": "Lunch",
+            "layout": "batch_prep",
+            "items": [
+                {"category": "Protein", "options": ["chicken", "paneer", "fish", "beans", "lentils"]},
+                {"category": "Carbs", "options": ["rice", "potatoes", "quinoa"]},
+                {"category": "Veggies", "options": ["salad", "sautéed", "roasted"]},
+            ],
+            "turn_into": ["wrap", "bowl", "loaded salad", "burrito bowl"],
+        },
+        {
+            "title": "Dinner",
+            "layout": "simple_combinations",
+            "items": [
+                {"name": "Chickpea curry", "pairing": "rice"},
+                {"name": "Chicken skillet", "pairing": "broccoli and quinoa"},
+                {"name": "Stir-fry", "pairing": "vegetables and rice"},
+            ],
+        },
+    ]
+    return _visual_board(
+        "diet_plan",
+        "Balanced Day Meal Plan",
+        "Simple meals built around protein, vegetables, healthy fats and whole-food carbs",
+        sections,
+        principles=principles,
+        why_this_plan=why,
+    )
+
+
+def build_pack_visual_board(engine_result=None, user_context=None) -> Dict[str, Any]:
+    sections: list = []
+    if isinstance(engine_result, dict):
+        cards = engine_result.get("cards")
+        for card in cards if isinstance(cards, list) else []:
+            if not isinstance(card, dict):
+                continue
+            title = str(card.get("title") or card.get("category") or "").strip()
+            items = _checklist_items(card.get("items"))
+            if title and items:
+                sections.append(
+                    {"title": title, "layout": "checklist", "items": items}
+                )
+
+    if not sections:
+        sections = [
+            {
+                "title": "Travel Essentials",
+                "layout": "checklist",
+                "items": _checklist_items(
+                    ["Passport", "Boarding pass", "Wallet", "Phone charger", "Water bottle"]
+                ),
+            },
+            {
+                "title": "Comfort",
+                "layout": "checklist",
+                "items": _checklist_items(
+                    ["Scarf", "Socks", "Eye mask", "Neck pillow"]
+                ),
+            },
+            {
+                "title": "Health",
+                "layout": "checklist",
+                "items": _checklist_items(
+                    ["Medicines", "Tissues", "Wet wipes", "Sanitizer"]
+                ),
+            },
+            {
+                "title": "Grooming",
+                "layout": "checklist",
+                "items": _checklist_items(
+                    ["Lip balm", "Moisturizer", "Sunscreen", "Compact mirror"]
+                ),
+            },
+        ]
+
+    why = ""
+    if isinstance(engine_result, dict):
+        why = str(engine_result.get("why_this_plan") or "").strip()
+    if not why:
+        why = (
+            "This keeps security, boarding and in-flight needs accessible without "
+            "overpacking the cabin bag."
+        )
+    return _visual_board(
+        "packing_checklist",
+        "Travel Carry-On Checklist",
+        "Everything you need within reach",
+        sections,
+        why_this_plan=why,
+    )
+
+
+def build_plan_visual_board(engine_result=None, user_context=None) -> Dict[str, Any]:
+    sections: list = []
+    if isinstance(engine_result, dict):
+        raw_sections = engine_result.get("sections")
+        for section in raw_sections if isinstance(raw_sections, list) else []:
+            if not isinstance(section, dict):
+                continue
+            title = str(section.get("title") or "").strip()
+            items = _checklist_items(
+                [
+                    (i.get("label") if isinstance(i, dict) else i)
+                    for i in (section.get("items") or [])
+                ]
+            )
+            if title and items:
+                sections.append(
+                    {
+                        "title": title,
+                        "layout": "timeline_checklist",
+                        "items": items,
+                    }
+                )
+
+    if not sections:
+        sections = [
+            {
+                "title": "Tonight",
+                "layout": "timeline_checklist",
+                "items": _checklist_items(
+                    [
+                        "Check weather",
+                        "Charge phone and power bank",
+                        "Pack bag",
+                        "Keep outfit ready",
+                    ]
+                ),
+            },
+            {
+                "title": "Tomorrow Morning",
+                "layout": "timeline_checklist",
+                "items": _checklist_items(
+                    [
+                        "Eat a light breakfast",
+                        "Carry water",
+                        "Check essentials",
+                        "Leave buffer time",
+                    ]
+                ),
+            },
+        ]
+
+    why = ""
+    if isinstance(engine_result, dict):
+        why = str(engine_result.get("why_this_plan") or "").strip()
+    if not why:
+        why = (
+            "The order avoids morning decision fatigue by handling packing, charging "
+            "and outfit decisions the night before."
+        )
+    return _visual_board(
+        "trip_prep",
+        "Tomorrow Prep Plan",
+        "A simple timeline so nothing is rushed",
+        sections,
+        why_this_plan=why,
+    )
+
+
 __all__ = [
     "AppwriteProxyError",
     "R2StorageError",
@@ -199,4 +431,7 @@ __all__ = [
     "list_life_boards",
     "save_life_board",
     "delete_saved_board",
+    "build_diet_visual_board",
+    "build_pack_visual_board",
+    "build_plan_visual_board",
 ]
