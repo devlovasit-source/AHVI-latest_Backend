@@ -211,3 +211,30 @@ def test_style_fallback_forwards_style_action(monkeypatch):
     assert captured["show_closest_option"] is True
     assert captured["allow_closest_option"] is True
     assert captured["closest"] is True
+
+
+def test_planner_module_routes_plan_pack_to_checklists(monkeypatch):
+    def fail_module_chat(*args, **kwargs):
+        raise AssertionError("plan-pack prompts should not use generic planner fallback")
+
+    monkeypatch.setattr(chat, "handle_module_chat", fail_module_chat)
+    app = FastAPI()
+    app.include_router(chat.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/chat/module-chat",
+        json={
+            "module": "planner",
+            "message": "plan and pack for a 2 day beach trip",
+            "history": [],
+            "context_data": {},
+            "user_profile": {},
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["type"] == "checklists"
+    assert body["meta"]["intent"] == "plan_pack"
+    assert len(body["cards"]) >= 3

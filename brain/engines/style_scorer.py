@@ -69,7 +69,9 @@ OCCASION_COMPATIBILITY_RULES: Dict[str, Dict[str, Any]] = {
             "linen", "cotton", "breathable", "relaxed", "shorts", "sandals",
             "slides", "espadrille", "espadrilles", "camp collar", "tank",
             "tote", "open collar", "resort", "white", "pastel", "sky blue",
-            "swim", "boardshort",
+            "swim", "boardshort", "tropical", "hawaiian", "floral",
+            "printed", "patterned", "resort print", "vacation print",
+            "open shirt", "short sleeve shirt",
         ],
         "hard_penalty_terms": [
             "satin", "shiny", "glossy", "sequin", "formal shirt",
@@ -94,7 +96,9 @@ OCCASION_COMPATIBILITY_RULES: Dict[str, Dict[str, Any]] = {
             "shiny", "satin", "glossy", "sequin", "loud print",
             "loud pattern", "festive", "embroidered", "party shoes",
             "red loafers", "neon", "bright orange", "bright yellow",
-            "beachwear", "tank", "crop top", "shorts", "open shirt",
+            "burgundy loafers", "red shoes", "ornate", "party shirt",
+            "tropical", "hawaiian", "floral print", "beachwear", "tank",
+            "crop top", "shorts", "open shirt",
         ],
         "reject_if_terms": [
             "swimwear", "swim trunks", "flip flop", "flip-flop",
@@ -111,7 +115,8 @@ OCCASION_COMPATIBILITY_RULES: Dict[str, Dict[str, Any]] = {
         "hard_penalty_terms": [
             "gym", "track", "athletic", "running", "flip flop",
             "oversized hoodie", "cargo", "boardroom", "client",
-            "professional", "corporate",
+            "professional", "corporate", "shorts", "running shorts",
+            "gym shorts", "sliders", "slides", "slippers", "flip-flop",
         ],
         "reject_if_terms": [],
         "preferred_formality": "smart_casual",
@@ -588,7 +593,7 @@ def occasion_item_score(item: dict, occasion: str) -> float:
         if any(w in blob for w in ["statement", "print", "watch", "loafers", "evening"]):
             score += 0.18
         if any(w in blob for w in ["slipper", "gym", "running", "shorts"]):
-            score -= 0.35
+            score -= 0.55
 
     elif occasion == "beach":
         if any(
@@ -602,17 +607,33 @@ def occasion_item_score(item: dict, occasion: str) -> float:
                 "sunglasses",
                 "tote",
                 "camp collar",
+                "tropical",
+                "hawaiian",
+                "floral",
+                "printed",
+                "patterned",
+                "resort print",
+                "vacation print",
+                "open shirt",
             ]
         ):
-            score += 0.35
+            score += 0.45
         if any(w in blob for w in ["black trousers", "loafers", "dress shoes", "blazer", "formal", "office"]):
             score -= 0.65
 
     elif occasion == "office":
         if any(w in blob for w in ["shirt", "trousers", "loafers", "belt", "watch", "blazer"]):
             score += 0.20
-        if any(w in blob for w in ["slipper", "slides", "beach", "gym shorts", "running shorts"]):
-            score -= 0.45
+        if any(
+            w in blob
+            for w in [
+                "slipper", "slides", "beach", "gym shorts", "running shorts",
+                "red loafers", "burgundy loafers", "red shoes", "embroidered",
+                "festive", "party shirt", "tropical", "hawaiian", "floral",
+                "loud print", "loud pattern", "satin", "shiny", "glossy",
+            ]
+        ):
+            score -= 0.65
 
     return score
 

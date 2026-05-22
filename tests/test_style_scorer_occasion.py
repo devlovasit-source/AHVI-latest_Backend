@@ -42,6 +42,23 @@ def test_unified_style_scorer_exposes_occasion_metadata():
     assert result["occasion_reject"] is False
 
 
+def test_tropical_print_shirt_is_positive_beach_signal():
+    outfit = {
+        "items": [
+            {"name": "Tropical Print Shirt", "category": "top", "material": "cotton"},
+            {"name": "Cotton Shorts", "category": "bottom", "fabric": "cotton"},
+            {"name": "Leather Sandals", "category": "footwear"},
+        ]
+    }
+
+    result = score_occasion_compatibility(outfit, {"occasion": "beach"})
+
+    assert result["occasion"] == "beach"
+    assert result["score"] > 0.6
+    assert result["reject"] is False
+    assert any("tropical" in boost or "cotton" in boost for boost in result["boosts"])
+
+
 def test_pipeline_score_outfit_uses_scorer_occasion_metadata():
     outfit = {
         "top": {"id": "top-1", "name": "Wool blazer", "category": "blazer"},

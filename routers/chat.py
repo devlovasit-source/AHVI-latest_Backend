@@ -19,6 +19,7 @@ except Exception:
     run_heavy_audio_task = None
 
 from brain.orchestrator import ahvi_orchestrator
+from brain.plan_pack_flow import build_plan_pack_response
 from brain.tone.tone_engine import tone_engine
 from brain.outfit_pipeline import save_feedback
 from services.appwrite_proxy import AppwriteProxy
@@ -1916,6 +1917,52 @@ def _module_style_response_envelope(
     }
 
 
+def _is_plan_pack_request(message: str) -> bool:
+    text = str(message or "").lower()
+    has_pack = any(token in text for token in ("pack", "packing", "carry-on", "carry on"))
+    has_trip = any(token in text for token in ("trip", "travel", "beach", "vacation", "destination"))
+    return has_pack and (has_trip or "plan" in text)
+
+
+def _module_plan_pack_response(
+    *,
+    module_key: str,
+    user_message: str,
+    context_data: Dict[str, Any],
+    user_profile: Dict[str, Any],
+) -> Dict[str, Any]:
+    context = dict(context_data or {})
+    if user_profile:
+        context["user_profile"] = user_profile
+    payload = build_plan_pack_response(user_message, context)
+    message = str(payload.get("message") or "I built your trip plan and packing checklist.")
+    cards = payload.get("cards") if isinstance(payload.get("cards"), list) else []
+    logger.info(
+        "chat.plan_pack_module_route module=%s cards=%s prompt=%r",
+        module_key,
+        len(cards),
+        user_message,
+    )
+    return {
+        "success": True,
+        "type": payload.get("type") or "checklists",
+        "module": module_key or "planner",
+        "domain": module_key or "planner",
+        "response": message,
+        "message_text": message,
+        "message": {"role": "assistant", "content": message},
+        "chips": payload.get("chips") if isinstance(payload.get("chips"), list) else [],
+        "cards": cards,
+        "style_boards": payload.get("style_boards") if isinstance(payload.get("style_boards"), list) else [],
+        "data": payload.get("data") if isinstance(payload.get("data"), dict) else {},
+        "meta": {
+            "intent": "plan_pack",
+            "board": payload.get("board") or "plan_pack",
+            "module_route": module_key or "planner",
+        },
+    }
+
+
 def _state_user_id(http_request: Request) -> str:
     state_user = getattr(http_request.state, "user", None)
     if isinstance(state_user, dict):
@@ -2028,6 +2075,14 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
         profile["user_id"] = user_id
     user_message = str(request.message or "").strip()
     merged_context = {**(request.context_data or {}), **(request.context or {})}
+
+    if module in {"planner", "calendar", "prep", "chat", ""} and _is_plan_pack_request(user_message):
+        return _module_plan_pack_response(
+            module_key=module or "planner",
+            user_message=user_message,
+            context_data=merged_context,
+            user_profile=profile,
+        )
 
     if module in {"skincare", "diet", "meal", "planner", "calendar", "medi", "bills", "fitness"}:
         return await handle_module_chat(

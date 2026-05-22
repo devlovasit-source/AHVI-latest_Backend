@@ -2,6 +2,7 @@ import base64
 import hashlib
 import logging
 import os
+import re
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -138,6 +139,21 @@ def _dict(value: Any) -> Dict[str, Any]:
 
 def _safe_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _clean_editorial_copy(value: Any, fallback: str) -> str:
+    text = _safe_text(value)
+    if not text:
+        return fallback
+    internal_markers = ("graph_", "occasion_fit:", "occasion_penalty:", "occasion_reject:")
+    if not any(marker in text for marker in internal_markers):
+        return text
+    cleaned = re.sub(r"\bgraph_[a-z0-9_]+\b", "the pieces work together", text)
+    cleaned = re.sub(r"\boccasion_fit:[a-z0-9_\- ]+\b", "the footwear and base read intentional", cleaned)
+    cleaned = re.sub(r"\boccasion_penalty:[a-z0-9_\- ]+\b", "one detail needs refinement", cleaned)
+    cleaned = re.sub(r"\boccasion_reject:[a-z0-9_\- ]+\b", "this needs a closer occasion fit", cleaned)
+    cleaned = re.sub(r"\s+,", ",", cleaned)
+    return cleaned.strip() or fallback
 
 
 def _tokens(value: Any) -> set[str]:
@@ -1870,8 +1886,16 @@ def _occasion_fit_score(card: Dict[str, Any], query: str) -> float:
     if kind == "beach":
         if footwear in {"relaxed", "casual", "elevated casual"}:
             score += 2.0
-        if any(k in text for k in ("linen", "cotton", "shorts", "sandals", "slides", "espadrille", "tote", "sunglasses")):
-            score += 1.5
+        if any(
+            k in text
+            for k in (
+                "linen", "cotton", "shorts", "sandals", "slides",
+                "espadrille", "tote", "sunglasses", "tropical", "hawaiian",
+                "floral", "printed", "patterned", "resort print",
+                "vacation print", "camp collar", "open collar", "open shirt",
+            )
+        ):
+            score += 2.2
         if any(k in text for k in ("black pants", "black trousers", "loafers", "dress shoes", "blazer", "suit", "charcoal")):
             score -= 8.0
     elif kind == "brunch":
@@ -1889,13 +1913,22 @@ def _occasion_fit_score(card: Dict[str, Any], query: str) -> float:
             score += 2.0
         if footwear in {"relaxed", "athletic"}:
             score -= 4.0
-        if any(k in text for k in ("tropical", "vacation", "beach", "loud")) and _style_direction(query) not in {"creative_office", "startup_office", "friday_office"}:
-            score -= 3.0
+        if any(
+            k in text
+            for k in (
+                "tropical", "hawaiian", "vacation", "beach", "loud",
+                "red loafers", "burgundy loafers", "red shoes", "party shirt",
+                "embroidered", "festive", "satin", "shiny", "glossy",
+            )
+        ) and _style_direction(query) not in {"creative_office", "startup_office", "friday_office"}:
+            score -= 5.0
     elif kind == "date":
         if formality in {"smart", "formal"} or footwear in {"polished", "structured", "elevated casual"}:
             score += 1.8
         if footwear in {"relaxed", "athletic"}:
             score -= 3.0
+        if any(k in text for k in ("shorts", "gym shorts", "running shorts", "board shorts", "sliders", "slippers", "flip flop", "flip-flop")):
+            score -= 6.0
     elif kind == "party":
         if _style_energy(card, query) in {"expressive/statement", "polished/social", "minimal/monochrome"}:
             score += 1.8
@@ -3391,7 +3424,7 @@ def build_style_flow_response(
         len(wardrobe) if isinstance(wardrobe, list) else 0,
         len(cards),
     )
-    response_message = (
+    raw_response_message = (
         "This is the closest wardrobe-based option I found, but it still needs "
         f"refinement for {str(query or normalized_occasion).replace(' · ', ' ').strip()}. "
         "I would improve it with a linen/cotton shirt and sandals."
@@ -3403,6 +3436,12 @@ def build_style_flow_response(
             else "I couldn't build a reliable style board from your wardrobe yet."
         )
     )
+    fallback_message = (
+        "I pulled together wardrobe-based looks that match your request, occasion, and style profile."
+        if cards
+        else "I couldn't build a reliable style board from your wardrobe yet."
+    )
+    response_message = _clean_editorial_copy(raw_response_message, fallback_message)
     return {
         "success": bool(cards),
         "message": response_message,

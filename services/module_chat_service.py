@@ -49,7 +49,19 @@ def _envelope(
 
 async def handle_diet_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
     lower = message.lower()
-    if "low" in lower and "carb" in lower and ("dinner" in lower or "night" in lower):
+    if ("weekly" in lower or "week" in lower) and "vegan" in lower:
+        reply = (
+            "Weekly vegan plan: keep breakfast simple with oats, fruit, nuts, or tofu scramble. "
+            "Rotate lunches between dal-rice bowls, chickpea salad, tofu wraps, and vegetable khichdi. "
+            "For dinner, use lighter options like soup with beans, millet upma, stir-fry tofu, or lentil pasta. "
+            "Add fruit, nuts, and enough water so the plan feels sustainable."
+        )
+    elif any(x in lower for x in ("what should i eat", "eat today", "meal today", "today")):
+        reply = (
+            "For today, keep it balanced: breakfast with protein plus fiber, lunch with dal/paneer/tofu/chicken plus rice or roti and vegetables, "
+            "an evening fruit or yogurt snack, and a lighter dinner with protein, vegetables, and enough fluids."
+        )
+    elif "low" in lower and "carb" in lower and ("dinner" in lower or "night" in lower):
         reply = (
             "For a low-carb dinner, build the plate around protein plus vegetables: grilled paneer, tofu, eggs, fish, or chicken with sauteed greens, salad, or soup. "
             "Keep sauces light and skip large rice/roti portions tonight."
@@ -144,9 +156,27 @@ async def handle_skincare_chat(message: str, context: Dict[str, Any], user_id: s
 
 
 async def handle_calendar_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
-    reply = (
-        "Use Add Plan to save this to your calendar. Tell me the task, category, and time, and I will help phrase it clearly before saving."
-    )
+    lower = message.lower()
+    if "plan my day" in lower or "plan day" in lower:
+        reply = (
+            "Here is a simple day plan: handle the most important task first, keep one focused admin block, leave a buffer before evening commitments, "
+            "and add only the items you truly want reminders for."
+        )
+    elif "prioritize" in lower:
+        reply = (
+            "Prioritize by urgency and energy: do time-sensitive work first, then high-value tasks, then small admin. "
+            "If you share your list, I will sort it into today, later, and optional."
+        )
+    elif any(token in lower for token in ("meeting", "appointment", "call", "at ")):
+        reply = (
+            "I can turn that into a planner entry. Add the title, time, and any location or dress code, then tap Add plan to save it."
+        )
+    elif "add plan" in lower:
+        reply = "Tell me the plan in one line, for example: 'Client meeting at 9 PM'."
+    else:
+        reply = (
+            "Tell me what you are planning, the time, and the category. I will turn it into a clear planner item."
+        )
     return _envelope(domain="calendar", message=reply, chips=["Plan my day", "Prioritize tasks", "Add plan"])
 
 

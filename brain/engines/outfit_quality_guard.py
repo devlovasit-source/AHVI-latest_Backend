@@ -187,6 +187,14 @@ def reject_board_for_occasion(board: dict, occasion: str) -> Tuple[bool, str]:
             "workwear",
             "clean friday",
             "client",
+            "shorts",
+            "running shorts",
+            "gym shorts",
+            "sliders",
+            "slides",
+            "slippers",
+            "flip flop",
+            "flip-flop",
         ]
         for word in forbidden:
             if word in blob:
@@ -233,6 +241,19 @@ def reject_board_for_occasion(board: dict, occasion: str) -> Tuple[bool, str]:
             "slides",
             "birkenstock",
             "espadrille",
+            "red loafers",
+            "burgundy loafers",
+            "red shoes",
+            "party shirt",
+            "loud print",
+            "loud pattern",
+            "tropical",
+            "hawaiian",
+            "floral",
+            "ornate",
+            "shiny",
+            "satin",
+            "glossy",
         ]
         for word in forbidden:
             if word in blob:

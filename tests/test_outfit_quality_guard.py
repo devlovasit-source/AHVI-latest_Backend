@@ -80,3 +80,37 @@ def test_accessories_one_per_type():
 
     assert len(guarded) == 1
     assert len(guarded[0]["accessories"]) == 2
+
+
+def test_boardroom_casual_rejects_party_shirt_and_red_loafers():
+    board = {
+        "title": "Boardroom Casual",
+        "items": [
+            {"name": "Short Sleeve Navy Blue Embroidered Party Shirt", "category": "top"},
+            {"name": "Black Pants", "category": "bottom"},
+            {"name": "Red Loafers", "category": "footwear"},
+            {"name": "Gold Watch", "category": "accessory"},
+        ],
+    }
+
+    rejected, reason = reject_board_for_occasion(board, "boardroom casual")
+
+    assert rejected is True
+    assert reason.startswith("office_forbidden_")
+
+
+def test_date_night_rejects_shorts_even_with_polished_top():
+    board = {
+        "title": "Date Night Edit",
+        "items": [
+            {"name": "Mint Green Shirt", "category": "top"},
+            {"name": "Casual Shorts", "category": "bottom"},
+            {"name": "Loafers", "category": "footwear"},
+        ],
+    }
+
+    rejected, reason = reject_board_for_occasion(board, "date night")
+
+    assert rejected is True
+    assert reason.startswith("date_forbidden_")
+from brain.engines.outfit_quality_guard import reject_board_for_occasion
