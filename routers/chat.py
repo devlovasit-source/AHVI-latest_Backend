@@ -1967,7 +1967,6 @@ def _build_visual_board_envelope(
     module_key: str,
     user_message: str,
     context: Dict[str, Any],
-    diet_summary: str = "",
 ) -> Dict[str, Any]:
     """Build a visual_board envelope, reusing existing module engines."""
     from services.board_service import (
@@ -1976,13 +1975,13 @@ def _build_visual_board_envelope(
         build_plan_visual_board,
     )
 
+    # Keep `cards` empty: the board's own `sections` carry all content.
+    # Populating `cards` makes visual-board-unaware clients render the
+    # plan/pack rows as style outfit boards.
     cards: List[Dict[str, Any]] = []
 
     if board_type == "diet_plan":
-        board = build_diet_visual_board(
-            engine_result={"why_this_plan": diet_summary} if diet_summary else None,
-            user_context=context,
-        )
+        board = build_diet_visual_board(engine_result=None, user_context=context)
     elif board_type == "packing_checklist":
         # Reuse the existing plan/pack engine for trip-aware sections.
         engine_result: Dict[str, Any] = {}
@@ -1991,8 +1990,6 @@ def _build_visual_board_envelope(
         except Exception:
             logger.warning("visual_board.pack_engine_failed", exc_info=True)
         board = build_pack_visual_board(engine_result=engine_result or None)
-        if isinstance(engine_result.get("cards"), list):
-            cards = engine_result["cards"]
     else:  # trip_prep
         board = build_plan_visual_board(engine_result=None, user_context=context)
 
@@ -2033,46 +2030,6 @@ def _build_visual_board_envelope(
             "module_route": module_key or "planner",
         },
     }
-
-
-async def _visual_board_chat_response(
-    *,
-    board_type: str,
-    module_key: str,
-    user_message: str,
-    context_data: Dict[str, Any],
-    user_profile: Dict[str, Any],
-) -> Dict[str, Any]:
-    """Async wrapper used by /module-chat: enriches the diet board's
-    rationale with the existing diet-chat logic before building the board."""
-    context = dict(context_data or {})
-    if user_profile:
-        context["user_profile"] = user_profile
-
-    diet_summary = ""
-    if board_type == "diet_plan":
-        try:
-            diet_payload = await handle_module_chat(
-                {
-                    "domain": "diet",
-                    "module": "diet",
-                    "message": user_message,
-                    "context": context,
-                    "user_profile": user_profile,
-                },
-                user_id=str((user_profile or {}).get("user_id") or ""),
-            )
-            diet_summary = str(diet_payload.get("message") or "").strip()
-        except Exception:
-            logger.warning("visual_board.diet_summary_failed", exc_info=True)
-
-    return _build_visual_board_envelope(
-        board_type=board_type,
-        module_key=module_key,
-        user_message=user_message,
-        context=context,
-        diet_summary=diet_summary,
-    )
 
 
 def _module_plan_pack_response(
@@ -2229,12 +2186,14 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
 
     _vb_type = _detect_visual_board_type(user_message, module)
     if _vb_type:
-        return await _visual_board_chat_response(
+        _vb_context = dict(merged_context or {})
+        if profile:
+            _vb_context["user_profile"] = profile
+        return _build_visual_board_envelope(
             board_type=_vb_type,
             module_key=module,
             user_message=user_message,
-            context_data=merged_context,
-            user_profile=profile,
+            context=_vb_context,
         )
 
     if module in {"planner", "calendar", "prep", "chat", ""} and _is_plan_pack_request(user_message):
