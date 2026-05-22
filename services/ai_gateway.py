@@ -414,15 +414,17 @@ def ollama_vision_json(
     )
     vision_num_ctx = max(256, int(os.getenv("OLLAMA_VISION_NUM_CTX", "512")))
     normalized_image = _normalize_vision_image_base64(image_base64)
+    keep_alive = str(os.getenv("OLLAMA_VISION_KEEP_ALIVE", "10m") or "10m")
+    num_predict = max(96, int(os.getenv("OLLAMA_VISION_NUM_PREDICT", "256")))
     payload = {
         "prompt": prompt,
         "images": [normalized_image],
         "stream": False,
         "format": "json",
-        "keep_alive": "0s",
+        "keep_alive": keep_alive,
         "options": {
             "num_ctx": vision_num_ctx,
-            "num_predict": 512,
+            "num_predict": num_predict,
         },
     }
 
