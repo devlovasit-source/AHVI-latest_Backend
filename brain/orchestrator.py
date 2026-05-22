@@ -993,10 +993,22 @@ class AhviOrchestrator:
                 )
                 reason_line = ""
                 if reasons:
+                    def _public_reason(reason: Any) -> str:
+                        raw = _safe_text(reason)
+                        if raw.startswith("graph_"):
+                            return "the pieces work together"
+                        if raw.startswith("occasion_fit:"):
+                            return "the base and footwear read intentional"
+                        if raw.startswith("occasion_penalty:"):
+                            return "one detail needs refinement"
+                        if raw.startswith("occasion_reject:"):
+                            return "the occasion fit needs refinement"
+                        return raw
+
                     reason_line = (
                         "Why it works: "
                         + ", ".join(
-                            [_safe_text(r) for r in reasons if _safe_text(r)][:2]
+                            [_public_reason(r) for r in reasons if _public_reason(r)][:2]
                         )
                         + "."
                     )

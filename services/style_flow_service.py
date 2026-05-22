@@ -1832,8 +1832,10 @@ def _quality_score(card: Dict[str, Any], query: str) -> float:
     score += _coherence_score(card)
 
     if flags["office"]:
-        if any(k in text for k in ("button-down", "button down", "shirt", "trouser", "black pants", "off white", "loafer")):
+        if any(k in text for k in ("button-down", "button down", "shirt", "trouser", "off white", "loafer")):
             score += 3.0
+        if any(k in text for k in ("black pants", "black trousers")):
+            score += 0.7
         if any(k in text for k in ("watch", "belt", "sneaker")):
             score += 1.0
         if any(k in text for k in ("tropical", "hawaiian", "vacation", "beach", "party", "loud")):
@@ -1843,8 +1845,10 @@ def _quality_score(card: Dict[str, Any], query: str) -> float:
         score += _top_office_score(_item_by_role(card, "top"), query)
         score += _footwear_formality_score(_item_by_role(card, "footwear"), query)
     if flags["date"]:
-        if any(k in text for k in ("watch", "black", "off white", "loafer")):
+        if any(k in text for k in ("watch", "off white", "loafer")):
             score += 1.5
+        if any(k in text for k in ("black pants", "black trousers", "black shirt")):
+            score += 0.6
         score += _footwear_formality_score(_item_by_role(card, "footwear"), query)
     if flags["party"] and any(k in text for k in ("print", "pattern", "statement", "black")):
         score += 1.0
@@ -2373,7 +2377,7 @@ def _office_has_strong_footwear(cards: List[Dict[str, Any]], query: str) -> bool
 
 
 MAX_TOP_REUSE = 2
-MAX_BOTTOM_REUSE = 2
+MAX_BOTTOM_REUSE = 1
 MAX_FOOTWEAR_REUSE = 2
 MAX_ACCESSORY_REUSE = 2
 MAX_TOP_BOTTOM_REUSE = 1
