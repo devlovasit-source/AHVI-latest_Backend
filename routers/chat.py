@@ -1963,8 +1963,19 @@ def _detect_visual_board_type(message: str, module: str = "") -> str:
 
 # Module summary cards — diet/meds/bills/etc chips that should render the
 # user's REAL Appwrite data instead of a hardcoded demo card.
+# Phrases are matched as substrings of the normalized message, so chip
+# labels and freeform variants ("My medicines", "my medicines today",
+# "show my meds") all route to the right card.
 _MODULE_SUMMARY_INTENTS: Dict[str, tuple] = {
-    "medicines": ("my medicines", "medicines", "my meds", "todays medicines"),
+    "medicines": (
+        "my medicines",
+        "my meds",
+        "todays medicines",
+        "today medicines",
+        "show medicines",
+        "list medicines",
+        "medication list",
+    ),
 }
 
 
@@ -1975,7 +1986,7 @@ def _detect_module_summary(message: str) -> str:
     if not text:
         return ""
     for module, phrases in _MODULE_SUMMARY_INTENTS.items():
-        if text in phrases:
+        if any(phrase in text for phrase in phrases):
             return module
     return ""
 
