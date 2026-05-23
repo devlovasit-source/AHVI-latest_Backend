@@ -1,189 +1,0 @@
-2026-05-02 04:26:03,060 INFO httpx HTTP Request: GET https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333 "HTTP/1.1 200 OK"
-2026-05-02 04:26:14,717 INFO ahvi.main router skipped module=routers.garment_analyzer reason=feature_flag_disabled required=False
-2026-05-02 04:26:14,960 INFO ahvi.main AHVI Backend Started
-INFO:     Started server process [25444]
-INFO:     Waiting for application startup.
-2026-05-02 04:26:15,095 INFO ahvi.main startup begin
-2026-05-02 04:26:15,097 INFO services.qdrant_service Initializing Qdrant...
-2026-05-02 04:26:16,169 INFO httpx HTTP Request: GET https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections "HTTP/1.1 200 OK"
-2026-05-02 04:26:16,475 INFO httpx HTTP Request: GET https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections "HTTP/1.1 200 OK"
-2026-05-02 04:26:16,782 INFO httpx HTTP Request: GET https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections "HTTP/1.1 200 OK"
-2026-05-02 04:26:17,090 INFO httpx HTTP Request: GET https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections "HTTP/1.1 200 OK"
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-2026-05-02 04:26:35,605 INFO ahvi.ai_gateway ai_gateway {'event': 'error', 'request_id': '', 'usecase': 'intent', 'op': 'generate_text', 'latency_ms': 0}
-2026-05-02 04:26:37,484 INFO sentence_transformers.SentenceTransformer Use pytorch device_name: cpu
-2026-05-02 04:26:37,486 INFO sentence_transformers.SentenceTransformer Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
-2026-05-02 04:26:38,392 INFO httpx HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
-2026-05-02 04:26:38,428 INFO httpx HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json "HTTP/1.1 200 OK"
-2026-05-02 04:26:38,800 INFO httpx HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
-2026-05-02 04:26:38,836 INFO httpx HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json "HTTP/1.1 200 OK"
-2026-05-02 04:26:39,209 INFO httpx HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
-2026-05-02 04:26:39,247 INFO httpx HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json "HTTP/1.1 200 OK"
-2026-05-02 04:26:39,618 INFO httpx HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/README.md "HTTP/1.1 307 Temporary Redirect"
-2026-05-02 04:26:39,651 INFO httpx HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/README.md "HTTP/1.1 200 OK"
-2026-05-02 04:26:39,926 INFO httpx HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
-2026-05-02 04:26:39,967 INFO httpx HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json "HTTP/1.1 200 OK"
-2026-05-02 04:26:40,242 INFO httpx HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/sentence_bert_config.json "HTTP/1.1 307 Temporary Redirect"
-2026-05-02 04:26:40,280 INFO httpx HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/sentence_bert_config.json "HTTP/1.1 200 OK"
-2026-05-02 04:26:40,643 INFO httpx HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/adapter_config.json "HTTP/1.1 404 Not Found"
-2026-05-02 04:26:40,950 INFO httpx HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
-2026-05-02 04:26:40,984 INFO httpx HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
-Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|##########| 103/103 [00:00<00:00, 3899.81it/s]
-[1mBertModel LOAD REPORT[0m from: sentence-transformers/all-MiniLM-L6-v2
-Key                     | Status     |  | 
-------------------------+------------+--+-
-embeddings.position_ids | UNEXPECTED |  | 
-
-[3mNotes:
-- UNEXPECTED[3m	:can be ignored when loading from different task/architecture; not ok if you expect identical arch.[0m
-2026-05-02 04:26:41,564 INFO httpx HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
-2026-05-02 04:26:41,598 INFO httpx HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
-2026-05-02 04:26:41,936 INFO httpx HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
-2026-05-02 04:26:41,971 INFO httpx HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer_config.json "HTTP/1.1 200 OK"
-2026-05-02 04:26:42,280 INFO httpx HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
-2026-05-02 04:26:42,586 INFO httpx HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
-2026-05-02 04:26:42,999 INFO httpx HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/1_Pooling/config.json "HTTP/1.1 307 Temporary Redirect"
-2026-05-02 04:26:43,029 INFO httpx HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/1_Pooling%2Fconfig.json "HTTP/1.1 200 OK"
-2026-05-02 04:26:43,306 INFO httpx HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2 "HTTP/1.1 200 OK"
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 25.16it/s]
-2026-05-02 04:26:43,367 INFO ahvi.orchestrator style intent=daily_outfit uid=demo_smoke_user wardrobe_source=appwrite wardrobe_count=0 cards=0 board_id=
-2026-05-02 04:26:49,687 INFO ahvi.task_queue task_enqueued request_id=7b15efbd-a5ac-485e-b4d6-21c5512c6e31 task_id=38b96c4f-af46-424c-84ef-f1876e80f26e kind=chat_audio user_id=demo_smoke_user source=routers.chat.text
-2026-05-02 04:26:53,495 WARNING ahvi.job_tracker job_tracker.appwrite_persist_failed job_id=38b96c4f-af46-424c-84ef-f1876e80f26e error=Appwrite request failed (400): {"message":"Invalid document structure: Attribute \"status\" has invalid format. Value must be one of (pending, running, success, failed)","code":400,"type":"document_invalid_structure","version":"1.9.3"}
-2026-05-02 04:26:53,501 INFO ahvi.routers.chat chat.text_response user_id=demo_smoke_user cards=0
-2026-05-02 04:26:53,505 INFO ahvi.main request request_id=7b15efbd-a5ac-485e-b4d6-21c5512c6e31 method=POST path=/api/text status=200 latency_ms=17926
-2026-05-02 04:27:41,606 INFO ahvi.main request request_id=f7bdd523-27c9-4685-96f2-2eb813233650 method=GET path=/api/notifications/health status=200 latency_ms=3
-2026-05-02 04:28:24,134 INFO ahvi.main request request_id=4b9e9388-c114-43e8-99f7-b946469c7589 method=POST path=/api/notifications/devices/register status=200 latency_ms=647
-2026-05-02 04:28:37,494 INFO ahvi.main request request_id=8e84cf9f-5299-4e49-81ce-1448ccf46ecb method=POST path=/api/text status=200 latency_ms=7
-2026-05-02 04:28:43,769 INFO ahvi.ai_gateway ai_gateway {'event': 'error', 'request_id': '', 'usecase': 'intent', 'op': 'generate_text', 'latency_ms': 0}
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 39.84it/s]
-2026-05-02 04:28:45,108 INFO ahvi.orchestrator style intent=daily_outfit uid=69e6096616923db26940 wardrobe_source=appwrite wardrobe_count=0 cards=0 board_id=
-2026-05-02 04:28:45,111 INFO ahvi.task_queue task_enqueued request_id=fec8f7c4-cbbb-47cc-afd0-61d7ac8a645d task_id=1cc59e56-8297-4407-9711-b5a23fd161e1 kind=chat_audio user_id=69e6096616923db26940 source=routers.chat.text
-2026-05-02 04:28:46,490 WARNING ahvi.job_tracker job_tracker.appwrite_persist_failed job_id=1cc59e56-8297-4407-9711-b5a23fd161e1 error=Appwrite request failed (400): {"message":"Invalid document structure: Attribute \"status\" has invalid format. Value must be one of (pending, running, success, failed)","code":400,"type":"document_invalid_structure","version":"1.9.3"}
-2026-05-02 04:28:46,492 INFO ahvi.routers.chat chat.text_response user_id=69e6096616923db26940 cards=0
-2026-05-02 04:28:46,493 INFO ahvi.main request request_id=fec8f7c4-cbbb-47cc-afd0-61d7ac8a645d method=POST path=/api/text status=200 latency_ms=2730
-2026-05-02 04:29:05,436 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
-2026-05-02 04:29:09,123 INFO httpx HTTP Request: POST https://c81h1v0ecdjlxi-8010.proxy.runpod.net/remove-bg "HTTP/1.1 200 OK"
-2026-05-02 04:29:36,363 INFO ahvi.ai_gateway ai_gateway {'event': 'success', 'request_id': '67361cf0-a2f1-43e8-aadd-ea0df1e6694b', 'usecase': 'vision', 'op': 'vision_json', 'latency_ms': 13249, 'model_used': 'llama3.2-vision:latest'}
-2026-05-02 04:29:38,741 INFO httpx HTTP Request: GET https://pub-d4d02883ddda4a1bba452bfe6d1be814.r2.dev/wardrobe_47d35167-c0df-4244-8e0f-ed80359c7efe.png "HTTP/1.1 200 OK"
-2026-05-02 04:29:40,119 INFO httpx HTTP Request: POST https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections/wardrobe/points/scroll "HTTP/1.1 200 OK"
-2026-05-02 04:29:40,155 INFO ahvi.main request request_id=67361cf0-a2f1-43e8-aadd-ea0df1e6694b method=POST path=/api/wardrobe/capture/analyze status=200 latency_ms=35715
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 34.04it/s]
-2026-05-02 04:30:17,635 INFO ahvi.main request request_id=7095e19e-82c4-4558-8d7a-8e63208735d9 method=POST path=/api/wardrobe/capture/save-selected status=200 latency_ms=1225
-2026-05-02 04:30:46,914 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
-2026-05-02 04:30:50,697 INFO httpx HTTP Request: POST https://c81h1v0ecdjlxi-8010.proxy.runpod.net/remove-bg "HTTP/1.1 200 OK"
-2026-05-02 04:31:14,749 INFO ahvi.ai_gateway ai_gateway {'event': 'success', 'request_id': 'fadcd71f-0302-4343-abc3-b7634ee4fff8', 'usecase': 'vision', 'op': 'vision_json', 'latency_ms': 13263, 'model_used': 'llama3.2-vision:latest'}
-2026-05-02 04:31:16,614 INFO httpx HTTP Request: GET https://pub-d4d02883ddda4a1bba452bfe6d1be814.r2.dev/wardrobe_548802ba-1f9f-4978-8d45-a22ea90f7453.png "HTTP/1.1 200 OK"
-2026-05-02 04:31:17,838 INFO httpx HTTP Request: POST https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections/wardrobe/points/scroll "HTTP/1.1 200 OK"
-2026-05-02 04:31:17,874 INFO ahvi.main request request_id=fadcd71f-0302-4343-abc3-b7634ee4fff8 method=POST path=/api/wardrobe/capture/analyze status=200 latency_ms=32383
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 44.85it/s]
-2026-05-02 04:31:45,323 INFO ahvi.main request request_id=d4425372-17a2-4185-9b06-6d4dafe3e10c method=POST path=/api/wardrobe/capture/save-selected status=200 latency_ms=738
-2026-05-02 04:32:10,878 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
-2026-05-02 04:32:11,639 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
-2026-05-02 04:32:12,861 INFO httpx HTTP Request: POST https://c81h1v0ecdjlxi-8010.proxy.runpod.net/remove-bg "HTTP/1.1 200 OK"
-2026-05-02 04:32:13,249 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
-2026-05-02 04:32:20,406 INFO httpx HTTP Request: POST https://c81h1v0ecdjlxi-8010.proxy.runpod.net/remove-bg "HTTP/1.1 200 OK"
-2026-05-02 04:32:34,843 INFO ahvi.ai_gateway ai_gateway {'event': 'success', 'request_id': 'd6adc98b-5714-48d6-8c21-17d0da2217bf', 'usecase': 'vision', 'op': 'vision_json', 'latency_ms': 11935, 'model_used': 'llama3.2-vision:latest'}
-2026-05-02 04:32:36,762 INFO httpx HTTP Request: POST https://c81h1v0ecdjlxi-8010.proxy.runpod.net/remove-bg "HTTP/1.1 200 OK"
-2026-05-02 04:32:37,079 INFO httpx HTTP Request: GET https://pub-d4d02883ddda4a1bba452bfe6d1be814.r2.dev/wardrobe_474dde45-25a5-4cdd-ad6f-7038f4b9a4d7.png "HTTP/1.1 200 OK"
-2026-05-02 04:32:38,325 INFO httpx HTTP Request: POST https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections/wardrobe/points/scroll "HTTP/1.1 200 OK"
-2026-05-02 04:32:38,352 INFO ahvi.main request request_id=d6adc98b-5714-48d6-8c21-17d0da2217bf method=POST path=/api/wardrobe/capture/analyze status=200 latency_ms=28690
-2026-05-02 04:33:21,032 INFO ahvi.ai_gateway ai_gateway {'event': 'success', 'request_id': '121c8f57-bf2c-4040-a6c1-0f2f866cfc9e', 'usecase': 'vision', 'op': 'vision_json', 'latency_ms': 36104, 'model_used': 'llama3.2-vision:latest'}
-2026-05-02 04:34:12,326 INFO ahvi.ai_gateway ai_gateway {'event': 'error', 'request_id': 'c3523d0e-4d18-4bd9-93b5-fa7c2af9ce01', 'usecase': 'vision', 'op': 'vision_json', 'latency_ms': 45623}
-2026-05-02 04:34:14,092 INFO ahvi.main request request_id=121c8f57-bf2c-4040-a6c1-0f2f866cfc9e method=POST path=/api/wardrobe/capture/analyze status=200 latency_ms=121986
-2026-05-02 04:34:14,417 INFO httpx HTTP Request: GET https://pub-d4d02883ddda4a1bba452bfe6d1be814.r2.dev/wardrobe_7300a6f5-cda0-4ca3-85d9-37086d61b3a2.png "HTTP/1.1 200 OK"
-2026-05-02 04:34:16,014 INFO httpx HTTP Request: POST https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections/wardrobe/points/scroll "HTTP/1.1 200 OK"
-2026-05-02 04:34:16,085 INFO ahvi.main request request_id=c3523d0e-4d18-4bd9-93b5-fa7c2af9ce01 method=POST path=/api/wardrobe/capture/analyze status=200 latency_ms=126026
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 39.01it/s]
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 25.84it/s]
-2026-05-02 04:34:39,060 INFO ahvi.main request request_id=e00f1d9c-ccc0-4633-b7c7-946f08ed3ef0 method=POST path=/api/wardrobe/capture/save-selected status=200 latency_ms=2149
-2026-05-02 04:35:24,209 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
-2026-05-02 04:35:28,309 INFO httpx HTTP Request: POST https://c81h1v0ecdjlxi-8010.proxy.runpod.net/remove-bg "HTTP/1.1 200 OK"
-2026-05-02 04:36:33,077 INFO ahvi.ai_gateway ai_gateway {'event': 'error', 'request_id': 'db9ecc95-dedc-4d8a-99e6-3b42f6a91932', 'usecase': 'vision', 'op': 'vision_json', 'latency_ms': 45583}
-2026-05-02 04:36:36,507 INFO httpx HTTP Request: GET https://pub-d4d02883ddda4a1bba452bfe6d1be814.r2.dev/wardrobe_8fcb89c5-c57c-4846-ae91-acc55ffbd0e4.png "HTTP/1.1 200 OK"
-2026-05-02 04:36:37,900 INFO httpx HTTP Request: POST https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections/wardrobe/points/scroll "HTTP/1.1 200 OK"
-2026-05-02 04:36:37,979 INFO ahvi.main request request_id=db9ecc95-dedc-4d8a-99e6-3b42f6a91932 method=POST path=/api/wardrobe/capture/analyze status=200 latency_ms=74774
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 34.12it/s]
-2026-05-02 04:37:04,874 INFO ahvi.main request request_id=f9cf6dcc-d180-4e64-a870-34d8b31b567b method=POST path=/api/wardrobe/capture/save-selected status=200 latency_ms=2752
-2026-05-02 04:37:34,465 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
-2026-05-02 04:37:37,334 INFO httpx HTTP Request: POST https://c81h1v0ecdjlxi-8010.proxy.runpod.net/remove-bg "HTTP/1.1 200 OK"
-2026-05-02 04:38:16,657 INFO ahvi.ai_gateway ai_gateway {'event': 'success', 'request_id': '699682de-5d3e-4da2-a194-440c7882af9f', 'usecase': 'vision', 'op': 'vision_json', 'latency_ms': 26842, 'model_used': 'llama3.2-vision:latest'}
-2026-05-02 04:38:20,139 INFO httpx HTTP Request: GET https://pub-d4d02883ddda4a1bba452bfe6d1be814.r2.dev/wardrobe_8f270a99-cdbf-4230-a470-51f7ffacc583.png "HTTP/1.1 200 OK"
-2026-05-02 04:38:21,774 INFO httpx HTTP Request: POST https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections/wardrobe/points/scroll "HTTP/1.1 200 OK"
-2026-05-02 04:38:21,816 INFO ahvi.main request request_id=699682de-5d3e-4da2-a194-440c7882af9f method=POST path=/api/wardrobe/capture/analyze status=200 latency_ms=48771
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 11.22it/s]
-2026-05-02 04:38:28,952 INFO ahvi.main request request_id=1cab8156-d4a7-46eb-8430-d506cda88209 method=POST path=/api/wardrobe/capture/save-selected status=200 latency_ms=1845
-2026-05-02 04:39:02,778 INFO ahvi.ai_gateway ai_gateway {'event': 'error', 'request_id': '', 'usecase': 'intent', 'op': 'generate_text', 'latency_ms': 0}
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 32.37it/s]
-2026-05-02 04:39:05,464 INFO ahvi.orchestrator style intent=daily_outfit uid=69e6096616923db26940 wardrobe_source=appwrite wardrobe_count=0 cards=0 board_id=
-2026-05-02 04:39:05,469 INFO ahvi.task_queue task_enqueued request_id=ebfa636d-cdcf-4fa8-a976-d8b26f521e03 task_id=2c720c24-6dd0-44ae-a300-99f6070cf333 kind=chat_audio user_id=69e6096616923db26940 source=routers.chat.text
-2026-05-02 04:39:07,895 WARNING ahvi.job_tracker job_tracker.appwrite_persist_failed job_id=2c720c24-6dd0-44ae-a300-99f6070cf333 error=Appwrite request failed (400): {"message":"Invalid document structure: Attribute \"status\" has invalid format. Value must be one of (pending, running, success, failed)","code":400,"type":"document_invalid_structure","version":"1.9.3"}
-2026-05-02 04:39:07,906 INFO ahvi.routers.chat chat.text_response user_id=69e6096616923db26940 cards=0
-2026-05-02 04:39:07,910 INFO ahvi.main request request_id=ebfa636d-cdcf-4fa8-a976-d8b26f521e03 method=POST path=/api/text status=200 latency_ms=5141
-2026-05-02 04:39:20,713 INFO ahvi.ai_gateway ai_gateway {'event': 'error', 'request_id': '', 'usecase': 'intent', 'op': 'generate_text', 'latency_ms': 0}
-2026-05-02 04:39:20,715 WARNING ahvi.response_assembler LLM multi-domain failed: 'ToneEngine' object has no attribute 'build_prompt_tone'
-2026-05-02 04:39:20,727 INFO ahvi.task_queue task_enqueued request_id=c1319817-ab8f-4168-af87-256c37cb7f2f task_id=9ef63a20-12ca-4207-b4ff-4a34947b8ec9 kind=chat_audio user_id=69e6096616923db26940 source=routers.chat.text
-2026-05-02 04:39:23,316 WARNING ahvi.job_tracker job_tracker.appwrite_persist_failed job_id=9ef63a20-12ca-4207-b4ff-4a34947b8ec9 error=Appwrite request failed (400): {"message":"Invalid document structure: Attribute \"status\" has invalid format. Value must be one of (pending, running, success, failed)","code":400,"type":"document_invalid_structure","version":"1.9.3"}
-2026-05-02 04:39:23,323 INFO ahvi.routers.chat chat.text_response user_id=69e6096616923db26940 cards=0
-2026-05-02 04:39:23,326 INFO ahvi.main request request_id=c1319817-ab8f-4168-af87-256c37cb7f2f method=POST path=/api/text status=200 latency_ms=2623
-2026-05-02 04:39:47,884 INFO ahvi.main request request_id=f99ec62e-9763-4498-a80b-d65e122f55b0 method=POST path=/api/text status=400 latency_ms=158
-2026-05-02 04:52:03,015 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
-2026-05-02 04:52:07,033 INFO httpx HTTP Request: POST https://c81h1v0ecdjlxi-8010.proxy.runpod.net/remove-bg "HTTP/1.1 200 OK"
-2026-05-02 04:52:28,226 INFO ahvi.ai_gateway ai_gateway {'event': 'success', 'request_id': '02a27b0c-d78e-42e0-9d39-13daf9947912', 'usecase': 'vision', 'op': 'vision_json', 'latency_ms': 10929, 'model_used': 'llama3.2-vision:latest'}
-2026-05-02 04:52:30,314 INFO httpx HTTP Request: GET https://pub-d4d02883ddda4a1bba452bfe6d1be814.r2.dev/wardrobe_9c9787a8-45a2-4d93-935f-c0b2b8590070.png "HTTP/1.1 200 OK"
-2026-05-02 04:52:31,692 INFO httpx HTTP Request: POST https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections/wardrobe/points/scroll "HTTP/1.1 200 OK"
-2026-05-02 04:52:31,726 INFO ahvi.main request request_id=02a27b0c-d78e-42e0-9d39-13daf9947912 method=POST path=/api/wardrobe/capture/analyze status=200 latency_ms=30843
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00,  2.61it/s]Batches: 100%|##########| 1/1 [00:00<00:00,  2.60it/s]
-2026-05-02 04:52:40,913 INFO ahvi.main request request_id=f6ee1a3e-64a8-4db4-83ec-a4591f92286b method=POST path=/api/wardrobe/capture/save-selected status=200 latency_ms=1384
-2026-05-02 04:55:22,291 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
-2026-05-02 04:55:43,792 INFO httpx HTTP Request: POST https://c81h1v0ecdjlxi-8010.proxy.runpod.net/remove-bg "HTTP/1.1 200 OK"
-2026-05-02 04:57:17,731 INFO ahvi.ai_gateway ai_gateway {'event': 'error', 'request_id': '25e61119-a6f8-41fb-8a31-7f2e6ca8d6e2', 'usecase': 'vision', 'op': 'vision_json', 'latency_ms': 45936}
-2026-05-02 04:57:21,069 INFO httpx HTTP Request: GET https://pub-d4d02883ddda4a1bba452bfe6d1be814.r2.dev/wardrobe_04b6f435-3e46-485d-9bf5-8c6e3bb94abb.png "HTTP/1.1 200 OK"
-2026-05-02 04:57:22,566 INFO httpx HTTP Request: POST https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections/wardrobe/points/scroll "HTTP/1.1 200 OK"
-2026-05-02 04:57:22,610 INFO ahvi.main request request_id=25e61119-a6f8-41fb-8a31-7f2e6ca8d6e2 method=POST path=/api/wardrobe/capture/analyze status=200 latency_ms=121932
-2026-05-02 05:00:48,557 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
-2026-05-02 05:00:51,531 INFO httpx HTTP Request: POST https://c81h1v0ecdjlxi-8010.proxy.runpod.net/remove-bg "HTTP/1.1 200 OK"
-2026-05-02 05:01:10,109 INFO ahvi.ai_gateway ai_gateway {'event': 'success', 'request_id': '6bd7d4c3-1ebb-47ab-8653-c428efa0bc93', 'usecase': 'vision', 'op': 'vision_json', 'latency_ms': 10364, 'model_used': 'llama3.2-vision:latest'}
-2026-05-02 05:01:11,521 INFO httpx HTTP Request: GET https://pub-d4d02883ddda4a1bba452bfe6d1be814.r2.dev/wardrobe_98df7d42-e754-4b03-898b-87eb0e0f13ae.png "HTTP/1.1 200 OK"
-2026-05-02 05:01:12,503 INFO httpx HTTP Request: POST https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections/wardrobe/points/scroll "HTTP/1.1 200 OK"
-2026-05-02 05:01:12,527 INFO ahvi.main request request_id=6bd7d4c3-1ebb-47ab-8653-c428efa0bc93 method=POST path=/api/wardrobe/capture/analyze status=200 latency_ms=24883
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 18.55it/s]
-2026-05-02 05:01:24,679 INFO ahvi.main request request_id=fc35275e-1b61-405e-bb8f-8d2be52eb789 method=POST path=/api/wardrobe/capture/save-selected status=200 latency_ms=745
-2026-05-02 05:01:53,040 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
-2026-05-02 05:01:53,406 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
-2026-05-02 05:01:56,795 INFO httpx HTTP Request: POST https://c81h1v0ecdjlxi-8010.proxy.runpod.net/remove-bg "HTTP/1.1 200 OK"
-2026-05-02 05:01:57,368 INFO httpx HTTP Request: POST https://c81h1v0ecdjlxi-8010.proxy.runpod.net/remove-bg "HTTP/1.1 200 OK"
-2026-05-02 05:02:41,708 INFO ahvi.ai_gateway ai_gateway {'event': 'success', 'request_id': 'cba1bdf8-2a41-4f2f-a423-a60f179b861c', 'usecase': 'vision', 'op': 'vision_json', 'latency_ms': 32521, 'model_used': 'llama3.2-vision:latest'}
-2026-05-02 05:03:11,626 INFO ahvi.ai_gateway ai_gateway {'event': 'success', 'request_id': '803e1ea1-5360-4fbd-80fc-c2a1c4d2050d', 'usecase': 'vision', 'op': 'vision_json', 'latency_ms': 26410, 'model_used': 'llama3.2-vision:latest'}
-2026-05-02 05:03:13,051 INFO httpx HTTP Request: GET https://pub-d4d02883ddda4a1bba452bfe6d1be814.r2.dev/wardrobe_9341ffca-84d0-449f-b1b1-bd705b9133ef.png "HTTP/1.1 200 OK"
-2026-05-02 05:03:13,428 INFO httpx HTTP Request: GET https://pub-d4d02883ddda4a1bba452bfe6d1be814.r2.dev/wardrobe_b0831916-9351-4521-8fce-884595f18381.png "HTTP/1.1 200 OK"
-2026-05-02 05:03:14,368 INFO httpx HTTP Request: POST https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections/wardrobe/points/scroll "HTTP/1.1 200 OK"
-2026-05-02 05:03:14,400 INFO ahvi.main request request_id=cba1bdf8-2a41-4f2f-a423-a60f179b861c method=POST path=/api/wardrobe/capture/analyze status=200 latency_ms=82531
-2026-05-02 05:03:15,199 INFO httpx HTTP Request: POST https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections/wardrobe/points/scroll "HTTP/1.1 200 OK"
-2026-05-02 05:03:15,228 INFO ahvi.main request request_id=803e1ea1-5360-4fbd-80fc-c2a1c4d2050d method=POST path=/api/wardrobe/capture/analyze status=200 latency_ms=83362
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 38.50it/s]
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 38.68it/s]
-2026-05-02 05:03:33,857 INFO ahvi.main request request_id=c375a83b-71fb-4c2d-bf76-77af7acbd8a6 method=POST path=/api/wardrobe/capture/save-selected status=200 latency_ms=1500
-2026-05-02 05:04:24,527 INFO ahvi.ai_gateway ai_gateway {'event': 'error', 'request_id': '', 'usecase': 'intent', 'op': 'generate_text', 'latency_ms': 3}
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 31.25it/s]
-2026-05-02 05:04:26,277 INFO ahvi.orchestrator style intent=daily_outfit uid=69e6096616923db26940 wardrobe_source=appwrite wardrobe_count=0 cards=0 board_id=
-2026-05-02 05:04:26,352 INFO ahvi.task_queue task_enqueued request_id=ec1549bb-ab15-48bd-832e-f8b71676679a task_id=f26cf376-5a8c-4deb-9787-0e246d2b7c7b kind=chat_audio user_id=69e6096616923db26940 source=routers.chat.text
-2026-05-02 05:04:27,867 WARNING ahvi.job_tracker job_tracker.appwrite_persist_failed job_id=f26cf376-5a8c-4deb-9787-0e246d2b7c7b error=Appwrite request failed (400): {"message":"Invalid document structure: Attribute \"status\" has invalid format. Value must be one of (pending, running, success, failed)","code":400,"type":"document_invalid_structure","version":"1.9.3"}
-2026-05-02 05:04:27,872 INFO ahvi.routers.chat chat.text_response user_id=69e6096616923db26940 cards=0
-2026-05-02 05:04:27,875 INFO ahvi.main request request_id=ec1549bb-ab15-48bd-832e-f8b71676679a method=POST path=/api/text status=200 latency_ms=3435
-2026-05-02 05:04:42,154 INFO ahvi.ai_gateway ai_gateway {'event': 'breaker_open', 'request_id': '', 'usecase': 'intent', 'op': 'generate_text'}
-2026-05-02 05:04:42,167 WARNING ahvi.response_assembler LLM multi-domain failed: 'ToneEngine' object has no attribute 'build_prompt_tone'
-2026-05-02 05:04:42,180 INFO ahvi.task_queue task_enqueued request_id=d07a5fda-9a66-433c-9ab6-672327b2c5e8 task_id=e1afc11e-efcd-46b3-bf9a-88a39f744c91 kind=chat_audio user_id=69e6096616923db26940 source=routers.chat.text
-2026-05-02 05:04:43,661 WARNING ahvi.job_tracker job_tracker.appwrite_persist_failed job_id=e1afc11e-efcd-46b3-bf9a-88a39f744c91 error=Appwrite request failed (400): {"message":"Invalid document structure: Attribute \"status\" has invalid format. Value must be one of (pending, running, success, failed)","code":400,"type":"document_invalid_structure","version":"1.9.3"}
-2026-05-02 05:04:43,666 INFO ahvi.routers.chat chat.text_response user_id=69e6096616923db26940 cards=0
-2026-05-02 05:04:43,667 INFO ahvi.main request request_id=d07a5fda-9a66-433c-9ab6-672327b2c5e8 method=POST path=/api/text status=200 latency_ms=1525
-2026-05-02 05:06:18,663 INFO ahvi.main request request_id=32dea608-6ae9-4ab7-ade1-89323022c518 method=POST path=/api/notifications/devices/register status=200 latency_ms=676
-2026-05-02 05:08:51,933 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
-2026-05-02 05:09:02,573 INFO httpx HTTP Request: POST https://c81h1v0ecdjlxi-8010.proxy.runpod.net/remove-bg "HTTP/1.1 200 OK"
-2026-05-02 05:10:21,478 INFO ahvi.ai_gateway ai_gateway {'event': 'error', 'request_id': 'bf4b68b0-8b48-4eae-967c-a81fe576bc15', 'usecase': 'vision', 'op': 'vision_json', 'latency_ms': 45678}
-2026-05-02 05:10:23,530 INFO httpx HTTP Request: GET https://pub-d4d02883ddda4a1bba452bfe6d1be814.r2.dev/wardrobe_2f93e478-2d2c-4b3e-92b9-d086600d355d.png "HTTP/1.1 200 OK"
-2026-05-02 05:10:24,742 INFO httpx HTTP Request: POST https://2b01b392-c8bf-49da-9b0e-2a68754351b2.us-west-1-0.aws.cloud.qdrant.io:6333/collections/wardrobe/points/scroll "HTTP/1.1 200 OK"
-2026-05-02 05:10:24,773 INFO ahvi.main request request_id=bf4b68b0-8b48-4eae-967c-a81fe576bc15 method=POST path=/api/wardrobe/capture/analyze status=200 latency_ms=93789
-Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|##########| 1/1 [00:00<00:00, 32.82it/s]
-2026-05-02 05:10:45,203 INFO ahvi.main request request_id=136175d5-9bc9-4c4c-8b24-30480f9e331a method=POST path=/api/wardrobe/capture/save-selected status=200 latency_ms=1161
-2026-05-02 05:11:04,309 INFO httpx HTTP Request: POST https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny?text=shirt+.+t-shirt+.+blouse+.+crop+top+.+pants+.+trousers+.+jeans+.+skirt+.+shorts+.+dress+.+gown+.+saree+.+kurta+.+blazer+.+jacket+.+coat+.+sneakers+.+heels+.+boots+.+sandals+.+handbag+.+backpack+.+belt+.+watch+.+necklace+.+earrings+.+bracelet+.+scarf+.+sunglasses "HTTP/1.1 404 Not Found"
