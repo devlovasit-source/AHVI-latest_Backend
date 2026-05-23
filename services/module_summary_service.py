@@ -236,16 +236,45 @@ def _events(user_id: str) -> Dict[str, Any]:
 # =========================
 # MEALS — `meal_plans` collection
 # =========================
+_MEAL_ORDER = {"breakfast": 0, "lunch": 1, "dinner": 2, "snack": 3}
+
+
+def _is_today_dt(dt: datetime) -> bool:
+    now = datetime.now(dt.tzinfo or timezone.utc)
+    return (dt.year, dt.month, dt.day) == (now.year, now.month, now.day)
+
+
 def _meals(user_id: str) -> Dict[str, Any]:
+    raw_docs = _docs("meal_plans", user_id)
+    # Prefer docs explicitly dated today; otherwise fall back to undated
+    # docs so a plan saved before the date field existed still shows.
+    today_docs: List[Dict[str, Any]] = []
+    undated_docs: List[Dict[str, Any]] = []
+    for doc in raw_docs:
+        dt = _parse_iso(doc.get("date"))
+        if dt is None:
+            undated_docs.append(doc)
+        elif _is_today_dt(dt):
+            today_docs.append(doc)
+    selected = today_docs if today_docs else undated_docs[:6]
+    selected.sort(
+        key=lambda d: _MEAL_ORDER.get(
+            _txt(d.get("mealType") or d.get("type")).lower(), 99
+        )
+    )
+
     rows: List[Dict[str, Any]] = []
-    for doc in _docs("meal_plans", user_id):
-        name = _txt(doc.get("name") or doc.get("planName") or doc.get("title")) or "Meal"
+    for doc in selected:
+        name = (
+            _txt(doc.get("name") or doc.get("planName") or doc.get("title"))
+            or "Meal"
+        )
         meal_type = _txt(doc.get("mealType") or doc.get("type") or doc.get("slot"))
         kcal = doc.get("kcal") or doc.get("calories")
         sub_parts: List[str] = []
         if meal_type:
             sub_parts.append(meal_type)
-        if kcal not in (None, ""):
+        if kcal not in (None, "", 0):
             sub_parts.append(f"{kcal} kcal")
         tag = meal_type if meal_type else "Meal"
         rows.append(
@@ -258,7 +287,7 @@ def _meals(user_id: str) -> Dict[str, Any]:
         )
     total = len(rows)
     summary = (
-        f"You have {total} meal{'s' if total != 1 else ''} planned."
+        f"You have {total} meal{'s' if total != 1 else ''} planned today."
         if total
         else "No meal plans saved yet. Build one from the Diet page."
     )
