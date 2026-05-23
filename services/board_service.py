@@ -229,7 +229,208 @@ def _checklist_items(values: Any) -> list:
     return items
 
 
-def build_diet_visual_board(engine_result=None, user_context=None) -> Dict[str, Any]:
+# Per-variant diet board templates. Each variant tunes the title,
+# principles, meal options and rationale so a "vegan weekly plan" no
+# longer renders the same balanced template a generic "diet plan"
+# prompt would.
+_DIET_VARIANTS: Dict[str, Dict[str, Any]] = {
+    "balanced": {
+        "title": "Balanced Day Meal Plan",
+        "subtitle": "Simple meals built around protein, vegetables, healthy fats and whole-food carbs",
+        "why": (
+            "This keeps the day balanced without strict dieting. Each meal includes "
+            "protein, fibre and slow carbs so energy stays steady."
+        ),
+        "principles": [
+            {"label": "Vegetables", "value": "50% of plate"},
+            {"label": "Protein", "value": "Palm-size"},
+            {"label": "Fat", "value": "Healthy fat"},
+            {"label": "Carbs", "value": "Whole-food carbs"},
+        ],
+        "breakfast": [
+            {"name": "Overnight oats", "pairing": "berries and nuts"},
+            {"name": "Chia pudding", "pairing": "coconut and fruit"},
+            {"name": "Eggs", "pairing": "roasted vegetables"},
+        ],
+        "lunch_protein": ["chicken", "paneer", "fish", "beans", "lentils"],
+        "lunch_carbs": ["rice", "potatoes", "quinoa"],
+        "lunch_veggies": ["salad", "sautéed", "roasted"],
+        "turn_into": ["wrap", "bowl", "loaded salad", "burrito bowl"],
+        "dinner": [
+            {"name": "Chickpea curry", "pairing": "rice"},
+            {"name": "Chicken skillet", "pairing": "broccoli and quinoa"},
+            {"name": "Stir-fry", "pairing": "vegetables and rice"},
+        ],
+    },
+    "vegan": {
+        "title": "Vegan Day Meal Plan",
+        "subtitle": "Plant-based meals built around legumes, whole grains, vegetables and healthy fats",
+        "why": (
+            "All-plant meals deliver protein from legumes, tofu and tempeh, paired with "
+            "whole grains and vegetables so the day stays satisfying and energy-stable."
+        ),
+        "principles": [
+            {"label": "Vegetables", "value": "Half the plate"},
+            {"label": "Protein", "value": "Beans / tofu / tempeh"},
+            {"label": "Fat", "value": "Nuts, seeds, olive oil"},
+            {"label": "Carbs", "value": "Whole grains"},
+        ],
+        "breakfast": [
+            {"name": "Tofu scramble", "pairing": "sautéed spinach and avocado"},
+            {"name": "Overnight oats", "pairing": "soy milk, peanut butter and berries"},
+            {"name": "Chia pudding", "pairing": "coconut yogurt and fruit"},
+        ],
+        "lunch_protein": ["chickpeas", "tofu", "tempeh", "lentils", "black beans"],
+        "lunch_carbs": ["brown rice", "quinoa", "millet"],
+        "lunch_veggies": ["salad", "roasted", "stir-fried"],
+        "turn_into": ["buddha bowl", "wrap", "loaded salad", "grain bowl"],
+        "dinner": [
+            {"name": "Chickpea curry", "pairing": "brown rice"},
+            {"name": "Lentil dal", "pairing": "quinoa and greens"},
+            {"name": "Tofu stir-fry", "pairing": "vegetables and noodles"},
+        ],
+    },
+    "high_protein": {
+        "title": "High-Protein Meal Plan",
+        "subtitle": "Protein-forward meals to support muscle, satiety and recovery",
+        "why": (
+            "Each meal anchors on 25–40 g of lean protein so you hit a strong daily "
+            "intake without overloading on carbs or fat."
+        ),
+        "principles": [
+            {"label": "Protein", "value": "25–40 g per meal"},
+            {"label": "Veggies", "value": "Always 1–2 portions"},
+            {"label": "Carbs", "value": "Around training"},
+            {"label": "Fat", "value": "Modest"},
+        ],
+        "breakfast": [
+            {"name": "Greek yogurt bowl", "pairing": "berries, oats and nuts"},
+            {"name": "3-egg omelette", "pairing": "spinach and feta"},
+            {"name": "Cottage cheese", "pairing": "fruit and seeds"},
+        ],
+        "lunch_protein": ["grilled chicken", "lean beef", "tuna", "paneer", "tofu"],
+        "lunch_carbs": ["rice", "sweet potato", "quinoa"],
+        "lunch_veggies": ["greens", "roasted vegetables", "salad"],
+        "turn_into": ["protein bowl", "wrap", "loaded salad", "grain bowl"],
+        "dinner": [
+            {"name": "Grilled chicken", "pairing": "quinoa and roasted veg"},
+            {"name": "Baked salmon", "pairing": "salad and sweet potato"},
+            {"name": "Paneer tikka", "pairing": "greens and lentils"},
+        ],
+    },
+    "keto": {
+        "title": "Keto Day Meal Plan",
+        "subtitle": "Very-low-carb meals with healthy fats and quality protein",
+        "why": (
+            "Carbs stay low so the body taps fat for fuel. Each meal centres on "
+            "non-starchy vegetables, protein and healthy fats."
+        ),
+        "principles": [
+            {"label": "Net carbs", "value": "Under 30 g/day"},
+            {"label": "Protein", "value": "Moderate"},
+            {"label": "Fat", "value": "Olive oil, butter, avocado"},
+            {"label": "Veggies", "value": "Leafy / above-ground"},
+        ],
+        "breakfast": [
+            {"name": "Avocado and eggs", "pairing": "sautéed greens"},
+            {"name": "Cheese omelette", "pairing": "mushrooms and spinach"},
+            {"name": "Chia pudding", "pairing": "coconut milk and berries (low)"},
+        ],
+        "lunch_protein": ["chicken thighs", "salmon", "paneer", "eggs", "ground beef"],
+        "lunch_carbs": ["cauliflower rice", "zoodles", "leafy greens"],
+        "lunch_veggies": ["salad", "roasted low-carb veg", "stir-fried"],
+        "turn_into": ["lettuce wrap", "salad bowl", "cheese plate"],
+        "dinner": [
+            {"name": "Steak", "pairing": "buttered green beans"},
+            {"name": "Grilled fish", "pairing": "creamed spinach"},
+            {"name": "Chicken curry", "pairing": "cauliflower rice"},
+        ],
+    },
+    "weight_loss": {
+        "title": "Weight-Loss Meal Plan",
+        "subtitle": "Lean meals built around protein, fibre and lower-calorie volume",
+        "why": (
+            "Built for a gentle calorie deficit: high protein keeps hunger down, lots of "
+            "vegetables add volume, and carbs sit modest around your active hours."
+        ),
+        "principles": [
+            {"label": "Protein", "value": "Every meal"},
+            {"label": "Veggies", "value": "Half the plate"},
+            {"label": "Carbs", "value": "Modest portions"},
+            {"label": "Fat", "value": "Small, healthy"},
+        ],
+        "breakfast": [
+            {"name": "Greek yogurt", "pairing": "fruit and chia"},
+            {"name": "Veggie omelette", "pairing": "fresh salad"},
+            {"name": "Oats", "pairing": "milk, fruit and nuts (small)"},
+        ],
+        "lunch_protein": ["chicken breast", "fish", "tofu", "egg whites", "dal"],
+        "lunch_carbs": ["small rice", "millet", "roti (1–2)"],
+        "lunch_veggies": ["salad (large)", "steamed", "roasted"],
+        "turn_into": ["bowl", "salad plate", "wrap (whole-grain)"],
+        "dinner": [
+            {"name": "Grilled fish", "pairing": "salad and lemon"},
+            {"name": "Chicken curry", "pairing": "vegetables (skip extra rice)"},
+            {"name": "Tofu and dal", "pairing": "greens"},
+        ],
+    },
+    "mediterranean": {
+        "title": "Mediterranean Day Plan",
+        "subtitle": "Olive oil, fish, whole grains, vegetables and legumes",
+        "why": (
+            "The Mediterranean pattern emphasises plant foods, olive oil, fish, and "
+            "modest dairy — well-studied for heart and metabolic health."
+        ),
+        "principles": [
+            {"label": "Olive oil", "value": "Primary fat"},
+            {"label": "Fish", "value": "2–3 times/week"},
+            {"label": "Veggies", "value": "Every meal"},
+            {"label": "Whole grains", "value": "Often"},
+        ],
+        "breakfast": [
+            {"name": "Greek yogurt", "pairing": "honey, walnuts and figs"},
+            {"name": "Whole-grain toast", "pairing": "olive oil, tomato and feta"},
+            {"name": "Oats", "pairing": "almonds and fruit"},
+        ],
+        "lunch_protein": ["chickpeas", "fish", "feta", "lentils", "chicken"],
+        "lunch_carbs": ["whole-grain pasta", "farro", "couscous"],
+        "lunch_veggies": ["greek salad", "roasted veg", "grilled"],
+        "turn_into": ["grain bowl", "mezze plate", "salad"],
+        "dinner": [
+            {"name": "Baked fish", "pairing": "tomatoes, olives and capers"},
+            {"name": "Chickpea stew", "pairing": "whole-grain bread"},
+            {"name": "Grilled chicken", "pairing": "tabbouleh and greens"},
+        ],
+    },
+}
+
+
+def _detect_diet_variant(text: str) -> str:
+    """Pick a diet variant key from the user's prompt."""
+    lowered = str(text or "").lower()
+    if any(k in lowered for k in ("vegan", "plant based", "plant-based")):
+        return "vegan"
+    if "high protein" in lowered or "high-protein" in lowered or "highprotein" in lowered:
+        return "high_protein"
+    if "keto" in lowered or "ketogenic" in lowered or "low carb" in lowered:
+        return "keto"
+    if (
+        "weight loss" in lowered
+        or "lose weight" in lowered
+        or "fat loss" in lowered
+        or "cutting" in lowered
+    ):
+        return "weight_loss"
+    if "mediterr" in lowered:
+        return "mediterranean"
+    return "balanced"
+
+
+def build_diet_visual_board(
+    engine_result=None, user_context=None, diet_variant: str = "balanced"
+) -> Dict[str, Any]:
+    variant = _DIET_VARIANTS.get(diet_variant) or _DIET_VARIANTS["balanced"]
+
     why = ""
     if isinstance(engine_result, dict):
         why = str(
@@ -240,53 +441,36 @@ def build_diet_visual_board(engine_result=None, user_context=None) -> Dict[str, 
     if not why and isinstance(user_context, dict):
         why = str(user_context.get("diet_summary") or "").strip()
     if not why:
-        why = (
-            "This keeps the day balanced without strict dieting. Each meal includes "
-            "protein, fibre and slow carbs so energy stays steady."
-        )
+        why = variant["why"]
 
-    principles = [
-        {"label": "Vegetables", "value": "50% of plate"},
-        {"label": "Protein", "value": "Palm-size"},
-        {"label": "Fat", "value": "Healthy fat"},
-        {"label": "Carbs", "value": "Whole-food carbs"},
-    ]
     sections = [
         {
             "title": "Breakfast",
             "layout": "meal_options",
-            "items": [
-                {"name": "Overnight oats", "pairing": "berries and nuts"},
-                {"name": "Chia pudding", "pairing": "coconut and fruit"},
-                {"name": "Eggs", "pairing": "roasted vegetables"},
-            ],
+            "items": list(variant["breakfast"]),
         },
         {
             "title": "Lunch",
             "layout": "batch_prep",
             "items": [
-                {"category": "Protein", "options": ["chicken", "paneer", "fish", "beans", "lentils"]},
-                {"category": "Carbs", "options": ["rice", "potatoes", "quinoa"]},
-                {"category": "Veggies", "options": ["salad", "sautéed", "roasted"]},
+                {"category": "Protein", "options": list(variant["lunch_protein"])},
+                {"category": "Carbs", "options": list(variant["lunch_carbs"])},
+                {"category": "Veggies", "options": list(variant["lunch_veggies"])},
             ],
-            "turn_into": ["wrap", "bowl", "loaded salad", "burrito bowl"],
+            "turn_into": list(variant["turn_into"]),
         },
         {
             "title": "Dinner",
             "layout": "simple_combinations",
-            "items": [
-                {"name": "Chickpea curry", "pairing": "rice"},
-                {"name": "Chicken skillet", "pairing": "broccoli and quinoa"},
-                {"name": "Stir-fry", "pairing": "vegetables and rice"},
-            ],
+            "items": list(variant["dinner"]),
         },
     ]
     return _visual_board(
         "diet_plan",
-        "Balanced Day Meal Plan",
-        "Simple meals built around protein, vegetables, healthy fats and whole-food carbs",
+        variant["title"],
+        variant["subtitle"],
         sections,
-        principles=principles,
+        principles=list(variant["principles"]),
         why_this_plan=why,
     )
 

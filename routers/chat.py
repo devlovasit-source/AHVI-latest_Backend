@@ -2042,6 +2042,7 @@ def _build_visual_board_envelope(
 ) -> Dict[str, Any]:
     """Build a visual_board envelope, reusing existing module engines."""
     from services.board_service import (
+        _detect_diet_variant,
         build_diet_visual_board,
         build_pack_visual_board,
         build_plan_visual_board,
@@ -2053,7 +2054,12 @@ def _build_visual_board_envelope(
     cards: List[Dict[str, Any]] = []
 
     if board_type == "diet_plan":
-        board = build_diet_visual_board(engine_result=None, user_context=context)
+        diet_variant = _detect_diet_variant(user_message)
+        board = build_diet_visual_board(
+            engine_result=None,
+            user_context=context,
+            diet_variant=diet_variant,
+        )
     elif board_type == "packing_checklist":
         # Reuse the existing plan/pack engine for trip-aware sections.
         engine_result: Dict[str, Any] = {}
