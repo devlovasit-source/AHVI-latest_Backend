@@ -132,6 +132,7 @@ calendar_router = _load_optional_router("routers.calendar")
 med_logs_router = _load_optional_router("routers.med_logs")
 notifications_router = _load_optional_router("routers.notifications")
 workouts_router = _load_optional_router("routers.workouts")
+bills_router = _load_optional_router("routers.bills")
 
 # AI
 ai_router = _load_optional_router("api.ai")
@@ -697,6 +698,9 @@ if notifications_router:
 
 if workouts_router:
     app.include_router(workouts_router, prefix="/api")
+
+if bills_router:
+    app.include_router(bills_router)
 
 if stylist_router:
     app.include_router(stylist_router, prefix="/api/stylist")
