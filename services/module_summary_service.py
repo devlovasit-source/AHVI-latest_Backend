@@ -236,61 +236,80 @@ def _events(user_id: str) -> Dict[str, Any]:
 # =========================
 # MEALS — `meal_plans` collection
 # =========================
+# Schema is per-plan: one doc per saved plan, with `meals` as an array
+# of JSON-encoded meal strings. The card picks the most recent daily
+# plan (or the most recent plan of any type as fallback) and extracts
+# the meals from that array.
 _MEAL_ORDER = {"breakfast": 0, "lunch": 1, "dinner": 2, "snack": 3}
 
 
-def _is_today_dt(dt: datetime) -> bool:
-    now = datetime.now(dt.tzinfo or timezone.utc)
-    return (dt.year, dt.month, dt.day) == (now.year, now.month, now.day)
+def _parse_meal_entry(entry: Any) -> Dict[str, Any]:
+    if isinstance(entry, dict):
+        return entry
+    text = _txt(entry)
+    if not text:
+        return {}
+    try:
+        import json
+
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else {"name": text}
+    except Exception:
+        return {"name": text}
 
 
 def _meals(user_id: str) -> Dict[str, Any]:
-    raw_docs = _docs("meal_plans", user_id)
-    # Prefer docs explicitly dated today; otherwise fall back to undated
-    # docs so a plan saved before the date field existed still shows.
-    today_docs: List[Dict[str, Any]] = []
-    undated_docs: List[Dict[str, Any]] = []
-    for doc in raw_docs:
-        dt = _parse_iso(doc.get("date"))
-        if dt is None:
-            undated_docs.append(doc)
-        elif _is_today_dt(dt):
-            today_docs.append(doc)
-    selected = today_docs if today_docs else undated_docs[:6]
-    selected.sort(
-        key=lambda d: _MEAL_ORDER.get(
-            _txt(d.get("mealType") or d.get("type")).lower(), 99
-        )
-    )
+    docs = _docs("meal_plans", user_id, limit=20)
+    # Most recent first.
+    docs.sort(key=lambda d: _txt(d.get("$createdAt")), reverse=True)
+
+    selected_plan: Dict[str, Any] | None = None
+    for doc in docs:
+        if _txt(doc.get("planType")).lower() == "daily":
+            selected_plan = doc
+            break
+    if selected_plan is None and docs:
+        selected_plan = docs[0]
 
     rows: List[Dict[str, Any]] = []
-    for doc in selected:
-        name = (
-            _txt(doc.get("name") or doc.get("planName") or doc.get("title"))
-            or "Meal"
-        )
-        meal_type = _txt(doc.get("mealType") or doc.get("type") or doc.get("slot"))
-        kcal = doc.get("kcal") or doc.get("calories")
-        sub_parts: List[str] = []
-        if meal_type:
-            sub_parts.append(meal_type)
-        if kcal not in (None, "", 0):
-            sub_parts.append(f"{kcal} kcal")
-        tag = meal_type if meal_type else "Meal"
-        rows.append(
-            {
-                "done": False,
-                "main": name,
-                "sub": " · ".join(sub_parts),
-                "tag": tag,
-            }
-        )
+    if selected_plan:
+        meals_raw = selected_plan.get("meals") or []
+        if isinstance(meals_raw, list):
+            parsed_meals = [_parse_meal_entry(m) for m in meals_raw]
+            parsed_meals.sort(
+                key=lambda m: _MEAL_ORDER.get(
+                    _txt(m.get("type") or m.get("mealType")).lower(), 99
+                )
+            )
+            for meal in parsed_meals[:6]:
+                name = _txt(meal.get("name")) or "Meal"
+                meal_type = _txt(meal.get("type") or meal.get("mealType"))
+                kcal = meal.get("cal") or meal.get("kcal") or meal.get("calories")
+                sub_parts: List[str] = []
+                if meal_type:
+                    sub_parts.append(meal_type)
+                if kcal not in (None, "", 0):
+                    sub_parts.append(f"{kcal} kcal")
+                rows.append(
+                    {
+                        "done": False,
+                        "main": name,
+                        "sub": " · ".join(sub_parts),
+                        "tag": meal_type or "Meal",
+                    }
+                )
+
     total = len(rows)
-    summary = (
-        f"You have {total} meal{'s' if total != 1 else ''} planned today."
-        if total
-        else "No meal plans saved yet. Build one from the Diet page."
-    )
+    if total:
+        plan_name = _txt(selected_plan.get("name")) if selected_plan else ""
+        summary = (
+            f"{plan_name}: {total} meal{'s' if total != 1 else ''} planned."
+            if plan_name
+            else f"You have {total} meal{'s' if total != 1 else ''} planned."
+        )
+    else:
+        summary = "No meal plans saved yet. Build one from the Diet page."
+
     return _card(
         module="meals",
         title="Meals",
@@ -298,7 +317,7 @@ def _meals(user_id: str) -> Dict[str, Any]:
         summary=summary,
         count_done=0,
         count_total=total,
-        rows=rows[:6],
+        rows=rows,
         open_key="meal",
     )
 
