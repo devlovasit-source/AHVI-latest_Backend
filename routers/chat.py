@@ -1976,6 +1976,48 @@ _MODULE_SUMMARY_INTENTS: Dict[str, tuple] = {
         "list medicines",
         "medication list",
     ),
+    "bills": (
+        "my bills",
+        "pending bills",
+        "unpaid bills",
+        "show bills",
+        "list bills",
+        "bills due",
+    ),
+    "events": (
+        "my events",
+        "todays events",
+        "today events",
+        "today event",
+        "upcoming events",
+        "my schedule",
+        "todays schedule",
+    ),
+    "meals": (
+        "my meals",
+        "todays meals",
+        "today meals",
+        "meal list",
+        "show meals",
+        "todays food",
+    ),
+    "workout": (
+        "my workout",
+        "todays workout",
+        "today workout",
+        "show workout",
+        "show exercises",
+        "todays exercises",
+    ),
+    "skincare": (
+        "my skincare",
+        "morning skincare",
+        "night skincare",
+        "skincare routine",
+        "my routine",
+        "skincare steps",
+        "show routine",
+    ),
 }
 
 
