@@ -86,7 +86,12 @@ def _envelope(
 
 async def handle_diet_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
     lower = message.lower()
-    if ("weekly" in lower or "week" in lower) and "vegan" in lower:
+    if "recovery meal" in lower or ("recovery" in lower and "meal" in lower):
+        reply = (
+            "For recovery, pair protein, carbs, and fluids: paneer/tofu/chicken or dal with rice, "
+            "curd or yogurt, fruit, and water. Keep it easy to digest if you trained hard."
+        )
+    elif ("weekly" in lower or "week" in lower) and "vegan" in lower:
         reply = (
             "Weekly vegan plan: keep breakfast simple with oats, fruit, nuts, or tofu scramble. "
             "Rotate lunches between dal-rice bowls, chickpea salad, tofu wraps, and vegetable khichdi. "
@@ -245,7 +250,22 @@ async def handle_bills_chat(message: str, context: Dict[str, Any], user_id: str)
 
 async def handle_fitness_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
     lower = message.lower()
-    if "hiit" in lower:
+    if "home workout" in lower:
+        reply = (
+            "Home workout: 5-minute warm-up, then squats, push-ups, glute bridges, rows or towel pulls, "
+            "and plank holds. Finish with stretching. Wear breathable tee, flexible bottoms, and training shoes."
+        )
+    elif "gym workout" in lower:
+        reply = (
+            "Gym workout: start with mobility, then leg press or squats, dumbbell rows, chest press, hamstring curl, "
+            "and core. Keep supportive shoes and a breathable top."
+        )
+    elif "workout outfit" in lower:
+        reply = (
+            "Workout outfit: breathable tee, training shorts or joggers, supportive training shoes, and a water bottle. "
+            "For outdoor heat, add a cap and lighter colors."
+        )
+    elif "hiit" in lower:
         reply = (
             "HIIT plan: warm up 5 minutes, then 30 seconds work / 30 seconds rest for squats, mountain climbers, push-ups, high knees, and plank jacks. "
             "Repeat 3-4 rounds, cool down 5 minutes, and wear breathable stretch pieces with secure footwear."

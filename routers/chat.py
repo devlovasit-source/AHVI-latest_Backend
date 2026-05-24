@@ -2064,6 +2064,23 @@ def _detect_module_summary(message: str) -> str:
     return ""
 
 
+def _detect_quick_action_module(message: str) -> str:
+    text = str(message or "").lower().replace("'", "")
+    text = re.sub(r"[^a-z0-9 ]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return ""
+    if text in {"home workout", "gym workout", "workout outfit"}:
+        return "fitness"
+    if text in {"recovery meal", "light dinner ideas", "high protein meals", "high protein meal", "create todays meal plan"}:
+        return "diet"
+    if text in {"create routine"}:
+        return "skincare"
+    if text in {"packing checklist", "plan outfits", "weather prep", "save trip plan"}:
+        return "planner"
+    return ""
+
+
 def _build_visual_board_envelope(
     *,
     board_type: str,
@@ -2301,6 +2318,26 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
         profile["user_id"] = user_id
     user_message = str(request.message or "").strip()
     merged_context = {**(request.context_data or {}), **(request.context or {})}
+
+    _qa_module = _detect_quick_action_module(user_message)
+    if _qa_module == "planner":
+        return _module_plan_pack_response(
+            module_key=module or "planner",
+            user_message=user_message,
+            context_data=merged_context,
+            user_profile=profile,
+        )
+    if _qa_module in {"fitness", "diet", "skincare"}:
+        return await handle_module_chat(
+            {
+                "domain": _qa_module,
+                "module": _qa_module,
+                "message": user_message,
+                "context": merged_context,
+                "user_profile": profile,
+            },
+            user_id=user_id,
+        )
 
     _ms_module = _detect_module_summary(user_message)
     if _ms_module and user_id:

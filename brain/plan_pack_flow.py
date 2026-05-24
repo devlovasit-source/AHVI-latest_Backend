@@ -33,7 +33,28 @@ def _parse_days(text: str) -> int:
     for word, value in words.items():
         if f"{word} day" in lowered or f"{word}-day" in lowered:
             return value
+    if "carry-on" in lowered or "carry on" in lowered:
+        return 1
     return 3
+
+
+def _has_explicit_duration(text: str) -> bool:
+    lowered = (text or "").lower()
+    if re.search(r"\d+\s*[- ]?\s*days?", lowered):
+        return True
+    return any(
+        token in lowered
+        for token in (
+            "one day",
+            "two day",
+            "three day",
+            "four day",
+            "five day",
+            "six day",
+            "seven day",
+            "week",
+        )
+    )
 
 
 def _detect_scenario(text: str) -> str:
@@ -209,6 +230,20 @@ def _time_based_tasks(time_of_day: str) -> List[str]:
 
 
 def _timeline_checklist(days: int, scenario: str) -> List[str]:
+    if scenario == "birthday":
+        return [
+            "Confirm date and time",
+            "Finalize guest list",
+            "Set venue or home setup",
+            "Order cake",
+            "Plan decor",
+            "Plan food and drinks",
+            "Send invitations",
+            "Prepare music/playlist",
+            "Arrange return gifts/favors",
+            "Add to calendar",
+        ]
+
     base = [
         "Confirm travel/event dates",
         "Book transport and stay",
@@ -221,15 +256,19 @@ def _timeline_checklist(days: int, scenario: str) -> List[str]:
         base.extend(["Confirm ceremony timeline", "Coordinate with family/group"])
     if scenario == "camping":
         base.extend(["Check campsite rules", "Confirm route and emergency contacts"])
-    if scenario == "birthday":
-        base.extend(["Confirm guest count", "Assign cake, decor, and food tasks"])
     if days >= 5:
         base.append("Add laundry plan for longer stay")
     return base
 
 
 def _ui_cards(
-    days: int, destination: str, scenario: str, weather: str, time_of_day: str
+    days: int,
+    destination: str,
+    scenario: str,
+    weather: str,
+    time_of_day: str,
+    *,
+    explicit_duration: bool = True,
 ) -> List[Dict[str, Any]]:
     clothes = _packing_clothes(days=days, scenario=scenario)
     smart_packing = packing_engine.build_packing(
@@ -253,7 +292,8 @@ def _ui_cards(
         addons = _scenario_addons(scenario=scenario)
     timeline = _timeline_checklist(days=days, scenario=scenario)
     weather_items = _weather_layer_items(weather=weather)
-    timeline = timeline + _time_based_tasks(time_of_day=time_of_day)
+    if scenario != "birthday":
+        timeline = timeline + _time_based_tasks(time_of_day=time_of_day)
 
     if scenario == "birthday":
         primary_title = "Birthday Party Plan"
@@ -263,45 +303,65 @@ def _ui_cards(
         primary_title = "Wedding Prep Checklist"
     elif scenario == "business":
         primary_title = "Business Travel Plan"
+    elif destination == "Goa":
+        primary_title = f"{days}-Day Goa Trip"
+    elif destination == "Carry-On Trip":
+        primary_title = "Carry-on Packing Checklist"
     else:
         primary_title = f"{days}-Day Plan"
 
-    return [
+    duration_label = f"{days} days" if explicit_duration else "Short trip"
+    primary_subtitle = (
+        "Birthday event"
+        if scenario == "birthday"
+        else f"{destination} · {duration_label}"
+        if destination not in {"Your Trip", "Carry-On Trip"}
+        else "Short carry-on trip"
+        if destination == "Carry-On Trip"
+        else duration_label
+    )
+    calendar_action = {
+        "type": "open_module",
+        "module": "calendar",
+        "route": "/organize/calendar",
+        "label": "Open calendar",
+    }
+    checklist_action = {
+        "type": "open_module",
+        "module": "calendar",
+        "route": "/organize/calendar",
+        "label": "Open checklist",
+    }
+
+    cards = [
         {
             "id": "trip_plan",
             "title": primary_title,
             "kind": "checklist",
-            "subtitle": destination,
+            "subtitle": primary_subtitle,
             "items": timeline,
-            "action": {
-                "type": "open_module",
-                "module": "calendar",
-                "route": "/organize/calendar",
-            },
+            "action": calendar_action,
         },
+    ]
+    if scenario == "birthday":
+        return cards
+
+    cards.extend([
         {
             "id": "packing_clothes",
             "title": "Packing List - Clothes",
             "kind": "checklist",
-            "subtitle": f"{days} days",
+            "subtitle": duration_label,
             "items": clothes,
-            "action": {
-                "type": "open_module",
-                "module": "life_boards",
-                "route": "/organize/life-boards",
-            },
+            "action": checklist_action,
         },
         {
             "id": "packing_essentials",
             "title": "Packing List - Essentials",
             "kind": "checklist",
-            "subtitle": scenario.title(),
+            "subtitle": destination if destination != "Your Trip" else scenario.title(),
             "items": addons,
-            "action": {
-                "type": "open_module",
-                "module": "life_boards",
-                "route": "/organize/life-boards",
-            },
+            "action": checklist_action,
         },
         {
             "id": "weather_time_adjustments",
@@ -313,15 +373,18 @@ def _ui_cards(
                 "type": "open_module",
                 "module": "calendar",
                 "route": "/organize/calendar",
+                "label": "Weather prep",
             },
         },
-    ]
+    ])
+    return cards
 
 
 def build_plan_pack_response(
     text: str, context: Dict[str, Any] | None = None
 ) -> Dict[str, Any]:
     context = context or {}
+    explicit_duration = _has_explicit_duration(text)
     days = _parse_days(text)
     scenario = _detect_scenario(text)
     destination = _extract_destination(text)
@@ -334,11 +397,18 @@ def build_plan_pack_response(
         scenario=scenario,
         weather=weather,
         time_of_day=time_of_day,
+        explicit_duration=explicit_duration,
     )
+    if scenario == "birthday":
+        message = "Built your birthday party plan."
+    elif destination == "Carry-On Trip" and not explicit_duration:
+        message = "Built your carry-on packing checklist for a short trip."
+    else:
+        message = f"Built your {scenario} plan and weather-aware packing checklist for {days} days."
 
     return {
         "intent": "plan_pack",
-        "message": f"Built your {scenario} plan and weather-aware packing checklist for {days} days.",
+        "message": message,
         "board": "plan_pack",
         "type": "checklists",
         "chips": ["Packing checklist", "Plan outfits", "Weather prep", "Save trip plan"],
@@ -346,6 +416,7 @@ def build_plan_pack_response(
         "cards": cards,
         "data": {
             "days": days,
+            "duration_label": f"{days} days" if explicit_duration else "Short trip",
             "destination": destination,
             "scenario": scenario,
             "weather": weather,

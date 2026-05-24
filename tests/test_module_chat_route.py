@@ -345,5 +345,51 @@ def test_plan_pack_destination_labels_are_clean():
     birthday = build_plan_pack_response("Plan a birthday party")
 
     assert goa["data"]["destination"] == "Goa"
+    assert goa["cards"][0]["title"] == "3-Day Goa Trip"
+    assert goa["cards"][0]["subtitle"] == "Goa · 3 days"
     assert carry_on["data"]["destination"] == "Carry-On Trip"
+    assert carry_on["data"]["duration_label"] == "Short trip"
+    assert carry_on["cards"][0]["title"] == "Carry-on Packing Checklist"
+    assert carry_on["cards"][0]["subtitle"] == "Short carry-on trip"
     assert birthday["data"]["destination"] == "Birthday Party"
+    assert birthday["cards"][0]["title"] == "Birthday Party Plan"
+    assert len(birthday["cards"]) == 1
+    birthday_items = " ".join(birthday["cards"][0]["items"]).lower()
+    assert "book transport" not in birthday_items
+    assert "pack essentials" not in birthday_items
+    assert "carry-on" not in birthday_items
+    assert "guest list" in birthday_items
+
+
+def test_known_quick_actions_do_not_use_generic_fallback():
+    app = FastAPI()
+    app.include_router(chat.router, prefix="/api")
+    client = TestClient(app)
+
+    expected = {
+        "Workout outfit": "fitness",
+        "Gym workout": "fitness",
+        "Home workout": "fitness",
+        "Recovery meal": "diet",
+        "Weather prep": "plan_pack",
+    }
+
+    for prompt, expected_intent in expected.items():
+        response = client.post(
+            "/api/chat/module-chat",
+            json={
+                "module": "chat",
+                "message": prompt,
+                "history": [],
+                "context_data": {},
+                "user_profile": {},
+            },
+        )
+        body = response.json()
+        assert response.status_code == 200
+        assert "I can help with style, planning, and wardrobe advice" not in str(body)
+        if expected_intent == "plan_pack":
+            assert body["intent"] == "plan_pack"
+        else:
+            assert body["intent"] == expected_intent
+        assert "Open life boards" not in str(body)
