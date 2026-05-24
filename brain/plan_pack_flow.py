@@ -38,6 +38,10 @@ def _parse_days(text: str) -> int:
 
 def _detect_scenario(text: str) -> str:
     lowered = (text or "").lower()
+    if any(k in lowered for k in ["camping", "camp", "trek", "hike", "hiking"]):
+        return "camping"
+    if any(k in lowered for k in ["birthday party", "birthday", "party plan"]):
+        return "birthday"
     if any(k in lowered for k in ["wedding", "marriage", "bride", "groom"]):
         return "wedding"
     if any(
@@ -60,6 +64,10 @@ def _extract_destination(text: str) -> str:
         return m.group(1).strip().title()
     if "goa" in lowered:
         return "Goa"
+    if "camp" in lowered:
+        return "Camping"
+    if "birthday" in lowered:
+        return "Birthday Party"
     if "business" in lowered:
         return "Business Travel"
     if "wedding" in lowered:
@@ -98,6 +106,24 @@ def _packing_clothes(days: int, scenario: str) -> List[str]:
 
 
 def _scenario_addons(scenario: str) -> List[str]:
+    if scenario == "camping":
+        return [
+            "Torch/headlamp",
+            "Power bank",
+            "Reusable water bottle",
+            "Insect repellent",
+            "First-aid kit",
+            "Weather-safe outer layer",
+        ]
+    if scenario == "birthday":
+        return [
+            "Guest list",
+            "Cake order",
+            "Decor checklist",
+            "Music/playlist",
+            "Food and drinks plan",
+            "Gift or return favors",
+        ]
     if scenario == "business":
         return [
             "Formal shirt/blouse",
@@ -188,6 +214,10 @@ def _timeline_checklist(days: int, scenario: str) -> List[str]:
         base.extend(["Prepare meeting deck", "Keep IDs and booking invoices ready"])
     if scenario == "wedding":
         base.extend(["Confirm ceremony timeline", "Coordinate with family/group"])
+    if scenario == "camping":
+        base.extend(["Check campsite rules", "Confirm route and emergency contacts"])
+    if scenario == "birthday":
+        base.extend(["Confirm guest count", "Assign cake, decor, and food tasks"])
     if days >= 5:
         base.append("Add laundry plan for longer stay")
     return base
@@ -220,7 +250,11 @@ def _ui_cards(
     weather_items = _weather_layer_items(weather=weather)
     timeline = timeline + _time_based_tasks(time_of_day=time_of_day)
 
-    if scenario == "wedding":
+    if scenario == "birthday":
+        primary_title = "Birthday Party Plan"
+    elif scenario == "camping":
+        primary_title = "Camping Prep Checklist"
+    elif scenario == "wedding":
         primary_title = "Wedding Prep Checklist"
     elif scenario == "business":
         primary_title = "Business Travel Plan"
@@ -302,6 +336,8 @@ def build_plan_pack_response(
         "message": f"Built your {scenario} plan and weather-aware packing checklist for {days} days.",
         "board": "plan_pack",
         "type": "checklists",
+        "chips": ["Packing checklist", "Plan outfits", "Weather prep", "Save trip plan"],
+        "quick_actions": ["Packing checklist", "Plan outfits", "Weather prep", "Save trip plan"],
         "cards": cards,
         "data": {
             "days": days,

@@ -51,6 +51,20 @@ def _is_today(value: Any) -> bool:
     return (dt.year, dt.month, dt.day) == (now.year, now.month, now.day)
 
 
+_QUICK_ACTIONS = {
+    "meals": ["Create today's meal plan", "High-protein meals", "Light dinner ideas", "Open Meals"],
+    "workout": ["Home workout", "Gym workout", "Workout outfit", "Recovery meal"],
+    "medicines": ["Mark taken", "Set reminder", "Open Medicines"],
+    "bills": ["Mark paid", "Set reminder", "Open Bills"],
+    "events": ["Plan my day", "Add event", "Prep for tomorrow"],
+    "skincare": ["Create routine", "Morning routine", "Evening routine", "Open Skincare"],
+}
+
+
+def _quick_actions(module: str) -> List[str]:
+    return list(_QUICK_ACTIONS.get(module, []))
+
+
 def _card(
     *,
     module: str,
@@ -62,12 +76,19 @@ def _card(
     rows: List[Dict[str, Any]],
     open_key: str,
 ) -> Dict[str, Any]:
+    quick_actions = _quick_actions(module)
+    open_module = {
+        "type": "open_module",
+        "module": open_key,
+        "route": f"/organize/{open_key}",
+    }
     return {
         "success": True,
         "type": "module_card",
         "response_type": "module_card",
         "module": module,
         "domain": module,
+        "intent": module,
         "card": {
             "title": title,
             "icon": icon,
@@ -76,14 +97,26 @@ def _card(
             "count_total": count_total,
             "rows": rows,
             "open_key": open_key,
+            "quick_actions": quick_actions,
+            "open_module": open_module,
         },
         "message": summary,
         "message_text": summary,
         "response": summary,
         "cards": [],
         "style_boards": [],
-        "chips": [],
-        "data": {"module": module, "rows": rows, "message": summary},
+        "chips": quick_actions,
+        "quick_actions": quick_actions,
+        "cta": open_module,
+        "open_module": open_module,
+        "data": {
+            "module": module,
+            "intent": module,
+            "rows": rows,
+            "message": summary,
+            "quick_actions": quick_actions,
+            "open_module": open_module,
+        },
         "meta": {"mode": "module_card", "module": module},
     }
 
@@ -117,7 +150,7 @@ def _medicines(user_id: str) -> Dict[str, Any]:
     summary = (
         f"You have {total} {noun} tracked."
         if total
-        else "No medicines tracked yet. Add one from the Medicines page."
+        else "No medicines are tracked yet. I can help add one and set a reminder."
     )
     return _card(
         module="medicines",
@@ -165,7 +198,7 @@ def _bills(user_id: str) -> Dict[str, Any]:
     summary = (
         f"You have {total} unpaid {noun}."
         if total
-        else "No bills added yet. Add one from the Bills page."
+        else "No pending bills are saved yet. I can help add one and set a due-date reminder."
     )
     return _card(
         module="bills",
@@ -219,7 +252,7 @@ def _events(user_id: str) -> Dict[str, Any]:
     summary = (
         f"You have {total} event{'s' if total != 1 else ''} today."
         if total
-        else "No events scheduled for today."
+        else "Your day looks open. Want me to help plan it around a workout, errands, or prep for tomorrow?"
     )
     return _card(
         module="events",
@@ -308,7 +341,7 @@ def _meals(user_id: str) -> Dict[str, Any]:
             else f"You have {total} meal{'s' if total != 1 else ''} planned."
         )
     else:
-        summary = "No meal plans saved yet. Build one from the Diet page."
+        summary = "No meals are planned yet. I can create today's meal plan around your goal and diet preference."
 
     return _card(
         module="meals",
@@ -327,7 +360,7 @@ def _meals(user_id: str) -> Dict[str, Any]:
 # =========================
 def _workout(user_id: str) -> Dict[str, Any]:
     rows: List[Dict[str, Any]] = []
-    summary = "Tap to see today's workout."
+    summary = "No workout is planned yet. I can build a home or gym session for today."
     today = None
     try:
         # Lazy import — the workouts router knows how to assemble a card.
@@ -401,7 +434,7 @@ def _workout(user_id: str) -> Dict[str, Any]:
 def _skincare(user_id: str) -> Dict[str, Any]:
     docs = _docs("skincare_profiles", user_id) or _docs("skincare", user_id)
     rows: List[Dict[str, Any]] = []
-    summary = "Tap to set up your skincare routine."
+    summary = "Your morning skincare routine is not set up yet. I can help create a simple 3-step routine."
     if docs:
         prof = docs[0]
         skin_type = _txt(prof.get("skinType"))

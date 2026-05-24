@@ -210,6 +210,109 @@ def _validate_intent_row(row: Any, *, fallback: Dict[str, Any]) -> Dict[str, Any
 def _fallback_intent(text: str) -> Dict[str, Any]:
     t = (text or "").lower()
     slots: Dict[str, Any] = {}
+    normalized = " ".join(t.replace("'", "").split())
+
+    def _has_any(*phrases: str) -> bool:
+        return any(phrase in t or phrase in normalized for phrase in phrases)
+
+    plan_pack_words = [
+        "plan trip",
+        "trip plan",
+        "travel plan",
+        "packing list",
+        "pack for",
+        "pack my",
+        "business travel",
+        "wedding checklist",
+        "checklist for trip",
+        "goa trip",
+        "vacation packing",
+        "carry-on",
+        "carry on",
+        "camping",
+        "prep for camping",
+        "birthday party",
+        "plan a birthday",
+        "plan birthday",
+    ]
+    if any(x in t for x in plan_pack_words):
+        return {"intent": "plan_pack", "slots": slots, "confidence": 0.82}
+
+    module_hits = [
+        (
+            "meal_planner",
+            (
+                "today's meals",
+                "todays meals",
+                "today meals",
+                "my meals",
+                "meal plan",
+                "meal planner",
+                "what should i eat",
+            ),
+        ),
+        (
+            "workout",
+            (
+                "today's workout",
+                "todays workout",
+                "today workout",
+                "my workout",
+                "workout today",
+                "fitness today",
+            ),
+        ),
+        (
+            "skincare",
+            (
+                "morning skincare",
+                "night skincare",
+                "evening skincare",
+                "skincare routine",
+                "my skincare",
+            ),
+        ),
+        (
+            "bills",
+            (
+                "pending bills",
+                "my bills",
+                "unpaid bills",
+                "bills due",
+                "today's bills",
+                "todays bills",
+            ),
+        ),
+        (
+            "medicines",
+            (
+                "my medicines",
+                "my medicine",
+                "my meds",
+                "today's medicines",
+                "todays medicines",
+                "today medicines",
+                "medication list",
+            ),
+        ),
+        (
+            "calendar",
+            (
+                "today's events",
+                "todays events",
+                "today events",
+                "upcoming events",
+                "my events",
+                "my schedule",
+                "today's schedule",
+                "todays schedule",
+            ),
+        ),
+    ]
+    for module, phrases in module_hits:
+        if _has_any(*phrases):
+            slots["module"] = module
+            return {"intent": "organize_hub", "slots": slots, "confidence": 0.84}
 
     # Specific occasions must beat generic "work" keyword so Gym/Party/etc.
     # calendar chats don't get hijacked when user types "work outfit"
@@ -376,22 +479,6 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
         elif "goal" in t:
             slots["module"] = "life_goals"
         return {"intent": "organize_hub", "slots": slots, "confidence": 0.75}
-
-    plan_pack_words = [
-        "plan trip",
-        "trip plan",
-        "travel plan",
-        "packing list",
-        "pack for",
-        "pack my",
-        "business travel",
-        "wedding checklist",
-        "checklist for trip",
-        "goa trip",
-        "vacation packing",
-    ]
-    if any(x in t for x in plan_pack_words):
-        return {"intent": "plan_pack", "slots": slots, "confidence": 0.78}
 
     return {"intent": "general", "slots": slots, "confidence": 0.4}
 

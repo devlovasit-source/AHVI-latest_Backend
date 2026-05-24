@@ -238,3 +238,96 @@ def test_planner_module_routes_plan_pack_to_checklists(monkeypatch):
     assert body["type"] == "checklists"
     assert body["meta"]["intent"] == "plan_pack"
     assert len(body["cards"]) >= 3
+
+
+def test_lifestyle_intent_engine_routes_known_prompts():
+    from brain.intent_engine import detect_intent
+
+    expected = {
+        "Today's meals": ("organize_hub", "meal_planner"),
+        "Today's workout": ("organize_hub", "workout"),
+        "Morning skincare": ("organize_hub", "skincare"),
+        "Pending bills": ("organize_hub", "bills"),
+        "My medicines": ("organize_hub", "medicines"),
+        "Today's events": ("organize_hub", "calendar"),
+        "Upcoming events": ("organize_hub", "calendar"),
+    }
+
+    for prompt, (intent, module) in expected.items():
+        row = detect_intent(prompt)
+        assert row["intent"] == intent
+        assert row["slots"]["module"] == module
+        assert row["confidence"] >= 0.75
+
+
+def test_plan_pack_prompts_route_without_generic_fallback():
+    prompts = [
+        "Help me prep for camping",
+        "Plan for a 3 day Goa trip",
+        "Plan a birthday party",
+        "Pack for a carry-on trip",
+    ]
+    app = FastAPI()
+    app.include_router(chat.router, prefix="/api")
+    client = TestClient(app)
+
+    for prompt in prompts:
+        response = client.post(
+            "/api/chat/module-chat",
+            json={
+                "module": "planner",
+                "message": prompt,
+                "history": [],
+                "context_data": {},
+                "user_profile": {},
+            },
+        )
+
+        body = response.json()
+        assert response.status_code == 200
+        assert body["intent"] == "plan_pack"
+        assert body["meta"]["intent"] == "plan_pack"
+        assert body["cards"]
+        assert body["quick_actions"] == ["Packing checklist", "Plan outfits", "Weather prep", "Save trip plan"]
+        assert "I can help with style, planning, and wardrobe advice" not in body["message"]["content"]
+
+
+def test_module_summary_prompts_return_cards_and_actions(monkeypatch):
+    from services import module_summary_service
+
+    monkeypatch.setattr(chat, "_state_user_id", lambda request: "user-1")
+    monkeypatch.setattr(module_summary_service, "_docs", lambda *args, **kwargs: [])
+
+    app = FastAPI()
+    app.include_router(chat.router, prefix="/api")
+    client = TestClient(app)
+
+    expected = {
+        "Today's meals": "meals",
+        "Today's workout": "workout",
+        "Morning skincare": "skincare",
+        "Pending bills": "bills",
+        "My medicines": "medicines",
+        "Today's events": "events",
+        "Upcoming events": "events",
+    }
+
+    for prompt, module in expected.items():
+        response = client.post(
+            "/api/chat/module-chat",
+            json={
+                "module": "chat",
+                "message": prompt,
+                "history": [],
+                "context_data": {},
+                "user_profile": {},
+            },
+        )
+
+        body = response.json()
+        assert response.status_code == 200
+        assert body["type"] == "module_card"
+        assert body["module"] == module
+        assert body["card"]
+        assert body["quick_actions"]
+        assert "I can help with style, planning, and wardrobe advice" not in body["message"]

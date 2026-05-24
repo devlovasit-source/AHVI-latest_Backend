@@ -1836,19 +1836,23 @@ def _module_response_envelope(
     chips: List[Any] | None = None,
 ) -> Dict[str, Any]:
     answer_text = str(answer or "").strip()
+    actions = chips or []
     return {
         "success": True,
         "type": "module_chat",
         "module": module_key,
         "domain": module_key,
+        "intent": module_key,
         "response": answer_text,
         "message_text": answer_text,
         "message": {"role": "assistant", "content": answer_text},
         "cards": [],
         "style_boards": [],
-        "chips": chips or [],
+        "chips": actions,
+        "quick_actions": actions,
         "data": {
             "module": module_key,
+            "intent": module_key,
             "message": answer_text,
             "rendered_boards": [],
             "outfits": [],
@@ -1920,8 +1924,12 @@ def _module_style_response_envelope(
 def _is_plan_pack_request(message: str) -> bool:
     text = str(message or "").lower()
     has_pack = any(token in text for token in ("pack", "packing", "carry-on", "carry on"))
-    has_trip = any(token in text for token in ("trip", "travel", "beach", "vacation", "destination"))
-    return has_pack and (has_trip or "plan" in text)
+    has_trip = any(token in text for token in ("trip", "travel", "beach", "vacation", "destination", "goa"))
+    has_prep = any(token in text for token in ("prep", "prepare", "checklist", "plan"))
+    has_event_plan = any(token in text for token in ("birthday party", "birthday", "camping", "goa trip"))
+    return (has_pack and (has_trip or has_prep)) or has_event_plan or (
+        has_prep and any(token in text for token in ("camping", "trip", "travel", "party"))
+    )
 
 
 # Visual board routing. Diet / Pack / Plan prompts return a structured
@@ -1935,10 +1943,12 @@ _VB_DIET_KEYWORDS = (
 _VB_PACK_KEYWORDS = (
     "pack", "packing", "carry-on", "carry on", "what should i carry",
     "what to carry", "airport bag", "travel bag", "beach bag", "gym bag", "luggage",
+    "camping checklist", "camping prep",
 )
 _VB_PLAN_KEYWORDS = (
     "plan my day", "plan my tomorrow", "prepare me", "prep me", "tomorrow prep",
     "trip prep", "office prep", "before leaving", "get me ready",
+    "help me prep", "plan for a", "goa trip", "birthday party", "plan a birthday",
 )
 _VB_SKIP_MODULES = {
     "skincare", "medi", "bills", "fitness", "style", "wardrobe", "daily_wear",
@@ -1952,6 +1962,8 @@ def _detect_visual_board_type(message: str, module: str = "") -> str:
         return ""
     if str(module or "").lower() in _VB_SKIP_MODULES:
         return ""
+    if _is_plan_pack_request(text):
+        return "packing_checklist"
     if any(k in text for k in _VB_DIET_KEYWORDS):
         return "diet_plan"
     if any(k in text for k in _VB_PACK_KEYWORDS):
@@ -1969,7 +1981,12 @@ def _detect_visual_board_type(message: str, module: str = "") -> str:
 _MODULE_SUMMARY_INTENTS: Dict[str, tuple] = {
     "medicines": (
         "my medicines",
+        "my medicine",
         "my meds",
+        "todays medicine",
+        "today medicine",
+        "today's medicine",
+        "today's medicines",
         "todays medicines",
         "today medicines",
         "show medicines",
@@ -1980,31 +1997,39 @@ _MODULE_SUMMARY_INTENTS: Dict[str, tuple] = {
         "my bills",
         "pending bills",
         "unpaid bills",
+        "today's bills",
+        "todays bills",
         "show bills",
         "list bills",
         "bills due",
     ),
     "events": (
         "my events",
+        "today's events",
         "todays events",
         "today events",
         "today event",
         "upcoming events",
         "my schedule",
+        "today's schedule",
         "todays schedule",
     ),
     "meals": (
         "my meals",
+        "today's meals",
         "todays meals",
         "today meals",
+        "today's food",
         "meal list",
         "show meals",
         "todays food",
     ),
     "workout": (
         "my workout",
+        "today's workout",
         "todays workout",
         "today workout",
+        "workout today",
         "show workout",
         "show exercises",
         "todays exercises",
@@ -2023,7 +2048,8 @@ _MODULE_SUMMARY_INTENTS: Dict[str, tuple] = {
 
 def _detect_module_summary(message: str) -> str:
     """Return a module key for a summary-card intent, else ''."""
-    text = re.sub(r"[^a-z0-9 ]+", " ", str(message or "").lower())
+    text = str(message or "").lower().replace("'", "")
+    text = re.sub(r"[^a-z0-9 ]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     if not text:
         return ""
@@ -2074,6 +2100,7 @@ def _build_visual_board_envelope(
     title = str(board.get("title") or "")
     subtitle = str(board.get("subtitle") or "")
     message_text = (f"{title} — {subtitle}" if subtitle else title).strip(" —")
+    actions = ["Packing checklist", "Plan outfits", "Weather prep", "Save trip plan"] if board_type in {"packing_checklist", "trip_prep"} else []
 
     return {
         "success": True,
@@ -2081,6 +2108,7 @@ def _build_visual_board_envelope(
         "response_type": "visual_board",
         "module": module_key or "planner",
         "domain": module_key or "planner",
+        "intent": "plan_pack" if board_type in {"packing_checklist", "trip_prep"} else board_type,
         "board_type": board.get("board_type"),
         "title": title,
         "subtitle": subtitle,
@@ -2094,9 +2122,11 @@ def _build_visual_board_envelope(
         "response": message_text,
         "cards": cards,
         "style_boards": [],
-        "chips": [],
+        "chips": actions,
+        "quick_actions": actions,
         "data": {
             "module": module_key or "planner",
+            "intent": "plan_pack" if board_type in {"packing_checklist", "trip_prep"} else board_type,
             "visual_board": board,
             "message": message_text,
             "rendered_boards": [],
@@ -2123,6 +2153,9 @@ def _module_plan_pack_response(
     payload = build_plan_pack_response(user_message, context)
     message = str(payload.get("message") or "I built your trip plan and packing checklist.")
     cards = payload.get("cards") if isinstance(payload.get("cards"), list) else []
+    actions = payload.get("quick_actions") if isinstance(payload.get("quick_actions"), list) else (
+        payload.get("chips") if isinstance(payload.get("chips"), list) else []
+    )
     logger.info(
         "chat.plan_pack_module_route module=%s cards=%s prompt=%r",
         module_key,
@@ -2134,10 +2167,12 @@ def _module_plan_pack_response(
         "type": payload.get("type") or "checklists",
         "module": module_key or "planner",
         "domain": module_key or "planner",
+        "intent": "plan_pack",
         "response": message,
         "message_text": message,
         "message": {"role": "assistant", "content": message},
-        "chips": payload.get("chips") if isinstance(payload.get("chips"), list) else [],
+        "chips": actions,
+        "quick_actions": actions,
         "cards": cards,
         "style_boards": payload.get("style_boards") if isinstance(payload.get("style_boards"), list) else [],
         "data": payload.get("data") if isinstance(payload.get("data"), dict) else {},
@@ -2270,6 +2305,14 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
         if _ms_card:
             return _ms_card
 
+    if module in {"planner", "calendar", "prep", "chat", ""} and _is_plan_pack_request(user_message):
+        return _module_plan_pack_response(
+            module_key=module or "planner",
+            user_message=user_message,
+            context_data=merged_context,
+            user_profile=profile,
+        )
+
     _vb_type = _detect_visual_board_type(user_message, module)
     if _vb_type:
         _vb_context = dict(merged_context or {})
@@ -2280,14 +2323,6 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
             module_key=module,
             user_message=user_message,
             context=_vb_context,
-        )
-
-    if module in {"planner", "calendar", "prep", "chat", ""} and _is_plan_pack_request(user_message):
-        return _module_plan_pack_response(
-            module_key=module or "planner",
-            user_message=user_message,
-            context_data=merged_context,
-            user_profile=profile,
         )
 
     if module in {"skincare", "diet", "meal", "planner", "calendar", "medi", "bills", "fitness"}:
@@ -2749,6 +2784,17 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 "chat.module_summary_route user_id=%s module=%s", user_id, _ms_module
             )
             return _ms_card
+
+    if _is_plan_pack_request(user_input):
+        logger.info(
+            "chat.plan_pack_text_route user_id=%s prompt=%r", user_id, user_input
+        )
+        return _module_plan_pack_response(
+            module_key=str(request.module_context or "planner"),
+            user_message=user_input,
+            context_data={},
+            user_profile=effective_user_profile,
+        )
 
     # -------------------------
     # VISUAL BOARD FAST PATH

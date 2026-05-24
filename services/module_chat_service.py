@@ -23,6 +23,33 @@ def _normalize_domain(value: Any) -> str:
     return aliases.get(domain, domain or "chat")
 
 
+_QUICK_ACTIONS: Dict[str, List[str]] = {
+    "diet": ["Create today's meal plan", "High-protein meals", "Light dinner ideas", "Open Meals"],
+    "fitness": ["Home workout", "Gym workout", "Workout outfit", "Recovery meal"],
+    "medi": ["Mark taken", "Set reminder", "Open Medicines"],
+    "bills": ["Mark paid", "Set reminder", "Open Bills"],
+    "calendar": ["Plan my day", "Add event", "Prep for tomorrow"],
+    "skincare": ["Create routine", "Morning routine", "Evening routine", "Open Skincare"],
+    "planner": ["Packing checklist", "Plan outfits", "Weather prep", "Save trip plan"],
+    "chat": ["Style me", "Plan my day", "Summarize"],
+}
+
+
+_OPEN_MODULES: Dict[str, Dict[str, str]] = {
+    "diet": {"module": "meals", "route": "/organize/meals"},
+    "fitness": {"module": "workout", "route": "/organize/workout"},
+    "medi": {"module": "medicines", "route": "/organize/medicines"},
+    "bills": {"module": "bills", "route": "/organize/bills"},
+    "calendar": {"module": "calendar", "route": "/organize/calendar"},
+    "skincare": {"module": "skincare", "route": "/organize/skincare"},
+    "planner": {"module": "planner", "route": "/organize/calendar"},
+}
+
+
+def _quick_actions(domain: str) -> List[str]:
+    return list(_QUICK_ACTIONS.get(domain, _QUICK_ACTIONS["chat"]))
+
+
 def _envelope(
     *,
     domain: str,
@@ -33,16 +60,26 @@ def _envelope(
 ) -> Dict[str, Any]:
     payload = data or {}
     payload.setdefault("message", message)
+    actions = chips or _quick_actions(domain)
+    open_module = _OPEN_MODULES.get(domain)
+    payload.setdefault("module", domain)
+    payload.setdefault("intent", domain)
+    if open_module:
+        payload.setdefault("open_module", open_module)
     return {
         "success": True,
         "type": "module_response",
         "domain": domain,
         "module": domain,
+        "intent": payload.get("intent") or domain,
         "message": message,
         "message_text": message,
         "response": message,
         "cards": cards or [],
-        "chips": chips or [],
+        "chips": actions,
+        "quick_actions": actions,
+        "cta": open_module,
+        "open_module": open_module,
         "data": payload,
     }
 
@@ -110,11 +147,10 @@ async def handle_diet_chat(message: str, context: Dict[str, Any], user_id: str) 
         )
     else:
         reply = (
-            "I can help with meal ideas. A balanced option is protein, fiber-rich carbs, vegetables "
-            "or fruit, and enough fluids. Tell me your goal, diet preference, or meal timing for a "
-            "sharper suggestion."
+            "I can help build a meal plan from here. Tell me your goal, diet preference, or meal "
+            "timing, or choose a quick action to create today's meals."
         )
-    return _envelope(domain="diet", message=reply, chips=["High protein breakfast", "Pre-workout meal", "Hydration"])
+    return _envelope(domain="diet", message=reply, chips=_quick_actions("diet"))
 
 
 async def handle_skincare_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
@@ -148,11 +184,10 @@ async def handle_skincare_chat(message: str, context: Dict[str, Any], user_id: s
         )
     else:
         reply = (
-            "A safe skincare baseline is gentle cleanser, moisturizer, and broad-spectrum SPF in the "
-            "morning, then cleanser and moisturizer at night. Tell me your skin type or concern for a "
-            "more tailored routine."
+            "Your skincare flow is ready to set up. I can create a simple morning or evening routine "
+            "from your skin type, concern, and products."
         )
-    return _envelope(domain="skincare", message=reply, chips=["Morning routine", "Night routine", "SPF help"])
+    return _envelope(domain="skincare", message=reply, chips=_quick_actions("skincare"))
 
 
 async def handle_calendar_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
@@ -175,9 +210,9 @@ async def handle_calendar_chat(message: str, context: Dict[str, Any], user_id: s
         reply = "Tell me the plan in one line, for example: 'Client meeting at 9 PM'."
     else:
         reply = (
-            "Tell me what you are planning, the time, and the category. I will turn it into a clear planner item."
+            "Tell me what you are planning, or choose a quick action. I can organize your day, add an event, or prep tomorrow."
         )
-    return _envelope(domain="calendar", message=reply, chips=["Plan my day", "Prioritize tasks", "Add plan"])
+    return _envelope(domain="calendar", message=reply, chips=_quick_actions("calendar"))
 
 
 async def handle_medi_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
@@ -193,7 +228,7 @@ async def handle_medi_chat(message: str, context: Dict[str, Any], user_id: str) 
             "I can summarize your medication tracker, help spot missed logs, and organize reminder questions. "
             "I cannot diagnose or change dosages; for medical decisions, please consult your clinician."
         )
-    return _envelope(domain="medi", message=reply, chips=["Due today", "Missed logs", "Reminder help"])
+    return _envelope(domain="medi", message=reply, chips=_quick_actions("medi"))
 
 
 async def handle_bills_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
@@ -205,7 +240,7 @@ async def handle_bills_chat(message: str, context: Dict[str, Any], user_id: str)
         f"I can help review your bills. I see {bill_count} bills and {coupon_count} coupons in context. "
         "Ask me to summarize spending, find the top category, or plan which bills to handle first."
     )
-    return _envelope(domain="bills", message=reply, chips=["Summarize bills", "Top category", "Coupons"])
+    return _envelope(domain="bills", message=reply, chips=_quick_actions("bills"))
 
 
 async def handle_fitness_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
@@ -229,9 +264,9 @@ async def handle_fitness_chat(message: str, context: Dict[str, Any], user_id: st
         )
     else:
         reply = (
-            "Tell me workout type, time available, intensity, equipment, and any constraints. I will build the session around those details instead of giving a generic routine."
+            "I can build today's workout from your time, location, equipment, and intensity. Choose a quick action or tell me the session you want."
         )
-    return _envelope(domain="fitness", message=reply, chips=["Quick workout", "Outfit help", "Stretching"])
+    return _envelope(domain="fitness", message=reply, chips=_quick_actions("fitness"))
 
 
 async def handle_style_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
