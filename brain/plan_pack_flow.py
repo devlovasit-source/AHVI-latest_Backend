@@ -57,13 +57,10 @@ def _detect_scenario(text: str) -> str:
 
 def _extract_destination(text: str) -> str:
     lowered = (text or "").lower()
-    m = re.search(
-        r"(?:to|for)\s+([a-z ]{2,30})(?:trip|travel|vacation|holiday|wedding)?", lowered
-    )
-    if m:
-        return m.group(1).strip().title()
     if "goa" in lowered:
         return "Goa"
+    if "carry-on" in lowered or "carry on" in lowered:
+        return "Carry-On Trip"
     if "camp" in lowered:
         return "Camping"
     if "birthday" in lowered:
@@ -72,6 +69,14 @@ def _extract_destination(text: str) -> str:
         return "Business Travel"
     if "wedding" in lowered:
         return "Wedding Event"
+    m = re.search(
+        r"(?:to|for)\s+([a-z ]{2,30})(?:trip|travel|vacation|holiday|wedding)?", lowered
+    )
+    if m:
+        candidate = re.sub(r"\b(a|an|the|\d+|day|days)\b", " ", m.group(1))
+        candidate = re.sub(r"\s+", " ", candidate).strip(" -")
+        if candidate:
+            return candidate.title()
     return "Your Trip"
 
 

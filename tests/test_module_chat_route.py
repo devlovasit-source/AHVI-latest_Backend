@@ -247,6 +247,8 @@ def test_lifestyle_intent_engine_routes_known_prompts():
         "Today's meals": ("organize_hub", "meal_planner"),
         "Today's workout": ("organize_hub", "workout"),
         "Morning skincare": ("organize_hub", "skincare"),
+        "Morning routine": ("organize_hub", "skincare"),
+        "Evening routine": ("organize_hub", "skincare"),
         "Pending bills": ("organize_hub", "bills"),
         "My medicines": ("organize_hub", "medicines"),
         "Today's events": ("organize_hub", "calendar"),
@@ -306,6 +308,8 @@ def test_module_summary_prompts_return_cards_and_actions(monkeypatch):
         "Today's meals": "meals",
         "Today's workout": "workout",
         "Morning skincare": "skincare",
+        "Morning routine": "skincare",
+        "Evening routine": "skincare",
         "Pending bills": "bills",
         "My medicines": "medicines",
         "Today's events": "events",
@@ -331,3 +335,15 @@ def test_module_summary_prompts_return_cards_and_actions(monkeypatch):
         assert body["card"]
         assert body["quick_actions"]
         assert "I can help with style, planning, and wardrobe advice" not in body["message"]
+
+
+def test_plan_pack_destination_labels_are_clean():
+    from brain.plan_pack_flow import build_plan_pack_response
+
+    goa = build_plan_pack_response("plan for a 3 day Goa trip")
+    carry_on = build_plan_pack_response("Pack for a carry-on trip")
+    birthday = build_plan_pack_response("Plan a birthday party")
+
+    assert goa["data"]["destination"] == "Goa"
+    assert carry_on["data"]["destination"] == "Carry-On Trip"
+    assert birthday["data"]["destination"] == "Birthday Party"

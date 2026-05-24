@@ -270,6 +270,11 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
                 "evening skincare",
                 "skincare routine",
                 "my skincare",
+                "morning routine",
+                "evening routine",
+                "night routine",
+                "create routine",
+                "open skincare",
             ),
         ),
         (
