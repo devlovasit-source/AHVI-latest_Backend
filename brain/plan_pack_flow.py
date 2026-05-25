@@ -1,8 +1,99 @@
 import math
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from brain.engines.packing.packing_engine import packing_engine
+
+
+_ASSET_ICONS = {
+    "sunscreen": "assets/icons/sunscreen.svg",
+    "sunglasses": "assets/icons/sunglasses.svg",
+    "charger": "assets/icons/charger.svg",
+    "phone": "assets/icons/charger.svg",
+    "power bank": "assets/icons/power_bank.svg",
+    "moisturizer": "assets/icons/moisturizer.svg",
+    "toiletries": "assets/icons/toiletries.svg",
+    "water bottle": "assets/icons/water_bottle.svg",
+    "hydration bottle": "assets/icons/water_bottle.svg",
+    "shoes": "assets/icons/shoes.svg",
+    "footwear": "assets/icons/shoes.svg",
+    "jacket": "assets/icons/jacket.svg",
+    "outer layer": "assets/icons/jacket.svg",
+    "towel": "assets/icons/towel.svg",
+    "medicine": "assets/icons/medicine_kit.svg",
+    "first-aid": "assets/icons/first_aid_kit.svg",
+    "first aid": "assets/icons/first_aid_kit.svg",
+}
+
+
+def _asset_icon_for(label: str) -> Optional[str]:
+    lowered = str(label or "").lower()
+    for key, icon in _ASSET_ICONS.items():
+        if key in lowered:
+            return icon
+    return None
+
+
+def _image_url_from_item(item: Dict[str, Any]) -> str:
+    for key in ("imageUrl", "image_url", "image", "url", "thumbnail", "photoUrl"):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _matches_wardrobe(label: str, item: Dict[str, Any]) -> bool:
+    needle = str(label or "").lower()
+    if not needle:
+        return False
+    searchable = " ".join(
+        str(item.get(k) or "")
+        for k in (
+            "name",
+            "category",
+            "sub_category",
+            "subcategory",
+            "type",
+            "tags",
+            "color",
+            "occasion",
+        )
+    ).lower()
+    tokens = [t for t in re.split(r"[^a-z0-9]+", needle) if len(t) >= 4]
+    return any(token in searchable for token in tokens)
+
+
+def _visual_item(
+    label: str,
+    *,
+    category: str,
+    wardrobe: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    clean = str(label or "").strip()
+    for item in wardrobe or []:
+        if not isinstance(item, dict):
+            continue
+        if _matches_wardrobe(clean, item):
+            image_url = _image_url_from_item(item)
+            if image_url:
+                return {
+                    "label": clean,
+                    "category": category,
+                    "checked": False,
+                    "imageUrl": image_url,
+                    "assetIcon": None,
+                    "source": "wardrobe",
+                    "wardrobeItemId": item.get("$id") or item.get("id"),
+                }
+    asset = _asset_icon_for(clean)
+    return {
+        "label": clean,
+        "category": category,
+        "checked": False,
+        "imageUrl": None,
+        "assetIcon": asset,
+        "source": "asset" if asset else "text",
+    }
 
 
 def _parse_days(text: str) -> int:
@@ -269,6 +360,7 @@ def _ui_cards(
     time_of_day: str,
     *,
     explicit_duration: bool = True,
+    wardrobe: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     clothes = _packing_clothes(days=days, scenario=scenario)
     smart_packing = packing_engine.build_packing(
@@ -323,13 +415,15 @@ def _ui_cards(
     calendar_action = {
         "type": "open_module",
         "module": "calendar",
+        "intent": "open_calendar",
         "route": "/organize/calendar",
         "label": "Open calendar",
     }
     checklist_action = {
-        "type": "open_module",
-        "module": "calendar",
-        "route": "/organize/calendar",
+        "type": "plan_pack_action",
+        "module": "plan_pack",
+        "intent": "open_checklist",
+        "route": "plan_pack_checklist",
         "label": "Open checklist",
     }
 
@@ -339,8 +433,17 @@ def _ui_cards(
             "title": primary_title,
             "kind": "checklist",
             "subtitle": primary_subtitle,
-            "items": timeline,
-            "action": calendar_action,
+            "items": [
+                _visual_item(item, category="plan", wardrobe=wardrobe)
+                for item in timeline
+            ],
+            "action": calendar_action if scenario == "birthday" else {
+                "type": "plan_pack_action",
+                "module": "plan_pack",
+                "intent": "view_plan",
+                "route": "plan_pack",
+                "label": "View plan",
+            },
         },
     ]
     if scenario == "birthday":
@@ -352,7 +455,10 @@ def _ui_cards(
             "title": "Packing List - Clothes",
             "kind": "checklist",
             "subtitle": duration_label,
-            "items": clothes,
+            "items": [
+                _visual_item(item, category="clothes", wardrobe=wardrobe)
+                for item in clothes
+            ],
             "action": checklist_action,
         },
         {
@@ -360,7 +466,10 @@ def _ui_cards(
             "title": "Packing List - Essentials",
             "kind": "checklist",
             "subtitle": destination if destination != "Your Trip" else scenario.title(),
-            "items": addons,
+            "items": [
+                _visual_item(item, category="essentials", wardrobe=wardrobe)
+                for item in addons
+            ],
             "action": checklist_action,
         },
         {
@@ -368,11 +477,15 @@ def _ui_cards(
             "title": "Weather & Time Adjustments",
             "kind": "checklist",
             "subtitle": f"{weather.title()} | {time_of_day.title()}",
-            "items": weather_items,
+            "items": [
+                _visual_item(item, category="weather", wardrobe=wardrobe)
+                for item in weather_items
+            ],
             "action": {
-                "type": "open_module",
-                "module": "calendar",
-                "route": "/organize/calendar",
+                "type": "plan_pack_action",
+                "module": "plan_pack",
+                "intent": "weather_prep",
+                "route": "plan_pack_weather",
                 "label": "Weather prep",
             },
         },
@@ -384,6 +497,7 @@ def build_plan_pack_response(
     text: str, context: Dict[str, Any] | None = None
 ) -> Dict[str, Any]:
     context = context or {}
+    wardrobe = context.get("wardrobe") if isinstance(context.get("wardrobe"), list) else []
     explicit_duration = _has_explicit_duration(text)
     days = _parse_days(text)
     scenario = _detect_scenario(text)
@@ -398,6 +512,7 @@ def build_plan_pack_response(
         weather=weather,
         time_of_day=time_of_day,
         explicit_duration=explicit_duration,
+        wardrobe=wardrobe,
     )
     if scenario == "birthday":
         message = "Built your birthday party plan."
@@ -411,8 +526,13 @@ def build_plan_pack_response(
         "message": message,
         "board": "plan_pack",
         "type": "checklists",
-        "chips": ["Packing checklist", "Plan outfits", "Weather prep", "Save trip plan"],
-        "quick_actions": ["Packing checklist", "Plan outfits", "Weather prep", "Save trip plan"],
+        "chips": ["Open checklist", "Plan outfits", "Weather prep", "Save trip plan"],
+        "quick_actions": [
+            {"label": "Open checklist", "module": "plan_pack", "intent": "open_checklist"},
+            {"label": "Plan outfits", "module": "style", "intent": "plan_outfits"},
+            {"label": "Weather prep", "module": "plan_pack", "intent": "weather_prep"},
+            {"label": "Save trip plan", "module": "plan_pack", "intent": "save_plan"},
+        ],
         "cards": cards,
         "data": {
             "days": days,

@@ -10,7 +10,7 @@ import concurrent.futures
 import threading
 import re
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from deep_translator import GoogleTranslator
 
@@ -2079,9 +2079,23 @@ def _detect_quick_action_module(message: str) -> str:
         return "skincare"
     if text in {"add event", "view events", "open calendar", "open events", "add reminder", "plan outfit"}:
         return "calendar"
-    if text in {"packing checklist", "plan outfits", "weather prep", "save trip plan"}:
+    if text in {"packing checklist", "open checklist", "plan outfits", "weather prep", "save trip plan"}:
         return "planner"
     return ""
+
+
+def _planner_action_intent(message: str) -> str:
+    text = str(message or "").lower().replace("'", "")
+    text = re.sub(r"[^a-z0-9 ]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    mapping = {
+        "packing checklist": "open_checklist",
+        "open checklist": "open_checklist",
+        "weather prep": "weather_prep",
+        "save trip plan": "save_plan",
+        "plan outfits": "plan_outfits",
+    }
+    return mapping.get(text, "")
 
 
 def _looks_like_event_create_text(message: str) -> bool:
@@ -2258,17 +2272,155 @@ def _build_visual_board_envelope(
     }
 
 
+def _plan_pack_emoji(scenario: str) -> str:
+    return {
+        "camping": "🏕️",
+        "birthday": "🎉",
+        "travel": "🧳",
+        "business": "💼",
+        "wedding": "💍",
+    }.get(str(scenario or "").lower(), "🧳")
+
+
+def _save_plan_pack_payload(*, user_id: str, payload: Dict[str, Any], reminder: bool = False) -> str:
+    uid = str(user_id or "").strip()
+    if not uid:
+        return "Sign in again so I can save this plan to your account."
+
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    cards = payload.get("cards") if isinstance(payload.get("cards"), list) else []
+    scenario = str(data.get("scenario") or "travel")
+    destination = str(data.get("destination") or "Trip")
+    duration = str(data.get("duration_label") or "")
+    first_title = ""
+    if cards and isinstance(cards[0], dict):
+        first_title = str(cards[0].get("title") or "").strip()
+    occasion = first_title or (f"{duration} {destination}".strip() if destination else "Trip Plan")
+    now = datetime.now(timezone.utc)
+    plan_doc = {
+        "userId": uid,
+        "occasion": occasion,
+        "emoji": _plan_pack_emoji(scenario),
+        "outfitDescription": json.dumps(
+            {
+                "type": "plan_pack",
+                "occasion": occasion,
+                "items": cards,
+                "checkedItems": [],
+                "destination": destination,
+                "duration": duration,
+                "scenario": scenario,
+                "weatherContext": {
+                    "weather": data.get("weather"),
+                    "time_of_day": data.get("time_of_day"),
+                },
+            },
+            ensure_ascii=False,
+        ),
+        "dateTime": now.isoformat(),
+        "reminder": bool(reminder),
+        "outfitId": "",
+    }
+    try:
+        created = AppwriteProxy().create_document("plans", plan_doc)
+        plan_id = str(created.get("$id") or created.get("id") or "")
+        if reminder and plan_id:
+            from services.notification_store import notification_store
+
+            notification_store.schedule_reminders(
+                user_id=uid,
+                event_id=plan_id,
+                reminders=[
+                    {
+                        "status": "pending",
+                        "priority": "normal",
+                        "offsetMinutes": -60,
+                        "message": f"Your {occasion} checklist is ready. Want to review outfits?",
+                        "sendAtISO": (now + timedelta(hours=1)).isoformat(),
+                    }
+                ],
+                source="ahvi_plan_pack",
+            )
+        if "goa" in occasion.lower():
+            return "Saved your Goa trip plan."
+        if scenario == "birthday":
+            return "Saved your birthday party plan."
+        return f"Saved your {occasion}."
+    except Exception as exc:
+        logger.warning("plan_pack.save_failed user_id=%s error=%s", uid, exc)
+        return "I could not save this plan yet. Please try again."
+
+
 def _module_plan_pack_response(
     *,
     module_key: str,
     user_message: str,
     context_data: Dict[str, Any],
     user_profile: Dict[str, Any],
+    user_id: str = "",
 ) -> Dict[str, Any]:
     context = dict(context_data or {})
     if user_profile:
         context["user_profile"] = user_profile
+    action_intent = _planner_action_intent(user_message)
+    active_prompt = str(
+        context.get("source_text")
+        or context.get("original_prompt")
+        or context.get("resolved_prompt")
+        or context.get("active_plan_prompt")
+        or user_message
+    ).strip()
+    if action_intent and active_prompt.lower() == user_message.lower():
+        active_prompt = str(context.get("last_plan_prompt") or context.get("plan_prompt") or user_message).strip()
+
+    if action_intent == "plan_outfits":
+        style_query = str(
+            context.get("resolved_prompt")
+            or context.get("active_plan_prompt")
+            or context.get("source_text")
+            or "travel outfits for this plan"
+        ).strip()
+        if not re.search(r"\boutfit|wear|style\b", style_query, re.I):
+            style_query = f"{style_query} outfits"
+        wardrobe = context.get("wardrobe") if isinstance(context.get("wardrobe"), list) else []
+        style_payload = _demo_style_board_payload(
+            user_id=user_id or str(user_profile.get("user_id") or user_profile.get("$id") or ""),
+            query_text=style_query,
+            request_wardrobe=wardrobe,
+            user_profile=user_profile,
+        )
+        envelope = _module_style_response_envelope("style", style_payload)
+        envelope["intent"] = "plan_outfits"
+        envelope.setdefault("meta", {})["source_action"] = "plan_outfits"
+        return envelope
+
     payload = build_plan_pack_response(user_message, context)
+    if action_intent:
+        payload = build_plan_pack_response(active_prompt, context)
+        if action_intent == "open_checklist":
+            cards = [
+                c for c in payload.get("cards", [])
+                if isinstance(c, dict) and c.get("id") in {"packing_clothes", "packing_essentials"}
+            ] or payload.get("cards", [])
+            payload["cards"] = cards
+            payload["message"] = "Here is your checklist. Tap items as you pack them."
+            payload["intent"] = "open_checklist"
+        elif action_intent == "weather_prep":
+            cards = [
+                c for c in payload.get("cards", [])
+                if isinstance(c, dict) and c.get("id") == "weather_time_adjustments"
+            ]
+            payload["cards"] = cards
+            payload["message"] = "Here is the weather prep for this plan."
+            payload["intent"] = "weather_prep"
+        elif action_intent == "save_plan":
+            payload["intent"] = "save_plan"
+            payload["message"] = _save_plan_pack_payload(
+                user_id=user_id,
+                payload=payload,
+                reminder=bool(context.get("reminder")),
+            )
+
     message = str(payload.get("message") or "I built your trip plan and packing checklist.")
     cards = payload.get("cards") if isinstance(payload.get("cards"), list) else []
     actions = payload.get("quick_actions") if isinstance(payload.get("quick_actions"), list) else (
@@ -2283,9 +2435,9 @@ def _module_plan_pack_response(
     return {
         "success": True,
         "type": payload.get("type") or "checklists",
-        "module": module_key or "planner",
-        "domain": module_key or "planner",
-        "intent": "plan_pack",
+        "module": "plan_pack" if action_intent else (module_key or "planner"),
+        "domain": "plan_pack" if action_intent else (module_key or "planner"),
+        "intent": payload.get("intent") or "plan_pack",
         "response": message,
         "message_text": message,
         "message": {"role": "assistant", "content": message},
@@ -2295,9 +2447,10 @@ def _module_plan_pack_response(
         "style_boards": payload.get("style_boards") if isinstance(payload.get("style_boards"), list) else [],
         "data": payload.get("data") if isinstance(payload.get("data"), dict) else {},
         "meta": {
-            "intent": "plan_pack",
+            "intent": payload.get("intent") or "plan_pack",
             "board": payload.get("board") or "plan_pack",
             "module_route": module_key or "planner",
+            "action_intent": action_intent,
         },
     }
 
@@ -2440,6 +2593,7 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
             user_message=user_message,
             context_data=merged_context,
             user_profile=profile,
+            user_id=user_id,
         )
     if _qa_module in {"fitness", "diet", "skincare"}:
         return await handle_module_chat(
@@ -2496,6 +2650,7 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
             user_message=user_message,
             context_data=merged_context,
             user_profile=profile,
+            user_id=user_id,
         )
 
     _vb_type = _detect_visual_board_type(user_message, module)
@@ -2979,6 +3134,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             user_message=user_input,
             context_data={},
             user_profile=effective_user_profile,
+            user_id=user_id,
         )
 
     # -------------------------

@@ -290,7 +290,13 @@ def test_plan_pack_prompts_route_without_generic_fallback():
         assert body["intent"] == "plan_pack"
         assert body["meta"]["intent"] == "plan_pack"
         assert body["cards"]
-        assert body["quick_actions"] == ["Packing checklist", "Plan outfits", "Weather prep", "Save trip plan"]
+        assert [a["label"] for a in body["quick_actions"]] == [
+            "Open checklist",
+            "Plan outfits",
+            "Weather prep",
+            "Save trip plan",
+        ]
+        assert body["quick_actions"][0]["intent"] == "open_checklist"
         assert "I can help with style, planning, and wardrobe advice" not in body["message"]["content"]
 
 
@@ -354,11 +360,15 @@ def test_plan_pack_destination_labels_are_clean():
     assert birthday["data"]["destination"] == "Birthday Party"
     assert birthday["cards"][0]["title"] == "Birthday Party Plan"
     assert len(birthday["cards"]) == 1
-    birthday_items = " ".join(birthday["cards"][0]["items"]).lower()
+    birthday_items = " ".join(item["label"] for item in birthday["cards"][0]["items"]).lower()
     assert "book transport" not in birthday_items
     assert "pack essentials" not in birthday_items
     assert "carry-on" not in birthday_items
     assert "guest list" in birthday_items
+    assert goa["cards"][1]["items"][0]["checked"] is False
+    assert "assetIcon" in goa["cards"][1]["items"][0]
+    assert goa["cards"][1]["action"]["module"] == "plan_pack"
+    assert goa["cards"][2]["action"]["label"] == "Open checklist"
 
 
 def test_known_quick_actions_do_not_use_generic_fallback():
@@ -389,7 +399,7 @@ def test_known_quick_actions_do_not_use_generic_fallback():
         assert response.status_code == 200
         assert "I can help with style, planning, and wardrobe advice" not in str(body)
         if expected_intent == "plan_pack":
-            assert body["intent"] == "plan_pack"
+            assert body["intent"] in {"plan_pack", "weather_prep"}
         else:
             assert body["intent"] == expected_intent
         assert "Open life boards" not in str(body)

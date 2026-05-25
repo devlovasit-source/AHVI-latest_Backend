@@ -56,7 +56,10 @@ class NotificationStore:
         if not uid or not tok:
             return None
 
-        doc_id = _hash_id("dev", tok, length=28)
+        # De-dupe by the real registration identity. The old token-only id could
+        # still leave multiple rows when debug builds generated fresh dev ids;
+        # this keeps repeated launches for the same device as updates.
+        doc_id = _hash_id("dev", f"{uid}|{plat}|{tok}", length=28)
         data = {
             "userId": uid,
             "platform": plat,
@@ -126,14 +129,14 @@ class NotificationStore:
             data = {
                 "userId": uid,
                 "eventId": eid,
-                "status": "scheduled",
-                "priority": _safe_text(r.get("priority") or "light"),
+                "status": _safe_text(r.get("status") or "pending"),
+                "priority": _safe_text(r.get("priority") or "normal"),
                 "toneProfile": _safe_text(r.get("toneProfile") or ""),
                 "offsetMinutes": int(r.get("offsetMinutes") or 0),
-                "message": int(r.get("messageCode") or 0),
+                "message": message,
                 "sendAtISO": send_at,
                 "source": _safe_text(source),
-                "lastError": _safe_text(r.get("lastError") or message),
+                "lastError": _safe_text(r.get("lastError") or ""),
                 "updatedAtISO": _utcnow().isoformat(),
             }
             try:

@@ -345,7 +345,9 @@ def test_plan_pack_uses_smart_packing_engine_for_addons():
 
     assert response["intent"] == "plan_pack"
     assert essentials["items"]
-    assert all(isinstance(item, str) for item in essentials["items"])
+    assert all(isinstance(item, dict) for item in essentials["items"])
+    assert all(item.get("label") for item in essentials["items"])
+    assert all("assetIcon" in item for item in essentials["items"])
 
 
 def test_general_style_dna_metadata_is_added_for_non_office_requests():

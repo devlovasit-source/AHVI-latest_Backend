@@ -11,6 +11,7 @@ from brain.engines.fitness.workout_ranker import workout_ranker
 from middleware.auth_middleware import get_current_user
 from services.workout_card_service import build_workout_card
 from services.workout_context_service import build_workout_context
+from services.appwrite_proxy import AppwriteProxy
 
 router = APIRouter(prefix="/workouts", tags=["workouts"])
 
@@ -65,6 +66,74 @@ def _recommendations(context: Dict[str, Any], limit: int = 3) -> List[Dict[str, 
     return [build_workout_card(session, context) for session in ranked]
 
 
+def _weather_note(context: Dict[str, Any]) -> str:
+    weather = context.get("weather_context") if isinstance(context.get("weather_context"), dict) else {}
+    condition = str(weather.get("condition") or "").strip()
+    temp = weather.get("temp_c") or weather.get("temperature") or weather.get("temperature_c")
+    bits: List[str] = []
+    if temp not in (None, ""):
+        bits.append(f"{temp}°C")
+    if condition:
+        bits.append(condition)
+    if bits:
+        return f"{' · '.join(bits)} today — prefer breathable fabrics and hydration."
+    return "Prefer breathable fabrics, stable footwear, and water nearby."
+
+
+def _persist_workout_outfit(user_id: str, card: Dict[str, Any], context: Dict[str, Any]) -> str:
+    uid = str(user_id or "").strip()
+    outfit = card.get("outfit_pairing") if isinstance(card.get("outfit_pairing"), dict) else {}
+    if not uid or not outfit:
+        return ""
+    items: List[str] = []
+    for key in ("top", "bottom", "footwear"):
+        value = str(outfit.get(key) or "").strip()
+        if value:
+            items.append(value)
+    accessories = outfit.get("accessories")
+    if isinstance(accessories, list):
+        items.extend(str(item).strip() for item in accessories if str(item).strip())
+    name = "Workout Outfit"
+    note = _weather_note(context)
+    if "hot" in note.lower() or "humid" in note.lower() or "°" in note:
+        name = "Hot Weather Workout Outfit"
+    data = {
+        "userId": uid,
+        "name": name,
+        "emoji": "🏋️",
+        "cat": "fitness",
+        "tag": "workout_outfit",
+        "items": list(dict.fromkeys(items)),
+        "notes": note,
+    }
+    try:
+        appwrite = AppwriteProxy()
+        existing = appwrite.list_documents("workout_outfits", user_id=uid, limit=100)
+        for row in existing or []:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("tag") or "") == "workout_outfit" and str(row.get("name") or "") == name:
+                doc_id = str(row.get("$id") or row.get("id") or "")
+                if doc_id:
+                    updated = appwrite.update_document("workout_outfits", doc_id, data)
+                    return str(updated.get("$id") or updated.get("id") or doc_id)
+        created = appwrite.create_document("workout_outfits", data)
+        return str(created.get("$id") or created.get("id") or "")
+    except Exception:
+        return ""
+
+
+def _persist_cards(user_id: str, cards: List[Dict[str, Any]], context: Dict[str, Any]) -> None:
+    for card in cards or []:
+        if not isinstance(card, dict):
+            continue
+        saved_id = _persist_workout_outfit(user_id, card, context)
+        if saved_id:
+            card["workout_outfit_id"] = saved_id
+            if isinstance(card.get("outfit_pairing"), dict):
+                card["outfit_pairing"]["workout_outfit_id"] = saved_id
+
+
 @router.post("/recommend")
 def recommend_workout(
     req: WorkoutRecommendRequest,
@@ -83,6 +152,7 @@ def recommend_workout(
     )
     context = build_workout_context(user_id, payload)
     cards = _recommendations(context)
+    _persist_cards(user_id, cards, context)
     return {
         "type": "fitness_recommendation",
         "recommendations": cards,
@@ -108,6 +178,7 @@ def today_workout(user=Depends(get_current_user)):
         },
     )
     cards = _recommendations(context, limit=1)
+    _persist_cards(user_id, cards, context)
     first = cards[0] if cards else None
     return {
         "type": "fitness_today",

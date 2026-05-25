@@ -89,7 +89,9 @@ class NotificationStoreTests(unittest.TestCase):
 
         self.assertEqual(result["scheduled"], 1)
         self.assertEqual(proxy.updated[0][0], "notification_reminders")
-        self.assertEqual(proxy.updated[0][2]["status"], "scheduled")
+        self.assertEqual(proxy.updated[0][2]["status"], "pending")
+        self.assertEqual(proxy.updated[0][2]["message"], "Take vitamin D")
+        self.assertEqual(proxy.updated[0][2]["lastError"], "")
         self.assertEqual(proxy.updated[0][2]["source"], "medi")
 
 
