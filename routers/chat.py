@@ -10,6 +10,7 @@ import concurrent.futures
 import threading
 import re
 import json
+from datetime import datetime
 
 from deep_translator import GoogleTranslator
 
@@ -2076,9 +2077,104 @@ def _detect_quick_action_module(message: str) -> str:
         return "diet"
     if text in {"create routine"}:
         return "skincare"
+    if text in {"add event", "view events", "open calendar", "open events", "add reminder", "plan outfit"}:
+        return "calendar"
     if text in {"packing checklist", "plan outfits", "weather prep", "save trip plan"}:
         return "planner"
     return ""
+
+
+def _looks_like_event_create_text(message: str) -> bool:
+    text = str(message or "").lower()
+    if not text.strip():
+        return False
+    if text.strip() in {"add event", "view events", "open calendar", "open events"}:
+        return False
+    return bool(
+        re.search(
+            r"\b(birthday|appointment|doctor|meeting|call)\b.*\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december|\d{1,2}(?:st|nd|rd|th)?)\b",
+            text,
+        )
+    )
+
+
+def _event_card(event: Dict[str, Any]) -> Dict[str, Any]:
+    start_raw = str(event.get("start_time") or "")
+    when = ""
+    try:
+        start = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+        when = start.strftime("%d %b · %I:%M %p")
+    except Exception:
+        when = start_raw
+    return {
+        "type": "module_card",
+        "module": "calendar",
+        "title": event.get("title") or "Event",
+        "subtitle": when,
+        "summary": event.get("description") or when,
+        "items": [
+            item
+            for item in [
+                f"Type: {event.get('type')}" if event.get("type") else "",
+                f"Status: {event.get('status')}" if event.get("status") else "",
+            ]
+            if item
+        ],
+        "cta": {"label": "Open calendar", "module": "calendar", "route": "calendar"},
+        "open_module": "calendar",
+    }
+
+
+def _calendar_event_created_response(event: Dict[str, Any]) -> Dict[str, Any]:
+    title = str(event.get("title") or "Event")
+    start_raw = str(event.get("start_time") or "")
+    day_text = "your calendar"
+    try:
+        start = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
+        day_text = start.strftime("%d %B")
+    except Exception:
+        pass
+    message = f"{title} added for {day_text}."
+    actions = ["View events", "Add reminder", "Plan outfit"]
+    cta = {"label": "Open calendar", "route": "calendar", "module": "calendar"}
+    return {
+        "success": True,
+        "type": "module_response",
+        "module": "calendar",
+        "domain": "calendar",
+        "intent": "event_created",
+        "message": {"role": "assistant", "content": message},
+        "message_text": message,
+        "response": message,
+        "card": _event_card(event),
+        "cards": [_event_card(event)],
+        "chips": actions,
+        "quick_actions": actions,
+        "cta": cta,
+        "open_module": cta,
+        "data": {"module": "calendar", "intent": "event_created", "event": event},
+    }
+
+
+def _calendar_capture_response() -> Dict[str, Any]:
+    message = "Tell me the event name and date/time. For example: Birthday on 23 July or Doctor appointment tomorrow at 6 PM."
+    actions = ["Birthday on 23 July", "Meeting tomorrow at 4 PM", "View events"]
+    return {
+        "success": True,
+        "type": "module_response",
+        "module": "calendar",
+        "domain": "calendar",
+        "intent": "create_event",
+        "message": {"role": "assistant", "content": message},
+        "message_text": message,
+        "response": message,
+        "cards": [],
+        "chips": actions,
+        "quick_actions": actions,
+        "cta": {"label": "Open calendar", "route": "calendar", "module": "calendar"},
+        "open_module": {"label": "Open calendar", "route": "calendar", "module": "calendar"},
+        "data": {"module": "calendar", "intent": "create_event"},
+    }
 
 
 def _build_visual_board_envelope(
@@ -2320,6 +2416,24 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
     merged_context = {**(request.context_data or {}), **(request.context or {})}
 
     _qa_module = _detect_quick_action_module(user_message)
+    if _qa_module == "calendar":
+        text = user_message.lower().strip()
+        if text in {"add event"}:
+            return _calendar_capture_response()
+        if text in {"view events", "open events", "open calendar"} and user_id:
+            from services.module_summary_service import build_module_summary
+
+            return build_module_summary("events_upcoming", user_id)
+        return await handle_module_chat(
+            {
+                "domain": "calendar",
+                "module": "calendar",
+                "message": user_message,
+                "context": merged_context,
+                "user_profile": profile,
+            },
+            user_id=user_id,
+        )
     if _qa_module == "planner":
         return _module_plan_pack_response(
             module_key=module or "planner",
@@ -2339,10 +2453,39 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
             user_id=user_id,
         )
 
+    if module in {"calendar", "planner", "chat", ""} and user_id and _looks_like_event_create_text(user_message):
+        from services.calendar_service import create_calendar_event, parse_plan_text_to_payload
+
+        try:
+            payload = parse_plan_text_to_payload(user_message, timezone_name="Asia/Kolkata")
+            event = create_calendar_event(user_id, payload)
+            return _calendar_event_created_response(event)
+        except ValueError as exc:
+            if str(exc) == "time_required":
+                message = "What time should I save this for?"
+                actions = ["Today 6 PM", "Tomorrow 9 AM", "Open calendar"]
+                return {
+                    "success": True,
+                    "type": "module_response",
+                    "module": "calendar",
+                    "domain": "calendar",
+                    "intent": "event_needs_time",
+                    "message": {"role": "assistant", "content": message},
+                    "message_text": message,
+                    "response": message,
+                    "cards": [],
+                    "chips": actions,
+                    "quick_actions": actions,
+                    "cta": {"label": "Open calendar", "route": "calendar", "module": "calendar"},
+                    "open_module": {"label": "Open calendar", "route": "calendar", "module": "calendar"},
+                }
+
     _ms_module = _detect_module_summary(user_message)
     if _ms_module and user_id:
         from services.module_summary_service import build_module_summary
 
+        if _ms_module == "events" and "upcoming" in user_message.lower():
+            _ms_module = "events_upcoming"
         _ms_card = build_module_summary(_ms_module, user_id)
         if _ms_card:
             return _ms_card

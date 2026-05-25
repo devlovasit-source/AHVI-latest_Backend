@@ -41,12 +41,12 @@ class CalendarMedLogTests(unittest.TestCase):
             event = calendar_service.create_calendar_event(
                 "user_1",
                 {"title": "Office", "start_time": "2026-05-19T10:00:00+05:30"},
-            )
+        )
 
         self.assertEqual(proxy.created[0][0], "calendar_events")
-        self.assertEqual(proxy.created[0][1]["userId"], "user_1")
-        self.assertEqual(proxy.created[0][1]["occasion"], "plan")
-        self.assertNotIn("user_id", proxy.created[0][1])
+        self.assertEqual(proxy.created[0][1]["user_id"], "user_1")
+        self.assertNotIn("userId", proxy.created[0][1])
+        self.assertNotIn("occasion", proxy.created[0][1])
         self.assertEqual(event["user_id"], "user_1")
 
     def test_calendar_text_parser_handles_tomorrow_10_am_kolkata(self):
@@ -59,9 +59,30 @@ class CalendarMedLogTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["type"], "Office")
-        self.assertEqual(payload["occasion"], "Office")
         self.assertEqual(payload["timezone"], "Asia/Kolkata")
         self.assertIn("2026-05-19T10:00:00+05:30", payload["start_time"])
+
+    def test_calendar_text_parser_handles_birthday_month_day(self):
+        from services.calendar_service import parse_plan_text_to_payload
+
+        payload = parse_plan_text_to_payload(
+            "my birthday on 23rd July",
+            now=datetime(2026, 5, 25, 2, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(payload["title"], "Birthday")
+        self.assertEqual(payload["type"], "birthday")
+        self.assertEqual(payload["source"], "ahvi_chat")
+        self.assertIn("2026-07-23T09:00:00+05:30", payload["start_time"])
+
+    def test_calendar_text_parser_asks_time_for_meeting(self):
+        from services.calendar_service import parse_plan_text_to_payload
+
+        with self.assertRaisesRegex(ValueError, "time_required"):
+            parse_plan_text_to_payload(
+                "meeting Friday",
+                now=datetime(2026, 5, 25, 2, 0, tzinfo=timezone.utc),
+            )
 
     def test_med_log_create_includes_user_id(self):
         from services import med_log_service

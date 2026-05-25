@@ -17,6 +17,7 @@ from services.calendar_service import (
     get_calendar_event,
     list_calendar_events,
     list_today_calendar_events,
+    list_upcoming_calendar_events,
     parse_plan_text_to_payload,
     update_calendar_event,
 )
@@ -160,6 +161,24 @@ def today_events(user=Depends(get_current_user), date: str | None = Query(defaul
     except Exception:
         print("❌ /calendar/today error:\n", traceback.format_exc())
         raise HTTPException(status_code=500, detail="Calendar today failed")
+
+
+@router.get("/events/today")
+def today_events_alias(user=Depends(get_current_user), date: str | None = Query(default=None)):
+    return today_events(user=user, date=date)
+
+
+@router.get("/events/upcoming")
+def upcoming_events(
+    user=Depends(get_current_user),
+    limit: int = Query(default=100, ge=1, le=300),
+):
+    try:
+        events = list_upcoming_calendar_events(_user_id(user), limit=limit)
+        return {"success": True, "events": events, "count": len(events)}
+    except Exception:
+        print("❌ /calendar/events/upcoming error:\n", traceback.format_exc())
+        raise HTTPException(status_code=500, detail="Calendar upcoming failed")
 
 
 @router.patch("/events/{event_id}")

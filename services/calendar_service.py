@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from services.appwrite_proxy import AppwriteProxy
@@ -82,7 +82,6 @@ def _normalize_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _build_document(user_id: str, payload: Dict[str, Any], *, existing: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    now = _iso_now()
     existing = existing or {}
     title = _safe_str(payload.get("title") or payload.get("text") or existing.get("title"))
     start_time = _safe_str(payload.get("start_time") or payload.get("startTime") or payload.get("startAtISO") or existing.get("start_time"))
@@ -92,22 +91,13 @@ def _build_document(user_id: str, payload: Dict[str, Any], *, existing: Dict[str
         raise ValueError("start_time is required")
     metadata = payload.get("metadata", existing.get("metadata", {}))
     metadata_string = metadata if isinstance(metadata, str) and metadata.strip() else _metadata_to_string(metadata)
-    occasion = _safe_str(
-        payload.get("occasion")
-        or payload.get("category")
-        or payload.get("type")
-        or existing.get("occasion")
-        or existing.get("type")
-        or "plan"
-    )
     return {
-        "userId": _safe_str(user_id),
+        "user_id": _safe_str(user_id),
         "title": title,
         "description": _safe_str(payload.get("description", existing.get("description", ""))),
         "start_time": start_time,
         "end_time": _safe_str(payload.get("end_time") or payload.get("endTime") or payload.get("endAtISO") or existing.get("end_time", "")),
         "timezone": _safe_str(payload.get("timezone", existing.get("timezone", ""))),
-        "occasion": occasion,
         "type": _safe_str(payload.get("type", existing.get("type", "plan")) or "plan"),
         "source": _safe_str(payload.get("source", existing.get("source", "ahvi")) or "ahvi"),
         "status": _safe_str(payload.get("status", existing.get("status", "scheduled")) or "scheduled"),
@@ -116,9 +106,120 @@ def _build_document(user_id: str, payload: Dict[str, Any], *, existing: Dict[str
         "venue_address": _safe_str(payload.get("venue_address") or payload.get("venueAddress") or existing.get("venue_address", "")),
         "reminder_minutes": int(payload.get("reminder_minutes", existing.get("reminder_minutes", 30)) or 30),
         "metadata": metadata_string,
-        "created_at": _safe_str(existing.get("created_at") or now),
-        "updated_at": now,
     }
+
+
+_MONTHS = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+
+_WEEKDAYS = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
+
+
+def _next_month_day(base: datetime, month: int, day: int) -> date:
+    year = base.year
+    try:
+        candidate = date(year, month, day)
+    except ValueError:
+        raise ValueError("Invalid calendar date")
+    if candidate < base.date():
+        candidate = date(year + 1, month, day)
+    return candidate
+
+
+def _extract_event_day(raw: str, base: datetime) -> date:
+    lower = raw.lower()
+    if "day after tomorrow" in lower:
+        return (base + timedelta(days=2)).date()
+    if "tomorrow" in lower:
+        return (base + timedelta(days=1)).date()
+    if "today" in lower:
+        return base.date()
+
+    month_names = "|".join(sorted(_MONTHS, key=len, reverse=True))
+    day_month = re.search(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({month_names})\b", lower)
+    if day_month:
+        return _next_month_day(base, _MONTHS[day_month.group(2)], int(day_month.group(1)))
+    month_day = re.search(rf"\b({month_names})\s+(\d{{1,2}})(?:st|nd|rd|th)?\b", lower)
+    if month_day:
+        return _next_month_day(base, _MONTHS[month_day.group(1)], int(month_day.group(2)))
+
+    for word, weekday in _WEEKDAYS.items():
+        if re.search(rf"\b{word}\b", lower):
+            delta = (weekday - base.weekday()) % 7
+            if delta == 0:
+                delta = 7
+            return (base + timedelta(days=delta)).date()
+    return base.date()
+
+
+def _extract_event_time(raw: str) -> tuple[int, int, bool]:
+    lower = raw.lower()
+    patterns = [
+        r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b",
+        r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b",
+        r"\bat\s+(\d{1,2})(?::(\d{2}))\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, lower)
+        if not match:
+            continue
+        hour = int(match.group(1))
+        minute = int(match.group(2) or 0)
+        meridiem = match.group(3) if len(match.groups()) >= 3 else None
+        if meridiem == "pm" and hour < 12:
+            hour += 12
+        elif meridiem == "am" and hour == 12:
+            hour = 0
+        return max(0, min(hour, 23)), max(0, min(minute, 59)), True
+    return 9, 0, False
+
+
+def _event_type_and_title(raw: str, category: str | None) -> tuple[str, str]:
+    lower = raw.lower()
+    if "birthday" in lower:
+        return "birthday", "Birthday"
+    if "doctor" in lower:
+        return "appointment", "Doctor appointment"
+    if "appointment" in lower:
+        return "appointment", "Appointment"
+    if "meeting" in lower:
+        return "meeting", "Meeting"
+    if "call" in lower:
+        return "call", "Call"
+    event_type = _safe_str(category) or "plan"
+    return event_type, raw[:80]
 
 
 def parse_plan_text_to_payload(
@@ -132,46 +233,31 @@ def parse_plan_text_to_payload(
     if len(raw) < 2:
         raise ValueError("text is required")
     base = now or datetime.now(timezone.utc)
-    day = base.date()
     lower = raw.lower()
-    if "day after tomorrow" in lower:
-        day = (base + timedelta(days=2)).date()
-    elif "tomorrow" in lower:
-        day = (base + timedelta(days=1)).date()
-    match = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", lower)
-    hour = 9
-    minute = 0
-    if match:
-        hour = int(match.group(1))
-        minute = int(match.group(2) or 0)
-        meridiem = match.group(3)
-        if meridiem == "pm" and hour < 12:
-            hour += 12
-        elif meridiem == "am" and hour == 12:
-            hour = 0
-        hour = max(0, min(hour, 23))
-        minute = max(0, min(minute, 59))
+    day = _extract_event_day(raw, base)
+    hour, minute, has_time = _extract_event_time(raw)
+    event_type, title = _event_type_and_title(raw, category)
+    if not has_time and event_type in {"meeting", "appointment", "call"}:
+        raise ValueError("time_required")
     start = datetime(day.year, day.month, day.day, hour, minute, tzinfo=timezone(timedelta(hours=5, minutes=30)))
-    event_type = _safe_str(category) or "plan"
     return {
-        "title": raw,
+        "title": title,
         "description": raw,
         "start_time": start.isoformat(),
         "timezone": timezone_name,
         "type": event_type,
-        "source": "ahvi_add_plan",
+        "source": "ahvi_chat",
         "status": "scheduled",
-        "metadata": {"original_text": raw, "category": event_type},
-        "occasion": event_type,
+        "metadata": {"original_text": raw, "category": event_type, "has_time": has_time},
     }
 
 
 def create_calendar_event(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     data = _build_document(user_id, payload)
     logger.info(
-        "calendar_events.create payload_keys=%s userId_present=%s",
+        "calendar_events.create payload_keys=%s user_id_present=%s",
         list(data.keys()),
-        bool(data.get("userId")),
+        bool(data.get("user_id")),
     )
     doc = AppwriteProxy().create_document(CALENDAR_RESOURCE, data)
     return _normalize_doc(doc)
@@ -217,6 +303,11 @@ def list_today_calendar_events(user_id: str, *, date: str | None = None) -> List
     start = datetime(base.year, base.month, base.day)
     end = start + timedelta(days=1)
     return list_calendar_events(user_id, start_time=start.isoformat(), end_time=end.isoformat(), limit=300)
+
+
+def list_upcoming_calendar_events(user_id: str, *, limit: int = 100) -> List[Dict[str, Any]]:
+    start = datetime.now(timezone(timedelta(hours=5, minutes=30))).isoformat()
+    return list_calendar_events(user_id, start_time=start, limit=limit)
 
 
 def update_calendar_event(user_id: str, event_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:

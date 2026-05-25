@@ -77,6 +77,11 @@ class AppwriteProxy:
             or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_USERS", ""),
             "plans": os.getenv("APPWRITE_COLLECTION_PLANS", "")
             or os.getenv("PLANS_COLLECTION_ID", ""),
+            "calendar_events": (
+                os.getenv("APPWRITE_COLLECTION_CALENDAR_EVENTS", "")
+                or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CALENDAR_EVENTS", "")
+                or "calendar_events"
+            ),
             "saved_boards": os.getenv("APPWRITE_COLLECTION_SAVED_BOARDS", "")
             or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_SAVED_BOARDS", ""),
             "skincare": os.getenv("APPWRITE_COLLECTION_SKINCARE", "")
@@ -133,9 +138,9 @@ class AppwriteProxy:
             "meal": "meal_plans",
             "medicines": "meds",
             "medicine": "meds",
-            "calendar": "plans",
-            "calendar_events": "plans",
-            "calendar_event": "plans",
+            "calendar": "calendar_events",
+            "calendar_events": "calendar_events",
+            "calendar_event": "calendar_events",
             "plan": "plans",
             "workout": "workout_outfits",
             "workouts": "workout_outfits",
@@ -157,6 +162,7 @@ class AppwriteProxy:
             "wardrobe_style_metadata": "userId",
             "users": None,
             "plans": "userId",
+            "calendar_events": "user_id",
             "saved_boards": "userId",
             "skincare": "userId",
             "skincare_profiles": "userId",
@@ -181,6 +187,7 @@ class AppwriteProxy:
             "outfits": {"method": "orderDesc", "attribute": "$createdAt"},
             "wardrobe_style_metadata": {"method": "orderDesc", "attribute": "$updatedAt"},
             "plans": None,
+            "calendar_events": None,
             "saved_boards": {"method": "orderDesc", "attribute": "$createdAt"},
             "skincare": None,
             "skincare_profiles": {"method": "orderDesc", "attribute": "$createdAt"},
@@ -616,7 +623,7 @@ class AppwriteProxy:
         candidate_keys: List[str] = []
         if user_field:
             candidate_keys.append(user_field)
-        for alias in ("userId",):
+        for alias in ("userId", "user_id"):
             if alias not in candidate_keys:
                 candidate_keys.append(alias)
         for key in candidate_keys:

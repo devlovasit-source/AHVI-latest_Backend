@@ -160,7 +160,15 @@ async def handle_diet_chat(message: str, context: Dict[str, Any], user_id: str) 
 
 async def handle_skincare_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
     lower = message.lower()
-    if any(token in lower for token in ("spf", "sunscreen", "sun screen", "sunblock")):
+    if "morning routine" in lower or "morning skincare" in lower:
+        reply = "Your morning skincare routine is not set up yet. I can help create a simple 3-step routine."
+    elif "evening routine" in lower or "night routine" in lower or "night skincare" in lower:
+        reply = "Your evening skincare routine is not set up yet. I can help create a simple cleanse, treat, and moisturize routine."
+    elif "create routine" in lower:
+        reply = "Let us create a simple routine: choose your skin type, pick your main concern, then save morning and night steps."
+    elif "open skincare" in lower:
+        reply = "Opening Skincare."
+    elif any(token in lower for token in ("spf", "sunscreen", "sun screen", "sunblock")):
         reply = (
             "For SPF, choose broad-spectrum SPF 30 or higher and apply it every morning. If your "
             "skin is oily or acne-prone, try a lightweight non-comedogenic gel or fluid. If your "
@@ -197,7 +205,11 @@ async def handle_skincare_chat(message: str, context: Dict[str, Any], user_id: s
 
 async def handle_calendar_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
     lower = message.lower()
-    if "plan my day" in lower or "plan day" in lower:
+    if "add event" in lower:
+        reply = "Tell me the event name and date/time. For example: Birthday on 23 July or Doctor appointment tomorrow at 6 PM."
+    elif "view events" in lower or "open events" in lower or "open calendar" in lower:
+        reply = "Opening Calendar."
+    elif "plan my day" in lower or "plan day" in lower:
         reply = (
             "Here is a simple day plan: handle the most important task first, keep one focused admin block, leave a buffer before evening commitments, "
             "and add only the items you truly want reminders for."

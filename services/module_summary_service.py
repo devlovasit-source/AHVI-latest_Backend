@@ -215,11 +215,15 @@ def _bills(user_id: str) -> Dict[str, Any]:
 # =========================
 # EVENTS — calendar_events (via calendar_service)
 # =========================
-def _events(user_id: str) -> Dict[str, Any]:
+def _events(user_id: str, *, upcoming: bool = False) -> Dict[str, Any]:
     try:
-        from services.calendar_service import list_today_calendar_events
+        from services.calendar_service import list_today_calendar_events, list_upcoming_calendar_events
 
-        events = list_today_calendar_events(user_id=user_id)
+        events = (
+            list_upcoming_calendar_events(user_id=user_id, limit=8)
+            if upcoming
+            else list_today_calendar_events(user_id=user_id)
+        )
     except Exception:
         events = []
     rows: List[Dict[str, Any]] = []
@@ -249,14 +253,18 @@ def _events(user_id: str) -> Dict[str, Any]:
             }
         )
     total = len(rows)
-    summary = (
-        f"You have {total} event{'s' if total != 1 else ''} today."
-        if total
-        else "Your day looks open. Want me to help plan it around a workout, errands, or prep for tomorrow?"
-    )
+    if total:
+        label = "upcoming" if upcoming else "today"
+        summary = f"You have {total} event{'s' if total != 1 else ''} {label}."
+    else:
+        summary = (
+            "No upcoming events are saved yet. Want me to add one or help plan what is next?"
+            if upcoming
+            else "Your day looks open. Want me to help plan it around a workout, errands, or prep for tomorrow?"
+        )
     return _card(
         module="events",
-        title="Events",
+        title="Upcoming Events" if upcoming else "Events",
         icon="event",
         summary=summary,
         count_done=done_count,
@@ -264,6 +272,10 @@ def _events(user_id: str) -> Dict[str, Any]:
         rows=rows[:8],
         open_key="calendar",
     )
+
+
+def _events_upcoming(user_id: str) -> Dict[str, Any]:
+    return _events(user_id, upcoming=True)
 
 
 # =========================
@@ -496,6 +508,7 @@ _BUILDERS = {
     "medicines": _medicines,
     "bills": _bills,
     "events": _events,
+    "events_upcoming": _events_upcoming,
     "meals": _meals,
     "workout": _workout,
     "skincare": _skincare,

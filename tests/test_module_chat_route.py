@@ -313,7 +313,7 @@ def test_module_summary_prompts_return_cards_and_actions(monkeypatch):
         "Pending bills": "bills",
         "My medicines": "medicines",
         "Today's events": "events",
-        "Upcoming events": "events",
+        "Upcoming events": "events_upcoming",
     }
 
     for prompt, module in expected.items():
@@ -331,7 +331,7 @@ def test_module_summary_prompts_return_cards_and_actions(monkeypatch):
         body = response.json()
         assert response.status_code == 200
         assert body["type"] == "module_card"
-        assert body["module"] == module
+        assert body["module"] == ("events" if module == "events_upcoming" else module)
         assert body["card"]
         assert body["quick_actions"]
         assert "I can help with style, planning, and wardrobe advice" not in body["message"]
@@ -393,3 +393,51 @@ def test_known_quick_actions_do_not_use_generic_fallback():
         else:
             assert body["intent"] == expected_intent
         assert "Open life boards" not in str(body)
+
+
+def test_add_event_quick_action_starts_capture():
+    app = FastAPI()
+    app.include_router(chat.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/chat/module-chat",
+        json={"module": "chat", "message": "Add event", "history": [], "context_data": {}, "user_profile": {}},
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["module"] == "calendar"
+    assert body["intent"] == "create_event"
+    assert "event name and date" in body["message_text"]
+
+
+def test_chat_birthday_creates_calendar_event(monkeypatch):
+    created = {}
+
+    def fake_create(user_id, payload):
+        created["user_id"] = user_id
+        created["payload"] = payload
+        return {"id": "event-1", "user_id": user_id, **payload}
+
+    monkeypatch.setattr(chat, "_state_user_id", lambda request: "user-1")
+    monkeypatch.setattr("services.calendar_service.create_calendar_event", fake_create)
+
+    app = FastAPI()
+    app.include_router(chat.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/chat/module-chat",
+        json={"module": "calendar", "message": "my birthday on 23rd July", "history": [], "context_data": {}, "user_profile": {}},
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["intent"] == "event_created"
+    assert body["module"] == "calendar"
+    assert created["user_id"] == "user-1"
+    assert created["payload"]["title"] == "Birthday"
+    assert created["payload"]["type"] == "birthday"
+    assert "07-23T09:00:00+05:30" in created["payload"]["start_time"]
+    assert body["quick_actions"] == ["View events", "Add reminder", "Plan outfit"]
