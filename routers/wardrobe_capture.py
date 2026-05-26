@@ -30,6 +30,7 @@ from services.wardrobe_persistence_service import (
     persist_selected_items,
     update_item_labels,
 )
+from services.wardrobe_suitability import apply_metadata_guard
 from services.wardrobe_taxonomy import (
     normalize_item as _taxonomy_normalize_item,
     build_review_card as _taxonomy_review_card,
@@ -566,6 +567,7 @@ def _normalize_capture_preview_item(item: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(normalized, dict):
         return normalized
     normalized["name"] = _best_effort_item_name(normalized, item)
+    normalized = apply_metadata_guard(normalized, source="capture_preview")
 
     if _vision_says_item_is_known(
         str(normalized.get("label_source") or ""),
@@ -659,7 +661,7 @@ def _vision_extract_attributes(
     except Exception:
         logger.exception("vision item enrichment failed; falling back to heuristic")
 
-    return base
+    return apply_metadata_guard(base, source="vision_extract")
 
 
 async def _full_image_fallback_item(
@@ -1369,7 +1371,7 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         if not had_url and has_url:
             upload_fixed += 1
 
-        normalized_items.append(item)
+        normalized_items.append(apply_metadata_guard(item, source="save_selected_request"))
 
     result = persist_selected_items(
         user_id=user_id,

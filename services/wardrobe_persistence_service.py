@@ -13,6 +13,7 @@ from services.category_taxonomy import infer_style_attributes
 from services.qdrant_service import qdrant_service
 from services.wardrobe_taxonomy import normalize as _taxonomy_normalize
 from services.wardrobe_intelligence_service import enrich_wardrobe_item
+from services.wardrobe_suitability import apply_metadata_guard
 
 # =========================
 # ENV CONFIG
@@ -534,6 +535,7 @@ def _build_appwrite_doc(
     masked_url: str,
     normalized_url: str,
 ) -> Dict[str, Any]:
+    item = apply_metadata_guard(item, source="persistence_build_doc")
     sub_category = _safe_text(
         item.get("sub_category")
         or item.get("subcategory")
@@ -707,6 +709,7 @@ def persist_selected_items(
                 errors.append(f"{file_id}: missing image_url/masked_url/normalized_url")
                 continue
 
+            item = apply_metadata_guard(item, source="persist_selected_items")
             doc = _build_appwrite_doc(
                 user_id=user_id,
                 file_id=file_id,
@@ -1016,6 +1019,21 @@ def update_item_labels(
     if tags is not None:
         patch["occasions"] = _normalize_list(tags)
     # material is not in the schema; ignore to avoid 'Unknown attribute'.
+
+    guard_probe = apply_metadata_guard(
+        {
+            "name": patch.get("name") if "name" in patch else name,
+            "category": patch.get("category") if "category" in patch else category,
+            "sub_category": patch.get("sub_category") if "sub_category" in patch else subcategory,
+            "occasions": patch.get("occasions") if "occasions" in patch else tags,
+        },
+        source="update_labels_request",
+    )
+    if guard_probe.get("privateWear") is True:
+        patch["name"] = _safe_text(guard_probe.get("name") or patch.get("name") or name or "Private Wear")
+        patch["category"] = "Innerwear"
+        patch["sub_category"] = "Private Wear"
+        patch["occasions"] = _normalize_list(guard_probe.get("occasions"))
 
     if not patch:
         raise ValueError("Nothing to update.")

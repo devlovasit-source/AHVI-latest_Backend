@@ -26,6 +26,7 @@ from brain.engines.styling.palette_engine import palette_engine
 from services import ai_gateway
 from services.appwrite_proxy import AppwriteProxy
 from services.embedding_service import embedding_service, get_model
+from services.wardrobe_suitability import is_style_eligible
 
 logger = logging.getLogger("ahvi.outfit_pipeline")
 from services.qdrant_service import qdrant_service
@@ -2439,6 +2440,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
                     for item in items
                     if isinstance(item, dict)
                     and _ahvi_pipe_item_allowed(item, context)
+                    and is_style_eligible(item, context.get("occasion"))
                 ]
                 for slot, items in wardrobe.items()
                 if isinstance(items, list)
@@ -2449,6 +2451,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
                 for item in wardrobe
                 if isinstance(item, dict)
                 and _ahvi_pipe_item_allowed(item, context)
+                and is_style_eligible(item, context.get("occasion"))
             ]
     except NameError:
         # Helpers loaded later in module — only matters at hot-reload edge cases.

@@ -133,6 +133,7 @@ med_logs_router = _load_optional_router("routers.med_logs")
 notifications_router = _load_optional_router("routers.notifications")
 workouts_router = _load_optional_router("routers.workouts")
 bills_router = _load_optional_router("routers.bills")
+lens_similar_router = _load_optional_router("routers.lens_similar")
 
 # AI
 ai_router = _load_optional_router("api.ai")
@@ -701,6 +702,9 @@ if workouts_router:
 
 if bills_router:
     app.include_router(bills_router)
+
+if lens_similar_router:
+    app.include_router(lens_similar_router)
 
 if stylist_router:
     app.include_router(stylist_router, prefix="/api/stylist")

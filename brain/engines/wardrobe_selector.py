@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Optional
 
 from brain.engines.color_normalizer import color_normalizer
 from brain.engines.styling.palette_engine import palette_engine
+from services.wardrobe_suitability import is_style_eligible
 
 try:
     from brain.engines.memory_scorer import memory_scorer
@@ -452,6 +453,8 @@ class WardrobeSelector:
         for w in wardrobe:
             if not isinstance(w, dict):
                 continue
+            if not is_style_eligible(w, occasion):
+                continue
 
             item_type = _get_item_type(w)
             item_cat = _get_item_category(w)
@@ -464,6 +467,8 @@ class WardrobeSelector:
         if not candidates:
             for w in wardrobe:
                 if not isinstance(w, dict):
+                    continue
+                if not is_style_eligible(w, occasion):
                     continue
 
                 item_type = _get_item_type(w)

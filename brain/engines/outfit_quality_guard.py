@@ -9,6 +9,7 @@ from services.wardrobe_intelligence_service import (
     board_has_occasion_conflict,
     normalize_occasion as normalize_style_occasion,
 )
+from services.wardrobe_suitability import outfit_contains_private_wear
 
 logger = logging.getLogger("ahvi.outfit_quality_guard")
 
@@ -172,6 +173,13 @@ def _board_blob(board: dict) -> str:
 
 
 def reject_board_for_occasion(board: dict, occasion: str) -> Tuple[bool, str]:
+    if outfit_contains_private_wear(board):
+        logger.info(
+            "editorial_guard_rejected_private_wear occasion=%s title=%s",
+            occasion,
+            board.get("title") if isinstance(board, dict) else "",
+        )
+        return True, "private_wear_forbidden"
     if board_has_occasion_conflict(board, occasion):
         return True, f"metadata_forbidden_{normalize_style_occasion(occasion)}"
     blob = _board_blob(board)

@@ -268,6 +268,41 @@ class DemoHardeningTests(unittest.TestCase):
         self.assertEqual(normalized["name"], "Black Trousers")
         self.assertNotEqual(normalized["name"].lower(), "reviewed item")
 
+    def test_private_wear_metadata_guard_overrides_boxer_work(self):
+        from services.wardrobe_suitability import apply_metadata_guard, is_style_eligible
+
+        guarded = apply_metadata_guard(
+            {
+                "name": "Boxer Shorts",
+                "category": "Bottoms",
+                "sub_category": "Bottom",
+                "occasions": ["Work", "Office", "Home"],
+            },
+            source="test",
+        )
+
+        self.assertEqual(guarded["category"], "Innerwear")
+        self.assertEqual(guarded["sub_category"], "Private Wear")
+        self.assertFalse(guarded["publicWear"])
+        self.assertFalse(guarded["styleEligible"])
+        self.assertTrue(guarded["privateWear"])
+        self.assertNotIn("Work", guarded["occasions"])
+        self.assertIn("Home", guarded["occasions"])
+        self.assertFalse(is_style_eligible(guarded, "client_meeting"))
+
+    def test_final_outfit_guard_detects_private_wear(self):
+        from services.wardrobe_suitability import outfit_contains_private_wear
+
+        board = {
+            "title": "Client Meeting",
+            "items": [
+                {"name": "Blue Shirt", "category": "Tops"},
+                {"name": "Boxer Shorts", "category": "Bottoms"},
+            ],
+        }
+
+        self.assertTrue(outfit_contains_private_wear(board))
+
     def test_wardrobe_persistence_saves_raw_and_masked_urls(self):
         import services.wardrobe_persistence_service as persistence
 

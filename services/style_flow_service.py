@@ -8,6 +8,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from services.category_taxonomy import infer_style_attributes
+from services.wardrobe_suitability import outfit_contains_private_wear
 
 try:
     from brain.engines.occasion_interpreter import interpret_occasion_context
@@ -3062,6 +3063,48 @@ def finalize_style_response_payload(
             )
     if filtered_cards:
         cards = apply_occasion_card_language(filtered_cards, normalized_occasion)
+    public_cards = []
+    for card in cards or []:
+        if outfit_contains_private_wear(card):
+            logger.info(
+                "editorial_guard_rejected_private_wear user_id=%s occasion=%s title=%s",
+                user_id,
+                normalized_occasion,
+                card.get("title") if isinstance(card, dict) else "",
+            )
+            logger.info(
+                "editorial_guard_rejected_non_public_garment user_id=%s occasion=%s",
+                user_id,
+                normalized_occasion,
+            )
+            continue
+        public_cards.append(card)
+    if cards and not public_cards:
+        msg = "I couldn't find enough appropriate public pieces for this occasion."
+        logger.info(
+            "editorial_guard_rejected_occasion_mismatch user_id=%s occasion=%s reason=non_public_only",
+            user_id,
+            normalized_occasion,
+        )
+        return {
+            "success": True,
+            "ok": True,
+            "type": "missing_public_outfit",
+            "intent": "style",
+            "message": {"role": "assistant", "content": msg},
+            "message_text": msg,
+            "response": msg,
+            "cards": [],
+            "style_boards": [],
+            "chips": [
+                {"label": "Try a different occasion", "value": "Try a different occasion"},
+                {"label": "Add public pieces", "value": "Add public pieces"},
+            ],
+            "data": {"outfits": [], "rendered_boards": [], "occasion": normalized_occasion},
+            "meta": {"mode": "private_wear_guard", "occasion_interpretation": occasion_interpretation},
+            "audio_job_id": "offline",
+        }
+    cards = public_cards
     finalize_ms = round((time.perf_counter() - finalize_started) * 1000, 2)
     ids = board_item_ids(cards)
     render_started = time.perf_counter()
