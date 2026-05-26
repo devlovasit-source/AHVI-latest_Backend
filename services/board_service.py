@@ -223,9 +223,45 @@ def _visual_board(
 def _checklist_items(values: Any) -> list:
     items = []
     for value in values or []:
+        if isinstance(value, dict):
+            label = str(
+                value.get("label")
+                or value.get("name")
+                or value.get("title")
+                or value.get("text")
+                or ""
+            ).strip()
+            if not label:
+                continue
+            image_url = str(
+                value.get("imageUrl") or value.get("image_url") or ""
+            ).strip()
+            asset_icon = str(
+                value.get("assetIcon")
+                or value.get("asset_icon")
+                or value.get("iconName")
+                or value.get("icon_name")
+                or ""
+            ).strip()
+            item = {
+                "label": label,
+                "checked": bool(value.get("checked", False)),
+            }
+            if image_url:
+                item["imageUrl"] = image_url
+                item["image_url"] = image_url
+            if asset_icon:
+                item["assetIcon"] = asset_icon
+                item["iconName"] = asset_icon
+            if value.get("source"):
+                item["source"] = str(value.get("source"))
+            if value.get("category"):
+                item["category"] = str(value.get("category"))
+            items.append(item)
+            continue
         label = str(value or "").strip()
         if label:
-            items.append({"label": label})
+            items.append({"label": label, "checked": False})
     return items
 
 

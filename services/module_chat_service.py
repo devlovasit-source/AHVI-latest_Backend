@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import re
+from datetime import datetime, timezone
 from typing import Any, Dict, List
+
+from services.appwrite_proxy import AppwriteProxy
 
 
 def _text(value: Any) -> str:
@@ -233,6 +237,10 @@ async def handle_calendar_chat(message: str, context: Dict[str, Any], user_id: s
 
 
 async def handle_medi_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+    mark_result = _handle_medi_mark_taken(message, user_id)
+    if mark_result:
+        return mark_result
+
     meds = context.get("medications")
     count = len(meds) if isinstance(meds, list) else 0
     if "due" in message.lower() or "today" in message.lower():
@@ -246,6 +254,121 @@ async def handle_medi_chat(message: str, context: Dict[str, Any], user_id: str) 
             "I cannot diagnose or change dosages; for medical decisions, please consult your clinician."
         )
     return _envelope(domain="medi", message=reply, chips=_quick_actions("medi"))
+
+
+def _handle_medi_mark_taken(message: str, user_id: str) -> Dict[str, Any] | None:
+    text = _text(message)
+    lower = text.lower()
+    if not user_id or not any(
+        token in lower
+        for token in (
+            "mark ",
+            "taken",
+            "took ",
+            "i took",
+            "medicine done",
+            "meds done",
+        )
+    ):
+        return None
+
+    if not (
+        "taken" in lower
+        or "took" in lower
+        or "done" in lower
+        or "mark" in lower
+    ):
+        return None
+
+    proxy = AppwriteProxy()
+    try:
+        docs = proxy.list_documents("meds", user_id=user_id, limit=100)
+    except Exception:
+        docs = []
+    if not isinstance(docs, list) or not docs:
+        return _envelope(
+            domain="medi",
+            message="I could not find a medicine to mark yet. Open Medicines to add one first.",
+            chips=_quick_actions("medi"),
+            data={"intent": "medicine_mark_taken_empty", "refresh": "medi"},
+        )
+
+    def med_name(doc: Dict[str, Any]) -> str:
+        return _text(doc.get("name") or doc.get("title") or doc.get("medicine"))
+
+    requested = lower
+    for prefix in (
+        "mark",
+        "as taken",
+        "taken",
+        "took",
+        "i took",
+        "medicine",
+        "medicines",
+        "meds",
+    ):
+        requested = requested.replace(prefix, " ")
+    requested = re.sub(r"[^a-z0-9 ]+", " ", requested)
+    requested = re.sub(r"\s+", " ", requested).strip()
+
+    selected = None
+    if requested:
+        for doc in docs:
+            name = med_name(doc).lower()
+            if name and (name in lower or any(part and part in name for part in requested.split())):
+                selected = doc
+                break
+    if selected is None and len(docs) == 1:
+        selected = docs[0]
+    if selected is None:
+        names = ", ".join(med_name(doc) for doc in docs[:3] if med_name(doc))
+        return _envelope(
+            domain="medi",
+            message=f"Which medicine should I mark as taken? I found: {names or 'your tracked medicines'}.",
+            chips=_quick_actions("medi"),
+            data={"intent": "medicine_mark_taken_clarify"},
+        )
+
+    doc_id = _text(selected.get("$id") or selected.get("id"))
+    name = med_name(selected) or "Medicine"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    update: Dict[str, Any] = {"lastTaken": now_iso}
+    left = selected.get("left")
+    if isinstance(left, int):
+        update["left"] = max(0, left - 1)
+    try:
+        if doc_id:
+            proxy.update_document("meds", doc_id, update)
+        proxy.create_document(
+            "med_logs",
+            {
+                "userId": user_id,
+                "medId": doc_id,
+                "medName": name,
+                "dose": _text(selected.get("dose")),
+                "time": now_iso,
+                "status": "taken",
+            },
+        )
+    except Exception:
+        return _envelope(
+            domain="medi",
+            message=f"I tried to mark {name} as taken, but the tracker could not sync yet. Refresh Medicines and try again.",
+            chips=_quick_actions("medi"),
+            data={"intent": "medicine_mark_taken_failed", "refresh": "medi"},
+        )
+
+    return _envelope(
+        domain="medi",
+        message=f"{name} marked as taken.",
+        chips=_quick_actions("medi"),
+        data={
+            "intent": "medicine_marked_taken",
+            "refresh": "medi",
+            "medicine_id": doc_id,
+            "medicine_name": name,
+        },
+    ) | {"refresh": "medi"}
 
 
 async def handle_bills_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
