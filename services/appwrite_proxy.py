@@ -149,7 +149,7 @@ class AppwriteProxy:
             "skincare_profile": "skincare_profiles",
             "life_board": "life_boards",
             "lifeboard": "life_boards",
-            "contacts": "users",
+            "contact": "contacts",
             "memory": "memories",
             "notification_device": "notification_devices",
             "notification_reminder": "notification_reminders",

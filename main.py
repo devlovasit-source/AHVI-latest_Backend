@@ -134,6 +134,7 @@ notifications_router = _load_optional_router("routers.notifications")
 workouts_router = _load_optional_router("routers.workouts")
 bills_router = _load_optional_router("routers.bills")
 lens_similar_router = _load_optional_router("routers.lens_similar")
+contacts_router = _load_optional_router("routers.ahvi_contacts")
 
 # AI
 ai_router = _load_optional_router("api.ai")
@@ -705,6 +706,9 @@ if bills_router:
 
 if lens_similar_router:
     app.include_router(lens_similar_router)
+
+if contacts_router:
+    app.include_router(contacts_router, prefix="/api/contacts", tags=["contacts"])
 
 if stylist_router:
     app.include_router(stylist_router, prefix="/api/stylist")
