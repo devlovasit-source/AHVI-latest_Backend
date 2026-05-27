@@ -1,6 +1,7 @@
 """Authenticated AHVI contacts API."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -16,6 +17,7 @@ from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
 from services.auth_helpers import require_user
 
 router = APIRouter()
+logger = logging.getLogger("ahvi.contacts")
 
 
 def _is_owner(doc: Dict[str, Any], user_id: str) -> bool:
@@ -40,16 +42,25 @@ def _load_owned(proxy: AppwriteProxy, contact_id: str, user_id: str) -> Dict[str
     return doc
 
 
-@router.get("/")
+def _require_contacts_user(request: Request) -> str:
+    has_auth = bool((request.headers.get("authorization") or "").strip())
+    if not has_auth:
+        logger.warning("contacts_auth_missing path=%s method=%s", request.url.path, request.method)
+    return require_user(request)
+
+
+@router.get("")
 def list_contacts(
     request: Request,
     q: Optional[str] = Query(default=None, max_length=120),
     limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> Dict[str, Any]:
-    user_id = require_user(request)
+    user_id = _require_contacts_user(request)
+    logger.info("contacts_list_request user_id=%s q=%s limit=%s offset=%s", user_id, q or "", limit, offset)
     proxy = AppwriteProxy()
     try:
+        logger.info("contacts_user_scoped_query user_id=%s resource=contacts", user_id)
         result = proxy.list_documents(
             "contacts", user_id=user_id, limit=limit, offset=offset, return_meta=True
         )
@@ -86,9 +97,10 @@ def list_contacts(
     }
 
 
-@router.post("/")
+@router.post("")
 def create_contact(request: Request, contact: AhviContactCreate) -> Dict[str, Any]:
-    user_id = require_user(request)
+    user_id = _require_contacts_user(request)
+    logger.info("contacts_create_request user_id=%s", user_id)
     payload = contact_to_appwrite(model_to_dict(contact), user_id)
     try:
         created = AppwriteProxy().create_document("contacts", payload)
@@ -99,16 +111,16 @@ def create_contact(request: Request, contact: AhviContactCreate) -> Dict[str, An
 
 @router.get("/{contact_id}")
 def get_contact(request: Request, contact_id: str) -> Dict[str, Any]:
-    user_id = require_user(request)
+    user_id = _require_contacts_user(request)
     doc = _load_owned(AppwriteProxy(), contact_id, user_id)
     return {"success": True, "contact": contact_from_appwrite(doc)}
 
 
-@router.patch("/{contact_id}")
+@router.put("/{contact_id}")
 def update_contact(
     request: Request, contact_id: str, update: AhviContactUpdate
 ) -> Dict[str, Any]:
-    user_id = require_user(request)
+    user_id = _require_contacts_user(request)
     proxy = AppwriteProxy()
     _load_owned(proxy, contact_id, user_id)
     data = model_to_dict(update, exclude_unset=True)
@@ -124,9 +136,16 @@ def update_contact(
     return {"success": True, "contact": contact_from_appwrite(updated)}
 
 
+@router.patch("/{contact_id}")
+def patch_contact(
+    request: Request, contact_id: str, update: AhviContactUpdate
+) -> Dict[str, Any]:
+    return update_contact(request, contact_id, update)
+
+
 @router.delete("/{contact_id}")
 def delete_contact(request: Request, contact_id: str) -> Dict[str, Any]:
-    user_id = require_user(request)
+    user_id = _require_contacts_user(request)
     proxy = AppwriteProxy()
     _load_owned(proxy, contact_id, user_id)
     try:
