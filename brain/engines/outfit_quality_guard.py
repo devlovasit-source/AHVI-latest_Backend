@@ -625,6 +625,134 @@ def _dedupe_accessories(accessories: List[Dict[str, Any]]) -> List[Dict[str, Any
     return final
 
 
+_AHVI_PROFESSIONAL_OCCASIONS = {
+    "office", "business", "business_casual", "client", "meeting",
+    "interview", "boardroom", "corporate", "professional",
+}
+_AHVI_FORMAL_OCCASIONS = {
+    "wedding", "formal", "ceremony", "reception", "gala", "cocktail",
+}
+_AHVI_LOUNGEWEAR_TERMS = {
+    "boxer", "boxers", "pyjama", "pajama", "pj ", "lounge", "loungewear",
+    "sleepwear", "nightwear", "night suit", "innerwear",
+}
+_AHVI_GYMWEAR_TERMS = {
+    "gym", "gymwear", "activewear", "athleisure", "yoga pant",
+    "sports bra", "track pant", "tracks", "compression",
+}
+_AHVI_OPEN_TOE_TERMS = {
+    "slipper", "slide", "slider", "sandal", "flip flop", "flip-flop",
+    "open toe", "open-toe",
+}
+
+
+def _ahvi_guard_blob(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return " ".join(
+        str(item.get(k) or "").lower()
+        for k in (
+            "name",
+            "title",
+            "label",
+            "category",
+            "sub_category",
+            "subcategory",
+            "type",
+            "slot",
+            "role",
+            "garment_type",
+        )
+    )
+
+
+def _ahvi_accessory_type_for_guard(item: Dict[str, Any]) -> str:
+    blob = _ahvi_guard_blob(item)
+    for typ, terms in (
+        ("watch", ("watch",)),
+        ("belt", ("belt",)),
+        ("bag", ("bag", "tote", "clutch", "purse")),
+        ("eyewear", ("sunglass", "eyewear", "glasses")),
+        ("headwear", ("cap", "hat", "beanie")),
+        ("jewelry", ("ring", "necklace", "bracelet", "earring", "jewelry", "jewellery")),
+        ("scarf", ("scarf",)),
+    ):
+        if any(t in blob for t in terms):
+            return typ
+    return ""
+
+
+def _ahvi_agent_quality_reject(
+    outfit: Dict[str, Any],
+    top: Dict[str, Any],
+    bottom: Dict[str, Any],
+    footwear: Dict[str, Any],
+    accessories: List[Dict[str, Any]],
+    occasion_text: str,
+    agent_payload: Dict[str, Any],
+) -> str:
+    """Return non-empty rejection reason if the agent's policy is violated."""
+    occasion = (occasion_text or "").lower()
+    if isinstance(agent_payload, dict):
+        agent_occ = str(agent_payload.get("occasion") or "").lower()
+        if agent_occ:
+            occasion = f"{occasion} {agent_occ}".strip()
+        avoid = [str(t).strip().lower() for t in (agent_payload.get("avoid_items") or []) if str(t).strip()]
+    else:
+        avoid = []
+    is_professional = any(o in occasion for o in _AHVI_PROFESSIONAL_OCCASIONS)
+    is_formal = any(o in occasion for o in _AHVI_FORMAL_OCCASIONS)
+    allow_open_toe = bool(
+        isinstance(agent_payload, dict)
+        and (agent_payload.get("accessory_policy") or {}).get("allow_open_toe_footwear")
+    )
+
+    blobs = {
+        "top": _ahvi_guard_blob(top),
+        "bottom": _ahvi_guard_blob(bottom),
+        "footwear": _ahvi_guard_blob(footwear),
+    }
+
+    # Lounge / sleepwear in professional setting.
+    if is_professional or is_formal:
+        for slot, blob in blobs.items():
+            if any(term in blob for term in _AHVI_LOUNGEWEAR_TERMS):
+                return f"loungewear/sleepwear in {slot} blocked for professional/formal context"
+
+    # Gymwear for formal events.
+    if is_formal or is_professional:
+        for slot, blob in blobs.items():
+            if any(term in blob for term in _AHVI_GYMWEAR_TERMS):
+                return f"gymwear in {slot} blocked for formal/professional context"
+
+    # Open-toe footwear in business meetings unless explicitly allowed.
+    if (is_professional or is_formal) and blobs["footwear"]:
+        if any(term in blobs["footwear"] for term in _AHVI_OPEN_TOE_TERMS) and not allow_open_toe:
+            return "open-toe footwear blocked for professional/formal context"
+
+    # avoid_items list (any slot or accessory).
+    if avoid:
+        for slot, blob in blobs.items():
+            if any(term in blob for term in avoid):
+                return f"agent avoid_items: blocked {slot}"
+        for acc in accessories or []:
+            blob = _ahvi_guard_blob(acc)
+            if any(term in blob for term in avoid):
+                return "agent avoid_items: blocked accessory"
+
+    # Duplicate accessory type (watch+watch, belt+belt, etc.)
+    seen_types: set[str] = set()
+    for acc in accessories or []:
+        typ = _ahvi_accessory_type_for_guard(acc)
+        if not typ:
+            continue
+        if typ in seen_types:
+            return f"duplicate accessory type: {typ}"
+        seen_types.add(typ)
+
+    return ""
+
+
 def guard_outfit(
     outfit: Dict[str, Any],
     user_profile: Dict[str, Any] | None = None,
@@ -637,6 +765,20 @@ def guard_outfit(
     penalty = 0
 
     top, bottom, footwear, accessories = _extract_outfit_slots(outfit)
+
+    # ---- AHVI Style Orchestrator agent guard ----
+    agent_payload = outfit.get("agent_orchestration") if isinstance(outfit, dict) else None
+    if not isinstance(agent_payload, dict):
+        agent_payload = (user_profile or {}).get("agent_orchestration") if isinstance(user_profile, dict) else None
+    if isinstance(agent_payload, dict):
+        agent_reason = _ahvi_agent_quality_reject(
+            outfit, top, bottom, footwear, accessories,
+            occasion_text=intent or str(outfit.get("occasion") or ""),
+            agent_payload=agent_payload,
+        )
+        if agent_reason:
+            logger.info("ahvi.agent.outfit_quality_reject reason=%s", agent_reason)
+            return False, -100, [agent_reason], fixed
 
     occasion_text = _norm(
         intent

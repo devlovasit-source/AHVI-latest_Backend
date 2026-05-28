@@ -301,10 +301,24 @@ def _coerce_wardrobe_payload(value: Any) -> list[dict]:
     return []
 
 
+def _ahvi_agent_orchestration(context: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the AHVI Style Orchestrator agent payload from context, if any."""
+    if isinstance(context, dict):
+        payload = context.get("agent_orchestration")
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
 def _extract_occasion(text: str, slots: Dict[str, Any], context: Dict[str, Any]) -> str:
     explicit = _safe_text(slots.get("occasion") or context.get("occasion"))
     if explicit:
         return explicit.lower()
+
+    # Agent-provided occasion wins over keyword sniffing when present.
+    agent_occasion = _safe_text(_ahvi_agent_orchestration(context).get("occasion"))
+    if agent_occasion:
+        return agent_occasion.lower()
 
     lowered = (text or "").lower()
     if "wedding" in lowered:

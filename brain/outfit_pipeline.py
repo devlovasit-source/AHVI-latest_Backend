@@ -34,6 +34,73 @@ from brain.engines.outfit_quality_guard import filter_and_guard_outfits
 import re
 
 
+# ---- AHVI Style Orchestrator agent hooks (avoid_items / required_slots) ----
+def _ahvi_agent_payload(context: Any) -> Dict[str, Any]:
+    if isinstance(context, dict):
+        payload = context.get("agent_orchestration")
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _ahvi_item_matches_avoid(item: Dict[str, Any], avoid_terms: List[str]) -> bool:
+    if not avoid_terms or not isinstance(item, dict):
+        return False
+    blob = " ".join(
+        str(item.get(k) or "").lower()
+        for k in (
+            "name",
+            "title",
+            "label",
+            "category",
+            "sub_category",
+            "subcategory",
+            "type",
+            "slot",
+            "role",
+            "garment_type",
+            "material",
+        )
+    )
+    for term in avoid_terms:
+        token = str(term or "").strip().lower()
+        if token and token in blob:
+            return True
+    return False
+
+
+def _ahvi_apply_agent_avoid_filter(wardrobe: Any, context: Any) -> Any:
+    payload = _ahvi_agent_payload(context)
+    avoid = payload.get("avoid_items") if isinstance(payload, dict) else None
+    if not avoid:
+        return wardrobe
+    avoid_terms = [str(t).strip().lower() for t in avoid if str(t).strip()]
+    if not avoid_terms:
+        return wardrobe
+    try:
+        if isinstance(wardrobe, dict):
+            return {
+                slot: [
+                    item
+                    for item in items
+                    if isinstance(item, dict)
+                    and not _ahvi_item_matches_avoid(item, avoid_terms)
+                ]
+                for slot, items in wardrobe.items()
+                if isinstance(items, list)
+            }
+        if isinstance(wardrobe, list):
+            return [
+                item
+                for item in wardrobe
+                if isinstance(item, dict)
+                and not _ahvi_item_matches_avoid(item, avoid_terms)
+            ]
+    except Exception:
+        logger.warning("ahvi.agent.avoid_filter_failed", exc_info=True)
+    return wardrobe
+
+
 # ---- AHVI demo fix: normalize Appwrite wardrobe records into outfit slots ----
 def _ahvi_tokens(value):
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip().split()
@@ -2456,6 +2523,15 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     except NameError:
         # Helpers loaded later in module — only matters at hot-reload edge cases.
         pass
+
+    # AHVI Style Orchestrator: drop wardrobe items the agent flagged as
+    # contextually wrong (e.g. boxers/slides for a client meeting). This is a
+    # lightweight, additive filter that runs after the legacy gender/style
+    # eligibility filters.
+    try:
+        wardrobe = _ahvi_apply_agent_avoid_filter(wardrobe, context)
+    except Exception:
+        logger.warning("ahvi.agent.avoid_filter_outer_failed", exc_info=True)
 
     occasion = _normalize_pipeline_occasion(context.get("occasion"), context)
     if occasion:

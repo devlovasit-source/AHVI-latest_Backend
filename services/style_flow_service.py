@@ -33,6 +33,17 @@ except Exception:  # pragma: no cover - optional during partial deploys
     reject_quality_board_for_occasion = None
 
 try:
+    from services.agent_style_orchestrator import (
+        is_enabled as _agent_style_enabled,
+        merge_agent_payload_into_context as _agent_merge_into_context,
+        orchestrate_style_request_sync as _agent_orchestrate_sync,
+    )
+except Exception:  # pragma: no cover - safe if agent service is missing
+    _agent_style_enabled = lambda: False  # noqa: E731
+    _agent_merge_into_context = lambda ctx, _payload: ctx  # noqa: E731
+    _agent_orchestrate_sync = None
+
+try:
     from services.r2_storage import R2Storage, R2StorageError
 except Exception:  # pragma: no cover - optional deploy dependency
     R2Storage = None
@@ -3345,6 +3356,48 @@ def build_style_flow_response(
     )
     if normalized_occasion:
         ctx["occasion"] = normalized_occasion
+
+    # AHVI Style Orchestrator agent layer — produces structured intent from
+    # the AHVI Style Orchestrator Agent / Gemini. Fully gated by the
+    # ENABLE_AGENT_STYLE_ORCHESTRATOR env flag; safe defaults are merged when
+    # the flag is off so downstream engines can still read the keys uniformly.
+    try:
+        if _agent_orchestrate_sync is not None and _agent_style_enabled():
+            agent_payload = _agent_orchestrate_sync(
+                message=query,
+                user_id=user_id,
+                wardrobe_items=wardrobe if isinstance(wardrobe, list) else None,
+                chips=list(ctx.get("chips") or []),
+                weather=_dict(ctx.get("weather")),
+                profile=_dict(ctx.get("user_profile") or user_profile),
+                context=ctx,
+            )
+            _agent_merge_into_context(ctx, agent_payload)
+            logger.info(
+                "ahvi.agent.style_orchestration occasion=%s sub_intent=%s "
+                "formality=%s style_direction=%s clarification_needed=%s confidence=%.2f",
+                agent_payload.get("occasion"),
+                agent_payload.get("sub_intent"),
+                agent_payload.get("formality"),
+                agent_payload.get("style_direction"),
+                agent_payload.get("clarification_needed"),
+                float(agent_payload.get("confidence") or 0.0),
+            )
+            if agent_payload.get("avoid_items"):
+                logger.info(
+                    "ahvi.agent.avoid_items_applied count=%d items=%s",
+                    len(agent_payload.get("avoid_items") or []),
+                    list(agent_payload.get("avoid_items") or [])[:10],
+                )
+            if agent_payload.get("required_slots"):
+                logger.info(
+                    "ahvi.agent.required_slots_applied slots=%s",
+                    list(agent_payload.get("required_slots") or []),
+                )
+    except Exception:
+        # Agent layer is best-effort; never let it break the legacy flow.
+        logger.warning("ahvi.agent.style_orchestrator_merge_failed", exc_info=True)
+
     closest_requested = (
         str(style_action or ctx.get("style_action") or "").strip().lower()
         in {"show_closest_option", "closest_option", "show_closest"}
@@ -3372,10 +3425,15 @@ def build_style_flow_response(
         normalized_occasion,
         closest_requested,
     )
+    _agent_payload = _dict(ctx.get("agent_orchestration"))
+    _agent_blocks_clarification = bool(_agent_payload) and not _agent_payload.get(
+        "clarification_needed", False
+    )
     if (
         occasion_interpretation.get("ask_user")
         and not style_action
         and not requested_board_count
+        and not _agent_blocks_clarification
     ):
         return _clarification_response(occasion_interpretation)
 

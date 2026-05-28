@@ -1167,6 +1167,13 @@ def _demo_style_board_payload(
                 "query": query_text,
                 "user_profile": profile,
                 "style_gender": _ahvi_profile_style_gender(profile),
+                # AHVI Style Orchestrator agent inputs (best-effort pass-through).
+                "chips": locals().get("chips") or [],
+                "weather": (
+                    (profile or {}).get("weather")
+                    if isinstance(profile, dict)
+                    else {}
+                ) or {},
                 "signals": {
                     "source": "routers.chat.style_flow_service_fallback",
                     "style_gender": _ahvi_profile_style_gender(profile),

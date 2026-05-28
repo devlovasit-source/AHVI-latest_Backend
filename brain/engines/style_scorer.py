@@ -638,6 +638,111 @@ def occasion_item_score(item: dict, occasion: str) -> float:
     return score
 
 
+def _ahvi_agent_item_blob(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return " ".join(
+        str(item.get(k) or "").lower()
+        for k in (
+            "name",
+            "title",
+            "label",
+            "category",
+            "sub_category",
+            "subcategory",
+            "type",
+            "slot",
+            "role",
+            "material",
+            "fabric",
+            "color",
+            "dominant_color",
+            "style",
+        )
+    )
+
+
+_AHVI_FORMALITY_TO_INT = {
+    "very_low": 1,
+    "low": 2,
+    "mid": 3,
+    "high": 4,
+    "very_high": 5,
+    "formal": 5,
+    "casual": 2,
+}
+
+
+def _ahvi_formality_int(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except Exception:
+        pass
+    return _AHVI_FORMALITY_TO_INT.get(str(value).strip().lower())
+
+
+def _ahvi_agent_score_adjustment(
+    items: List[Dict[str, Any]], agent: Dict[str, Any]
+) -> tuple[float, List[str]]:
+    """Return (delta, reasons) for agent-provided style signals.
+
+    The delta is intentionally small (bounded ±~3) so the agent shapes
+    ranking without overwhelming the existing scoring breakdown.
+    """
+    delta = 0.0
+    reasons: List[str] = []
+    if not items or not isinstance(agent, dict):
+        return 0.0, reasons
+
+    style_direction = str(agent.get("style_direction") or "").strip().lower()
+    avoid_items = [str(t).strip().lower() for t in (agent.get("avoid_items") or []) if str(t).strip()]
+    palette_direction = [str(t).strip().lower() for t in (agent.get("palette_direction") or []) if str(t).strip()]
+    agent_formality = _ahvi_formality_int(agent.get("formality"))
+
+    accessory_blobs: List[str] = []
+    accessory_types: List[str] = []
+    for item in items:
+        blob = _ahvi_agent_item_blob(item)
+        if not blob:
+            continue
+        if style_direction and style_direction.replace("_", " ") in blob.replace("_", " "):
+            delta += 0.4
+            reasons.append("agent style_direction match")
+        if any(term in blob for term in avoid_items):
+            delta -= 1.5
+            reasons.append("agent avoid_items penalty")
+        if palette_direction:
+            color = str(item.get("color") or item.get("dominant_color") or "").lower()
+            if color and any(p in color for p in palette_direction):
+                delta += 0.3
+                reasons.append("agent palette aligned")
+        if agent_formality is not None:
+            item_form = _ahvi_formality_int(item.get("formality"))
+            if item_form is not None and abs(item_form - agent_formality) >= 2:
+                delta -= 0.6
+                reasons.append("agent formality mismatch")
+        category = str(
+            item.get("category") or item.get("sub_category") or item.get("type") or ""
+        ).lower()
+        if any(k in category for k in ("watch", "belt", "ring", "necklace", "bracelet", "bag", "cap", "hat", "scarf", "sunglass")):
+            accessory_blobs.append(blob)
+            accessory_types.append(category)
+
+    # Accessory duplication penalty (e.g. two watches, two belts).
+    if len(accessory_types) != len(set(accessory_types)) and accessory_types:
+        delta -= 0.8
+        reasons.append("agent accessory duplication")
+
+    # Bound the delta to avoid dominating the scoring breakdown.
+    if delta > 3.0:
+        delta = 3.0
+    if delta < -3.0:
+        delta = -3.0
+    return delta, reasons
+
+
 class UnifiedStyleScorer:
     """
     Single scoring authority for outfit candidates.
@@ -800,6 +905,17 @@ class UnifiedStyleScorer:
                 reasons.append(f"refined for {refinement}")
 
         breakdown["exploration"] = self._exploration_boost(items, exploration_factor)
+
+        # ---- AHVI Style Orchestrator agent signals ----
+        agent_payload = context.get("agent_orchestration") if isinstance(context, dict) else None
+        if isinstance(agent_payload, dict):
+            try:
+                agent_delta, agent_reasons = _ahvi_agent_score_adjustment(items, agent_payload)
+            except Exception:
+                agent_delta, agent_reasons = 0.0, []
+            if agent_delta:
+                breakdown["agent_orchestration"] = round(float(agent_delta), 3)
+                reasons.extend(agent_reasons)
 
         raw_score = sum(float(v or 0.0) for v in breakdown.values())
         score = max(0.0, min(raw_score, 10.0))
