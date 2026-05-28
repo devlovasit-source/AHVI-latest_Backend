@@ -92,6 +92,11 @@ class AppwriteProxy:
                 or os.getenv("APPWRITE_COLLECTION_SKINCARE", "")
                 or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_SKINCARE", "")
             ),
+            "skincare_logs": (
+                os.getenv("APPWRITE_COLLECTION_SKINCARE_LOGS", "")
+                or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_SKINCARE_LOGS", "")
+                or "skincare_logs"
+            ),
             "contacts": os.getenv("APPWRITE_COLLECTION_CONTACTS", "")
             or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CONTACTS", ""),
             "workout_outfits": os.getenv("APPWRITE_COLLECTION_WORKOUT_OUTFITS", "")
@@ -147,6 +152,7 @@ class AppwriteProxy:
             "skincare": "skincare_profiles",
             "skin": "skincare_profiles",
             "skincare_profile": "skincare_profiles",
+            "skincare_log": "skincare_logs",
             "life_board": "life_boards",
             "lifeboard": "life_boards",
             "contact": "contacts",
@@ -166,6 +172,7 @@ class AppwriteProxy:
             "saved_boards": "userId",
             "skincare": "userId",
             "skincare_profiles": "userId",
+            "skincare_logs": "userId",
             "contacts": "userId",
             "workout_outfits": "userId",
             "bills": "userId",
@@ -191,6 +198,7 @@ class AppwriteProxy:
             "saved_boards": {"method": "orderDesc", "attribute": "$createdAt"},
             "skincare": None,
             "skincare_profiles": {"method": "orderDesc", "attribute": "$createdAt"},
+            "skincare_logs": {"method": "orderDesc", "attribute": "scheduledAtISO"},
             "contacts": {"method": "orderDesc", "attribute": "$createdAt"},
             "workout_outfits": {"method": "orderDesc", "attribute": "$createdAt"},
             "bills": {"method": "orderDesc", "attribute": "$createdAt"},

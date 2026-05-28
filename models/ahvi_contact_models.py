@@ -7,15 +7,19 @@ from pydantic import BaseModel, Field
 
 
 class AhviContactCreate(BaseModel):
-    firstName: str = Field(..., min_length=1, max_length=80)
+    firstName: Optional[str] = Field(default=None, min_length=1, max_length=80)
     lastName: Optional[str] = Field(default=None, max_length=80)
-    phoneNumber: str = Field(..., min_length=3, max_length=40)
+    phoneNumber: Optional[str] = Field(default=None, min_length=3, max_length=40)
     displayName: Optional[str] = Field(default=None, max_length=160)
     relationship: Optional[str] = Field(default=None, max_length=80)
     notes: Optional[str] = Field(default=None, max_length=1000)
     tags: List[str] = Field(default_factory=list)
     isFavorite: bool = False
     avatarUrl: Optional[str] = Field(default=None, max_length=1000)
+    # Backward-compatible aliases used by older/dev builds.
+    name: Optional[str] = Field(default=None, max_length=160)
+    phone: Optional[str] = Field(default=None, max_length=40)
+    favorite: Optional[bool] = None
 
 
 class AhviContactUpdate(BaseModel):
@@ -28,6 +32,9 @@ class AhviContactUpdate(BaseModel):
     tags: Optional[List[str]] = None
     isFavorite: Optional[bool] = None
     avatarUrl: Optional[str] = Field(default=None, max_length=1000)
+    name: Optional[str] = Field(default=None, max_length=160)
+    phone: Optional[str] = Field(default=None, max_length=40)
+    favorite: Optional[bool] = None
 
 
 def model_to_dict(model: BaseModel, *, exclude_unset: bool = False) -> Dict[str, Any]:
@@ -49,6 +56,19 @@ def _clean_tags(value: Any) -> List[str]:
 
 def contact_to_appwrite(data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
     """Map public API names to the existing Appwrite contact schema."""
+    normalized = dict(data or {})
+    if not normalized.get("firstName") and normalized.get("name"):
+        name = str(normalized.get("name") or "").strip()
+        parts = name.split(None, 1)
+        normalized["firstName"] = parts[0] if parts else ""
+        if len(parts) > 1 and not normalized.get("lastName"):
+            normalized["lastName"] = parts[1]
+        normalized.setdefault("displayName", name)
+    if not normalized.get("phoneNumber") and normalized.get("phone") is not None:
+        normalized["phoneNumber"] = str(normalized.get("phone") or "").strip()
+    if "favorite" in normalized and "isFavorite" not in normalized:
+        normalized["isFavorite"] = bool(normalized.get("favorite"))
+
     payload: Dict[str, Any] = {"userId": user_id}
     mapping = {
         "firstName": "firstname",
@@ -61,15 +81,17 @@ def contact_to_appwrite(data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
         "avatarUrl": "avatarUrl",
     }
     for public_key, appwrite_key in mapping.items():
-        if public_key not in data:
+        if public_key not in normalized:
             continue
-        value = data.get(public_key)
+        value = normalized.get(public_key)
         if isinstance(value, str):
             value = value.strip()
         if value is not None:
+            if public_key == "phoneNumber":
+                value = str(value)
             payload[appwrite_key] = value
-    if "tags" in data:
-        payload["tags"] = _clean_tags(data.get("tags"))
+    if "tags" in normalized:
+        payload["tags"] = _clean_tags(normalized.get("tags"))
     if not payload.get("displayName"):
         parts = [payload.get("firstname"), payload.get("surname")]
         payload["displayName"] = " ".join(str(p).strip() for p in parts if p).strip()

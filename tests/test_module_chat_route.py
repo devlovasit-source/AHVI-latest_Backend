@@ -93,6 +93,57 @@ def test_style_module_chat_routes_chip_to_style_flow(monkeypatch):
     assert body["style_boards"]
 
 
+def test_style_module_chat_routes_office_meeting_to_board(monkeypatch):
+    captured = {}
+
+    def fake_style_payload(*, user_id, query_text, request_wardrobe, user_profile):
+        captured["query"] = query_text
+        return {
+            "success": True,
+            "type": "cards",
+            "message": "Office meeting look ready.",
+            "cards": [{"id": "look-office", "items": []}],
+            "style_boards": [{"id": "look-office", "items": []}],
+            "chips": [],
+            "board_ids": "look-office",
+            "data": {"outfits": [{"id": "look-office"}], "rendered_boards": []},
+            "meta": {"mode": "style_flow_service_adapter_v1"},
+        }
+
+    monkeypatch.setattr(chat, "_demo_style_board_payload", fake_style_payload)
+    app = FastAPI()
+    app.include_router(chat.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/chat/module-chat",
+        json={"module": "style", "message": "Office meeting", "history": [], "context_data": {}, "user_profile": {}},
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert captured["query"] == "Office meeting"
+    assert body["cards"]
+    assert "AHVI needs a little more context" not in str(body)
+
+
+def test_ask_me_two_questions_returns_questions_without_loop():
+    app = FastAPI()
+    app.include_router(chat.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/chat/module-chat",
+        json={"module": "style", "message": "Ask me 2 questions", "history": [], "context_data": {}, "user_profile": {}},
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["intent"] == "ask_questions"
+    assert len(body["questions"]) == 2
+    assert "AHVI needs a little more context" not in str(body)
+
+
 def test_style_module_chat_routes_beach_wear_without_empty_llm(monkeypatch):
     def fail_llm(*args, **kwargs):
         raise AssertionError("style prompts should not hit module LLM")

@@ -130,6 +130,8 @@ feedback_router = _load_optional_router("routers.feedback")
 ops_router = _load_optional_router("routers.ops")
 calendar_router = _load_optional_router("routers.calendar")
 med_logs_router = _load_optional_router("routers.med_logs")
+medi_router = _load_optional_router("routers.medi")
+skincare_adherence_router = _load_optional_router("routers.skincare_adherence")
 notifications_router = _load_optional_router("routers.notifications")
 workouts_router = _load_optional_router("routers.workouts")
 bills_router = _load_optional_router("routers.bills")
@@ -694,6 +696,12 @@ if calendar_router:
 
 if med_logs_router:
     app.include_router(med_logs_router, prefix="/api")
+
+if medi_router:
+    app.include_router(medi_router, prefix="/api")
+
+if skincare_adherence_router:
+    app.include_router(skincare_adherence_router, prefix="/api")
 
 if notifications_router:
     app.include_router(notifications_router)

@@ -4,7 +4,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse
 
 from models.ahvi_contact_models import (
     AhviContactCreate,
@@ -25,11 +26,35 @@ def _is_owner(doc: Dict[str, Any], user_id: str) -> bool:
     return bool(owner and owner == user_id)
 
 
+def _error_response(status_code: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={"success": False, "error": {"code": code, "message": message}},
+    )
+
+
 def _proxy_error(exc: AppwriteProxyError) -> HTTPException:
-    status = getattr(exc, "status_code", None) or 500
-    if status == 404:
+    status_code = getattr(exc, "status_code", None) or 500
+    if status_code == 404:
         return HTTPException(status_code=404, detail="Contact not found")
-    return HTTPException(status_code=status, detail=str(exc) or "Contacts unavailable")
+    return HTTPException(status_code=status_code, detail=str(exc) or "Contacts unavailable")
+
+
+def _validate_contact_payload(payload: Dict[str, Any]) -> Optional[JSONResponse]:
+    if not str(payload.get("firstname") or "").strip():
+        return _error_response(
+            status.HTTP_400_BAD_REQUEST,
+            "CONTACT_NAME_REQUIRED",
+            "Contact name is required.",
+        )
+    if not str(payload.get("phoneno") or "").strip():
+        return _error_response(
+            status.HTTP_400_BAD_REQUEST,
+            "CONTACT_PHONE_REQUIRED",
+            "Contact phone number is required.",
+        )
+    payload["phoneno"] = str(payload.get("phoneno") or "").strip()
+    return None
 
 
 def _load_owned(proxy: AppwriteProxy, contact_id: str, user_id: str) -> Dict[str, Any]:
@@ -100,12 +125,21 @@ def list_contacts(
 @router.post("")
 def create_contact(request: Request, contact: AhviContactCreate) -> Dict[str, Any]:
     user_id = _require_contacts_user(request)
-    logger.info("contacts_create_request user_id=%s", user_id)
+    logger.info("contacts_create_request contacts.create.request user_id=%s", user_id)
     payload = contact_to_appwrite(model_to_dict(contact), user_id)
+    validation = _validate_contact_payload(payload)
+    if validation is not None:
+        return validation
     try:
         created = AppwriteProxy().create_document("contacts", payload)
     except AppwriteProxyError as exc:
-        raise _proxy_error(exc)
+        logger.exception("contacts_create_error contacts.create.error user_id=%s error=%s", user_id, exc)
+        return _error_response(
+            getattr(exc, "status_code", None) or status.HTTP_502_BAD_GATEWAY,
+            "CONTACT_CREATE_FAILED",
+            str(exc) or "Could not save this contact.",
+        )
+    logger.info("contacts_create_success contacts.create.success user_id=%s contact_id=%s", user_id, created.get("$id") or created.get("id"))
     return {"success": True, "contact": contact_from_appwrite(created)}
 
 
@@ -129,10 +163,17 @@ def update_contact(
         return {"success": True, "contact": contact_from_appwrite(doc)}
     payload = contact_to_appwrite(data, user_id)
     payload.pop("userId", None)
+    if "phoneno" in payload:
+        payload["phoneno"] = str(payload.get("phoneno") or "").strip()
     try:
         updated = proxy.update_document("contacts", contact_id, payload)
     except AppwriteProxyError as exc:
-        raise _proxy_error(exc)
+        logger.exception("contacts_update_error user_id=%s contact_id=%s error=%s", user_id, contact_id, exc)
+        return _error_response(
+            getattr(exc, "status_code", None) or status.HTTP_502_BAD_GATEWAY,
+            "CONTACT_UPDATE_FAILED",
+            str(exc) or "Could not update this contact.",
+        )
     return {"success": True, "contact": contact_from_appwrite(updated)}
 
 

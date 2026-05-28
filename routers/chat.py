@@ -1151,6 +1151,10 @@ def _demo_style_board_payload(
     ]
 
     occasion = _ahvi_style_occasion(query_text)
+    logger.info("style.intent.detected user_id=%s occasion=%s prompt=%r", user_id, occasion, query_text)
+    if any(token in str(query_text or "").lower() for token in ("meeting", "client", "presentation", "interview")):
+        logger.info("style.sub_intent.detected user_id=%s sub_intent=office_meeting prompt=%r", user_id, query_text)
+    logger.info("style.wardrobe.loaded user_id=%s count=%s", user_id, len(wardrobe))
 
     try:
         response = build_style_flow_response(
@@ -1181,6 +1185,8 @@ def _demo_style_board_payload(
             user_id,
             str(exc)[:180],
         )
+        logger.exception("style.error user_id=%s prompt=%r", user_id, query_text)
+        logger.info("style.fallback.triggered user_id=%s reason=style_flow_exception wardrobe_count=%s", user_id, len(wardrobe))
         return {
             "success": False,
             "message": (
@@ -1209,6 +1215,7 @@ def _demo_style_board_payload(
 
     cards = response.get("cards") if isinstance(response.get("cards"), list) else []
     if not cards and not _ahvi_router_style_fallback_enabled():
+        logger.info("style.fallback.triggered user_id=%s reason=no_cards wardrobe_count=%s", user_id, len(wardrobe))
         response["success"] = False
         response["message"] = (
             "I couldn't build a complete style board from your wardrobe yet. "
@@ -1227,6 +1234,8 @@ def _demo_style_board_payload(
         )
     except Exception:
         pass
+    if cards:
+        logger.info("style.board.generated user_id=%s occasion=%s cards=%s", user_id, occasion, len(cards))
 
     response["meta"] = {
         **(response.get("meta") if isinstance(response.get("meta"), dict) else {}),
@@ -2084,6 +2093,51 @@ def _detect_quick_action_module(message: str) -> str:
     return ""
 
 
+def _is_ask_questions_action(message: str) -> bool:
+    text = str(message or "").lower().replace("'", "")
+    text = re.sub(r"[^a-z0-9 ]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text in {
+        "ask me 2 questions",
+        "ask me two questions",
+        "ask 2 questions",
+        "ask two questions",
+    } or text.endswith(" ask me 2 questions") or text.endswith(" ask me two questions")
+
+
+def _style_two_questions_response(original_prompt: str = "") -> Dict[str, Any]:
+    questions = [
+        "Is this dinner casual, polished, or dressy?",
+        "Do you want to use your wardrobe or build a suggested look?",
+    ]
+    logger.info("style.clarification.questions prompt=%r count=2", original_prompt)
+    return {
+        "success": True,
+        "type": "clarification_questions",
+        "module": "style",
+        "domain": "style",
+        "intent": "ask_questions",
+        "message": {
+            "role": "assistant",
+            "content": "\n".join(f"{idx + 1}. {q}" for idx, q in enumerate(questions)),
+        },
+        "message_text": "\n".join(f"{idx + 1}. {q}" for idx, q in enumerate(questions)),
+        "response": "\n".join(f"{idx + 1}. {q}" for idx, q in enumerate(questions)),
+        "questions": questions,
+        "cards": [],
+        "style_boards": [],
+        "chips": [
+            {"label": "Casual", "value": "casual dinner"},
+            {"label": "Polished", "value": "polished dinner"},
+            {"label": "Use my wardrobe", "value": "use my wardrobe"},
+            {"label": "Suggested look", "value": "build a suggested look"},
+        ],
+        "quick_actions": ["Casual", "Polished", "Use my wardrobe", "Suggested look"],
+        "data": {"intent": "ask_questions", "questions": questions},
+        "meta": {"mode": "style_clarification_questions", "question_count": 2},
+    }
+
+
 def _planner_action_intent(message: str) -> str:
     text = str(message or "").lower().replace("'", "")
     text = re.sub(r"[^a-z0-9 ]+", " ", text)
@@ -2568,6 +2622,9 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
     user_message = str(request.message or "").strip()
     merged_context = {**(request.context_data or {}), **(request.context or {})}
 
+    if _is_ask_questions_action(user_message) and module in {"style", "wardrobe", "daily_wear", "chat", ""}:
+        return _style_two_questions_response(user_message)
+
     _qa_module = _detect_quick_action_module(user_message)
     if _qa_module == "calendar":
         text = user_message.lower().strip()
@@ -2680,6 +2737,7 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
     if module in {"style", "wardrobe", "daily_wear"} and (
         _is_explicit_style_request(user_message, module)
         or _needs_style_clarification(user_message, _ahvi_style_occasion(user_message))
+        or _ahvi_style_occasion(user_message) != "today"
     ):
         wardrobe = (
             merged_context.get("wardrobe")
@@ -2733,6 +2791,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
 
     if not user_input:
         raise HTTPException(status_code=400, detail="Empty message")
+
+    if _is_ask_questions_action(user_input):
+        return _style_two_questions_response(user_input)
 
     # ──────────────────────────────────────────────────────────────────
     # CHIP / BUTTON / RETRY CONTEXT RESOLUTION
@@ -3421,7 +3482,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
         # the user can narrow without retyping.
         return _structured_error_response(
             code="ORCHESTRATOR_TIMEOUT",
-            message="AHVI needs a little more context to style this well. What kind of look should I build?",
+            message="I could not finish the style board in time. Try again and I will reuse this same request.",
             status_type="provider_timeout",
             details={
                 "timeout_seconds": _ORCH_TIMEOUT_SECONDS,
