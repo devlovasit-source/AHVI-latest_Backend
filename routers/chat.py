@@ -833,18 +833,33 @@ def _fetch_wardrobe_for_style(
     user_id: str, request_wardrobe: Any
 ) -> List[Dict[str, Any]]:
     if isinstance(request_wardrobe, list):
-        return [dict(i) for i in request_wardrobe if isinstance(i, dict)]
+        items = [dict(i) for i in request_wardrobe if isinstance(i, dict)]
+    else:
+        try:
+            docs = AppwriteProxy().list_documents("outfits", user_id=user_id, limit=100)
+            if isinstance(docs, dict):
+                rows = docs.get("documents") or docs.get("items") or []
+            else:
+                rows = docs or []
+            items = [dict(i) for i in rows if isinstance(i, dict)]
+        except Exception as exc:
+            logger.warning("style wardrobe fetch failed user_id=%s error=%s", user_id, exc)
+            items = []
 
+    # AHVI Metadata Validator enrichment — merge parsed style_metadata onto
+    # each outfit row when available. Failures must not break the style flow.
     try:
-        docs = AppwriteProxy().list_documents("outfits", user_id=user_id, limit=100)
-        if isinstance(docs, dict):
-            rows = docs.get("documents") or docs.get("items") or []
-        else:
-            rows = docs or []
-        return [dict(i) for i in rows if isinstance(i, dict)]
+        from services.agent_metadata_validator import (
+            fetch_style_metadata_docs_for_user,
+            merge_style_metadata_into_wardrobe_items,
+        )
+
+        meta_docs = fetch_style_metadata_docs_for_user(user_id)
+        if meta_docs:
+            items = merge_style_metadata_into_wardrobe_items(items, meta_docs)
     except Exception as exc:
-        logger.warning("style wardrobe fetch failed user_id=%s error=%s", user_id, exc)
-        return []
+        logger.debug("style wardrobe metadata merge failed user_id=%s err=%s", user_id, exc)
+    return items
 
 
 def _ahvi_style_occasion(query_text):

@@ -220,6 +220,16 @@ def _unknown_attribute_from_appwrite_error(body: Any) -> str:
     return match.group(1) if match else ""
 
 
+try:
+    from services.agent_metadata_validator import (
+        is_enabled as _agent_metadata_enabled,
+        validate_wardrobe_metadata_sync as _agent_validate_metadata_sync,
+    )
+except Exception:  # pragma: no cover - optional during partial deploys
+    _agent_metadata_enabled = lambda: False  # noqa: E731
+    _agent_validate_metadata_sync = None
+
+
 def _style_metadata_payload(
     *,
     item_id: str,
@@ -227,10 +237,42 @@ def _style_metadata_payload(
     item_payload: Dict[str, Any],
 ) -> Dict[str, Any]:
     style_meta = enrich_wardrobe_item(item_payload if isinstance(item_payload, dict) else {})
+
+    # AHVI Metadata Validator agent — merge agent-produced fields on top of
+    # the legacy enrichment when the env flag is enabled. Failures are
+    # absorbed by the agent layer itself (returns safe defaults).
+    try:
+        if _agent_validate_metadata_sync is not None and _agent_metadata_enabled():
+            agent_meta = _agent_validate_metadata_sync(
+                item=item_payload if isinstance(item_payload, dict) else {},
+                user_id=user_id,
+                vision_result=(item_payload or {}).get("vision_result")
+                if isinstance(item_payload, dict)
+                else None,
+                context={"source": "_style_metadata_payload"},
+            )
+            if isinstance(agent_meta, dict):
+                merged = dict(style_meta) if isinstance(style_meta, dict) else {}
+                # Agent fields are authoritative when present.
+                for key, value in agent_meta.items():
+                    if value in (None, "", [], {}):
+                        continue
+                    merged[key] = value
+                merged["agent_validated"] = True
+                merged["agent_confidence"] = float(agent_meta.get("confidence") or 0.0)
+                style_meta = merged
+    except Exception:
+        logging.getLogger("ahvi.wardrobe_persistence").warning(
+            "ahvi.metadata.merge_failed item=%s user=%s",
+            item_id,
+            user_id,
+            exc_info=True,
+        )
+
     return {
         "item_id": _safe_text(item_id),
         "userId": _safe_text(user_id),
-        "style_metadata": json.dumps(style_meta),
+        "style_metadata": json.dumps(style_meta, separators=(",", ":"), ensure_ascii=False),
     }
 
 

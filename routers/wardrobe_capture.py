@@ -1386,6 +1386,12 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         result.setdefault("normalized_item_count", len(normalized_items))
         result.setdefault("upload_fixed_count", upload_fixed)
         result.setdefault("skipped_invalid_count", skipped_invalid)
+        try:
+            from services.agent_metadata_validator import is_enabled as _md_on
+            if _md_on():
+                result.setdefault("metadata_validated", True)
+        except Exception:
+            pass
 
     try:
         import logging

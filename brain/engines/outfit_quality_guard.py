@@ -766,6 +766,39 @@ def guard_outfit(
 
     top, bottom, footwear, accessories = _extract_outfit_slots(outfit)
 
+    # ---- AHVI Metadata Validator: per-item style_metadata guard ----
+    occasion_for_meta = (intent or str(outfit.get("occasion") or query) or "").strip().lower()
+    if occasion_for_meta:
+        for slot_item in [top, bottom, footwear, *accessories]:
+            if not isinstance(slot_item, dict):
+                continue
+            meta = slot_item.get("style_metadata")
+            if not isinstance(meta, dict):
+                continue
+            blocked = [str(o).strip().lower() for o in (meta.get("blocked_occasions") or [])]
+            if blocked and any(o and o in occasion_for_meta for o in blocked):
+                reason = f"style_metadata.blocked_occasions matched {occasion_for_meta}"
+                logger.info("ahvi.metadata.guard_reject item=%s reason=%s", slot_item.get("$id"), reason)
+                return False, -100, [reason], fixed
+            formality = str(meta.get("formality") or "").strip().lower()
+            style_role = str(meta.get("style_role") or "").strip().lower()
+            professional = any(
+                o in occasion_for_meta
+                for o in ("office", "client", "meeting", "business", "interview", "boardroom")
+            )
+            formal = any(
+                o in occasion_for_meta
+                for o in ("wedding", "formal", "ceremony", "reception", "gala")
+            )
+            if professional and formality in {"homewear", "lounge", "loungewear", "sleepwear"}:
+                return False, -100, [f"style_metadata.formality={formality} blocked for professional"], fixed
+            if (professional or formal) and style_role in {"activewear", "gymwear", "athleisure"}:
+                return False, -100, [f"style_metadata.style_role={style_role} blocked for formal/professional"], fixed
+            confidence = float(meta.get("confidence") or 0.0)
+            if confidence and confidence < 0.4 and (professional or formal):
+                penalty -= 10
+                reasons.append("low-confidence style_metadata for high-stakes occasion")
+
     # ---- AHVI Style Orchestrator agent guard ----
     agent_payload = outfit.get("agent_orchestration") if isinstance(outfit, dict) else None
     if not isinstance(agent_payload, dict):
