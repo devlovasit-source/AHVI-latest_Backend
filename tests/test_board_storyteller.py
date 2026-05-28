@@ -1,0 +1,225 @@
+"""Tests for the AHVI Board Storyteller enrichment layer."""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List
+
+import pytest
+
+from brain.response.board_storyteller import board_storyteller, enrich_boards
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _board(idx: int, **extras: Any) -> Dict[str, Any]:
+    base = {"id": f"board_{idx}", "title": f"Look {idx + 1}", "items": []}
+    base.update(extras)
+    return base
+
+
+def _outfit(idx: int, **extras: Any) -> Dict[str, Any]:
+    base = {
+        "id": f"board_{idx}",
+        "score_meta": {"reasons": ["palette aligned"]},
+        "score_breakdown": {"palette": 1.2, "style_graph": 0.8},
+        "items": [],
+    }
+    base.update(extras)
+    return base
+
+
+# ---------------------------------------------------------------------------
+# Core schema guarantees
+# ---------------------------------------------------------------------------
+
+def test_story_object_exists_on_every_board():
+    boards = [_board(i) for i in range(3)]
+    outfits = [_outfit(i) for i in range(3)]
+    enriched = enrich_boards(boards, outfits, {"occasion": "office"})
+    for b in enriched:
+        assert isinstance(b.get("story"), dict)
+        story = b["story"]
+        for key in (
+            "headline",
+            "summary",
+            "why",
+            "personal_note",
+            "occasion_fit",
+            "tip",
+            "role",
+        ):
+            assert key in story
+
+
+def test_summary_is_short_one_sentence():
+    enriched = enrich_boards(
+        [_board(0)], [_outfit(0)], {"occasion": "office"}
+    )
+    summary = enriched[0]["story"]["summary"]
+    assert summary
+    assert len(summary) <= 140
+    # Single sentence — at most one terminal punct.
+    assert summary.count(".") + summary.count("!") + summary.count("?") <= 2
+
+
+def test_why_and_tip_not_empty():
+    enriched = enrich_boards(
+        [_board(0)], [_outfit(0)], {"occasion": "office"}
+    )
+    story = enriched[0]["story"]
+    assert story["why"]
+    assert story["tip"]
+
+
+def test_headline_is_short():
+    enriched = enrich_boards(
+        [_board(0)], [_outfit(0)], {"occasion": "client_meeting"}
+    )
+    headline = enriched[0]["story"]["headline"]
+    assert headline
+    assert len(headline.split()) <= 4
+
+
+def test_old_compat_fields_present():
+    enriched = enrich_boards(
+        [_board(0)], [_outfit(0)], {"occasion": "office"}
+    )
+    b = enriched[0]
+    assert b["why_it_works"] == b["story"]["why"]
+    assert b["explanation"] == b["story"]["summary"]
+    assert b["styling_tip"] == b["story"]["tip"]
+
+
+# ---------------------------------------------------------------------------
+# Role table
+# ---------------------------------------------------------------------------
+
+def test_role_table_office():
+    boards = [_board(i) for i in range(3)]
+    outfits = [_outfit(i) for i in range(3)]
+    enriched = enrich_boards(boards, outfits, {"occasion": "office"})
+    roles = [b["story"]["role"] for b in enriched]
+    assert roles[0] == "Safest polished option"
+    assert roles[1] == "More relaxed office option"
+    assert roles[2] == "Sharper authority option"
+
+
+def test_role_table_date():
+    boards = [_board(i) for i in range(3)]
+    outfits = [_outfit(i) for i in range(3)]
+    enriched = enrich_boards(boards, outfits, {"occasion": "date_night"})
+    roles = [b["story"]["role"] for b in enriched]
+    assert "effortless" in roles[0].lower()
+    assert "date-night" in roles[1].lower()
+    assert "evening" in roles[2].lower()
+
+
+def test_role_table_workout():
+    boards = [_board(i) for i in range(3)]
+    outfits = [_outfit(i) for i in range(3)]
+    enriched = enrich_boards(boards, outfits, {"occasion": "workout"})
+    roles = [b["story"]["role"] for b in enriched]
+    assert roles[0].startswith("Clean performance")
+    assert roles[1].startswith("Comfort-first")
+    assert roles[2].startswith("Outdoor-ready")
+
+
+def test_role_table_default_fallback_for_unknown_occasion():
+    boards = [_board(i) for i in range(3)]
+    outfits = [_outfit(i) for i in range(3)]
+    enriched = enrich_boards(boards, outfits, {"occasion": "house_party"})
+    roles = [b["story"]["role"] for b in enriched]
+    assert roles[0] == "Safest polished option"
+    assert roles[1] == "Softer alternate"
+    assert roles[2] == "Bolder style move"
+
+
+# ---------------------------------------------------------------------------
+# Tone differs by occasion
+# ---------------------------------------------------------------------------
+
+def test_office_summary_reads_professional():
+    enriched = enrich_boards(
+        [_board(0)], [_outfit(0)], {"occasion": "client_meeting"}
+    )
+    summary = enriched[0]["story"]["summary"].lower()
+    # Premium, composed register — no influencer hype.
+    assert "sharp" in summary or "composed" in summary or "ready" in summary
+    assert "!" not in summary
+
+
+def test_date_story_softer_register():
+    enriched = enrich_boards(
+        [_board(0)], [_outfit(0)], {"occasion": "date_night"}
+    )
+    summary = enriched[0]["story"]["summary"].lower()
+    assert "soft" in summary or "intentional" in summary or "easy" in summary
+
+
+def test_workout_story_practical():
+    enriched = enrich_boards(
+        [_board(0)], [_outfit(0)], {"occasion": "workout"}
+    )
+    summary = enriched[0]["story"]["summary"].lower()
+    assert "move" in summary or "performance" in summary or "built" in summary
+    tip = enriched[0]["story"]["tip"].lower()
+    assert tip
+
+
+# ---------------------------------------------------------------------------
+# Resilience
+# ---------------------------------------------------------------------------
+
+def test_missing_metadata_still_returns_story():
+    # Minimum-viable inputs: no score_meta, no breakdown, no occasion.
+    enriched = enrich_boards(
+        [{"id": "x"}], [{"id": "x"}], {}
+    )
+    assert enriched
+    story = enriched[0]["story"]
+    assert story["headline"]
+    assert story["summary"]
+    assert story["why"]
+    assert story["role"]
+
+
+def test_malformed_boards_do_not_crash():
+    enriched = enrich_boards(
+        [None, {"id": "ok"}, 42], [], {"occasion": "office"}
+    )
+    # First/last are passed through, middle gets enriched.
+    assert enriched[0] is None
+    assert isinstance(enriched[1], dict) and isinstance(enriched[1].get("story"), dict)
+    assert enriched[2] == 42
+
+
+def test_story_strings_polished_no_forbidden_starters():
+    enriched = enrich_boards(
+        [_board(0)], [_outfit(0)], {"occasion": "office"}
+    )
+    story = enriched[0]["story"]
+    for key in ("summary", "why", "personal_note", "occasion_fit", "tip"):
+        val = story.get(key, "")
+        assert not val.lower().startswith("sure!")
+        assert "here are some ideas" not in val.lower()
+
+
+def test_agent_orchestration_occasion_used_when_board_missing():
+    enriched = enrich_boards(
+        [_board(0)],
+        [_outfit(0)],
+        {"agent_orchestration": {"occasion": "client_meeting"}},
+    )
+    assert enriched[0]["story"]["role"] == "Safest polished option"
+
+
+def test_palette_direction_influences_fallback_tip():
+    enriched = enrich_boards(
+        [_board(0)],
+        [_outfit(0, score_meta={}, score_breakdown={})],
+        {"occasion": "house_party", "palette_direction": ["navy"]},
+    )
+    tip = enriched[0]["story"]["tip"].lower()
+    assert "navy" in tip or "palette" in tip or "accent" in tip

@@ -4,6 +4,7 @@ from typing import Dict, Any, List
 
 from brain.tone.tone_engine import tone_engine
 from brain.response_validator import polish_final_text, validate_final_text
+from brain.response.board_storyteller import board_storyteller
 from services.llm_service import (
     generate_outfit_explanation,
     generate_style_advice,
@@ -111,6 +112,18 @@ class ResponseAssembler:
         # CHIPS
         # -------------------------
         chips = self._safe_actions(context)
+
+        # Enrich every board with a compact, premium story object. Existing
+        # fields are preserved; legacy mirrors (why_it_works, explanation,
+        # styling_tip) are set for backward-compatible clients.
+        try:
+            boards = board_storyteller.enrich_boards(
+                boards=boards if isinstance(boards, list) else [],
+                outfits=outfits if isinstance(outfits, list) else [],
+                context=context,
+            )
+        except Exception as exc:
+            logger.warning("board_storyteller failed: %s", exc)
 
         return self._wrap_response(
             message, context, chips=chips, cards=boards, data={"outfits": outfits}
