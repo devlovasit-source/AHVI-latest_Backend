@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import uuid
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -23,7 +25,77 @@ logger = logging.getLogger("ahvi.contacts")
 
 def _is_owner(doc: Dict[str, Any], user_id: str) -> bool:
     owner = str(doc.get("userId") or doc.get("user_id") or "").strip()
-    return bool(owner and owner == user_id)
+    if owner:
+        return owner == user_id
+    doc_id = str(doc.get("$id") or doc.get("id") or "").strip()
+    return bool(doc_id and doc_id.startswith(_user_doc_prefix(user_id)))
+
+
+def _user_doc_prefix(user_id: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9]", "", str(user_id or ""))[:12]
+    return f"ct_{safe or 'user'}_"
+
+
+def _new_contact_doc_id(user_id: str) -> str:
+    return f"{_user_doc_prefix(user_id)}{uuid.uuid4().hex[:12]}"
+
+
+def _extract_unknown_attribute(exc: Exception) -> Optional[str]:
+    match = re.search(r'Unknown attribute:\s*\\"([^"]+)\\"', str(exc))
+    if match:
+        return match.group(1)
+    match = re.search(r'Unknown attribute:\s*"([^"]+)"', str(exc))
+    return match.group(1) if match else None
+
+
+def _extract_missing_attribute(exc: Exception) -> Optional[str]:
+    match = re.search(r'Missing required attribute:\s*\\"([^"]+)\\"', str(exc))
+    if match:
+        return match.group(1)
+    match = re.search(r'Missing required attribute:\s*"([^"]+)"', str(exc))
+    return match.group(1) if match else None
+
+
+def _placeholder_email(payload: Dict[str, Any]) -> str:
+    phone = re.sub(r"[^0-9A-Za-z]", "", str(payload.get("phoneNumber") or payload.get("phoneno") or "contact"))
+    return f"{phone or 'contact'}@ahvi.local"
+
+
+def _create_contact_schema_adaptive(proxy: AppwriteProxy, payload: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+    """Create contacts against either current AHVI schema or older dev schema."""
+    data = dict(payload)
+    document_id = _new_contact_doc_id(user_id)
+    for _ in range(12):
+        try:
+            return proxy.create_document("contacts", data, document_id=document_id)
+        except AppwriteProxyError as exc:
+            unknown = _extract_unknown_attribute(exc)
+            if unknown and unknown in data:
+                logger.info("contacts_schema_strip_unknown user_id=%s attr=%s", user_id, unknown)
+                data.pop(unknown, None)
+                continue
+            missing = _extract_missing_attribute(exc)
+            if missing == "email" and not data.get("email"):
+                logger.info("contacts_schema_add_placeholder_email user_id=%s", user_id)
+                data["email"] = _placeholder_email(data)
+                continue
+            raise
+    raise AppwriteProxyError(502, "Could not adapt contact payload to Appwrite schema")
+
+
+def _update_contact_schema_adaptive(proxy: AppwriteProxy, contact_id: str, payload: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+    data = dict(payload)
+    for _ in range(12):
+        try:
+            return proxy.update_document("contacts", contact_id, data)
+        except AppwriteProxyError as exc:
+            unknown = _extract_unknown_attribute(exc)
+            if unknown and unknown in data:
+                logger.info("contacts_update_schema_strip_unknown user_id=%s attr=%s", user_id, unknown)
+                data.pop(unknown, None)
+                continue
+            raise
+    raise AppwriteProxyError(502, "Could not adapt contact update to Appwrite schema")
 
 
 def _error_response(status_code: int, code: str, message: str) -> JSONResponse:
@@ -41,19 +113,24 @@ def _proxy_error(exc: AppwriteProxyError) -> HTTPException:
 
 
 def _validate_contact_payload(payload: Dict[str, Any]) -> Optional[JSONResponse]:
-    if not str(payload.get("firstname") or "").strip():
+    if not str(payload.get("firstName") or payload.get("firstname") or "").strip():
         return _error_response(
             status.HTTP_400_BAD_REQUEST,
             "CONTACT_NAME_REQUIRED",
             "Contact name is required.",
         )
-    if not str(payload.get("phoneno") or "").strip():
+    if not str(payload.get("phoneNumber") or payload.get("phoneno") or "").strip():
         return _error_response(
             status.HTTP_400_BAD_REQUEST,
             "CONTACT_PHONE_REQUIRED",
             "Contact phone number is required.",
         )
-    payload["phoneno"] = str(payload.get("phoneno") or "").strip()
+    payload["phoneNumber"] = str(payload.get("phoneNumber") or payload.get("phoneno") or "").strip()
+    payload.pop("phoneno", None)
+    if not str(payload.get("lastName") or "").strip():
+        payload["lastName"] = "-"
+    if not str(payload.get("email") or "").strip():
+        payload["email"] = _placeholder_email(payload)
     return None
 
 
@@ -131,7 +208,7 @@ def create_contact(request: Request, contact: AhviContactCreate) -> Dict[str, An
     if validation is not None:
         return validation
     try:
-        created = AppwriteProxy().create_document("contacts", payload)
+        created = _create_contact_schema_adaptive(AppwriteProxy(), payload, user_id)
     except AppwriteProxyError as exc:
         logger.exception("contacts_create_error contacts.create.error user_id=%s error=%s", user_id, exc)
         return _error_response(
@@ -163,10 +240,11 @@ def update_contact(
         return {"success": True, "contact": contact_from_appwrite(doc)}
     payload = contact_to_appwrite(data, user_id)
     payload.pop("userId", None)
-    if "phoneno" in payload:
-        payload["phoneno"] = str(payload.get("phoneno") or "").strip()
+    if "phoneNumber" in payload:
+        payload["phoneNumber"] = str(payload.get("phoneNumber") or "").strip()
+    payload.pop("phoneno", None)
     try:
-        updated = proxy.update_document("contacts", contact_id, payload)
+        updated = _update_contact_schema_adaptive(proxy, contact_id, payload, user_id)
     except AppwriteProxyError as exc:
         logger.exception("contacts_update_error user_id=%s contact_id=%s error=%s", user_id, contact_id, exc)
         return _error_response(

@@ -16,9 +16,9 @@ def test_contact_mapper_accepts_legacy_name_phone_payload():
     )
 
     assert payload["userId"] == "user_1"
-    assert payload["firstname"] == "Ravi"
-    assert payload["surname"] == "Kumar"
-    assert payload["phoneno"] == "6305685757"
+    assert payload["firstName"] == "Ravi"
+    assert payload["lastName"] == "Kumar"
+    assert payload["phoneNumber"] == "6305685757"
     assert payload["isFavorite"] is True
 
 
@@ -33,7 +33,6 @@ def test_contact_mapper_preserves_current_contact_fields():
         "user_1",
     )
 
-    assert payload["firstname"] == "Meera"
-    assert payload["surname"] == "Rao"
-    assert payload["phoneno"] == "9876543210"
-    assert payload["displayName"] == "Meera Rao"
+    assert payload["firstName"] == "Meera"
+    assert payload["lastName"] == "Rao"
+    assert payload["phoneNumber"] == "9876543210"

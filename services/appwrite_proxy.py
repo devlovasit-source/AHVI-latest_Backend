@@ -97,8 +97,17 @@ class AppwriteProxy:
                 or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_SKINCARE_LOGS", "")
                 or "skincare_logs"
             ),
-            "contacts": os.getenv("APPWRITE_COLLECTION_CONTACTS", "")
-            or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CONTACTS", ""),
+            "contacts": (
+                os.getenv("APPWRITE_CONTACTS_COLLECTION_ID", "")
+                or os.getenv("EXPO_PUBLIC_APPWRITE_CONTACTS_COLLECTION_ID", "")
+                or (
+                    os.getenv("APPWRITE_COLLECTION_CONTACTS", "")
+                    if os.getenv("APPWRITE_COLLECTION_CONTACTS", "") not in {"users", "user"}
+                    else ""
+                )
+                or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CONTACTS", "")
+                or "contacts"
+            ),
             "workout_outfits": os.getenv("APPWRITE_COLLECTION_WORKOUT_OUTFITS", "")
             or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_WORKOUT_OUTFITS", ""),
             "bills": os.getenv("APPWRITE_COLLECTION_BILLS", "")

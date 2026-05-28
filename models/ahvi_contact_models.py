@@ -10,6 +10,7 @@ class AhviContactCreate(BaseModel):
     firstName: Optional[str] = Field(default=None, min_length=1, max_length=80)
     lastName: Optional[str] = Field(default=None, max_length=80)
     phoneNumber: Optional[str] = Field(default=None, min_length=3, max_length=40)
+    email: Optional[str] = Field(default=None, max_length=160)
     displayName: Optional[str] = Field(default=None, max_length=160)
     relationship: Optional[str] = Field(default=None, max_length=80)
     notes: Optional[str] = Field(default=None, max_length=1000)
@@ -26,6 +27,7 @@ class AhviContactUpdate(BaseModel):
     firstName: Optional[str] = Field(default=None, min_length=1, max_length=80)
     lastName: Optional[str] = Field(default=None, max_length=80)
     phoneNumber: Optional[str] = Field(default=None, min_length=3, max_length=40)
+    email: Optional[str] = Field(default=None, max_length=160)
     displayName: Optional[str] = Field(default=None, max_length=160)
     relationship: Optional[str] = Field(default=None, max_length=80)
     notes: Optional[str] = Field(default=None, max_length=1000)
@@ -71,10 +73,10 @@ def contact_to_appwrite(data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
 
     payload: Dict[str, Any] = {"userId": user_id}
     mapping = {
-        "firstName": "firstname",
-        "lastName": "surname",
-        "phoneNumber": "phoneno",
-        "displayName": "displayName",
+        "firstName": "firstName",
+        "lastName": "lastName",
+        "phoneNumber": "phoneNumber",
+        "email": "email",
         "relationship": "relationship",
         "notes": "notes",
         "isFavorite": "isFavorite",
@@ -92,9 +94,6 @@ def contact_to_appwrite(data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
             payload[appwrite_key] = value
     if "tags" in normalized:
         payload["tags"] = _clean_tags(normalized.get("tags"))
-    if not payload.get("displayName"):
-        parts = [payload.get("firstname"), payload.get("surname")]
-        payload["displayName"] = " ".join(str(p).strip() for p in parts if p).strip()
     return payload
 
 
@@ -107,7 +106,8 @@ def contact_from_appwrite(doc: Dict[str, Any]) -> Dict[str, Any]:
         "userId": doc.get("userId") or doc.get("user_id"),
         "firstName": first,
         "lastName": last,
-        "phoneNumber": doc.get("phoneno") or doc.get("phoneNumber") or "",
+        "phoneNumber": doc.get("phoneNumber") or doc.get("phoneno") or "",
+        "email": doc.get("email") or "",
         "displayName": display or first,
         "relationship": doc.get("relationship") or "",
         "notes": doc.get("notes") or "",

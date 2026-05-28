@@ -3360,6 +3360,34 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 user_id, english_input, interpreted_occasion,
             )
             return _style_clarification_response(english_input, style_interpretation)
+        if visual_context or interpreted_occasion:
+            logger.info(
+                "style.fast_board_route user_id=%s prompt=%r interpreted_occasion=%s",
+                user_id,
+                english_input,
+                interpreted_occasion,
+            )
+            style_payload = _demo_style_board_payload(
+                user_id,
+                english_input,
+                request.wardrobe,
+                effective_user_profile,
+                style_action=style_action,
+                show_closest_option=closest_requested,
+                allow_closest_option=closest_requested,
+                closest=closest_requested,
+            )
+            if style_payload.get("cards"):
+                style_payload["success"] = True
+                style_payload["style_boards"] = style_payload.get("cards") or []
+                style_payload.setdefault("chips", _ahvi_style_action_chips())
+                style_payload.setdefault("data", {})
+                style_payload["meta"] = {
+                    **(style_payload.get("meta") or {}),
+                    "fast_style_route": True,
+                    "interpreted_occasion": interpreted_occasion,
+                }
+                return style_payload
 
     # -------------------------
     # GENERAL CHAT / LLM ROUTE
