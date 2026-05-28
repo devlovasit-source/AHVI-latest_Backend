@@ -3,11 +3,16 @@ import os
 from typing import Dict, Any, List
 
 from brain.tone.tone_engine import tone_engine
+from brain.response_validator import polish_final_text, validate_final_text
 from services.llm_service import (
     generate_outfit_explanation,
     generate_style_advice,
     generate_followup_suggestions,
 )
+
+import re as _re
+_RA_SENTENCE_SPLIT = _re.compile(r"(?<=[.!?…])\s+(?=[A-Z\"'(\[])")
+_RA_TERMINAL = _re.compile(r"[.!?…]['\")\]]?$")
 from brain.intelligence.bank_snippets import (
     color_harmony_snippet,
     weather_overlay_snippet,
@@ -88,7 +93,7 @@ class ResponseAssembler:
                 self._proactive_prefix(signals),
                 self._reaction(outfits[0]),
                 base_text,
-                self._closer(),
+                self._closer(context),
             ]
         )
 
@@ -96,6 +101,10 @@ class ResponseAssembler:
             message,
             user_profile=user_profile,
             signals=signals,
+        )
+        message = polish_final_text(
+            message,
+            fallback="I can make this cleaner and more specific.",
         )
 
         # -------------------------
@@ -131,12 +140,16 @@ class ResponseAssembler:
             except Exception as e:
                 logger.warning("LLM multi-domain failed: %s", e)
 
-        message = self._compose([self._reaction(), base_text, self._closer()])
+        message = self._compose([self._reaction(), base_text, self._closer(context)])
 
         message = tone_engine.apply(
             message,
             user_profile=user_profile,
             signals=signals,
+        )
+        message = polish_final_text(
+            message,
+            fallback="I can make this cleaner and more specific.",
         )
 
         return self._wrap_response(
@@ -155,8 +168,9 @@ class ResponseAssembler:
         data: Dict[str, Any] = None,
     ) -> dict:
 
+        content = polish_final_text(text, fallback="I can help refine this.")
         return {
-            "message": {"role": "assistant", "content": text.strip()},
+            "message": {"role": "assistant", "content": content},
             "chips": chips or [],
             "cards": cards or [],
             "data": data or {},
@@ -164,17 +178,49 @@ class ResponseAssembler:
         }
 
     # =========================
-    # 🧠 TEXT COMPOSER (LIMIT RESTORED)
+    # 🧠 TEXT COMPOSER
     # =========================
     def _compose(self, parts: List[str]) -> str:
         parts = [p for p in parts if p]
-        text = " ".join(parts)
+        text = " ".join(parts).strip()
+        return self._compact_response(text, max_sentences=4, preserve_closer=True)
 
-        sentences = text.split(". ")
-        if len(sentences) > 4:
-            text = ". ".join(sentences[:4])
+    def _compact_response(
+        self,
+        text: str,
+        max_sentences: int = 4,
+        preserve_closer: bool = True,
+    ) -> str:
+        """Compact a multi-sentence response without cutting mid-sentence.
 
-        return text.strip()
+        - Splits on real sentence boundaries (not naive ". " split).
+        - Drops sentences past the cap from the middle, never the closer.
+        - Refuses to emit a final sentence ending in a hanging connector.
+        """
+        if not text:
+            return text
+        sentences = [s.strip() for s in _RA_SENTENCE_SPLIT.split(text) if s.strip()]
+        # Treat a tail without terminal punctuation as still-incomplete; drop it.
+        if sentences and not _RA_TERMINAL.search(sentences[-1]):
+            tail_word = sentences[-1].split()[-1].lower().strip(".,;:!?'\"()[]")
+            if tail_word in {
+                "and", "or", "but", "because", "with", "for", "to",
+                "like", "while", "so", "of", "in", "on", "as", "if",
+            }:
+                sentences = sentences[:-1]
+        if len(sentences) <= max_sentences:
+            result = " ".join(sentences).strip()
+        else:
+            keep = sentences[: max_sentences - 1] if preserve_closer else sentences[:max_sentences]
+            closer = sentences[-1] if preserve_closer else ""
+            if closer and closer not in keep:
+                keep.append(closer)
+            result = " ".join(keep).strip()
+        try:
+            logger.debug("ahvi.response.assembler.compacted sentences=%d", len(sentences))
+        except Exception:
+            pass
+        return result
 
     # =========================
     # 🧠 VISUAL INTELLIGENCE
@@ -326,8 +372,23 @@ class ResponseAssembler:
         # Remove generic tone; let the intelligence-backed explanation carry the voice.
         return ""
 
-    def _closer(self):
-        return "Want a sharper or more relaxed version?"
+    def _closer(self, context: dict | None = None) -> str:
+        """Context-aware closer; never repeats the chatbot-style fallback."""
+        ctx = context or {}
+        signals = ctx.get("signals", {}) if isinstance(ctx.get("signals"), dict) else {}
+        emotion = str(signals.get("emotion_state") or "").lower()
+        context_mode = str(signals.get("context_mode") or "").lower()
+        domain = str(ctx.get("domain") or ctx.get("intent") or "").lower()
+
+        if emotion == "vulnerable":
+            return "We can simplify it from here."
+        if context_mode == "professional" or "client" in domain or "office" in domain:
+            return "I’d keep it polished unless you want it more relaxed."
+        if context_mode == "styling" or domain in {"styling", "outfit"}:
+            return "I can make it sharper or soften it."
+        if not domain and not context_mode:
+            return "Give me the occasion and I’ll narrow it cleanly."
+        return "I can make it sharper or soften it."
 
     def _fallback(self, data: dict) -> str:
         if not data:

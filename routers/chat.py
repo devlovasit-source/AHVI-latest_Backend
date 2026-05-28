@@ -109,16 +109,37 @@ _WEATHER_CACHE = _TTLLRUCache(_WEATHER_CACHE_MAX_ITEMS, _WEATHER_CACHE_TTL_SECON
 _STYLE_CONTEXT_CACHE = _TTLLRUCache(512, 15 * 60)
 
 
-def lightweight_chat(text: str) -> str:
+def lightweight_chat(text: str, *, user_profile: dict | None = None) -> str:
+    """Lightweight fallback responses MUST pass through tone + polish so the
+    premium AHVI voice is not bypassed by hardcoded copy."""
     prompt = str(text or "").strip()
     lower = prompt.lower()
     if not prompt:
-        return "Hey, what is on your mind today?"
-    if "joke" in lower:
-        return "Here is a tiny one: Why did the shirt get promoted? Because it had outstanding style."
-    if "how are you" in lower or lower in {"hi", "hello", "hey"}:
-        return "I am here and ready. Ask me for an outfit, a capsule wardrobe, or just talk to me."
-    return "I can help with style, planning, and wardrobe advice. Tell me what you want to solve."
+        raw = "What is on your mind today?"
+    elif "joke" in lower:
+        raw = "A small one: the shirt got promoted because it had outstanding style."
+    elif "how are you" in lower or lower in {"hi", "hello", "hey"}:
+        raw = "I’m here. Ask me for an outfit, a capsule, or talk it through."
+    else:
+        raw = "I can help with style, planning, and wardrobe. Tell me what you want to solve."
+
+    try:
+        from brain.tone.tone_engine import tone_engine as _tone
+        from brain.response_validator import polish_final_text as _polish
+
+        toned = _tone.apply(
+            raw,
+            user_profile=user_profile or {},
+            signals={"context_mode": "professional", "emotion_state": "neutral"},
+        )
+        polished = _polish(toned, fallback=raw)
+        try:
+            logger.info("ahvi.response.router_bypass_prevented path=lightweight_chat")
+        except Exception:
+            pass
+        return polished
+    except Exception:
+        return raw
 
 
 def _wardrobe_hash(wardrobe: Any) -> str:

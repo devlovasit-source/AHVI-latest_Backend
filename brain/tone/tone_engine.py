@@ -1,5 +1,24 @@
-﻿import os
+﻿import logging
+import os
+import re
 import json
+
+_logger = logging.getLogger("ahvi.tone_engine")
+
+
+# Forbidden phrases that need a softened replacement rather than removal.
+_FORBIDDEN_SOFTEN_MAP = {
+    "here are some ideas": "A cleaner direction would be",
+    "great choice!": "That works.",
+    "great choice": "That works.",
+    "this eats": "This feels strong.",
+    "you ate that": "This feels confident.",
+    "would you like me to": "I can",
+    "not gonna lie": "Honestly,",
+    "okay wait": "",
+    "sure!": "",
+    "absolutely!": "",
+}
 
 
 class ToneEngine:
@@ -173,17 +192,19 @@ class ToneEngine:
         if not prefs:
             return text
 
-        # Keep preference application deterministic and low-noise.
+        # Targeted preference replacements only — avoid global word swaps that
+        # produce awkward grammar (e.g. replacing every "good" → "strong").
         if prefs.get("energy") == "bold" and int(limits.get("humor", 0)) >= 15:
-            text = text.replace("nice", "strong")
-            text = text.replace("good", "strong")
+            text = text.replace("This is good.", "This feels strong.")
+            text = text.replace("This looks good.", "This feels intentional.")
+            text = text.replace("This is nice.", "This feels strong.")
         elif prefs.get("energy") == "soft":
-            text = text.replace("strong", "easy")
+            text = text.replace("This feels strong.", "This feels easy.")
 
         if prefs.get("style") == "minimal":
             text = text.replace("Try adding", "You could add")
         elif prefs.get("style") == "expressive" and int(limits.get("slang", 0)) >= 30:
-            text = text.replace("clean", "clean with character")
+            text = text.replace("clean finish", "clean finish with character")
 
         return text
 
@@ -241,7 +262,7 @@ class ToneEngine:
             and allow_expressive
             and generation == "gen_z"
         ):
-            text += " This lands with confident street energy."
+            text += " The silhouette carries a sharper street influence."
 
         if (
             aesthetic.get("vibe") == "minimal"
@@ -261,12 +282,18 @@ class ToneEngine:
         text = text.replace("!!", "!")
         text = text.replace("  ", " ").strip()
         text = self._remove_disallowed_slang(text)
+        text = self._remove_forbidden_phrases(text)
 
         if emotion_rules.get("sentence_style") == "soft":
             text = text.replace("!", ".")
 
         if int(limits.get("slang", 0) or 0) <= 0:
             text = self._remove_slang(text)
+
+        # Enforce emoji cap deterministically. Premium contexts (styling,
+        # shopping, professional) ship with emoji_cap=0 and must not emit any.
+        emoji_cap = int(limits.get("emoji", 0) or 0)
+        text = self._enforce_emoji_cap(text, max_emojis=max(0, emoji_cap))
 
         max_exc = int(
             self.config.get("global_output_constraints", {})
@@ -287,6 +314,42 @@ class ToneEngine:
             text = text.replace(s, "")
         return text.strip()
 
+    def _remove_forbidden_phrases(self, text: str) -> str:
+        """Strip or soften forbidden generic-assistant/influencer phrases.
+
+        Phrases live in the tone config under `forbidden_phrases`. Matching is
+        case-insensitive; some phrases have explicit softer replacements
+        (see _FORBIDDEN_SOFTEN_MAP), others are removed entirely.
+        """
+        if not text:
+            return text
+        forbidden = self.config.get("forbidden_phrases") or []
+        if not isinstance(forbidden, list):
+            return text
+        out = text
+        removed_any = False
+        for raw in forbidden:
+            phrase = str(raw or "").strip()
+            if not phrase:
+                continue
+            soften = _FORBIDDEN_SOFTEN_MAP.get(phrase.lower(), "")
+            pattern = re.compile(re.escape(phrase), re.IGNORECASE)
+            if pattern.search(out):
+                out = pattern.sub(soften, out)
+                removed_any = True
+        if removed_any:
+            try:
+                _logger.info(
+                    "ahvi.tone.forbidden_phrase_removed count=%d",
+                    sum(1 for p in forbidden if str(p)),
+                )
+            except Exception:
+                pass
+        # Cleanup orphaned punctuation/whitespace left by removals.
+        out = re.sub(r"\s{2,}", " ", out)
+        out = re.sub(r"\s+([,.;:!?])", r"\1", out)
+        return out.strip()
+
     def _remove_disallowed_slang(self, text: str) -> str:
         disallowed = (
             self.config.get("slang_libraries", {})
@@ -297,6 +360,35 @@ class ToneEngine:
         for token in disallowed:
             out = out.replace(token, "")
         return " ".join(out.split())
+
+    _EMOJI_RE = re.compile(
+        "["
+        "\U0001F300-\U0001FAFF"  # symbols & pictographs, supplementals
+        "\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F680-\U0001F6FF"  # transport
+        "\U00002600-\U000027BF"  # misc symbols + dingbats
+        "\U0001F900-\U0001F9FF"  # supplemental symbols
+        "\U0001FA70-\U0001FAFF"  # extended-A
+        "]",
+        flags=re.UNICODE,
+    )
+
+    def _enforce_emoji_cap(self, text: str, max_emojis: int = 0) -> str:
+        if not text:
+            return text
+        if max_emojis <= 0:
+            cleaned = self._EMOJI_RE.sub("", text)
+            return re.sub(r"\s{2,}", " ", cleaned).strip()
+        count = 0
+        out_chars = []
+        for ch in text:
+            if self._EMOJI_RE.match(ch):
+                if count < max_emojis:
+                    out_chars.append(ch)
+                    count += 1
+                continue
+            out_chars.append(ch)
+        return re.sub(r"\s{2,}", " ", "".join(out_chars)).strip()
 
     def _enforce_max_exclamations(self, text: str, max_exc: int = 1) -> str:
         if max_exc < 0:
@@ -341,14 +433,15 @@ class ToneEngine:
             int(context_rules.get("emoji_cap", 100) or 0),
         )
 
-        if "slang_cap" in emotion_rules:
-            slang = min(slang, int(emotion_rules.get("slang_cap", slang) or slang))
-        if "humor_cap" in emotion_rules:
-            humor = min(humor, int(emotion_rules.get("humor_cap", humor) or humor))
-        if "sass_cap" in emotion_rules:
-            sass = min(sass, int(emotion_rules.get("sass_cap", sass) or sass))
-        if "emoji_cap" in emotion_rules:
-            emoji = min(emoji, int(emotion_rules.get("emoji_cap", emoji) or emoji))
+        # Use explicit None checks so a `0` cap is not treated as "absent".
+        if emotion_rules.get("slang_cap") is not None:
+            slang = min(slang, int(emotion_rules.get("slang_cap") or 0))
+        if emotion_rules.get("humor_cap") is not None:
+            humor = min(humor, int(emotion_rules.get("humor_cap") or 0))
+        if emotion_rules.get("sass_cap") is not None:
+            sass = min(sass, int(emotion_rules.get("sass_cap") or 0))
+        if emotion_rules.get("emoji_cap") is not None:
+            emoji = min(emoji, int(emotion_rules.get("emoji_cap") or 0))
 
         slang += int(emotion_rules.get("slang_boost", 0) or 0)
         humor += int(emotion_rules.get("humor_boost", 0) or 0)

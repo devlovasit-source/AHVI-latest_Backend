@@ -43,20 +43,36 @@ class ArchetypeEngine:
 
             total = sum(v for _, v in sorted_arcs) or 1.0
 
-            return [
+            blended = [
                 {"type": arc, "weight": round(score / total, 3)}
                 for arc, score in sorted_arcs
                 if arc in self.config
             ]
 
+            if blended:
+                return blended
+
         # -------------------------
-        # 🔥 CONTEXT FALLBACK (SMART)
+        # 🔥 CONTEXT FALLBACK (PREMIUM-WEIGHTED BLENDS)
         # -------------------------
         if domain == "styling":
-            return [{"type": "stylist", "weight": 1.0}]
+            return [
+                {"type": "stylist", "weight": 0.7},
+                {"type": "advisor", "weight": 0.3},
+            ]
 
-        if domain in ["lifestyle", "chat"]:
-            return [{"type": "best_friend", "weight": 1.0}]
+        if domain == "chat":
+            return [
+                {"type": "advisor", "weight": 0.75},
+                {"type": "stylist", "weight": 0.25},
+            ]
+
+        if domain == "lifestyle":
+            return [
+                {"type": "advisor", "weight": 0.7},
+                {"type": "stylist", "weight": 0.2},
+                {"type": "best_friend", "weight": 0.1},
+            ]
 
         return [{"type": "advisor", "weight": 1.0}]
 

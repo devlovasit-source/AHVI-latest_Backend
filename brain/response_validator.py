@@ -1,13 +1,49 @@
 import re
+import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 _CODE_FENCE_RE = re.compile(r"```(?:json|python|text)?|```", re.IGNORECASE)
 _TAG_RE = re.compile(r"<[^>]+>")
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 _MULTISPACE_RE = re.compile(r"[ \t]{2,}")
 
+_TERMINAL_PUNCT_RE = re.compile(r"[.!?…]['\")\]]?$")
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…])\s+(?=[A-Z\"'(\[])")
+_HANGING_ENDINGS = {
+    "and", "or", "but", "because", "with", "for", "to", "like", "while",
+    "so", "of", "in", "on", "as", "if", "than", "then",
+}
+
+_FORBIDDEN_STARTERS = (
+    "Sure!",
+    "Absolutely!",
+    "Great choice!",
+    "Here are some ideas",
+    "Okay wait",
+    "Not gonna lie",
+    "Would you like me to",
+    "You ate that",
+    "This eats",
+)
+
 logger = logging.getLogger("ahvi.response_validator")
+
+
+def truncate_preserving_sentence(text: str, max_chars: int = 2000) -> str:
+    """Truncate `text` to <= max_chars without cutting mid-sentence/word."""
+    if not text or len(text) <= max_chars:
+        return text
+    window = text[:max_chars]
+    # Prefer the last terminal punctuation inside the window.
+    last_terminal = max(window.rfind("."), window.rfind("!"), window.rfind("?"), window.rfind("…"))
+    if last_terminal >= int(max_chars * 0.5):
+        return window[: last_terminal + 1].rstrip()
+    # Fall back to last whitespace so we never cut mid-word.
+    last_space = window.rfind(" ")
+    if last_space >= int(max_chars * 0.4):
+        return window[:last_space].rstrip() + "…"
+    return window.rstrip() + "…"
 
 
 def to_plain_text(value: Any, *, fallback: str = "I can help with that.") -> str:
@@ -24,9 +60,135 @@ def to_plain_text(value: Any, *, fallback: str = "I can help with that.") -> str
     text = text.strip()
     if not text:
         return fallback
-    if len(text) > 2000:
-        text = text[:2000].rstrip() + "..."
+    text = truncate_preserving_sentence(text, max_chars=2000)
     return text
+
+
+def _balanced(text: str, open_ch: str, close_ch: str) -> bool:
+    return text.count(open_ch) == text.count(close_ch)
+
+
+def _looks_like_json(text: str) -> bool:
+    stripped = text.strip()
+    return bool(stripped) and stripped[0] in "{[" and stripped[-1] in "}]"
+
+
+def looks_truncated(text: str) -> bool:
+    """Heuristic check: does this look cut off mid-thought?"""
+    if not isinstance(text, str):
+        return True
+    stripped = text.strip()
+    if len(stripped) < 8:
+        return True
+
+    # Trailing connector punctuation.
+    if stripped[-1] in {",", ":", ";", "-", "–", "—"}:
+        return True
+
+    # Hanging connector words.
+    last_word = re.split(r"\s+", stripped)[-1].strip(".,;:!?'\"()[]").lower()
+    if last_word in _HANGING_ENDINGS:
+        return True
+
+    # Unclosed code fence.
+    if stripped.count("```") % 2 == 1:
+        return True
+
+    # Unbalanced brackets / quotes.
+    for op, cl in (("(", ")"), ("[", "]"), ("{", "}")):
+        if not _balanced(stripped, op, cl):
+            return True
+    if stripped.count('"') % 2 == 1:
+        return True
+
+    # Bullet line ending abruptly.
+    lines = [ln.rstrip() for ln in stripped.split("\n") if ln.strip()]
+    if lines:
+        last_line = lines[-1]
+        if last_line.startswith(("- ", "* ", "• ")) and not _TERMINAL_PUNCT_RE.search(last_line):
+            last_word2 = re.split(r"\s+", last_line)[-1].strip(".,;:!?'\"()[]").lower()
+            if last_word2 in _HANGING_ENDINGS or len(last_line) < 12:
+                return True
+
+    # JSON-looking output that does not actually parse.
+    if _looks_like_json(stripped):
+        try:
+            json.loads(stripped)
+            return False
+        except Exception:
+            return True
+
+    # Missing terminal punctuation for normal prose.
+    if not _TERMINAL_PUNCT_RE.search(stripped):
+        return True
+
+    return False
+
+
+def validate_final_text(
+    text: str,
+    *,
+    fallback: str = "I can make this cleaner and more specific.",
+) -> Dict[str, Any]:
+    issues: List[str] = []
+    raw = str(text or "")
+    polished = to_plain_text(raw, fallback=fallback)
+
+    truncated = looks_truncated(polished)
+    if truncated:
+        issues.append("looks_truncated")
+
+    if not polished or polished == fallback:
+        issues.append("empty_or_fallback")
+
+    return {
+        "text": polished,
+        "is_valid": not issues,
+        "looks_truncated": truncated,
+        "issues": issues,
+    }
+
+
+def polish_final_text(
+    text: str,
+    *,
+    fallback: str = "I can make this cleaner and more specific.",
+) -> str:
+    """Final text gate: strip forbidden starters, repair truncation, fall
+    back when nothing salvageable remains."""
+    cleaned = to_plain_text(text, fallback=fallback)
+    for starter in _FORBIDDEN_STARTERS:
+        # Case-insensitive match anchored at start, allowing optional space.
+        pat = re.compile(r"^\s*" + re.escape(starter) + r"\s*[,.!?:-]*\s*", re.IGNORECASE)
+        if pat.search(cleaned):
+            cleaned = pat.sub("", cleaned, count=1).strip()
+            try:
+                logger.info("ahvi.response.polished removed_starter=%r", starter)
+            except Exception:
+                pass
+
+    if not cleaned or len(cleaned) < 3:
+        return fallback
+
+    if looks_truncated(cleaned):
+        # Trim to the last complete sentence.
+        sentences = _SENTENCE_SPLIT_RE.split(cleaned)
+        complete = [s for s in sentences if _TERMINAL_PUNCT_RE.search(s.strip())]
+        if complete:
+            trimmed = " ".join(s.strip() for s in complete).strip()
+            try:
+                logger.info("ahvi.response.truncated_detected action=trimmed")
+            except Exception:
+                pass
+            if trimmed and not looks_truncated(trimmed):
+                return trimmed
+        try:
+            logger.warning("ahvi.response.truncated_detected action=fallback")
+        except Exception:
+            pass
+        return fallback
+
+    return cleaned
 
 
 def _as_str_list(value: Any) -> list[str]:

@@ -18,6 +18,10 @@ except (
     types = None
 
 from brain.tone.tone_engine import tone_engine
+from brain.response_validator import (
+    polish_final_text,
+    validate_final_text,
+)
 from prompts.core_prompts import AHVI_SYSTEM_PROMPT
 
 logger = logging.getLogger("ahvi.llm_service")
@@ -68,6 +72,53 @@ def _env_float(name: str, default: float) -> float:
 DEFAULT_NUM_CTX = _env_int("OLLAMA_NUM_CTX", 4096)
 DEFAULT_NUM_PREDICT = _env_int("OLLAMA_NUM_PREDICT", 512)
 DEFAULT_TEMPERATURE = _env_float("OLLAMA_TEMPERATURE", 0.2)
+
+
+# =========================
+# RESPONSE TOKEN BUDGETS — keep AHVI output complete by default.
+# Env-overridable per response type.
+# =========================
+TOKEN_BUDGETS = {
+    "quick_chat": _env_int("AHVI_LLM_TOKENS_QUICK_CHAT", 500),
+    "style_advice": _env_int("AHVI_LLM_TOKENS_STYLE_ADVICE", 900),
+    "outfit_explanation": _env_int("AHVI_LLM_TOKENS_OUTFIT_EXPLANATION", 1200),
+    "board_explanation": _env_int("AHVI_LLM_TOKENS_BOARD_EXPLANATION", 1400),
+    "clarification": _env_int("AHVI_LLM_TOKENS_CLARIFICATION", 350),
+}
+RETRY_ON_TRUNCATION = _env_int("AHVI_LLM_RETRY_ON_TRUNCATION", 1) > 0
+
+
+def _budget_for(usecase: Optional[str], default: int = 700) -> int:
+    if not usecase:
+        return default
+    key = str(usecase).strip().lower()
+    return int(TOKEN_BUDGETS.get(key, default))
+
+
+def looks_truncated_safe(text: str) -> bool:
+    try:
+        from brain.response_validator import looks_truncated
+        return bool(looks_truncated(text))
+    except Exception:
+        return False
+
+
+def _guard_truncation(text: str, *, usecase: Optional[str]) -> str:
+    """Validate LLM output; trim to last complete sentence if truncated."""
+    if not text:
+        return text
+    try:
+        result = validate_final_text(text)
+        if result.get("looks_truncated"):
+            logger.warning(
+                "ahvi.llm.response_truncated usecase=%s len=%d",
+                usecase,
+                len(text or ""),
+            )
+            return polish_final_text(text, fallback=text)
+        return result.get("text") or text
+    except Exception:
+        return text
 
 
 # =========================
@@ -269,17 +320,44 @@ def generate_text(
     3. deterministic safe text
     """
 
+    # Resolve token budget: explicit options > usecase map > 700.
+    requested_tokens = int(
+        (options or {}).get("max_output_tokens") or _budget_for(usecase, 700)
+    )
+    logger.info(
+        "ahvi.llm.token_budget usecase=%s max_output_tokens=%d",
+        usecase,
+        requested_tokens,
+    )
+
     if _gemini_enabled():
         gemini_text = _call_gemini_text(
             prompt,
             user_profile=user_profile,
             signals=signals,
             temperature=float((options or {}).get("temperature", 0.35)),
-            max_output_tokens=int((options or {}).get("max_output_tokens", 700)),
+            max_output_tokens=requested_tokens,
         )
         if gemini_text:
             logger.info("llm.generate_text provider=gemini model=%s usecase=%s", GEMINI_MODEL, usecase)
-            return gemini_text
+            guarded = _guard_truncation(gemini_text, usecase=usecase)
+            if RETRY_ON_TRUNCATION and guarded != gemini_text and looks_truncated_safe(guarded):
+                retry_tokens = int(requested_tokens * 1.5)
+                logger.info(
+                    "ahvi.llm.retry_on_truncation usecase=%s retry_tokens=%d",
+                    usecase,
+                    retry_tokens,
+                )
+                retry_text = _call_gemini_text(
+                    prompt,
+                    user_profile=user_profile,
+                    signals=signals,
+                    temperature=float((options or {}).get("temperature", 0.35)),
+                    max_output_tokens=retry_tokens,
+                )
+                if retry_text:
+                    return _guard_truncation(retry_text, usecase=usecase)
+            return guarded
         logger.warning("llm.generate_text provider=gemini returned empty; falling back usecase=%s", usecase)
 
     tone = tone_engine.build_prompt_tone(user_profile, signals)
@@ -308,6 +386,11 @@ STRICT RULES:
     if options:
         payload["options"] = dict(options)
 
+    # Match Ollama budget to the same usecase-aware target.
+    payload.setdefault("options", {})
+    if "num_predict" not in payload["options"]:
+        payload["options"]["num_predict"] = requested_tokens
+
     data = _call_ollama(payload, timeout=timeout_seconds)
     if not data:
         logger.warning("llm.generate_text provider=ollama_unavailable usecase=%s", usecase)
@@ -317,7 +400,8 @@ STRICT RULES:
     if not response:
         return "This looks well put together and balanced."
 
-    return tone_engine.apply(response, user_profile=user_profile, signals=signals)
+    toned = tone_engine.apply(response, user_profile=user_profile, signals=signals)
+    return _guard_truncation(toned, usecase=usecase)
 
 
 def chat_completion(
@@ -454,7 +538,10 @@ Optional styling note:
         prompt,
         user_profile=user_profile,
         signals=signals,
-        options={"temperature": 0.35, "max_output_tokens": 700},
+        options={
+            "temperature": 0.35,
+            "max_output_tokens": TOKEN_BUDGETS["outfit_explanation"],
+        },
         usecase="outfit_explanation",
     )
 
@@ -529,7 +616,10 @@ Keep it premium and concise.
         prompt,
         user_profile=user_profile,
         signals=signals,
-        options={"temperature": 0.4, "max_output_tokens": 700},
+        options={
+            "temperature": 0.4,
+            "max_output_tokens": TOKEN_BUDGETS["style_advice"],
+        },
         usecase="style_advice",
     )
 
