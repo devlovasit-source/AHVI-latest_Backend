@@ -105,7 +105,11 @@ class AppwriteProxy:
                     if os.getenv("APPWRITE_COLLECTION_CONTACTS", "") not in {"users", "user"}
                     else ""
                 )
-                or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CONTACTS", "")
+                or (
+                    os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CONTACTS", "")
+                    if os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_CONTACTS", "") not in {"users", "user"}
+                    else ""
+                )
                 or "contacts"
             ),
             "workout_outfits": os.getenv("APPWRITE_COLLECTION_WORKOUT_OUTFITS", "")
