@@ -1042,6 +1042,12 @@ def filter_and_guard_outfits(
         "resolved_prompt": query,
     }
 
+    def _hero_name(o: Dict[str, Any]) -> str:
+        if not isinstance(o, dict):
+            return "?"
+        t = o.get("top") or o.get("dress") or {}
+        return str((t or {}).get("name") or (t or {}).get("label") or "?")[:30]
+
     for outfit in outfits or []:
         allowed, penalty, reasons, fixed = guard_outfit(
             outfit=outfit,
@@ -1051,6 +1057,13 @@ def filter_and_guard_outfits(
         )
 
         if not allowed:
+            logger.info(
+                "outfit_quality_guard.rejected occ=%s hero=%r penalty=%d reasons=%s",
+                intent or "",
+                _hero_name(outfit),
+                int(penalty or 0),
+                list((reasons or []))[:5],
+            )
             continue
 
         # Global occasion compatibility — applies to every occasion, not
@@ -1073,6 +1086,12 @@ def filter_and_guard_outfits(
                     ", ".join(occ_result["penalties"][:3]) or occ_result["reason"],
                     occ_result["occasion"] or "?",
                     fixed["score_meta"],
+                )
+                logger.info(
+                    "outfit_quality_guard.rejected occ=%s hero=%r reason=occasion_mismatch penalties=%s",
+                    intent or "",
+                    _hero_name(outfit),
+                    list(occ_result.get("penalties") or [])[:3],
                 )
                 # Drop entirely.
                 continue
