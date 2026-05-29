@@ -129,6 +129,16 @@ def test_high_confidence_agent_overrides_router():
     assert merged["occasion"] == "date_night"
 
 
+def test_mid_confidence_agent_does_not_override_router():
+    """0.7 confidence is below the 0.8 floor — router intent must hold."""
+    ctx: Dict[str, Any] = {"occasion": "client_meeting"}
+    payload = validate_agent_style_payload(
+        {"occasion": "casual", "confidence": 0.7}
+    )
+    merged = merge_agent_payload_into_context(ctx, payload)
+    assert merged["occasion"] == "client_meeting"
+
+
 # ---------------------------------------------------------------------------
 # Quality guard agent rules
 # ---------------------------------------------------------------------------

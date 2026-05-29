@@ -178,6 +178,7 @@ _CANONICAL_OCCASIONS = {
     "date_night",
     "beach",
     "office",
+    "client_meeting",
     "brunch",
     "party",
     "house_party",
@@ -193,34 +194,27 @@ _CANONICAL_OCCASIONS = {
 
 
 def _normalize_occasion_value(value: Any, query: Any = "") -> str:
-    text = " ".join([_safe_text(value), _safe_text(query)]).lower().replace("-", "_")
-    if any(k in text for k in ("temple_modest", "temple", "mandir", "pooja", "puja", "religious", "shrine", "darshan")):
-        return "temple_modest"
-    if any(k in text for k in ("date_night", "date night", "date", "dinner", "tonight")):
-        return "date_night"
-    if any(k in text for k in ("beach", "pool", "seaside", "coastal", "resort")):
-        return "beach"
-    if any(k in text for k in ("office", "work", "meeting", "client", "business", "corporate", "boardroom")):
-        return "office"
-    if "brunch" in text:
-        return "brunch"
-    if any(k in text for k in ("rave", "club")):
-        return "rave"
-    if "cocktail" in text:
-        return "cocktail"
-    if any(k in text for k in ("party", "house_party", "after_hours", "night out")):
-        return "house_party"
-    if any(k in text for k in ("travel", "airport", "flight", "vacation", "trip")):
-        return "travel"
-    if any(k in text for k in ("workout", "gym", "fitness", "training", "yoga", "running")):
-        return "workout"
-    if any(k in text for k in ("wedding", "reception", "ceremony", "sangeet", "formal event", "event")):
-        return "wedding"
-    if any(k in text for k in ("daily", "today")):
-        return "daily"
-    if any(k in text for k in ("casual", "weekend", "errand", "coffee")):
-        return "casual"
-    return _safe_text(value).lower() if _safe_text(value).lower() in _CANONICAL_OCCASIONS else ""
+    """Token-aware occasion normalization.
+
+    The old substring-based check returned "office" for "workout outfit" via
+    the "work" prefix match. style_brief.detect_occasion_from_tokens does
+    whole-word matching with a priority list (workout > office) so this
+    bug is gone. The explicit value still wins when it is already a
+    canonical occasion key.
+    """
+    explicit = _safe_text(value).lower().replace("-", "_")
+    if explicit in _CANONICAL_OCCASIONS or explicit == "client_meeting":
+        return explicit
+    try:
+        from brain.engines.style_brief import detect_occasion_from_tokens
+
+        combined = f"{_safe_text(value)} {_safe_text(query)}".strip()
+        occ, _ = detect_occasion_from_tokens(combined)
+        if occ:
+            return occ
+    except Exception:
+        pass
+    return explicit if explicit in _CANONICAL_OCCASIONS else ""
 
 
 def apply_occasion_card_language(cards: List[Dict[str, Any]], occasion: str) -> List[Dict[str, Any]]:
@@ -3464,6 +3458,64 @@ def build_style_flow_response(
             },
         }
     cards = finalized["cards"]
+
+    # AHVI Style Brief enforcement: turn user intent into a brief, validate
+    # every card against it, pick a diverse set, and reject wrong-occasion
+    # boards rather than re-labelling them. Wrong-occasion board is worse
+    # than no board.
+    try:
+        from brain.engines.style_brief import (
+            build_brief,
+            safe_badge_for,
+            safe_title_for,
+            select_board_set,
+        )
+
+        _agent_payload = _dict(ctx.get("agent_orchestration"))
+        brief = build_brief(
+            query=query,
+            router_occasion=normalized_occasion or ctx.get("occasion"),
+            agent_payload=_agent_payload,
+            weather=ctx.get("weather"),
+        )
+        ctx["style_brief"] = brief
+
+        if cards:
+            chosen = select_board_set(cards, brief, max_n=3)
+            rejected = len(cards) - len(chosen)
+            if rejected > 0:
+                logger.info(
+                    "style_board.rejected occasion=%s rejected=%d from=%d",
+                    brief.get("occasion"), rejected, len(cards),
+                )
+            for card in chosen:
+                # Enforce occasion-safe badge + title only when current ones
+                # conflict with the brief's allowed set.
+                allowed_badges = set(brief.get("allowed_badges") or [])
+                if allowed_badges and str(card.get("badge") or "").upper() not in allowed_badges:
+                    card["badge"] = safe_badge_for(brief)
+                allowed_titles = brief.get("allowed_titles") or []
+                if allowed_titles and not card.get("title"):
+                    card["title"] = safe_title_for(brief, chosen.index(card))
+                logger.info(
+                    "style_board.validated occasion=%s title=%r badge=%s set_role=%s",
+                    brief.get("occasion"),
+                    card.get("title"),
+                    card.get("badge"),
+                    card.get("set_role"),
+                )
+            cards = chosen
+            finalized["cards"] = chosen
+            finalized["style_boards"] = chosen
+
+        if not cards and (brief.get("occasion") not in {"", "daily"}):
+            logger.info(
+                "style_fallback.intent_protected occasion=%s reason=no_board_passed_brief",
+                brief.get("occasion"),
+            )
+    except Exception:
+        logger.warning("style_brief.enforcement_failed", exc_info=True)
+
     if not cards:
         gap_kind = _safe_text(
             occasion_interpretation.get("occasion")

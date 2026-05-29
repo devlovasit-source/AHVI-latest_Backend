@@ -455,7 +455,10 @@ def merge_agent_payload_into_context(
         confidence = float(agent_payload.get("confidence") or 0.0)
     except Exception:
         confidence = 0.0
-    confidence_floor = 0.6
+    # 0.8 floor — only a high-confidence, explicit-conflict agent payload may
+    # override a router-derived occasion/sub_intent. Spec: wrong board is
+    # worse than no board.
+    confidence_floor = 0.8
     high_confidence = confidence >= confidence_floor
 
     for key in ("occasion", "sub_intent", "formality"):
