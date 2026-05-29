@@ -319,6 +319,88 @@ _OCCASION_CONTRACTS: Dict[str, Dict[str, Any]] = {
 }
 
 
+# Accessory-occasion rules. Cleaner separation from item-level signals
+# because accessories can be removed in isolation (a board can still be
+# valid if a forbidden accessory is scrubbed but the core top/bottom/
+# footwear pieces remain occasion-correct).
+_ACCESSORY_OCCASION_RULES: Dict[str, Dict[str, List[str]]] = {
+    "office": {
+        "allowed": ["watch", "belt", "ring", "bag", "leather bag", "briefcase", "tie"],
+        "forbidden": [
+            "swim cap", "swimming cap", "swim goggles", "swimming goggles",
+            "goggles", "water bottle", "gym bottle", "shaker", "cap", "hat",
+            "beanie", "headband", "sweatband", "wristband", "fanny pack",
+            "beach", "swim", "snorkel", "flip flop", "athletic", "sports",
+            "headphones", "earbuds case",
+        ],
+    },
+    "client_meeting": {
+        "allowed": ["watch", "belt", "ring", "bag", "briefcase", "tie"],
+        "forbidden": [
+            "swim cap", "swimming cap", "swim goggles", "swimming goggles",
+            "goggles", "water bottle", "gym bottle", "shaker", "cap", "hat",
+            "beanie", "headband", "sweatband", "wristband", "fanny pack",
+            "beach", "swim", "snorkel", "athletic", "sports", "tropical",
+            "neon", "sequined", "headphones",
+        ],
+    },
+    "wedding": {
+        "allowed": ["watch", "belt", "ring", "tie", "pocket square", "bag", "clutch"],
+        "forbidden": [
+            "swim cap", "swim goggles", "goggles", "water bottle", "gym bottle",
+            "shaker", "cap", "beanie", "headband", "fanny pack", "athletic",
+            "sports", "beach", "swim", "snorkel",
+        ],
+    },
+    "date_night": {
+        "allowed": ["watch", "belt", "ring", "bag", "clutch", "chain", "scarf"],
+        "forbidden": [
+            "swim cap", "swimming cap", "swim goggles", "swimming goggles",
+            "goggles", "water bottle", "gym bottle", "shaker", "cap", "hat",
+            "beanie", "headband", "sweatband", "wristband", "fanny pack",
+            "snorkel", "athletic", "sports bottle",
+        ],
+    },
+    "workout": {
+        "allowed": [
+            "water bottle", "gym bottle", "shaker", "cap", "headband",
+            "sweatband", "wristband", "towel", "earbuds case", "headphones",
+            "sports watch", "fitness tracker",
+        ],
+        "forbidden": [
+            "tie", "pocket square", "clutch", "briefcase", "dress watch",
+            "leather bag",
+        ],
+    },
+    "beach": {
+        "allowed": [
+            "sunglasses", "straw hat", "swim cap", "swim goggles", "goggles",
+            "snorkel", "tote", "beach bag", "sandals",
+        ],
+        "forbidden": ["tie", "pocket square", "briefcase"],
+    },
+    "travel": {
+        "allowed": [
+            "backpack", "duffel", "watch", "sunglasses", "tote", "neck pillow",
+            "earbuds case", "passport holder",
+        ],
+        "forbidden": ["swim cap", "swim goggles"],
+    },
+    "party": {
+        "allowed": ["chain", "ring", "watch", "bag", "clutch", "sunglasses"],
+        "forbidden": ["swim cap", "swim goggles", "water bottle", "gym bottle"],
+    },
+    "casual": {
+        "allowed": ["watch", "cap", "bag", "sunglasses", "chain", "ring"],
+        "forbidden": ["swim cap", "swim goggles"],
+    },
+    "daily": {
+        "allowed": ["watch", "cap", "bag", "sunglasses", "chain", "ring"],
+        "forbidden": ["swim cap", "swim goggles", "snorkel"],
+    },
+}
+
+
 _DEFAULT_CONTRACT: Dict[str, Any] = {
     "sub_intent": "outfit_generation",
     "formality": "mid",
@@ -428,6 +510,139 @@ def build_brief(
         agent_conf,
     )
     return brief
+
+
+def _is_accessory_item(item: Dict[str, Any]) -> bool:
+    if not isinstance(item, dict):
+        return False
+    role = str(item.get("role") or item.get("slot") or "").lower()
+    if role == "accessory":
+        return True
+    blob = " ".join(
+        str(item.get(k) or "").lower()
+        for k in ("category", "sub_category", "subcategory", "type", "garment_type")
+    )
+    return any(
+        kw in blob
+        for kw in (
+            "accessor", "watch", "belt", "bag", "ring", "necklace", "bracelet",
+            "earring", "cap", "hat", "scarf", "sunglass", "goggle", "bottle",
+        )
+    )
+
+
+def _accessory_token_blob(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return " ".join(
+        str(item.get(k) or "").lower()
+        for k in (
+            "name", "title", "label", "category", "sub_category", "subcategory",
+            "type", "garment_type",
+        )
+    )
+
+
+def is_accessory_forbidden(
+    item: Dict[str, Any], brief: Dict[str, Any]
+) -> Tuple[bool, str]:
+    """Return (forbidden, reason). Reason names which rule matched.
+
+    An accessory is forbidden when it textually matches the occasion's
+    forbidden_accessories list and does NOT match the occasion's allowed list.
+    """
+    if not isinstance(item, dict) or not isinstance(brief, dict):
+        return False, ""
+    occ = str(brief.get("occasion") or "").lower()
+    rules = _ACCESSORY_OCCASION_RULES.get(occ)
+    if not rules:
+        return False, ""
+    blob = _accessory_token_blob(item)
+    if not blob:
+        return False, ""
+
+    forbidden = [t.lower() for t in rules.get("forbidden") or []]
+    allowed = [t.lower() for t in rules.get("allowed") or []]
+
+    # Allow wins when explicit (e.g. workout allows "water bottle" even
+    # though it lives on the office forbidden list).
+    if any(a and a in blob for a in allowed):
+        return False, ""
+
+    for tok in forbidden:
+        if tok and tok in blob:
+            return True, f"occasion_incompatible:{tok}"
+    return False, ""
+
+
+def strip_forbidden_accessories(
+    board: Dict[str, Any], brief: Dict[str, Any]
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """Remove occasion-incompatible accessories from a board in-place.
+
+    Returns (board, removed_items). Mutates `board['items']` and
+    `board['accessories']`. Never touches non-accessory roles (top, bottom,
+    footwear, dress, outerwear) — those go through validate_board.
+    """
+    removed: List[Dict[str, Any]] = []
+    if not isinstance(board, dict) or not isinstance(brief, dict):
+        return board, removed
+
+    items = board.get("items") or []
+    if not isinstance(items, list):
+        return board, removed
+
+    new_items: List[Dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            new_items.append(item)
+            continue
+        if _is_accessory_item(item):
+            forbidden, reason = is_accessory_forbidden(item, brief)
+            if forbidden:
+                removed.append(dict(item))
+                try:
+                    logger.info(
+                        "outfit_accessory_removed occasion=%s item=%s reason=%s",
+                        brief.get("occasion"),
+                        str(item.get("name") or item.get("title") or item.get("label") or "?"),
+                        reason,
+                    )
+                except Exception:
+                    pass
+                continue
+        new_items.append(item)
+    board["items"] = new_items
+
+    if isinstance(board.get("accessories"), list):
+        kept_accs: List[Dict[str, Any]] = []
+        for acc in board.get("accessories") or []:
+            if not isinstance(acc, dict):
+                kept_accs.append(acc)
+                continue
+            forbidden, _ = is_accessory_forbidden(acc, brief)
+            if not forbidden:
+                kept_accs.append(acc)
+        board["accessories"] = kept_accs
+
+    if removed:
+        board.setdefault("removed_accessories", []).extend(removed)
+    return board, removed
+
+
+def core_outfit_complete(board: Dict[str, Any]) -> bool:
+    """Did the board still have top + bottom + footwear (or dress + footwear)
+    after accessory scrub?"""
+    if not isinstance(board, dict):
+        return False
+    roles = {
+        str(it.get("role") or it.get("slot") or "").lower()
+        for it in (board.get("items") or [])
+        if isinstance(it, dict)
+    }
+    if "dress" in roles and "footwear" in roles:
+        return True
+    return {"top", "bottom", "footwear"}.issubset(roles)
 
 
 def safe_badge_for(brief: Dict[str, Any]) -> str:

@@ -3489,9 +3489,11 @@ def build_style_flow_response(
     try:
         from brain.engines.style_brief import (
             build_brief,
+            core_outfit_complete,
             safe_badge_for,
             safe_title_for,
             select_board_set,
+            strip_forbidden_accessories,
         )
 
         _agent_payload = _dict(ctx.get("agent_orchestration"))
@@ -3505,6 +3507,21 @@ def build_style_flow_response(
 
         if cards:
             _candidate_pool_count = len(cards)
+
+            # Accessory scrub BEFORE validation — a board with a great core
+            # outfit shouldn't die because of one wrong accessory. Run on
+            # the full pool so select_board_set has clean candidates.
+            for card in cards:
+                if not isinstance(card, dict):
+                    continue
+                _, _removed_accs = strip_forbidden_accessories(card, brief)
+                # Drop card only if the scrub destroyed the core outfit
+                # (very rare — accessory removal doesn't touch top/bottom/
+                # footwear).
+                if not core_outfit_complete(card):
+                    card["_brief_drop_reason"] = "core_incomplete_after_accessory_scrub"
+            cards = [c for c in cards if not (isinstance(c, dict) and c.get("_brief_drop_reason"))]
+
             chosen = select_board_set(cards, brief, max_n=_final_target)
             rejected = _candidate_pool_count - len(chosen)
             if rejected > 0:
