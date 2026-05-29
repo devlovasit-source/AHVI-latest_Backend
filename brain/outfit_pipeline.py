@@ -1284,6 +1284,60 @@ def _pick_master_piece(
     return best[0], best[1]
 
 
+def _build_diverse_combo_pool(
+    master_to_combos: List[Tuple[str, List[Dict[str, Any]]]],
+    *,
+    per_master_min: int = 6,
+    global_max: int = 60,
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    """Two-phase combo pool builder used inside get_daily_outfits.
+
+    Phase 1: each master hero is given `per_master_min` slots BEFORE any
+    one master can flood the global cap.
+    Phase 2: round-robin fill from the overflow until `global_max`.
+
+    Pure function — exposed at module level so it can be unit-tested
+    without scaffolding the whole pipeline.
+
+    Returns (combo_pool, per_master_counts).
+    """
+    combos_out: List[Dict[str, Any]] = []
+    seen: set = set()
+    counts: Dict[str, int] = {}
+    overflow: List[Tuple[str, List[Dict[str, Any]]]] = []
+
+    for hero_name, combos in master_to_combos:
+        kept = 0
+        spill: List[Dict[str, Any]] = []
+        for combo in combos:
+            combo_id = str((combo or {}).get("combo_id") or "").strip()
+            if not combo_id or combo_id in seen:
+                continue
+            seen.add(combo_id)
+            if kept < per_master_min and len(combos_out) < global_max:
+                combos_out.append(combo)
+                kept += 1
+            else:
+                spill.append(combo)
+        counts[hero_name] = kept
+        overflow.append((hero_name, spill))
+
+    idx = 0
+    while len(combos_out) < global_max:
+        progressed = False
+        for _name, ov in overflow:
+            if idx < len(ov):
+                combos_out.append(ov[idx])
+                progressed = True
+                if len(combos_out) >= global_max:
+                    break
+        if not progressed:
+            break
+        idx += 1
+
+    return combos_out, counts
+
+
 def _pick_master_candidates(
     wardrobe: Dict[str, List[Dict[str, Any]]],
     occasion: str,
@@ -2615,25 +2669,54 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
 
     master_type, master_piece = master_candidates[0]
 
-    combinations: List[Dict[str, Any]] = []
-    seen_combo_ids: set[str] = set()
+    # Two-phase combo pool build (see _build_diverse_combo_pool).
+    per_master_min = 6
+    global_max = 60
+    unique_hero_target = 4
+
+    def _hero_label(piece: Dict[str, Any]) -> str:
+        if not isinstance(piece, dict):
+            return "?"
+        return str(piece.get("name") or piece.get("label") or "?")[:25]
+
+    master_to_combos: List[Tuple[str, List[Dict[str, Any]]]] = []
     for candidate_type, candidate_piece in master_candidates:
         candidate_combinations = _build_master_combos(
             occasion_filtered,
             candidate_type,
             candidate_piece,
-            max_combos=40,
+            # Generous batch per master so phase 2 has overflow to
+            # round-robin from; the global cap below still applies.
+            max_combos=12,
         )
-        for combo in candidate_combinations:
-            combo_id = str(combo.get("combo_id", "")).strip()
-            if not combo_id or combo_id in seen_combo_ids:
-                continue
-            seen_combo_ids.add(combo_id)
-            combinations.append(combo)
-            if len(combinations) >= 40:
-                break
-        if len(combinations) >= 40:
-            break
+        master_to_combos.append((_hero_label(candidate_piece), candidate_combinations))
+
+    combinations, master_combo_counts = _build_diverse_combo_pool(
+        master_to_combos,
+        per_master_min=per_master_min,
+        global_max=global_max,
+    )
+
+    try:
+        _pool_logger = logging.getLogger("ahvi.outfit_pipeline")
+        _pool_logger.info(
+            "outfit_pipeline.master_combo_counts occ=%s counts=%s",
+            (merged_context.get("occasion") or merged_context.get("intent") or ""),
+            master_combo_counts,
+        )
+        _pool_hero_counts: Dict[str, int] = {}
+        for combo in combinations:
+            t = (combo.get("top") or combo.get("dress") or {}) if isinstance(combo, dict) else {}
+            _pool_hero_counts[_hero_label(t)] = _pool_hero_counts.get(_hero_label(t), 0) + 1
+        _pool_logger.info(
+            "outfit_pipeline.combo_pool heroes=%s total=%d unique_heroes=%d target=%d",
+            _pool_hero_counts,
+            len(combinations),
+            len(_pool_hero_counts),
+            unique_hero_target,
+        )
+    except Exception:
+        pass
 
     def _hero_names(items):
         names = []

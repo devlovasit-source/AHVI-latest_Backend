@@ -87,6 +87,69 @@ def test_broader_pool_picks_distinct_heroes_for_first_two():
     )
 
 
+def test_combo_pool_grants_quota_to_every_master():
+    """6 master heroes; the first can produce 40 combos. Old code would let
+    that one fill the 40-slot cap. New pool must give every master its
+    per_master_min quota, and end up with at least 4 unique heroes."""
+    from brain.outfit_pipeline import _build_diverse_combo_pool
+
+    def make_combo(hero: str, idx: int) -> Dict[str, Any]:
+        return {"combo_id": f"{hero}_{idx}", "top": {"name": hero}, "score": 7}
+
+    hero_names = [
+        "White Bird Shirt",
+        "Blue Button-Down",
+        "Short Sleeve Navy",
+        "Mint Green Shirt",
+        "Green T-Shirt",
+        "Shiny Gold Formal",
+    ]
+    master_to_combos: List[Any] = []
+    for i, name in enumerate(hero_names):
+        # First hero produces 40 combos; the rest produce 12 each.
+        n = 40 if i == 0 else 12
+        master_to_combos.append((name, [make_combo(name, k) for k in range(n)]))
+
+    pool, counts = _build_diverse_combo_pool(
+        master_to_combos, per_master_min=6, global_max=60
+    )
+
+    # Total cap respected.
+    assert len(pool) <= 60
+
+    # Every hero got at least its quota (6) — that's the whole point.
+    for name in hero_names:
+        assert counts.get(name, 0) == 6, f"{name} got {counts.get(name)}"
+
+    unique_heroes = {c["top"]["name"] for c in pool}
+    assert len(unique_heroes) >= 4, f"only {len(unique_heroes)} unique heroes"
+    assert len(unique_heroes) == 6  # all six should be represented
+
+
+def test_combo_pool_dedupes_by_combo_id():
+    from brain.outfit_pipeline import _build_diverse_combo_pool
+
+    dup = {"combo_id": "dup", "top": {"name": "Shirt A"}}
+    master_to_combos = [
+        ("Shirt A", [dup, dup, dup]),
+        ("Shirt B", [{"combo_id": f"b_{i}", "top": {"name": "Shirt B"}} for i in range(3)]),
+    ]
+    pool, counts = _build_diverse_combo_pool(
+        master_to_combos, per_master_min=6, global_max=60
+    )
+    assert counts["Shirt A"] == 1
+    assert counts["Shirt B"] == 3
+    assert len(pool) == 4
+
+
+def test_combo_pool_empty_inputs_safe():
+    from brain.outfit_pipeline import _build_diverse_combo_pool
+
+    pool, counts = _build_diverse_combo_pool([], per_master_min=6, global_max=60)
+    assert pool == []
+    assert counts == {}
+
+
 def test_forbidden_signal_card_is_filtered_out():
     brief = build_brief(query="gym workout")
     good = {
