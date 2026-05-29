@@ -2913,6 +2913,12 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
 
         # AHVI editorial quality guard: remove weak/bad combinations before memory, indexing and card rendering.
         pre_guard_ranked = list(ranked or [])
+        _guard_occ = (
+            merged_context.get("occasion")
+            or merged_context.get("intent")
+            or locals().get("occasion")
+            or ""
+        )
         try:
             ranked = filter_and_guard_outfits(
                 ranked,
@@ -2922,12 +2928,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
                     or merged_context.get("user")
                     or {}
                 ),
-                intent=(
-                    merged_context.get("occasion")
-                    or merged_context.get("intent")
-                    or locals().get("occasion")
-                    or ""
-                ),
+                intent=_guard_occ,
                 query=(
                     merged_context.get("user_query")
                     or merged_context.get("query")
@@ -2938,6 +2939,27 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             )
         except Exception as e:
             logging.getLogger(__name__).warning("outfit_quality_guard_failed: %s", e)
+
+        # Diagnostic: surface how the quality guard reshaped the candidate
+        # pool. Read-only, never changes behavior.
+        try:
+            _guard_logger = logging.getLogger("ahvi.outfit_pipeline")
+            _guard_logger.info(
+                "outfit_pipeline.guard_effect user=%s occ=%s before=%d after=%d",
+                user_id,
+                _guard_occ,
+                len(pre_guard_ranked),
+                len(ranked or []),
+            )
+            _guard_logger.info(
+                "outfit_pipeline.guard_heroes user=%s occ=%s before=%s after=%s",
+                user_id,
+                _guard_occ,
+                _hero_names(pre_guard_ranked),
+                _hero_names(ranked or []),
+            )
+        except Exception:
+            pass
         if closest_requested and not ranked and pre_guard_ranked:
             closest_outfit = deepcopy(pre_guard_ranked[0])
             closest_outfit.setdefault("score_meta", {})
