@@ -60,6 +60,33 @@ def test_set_roles_assigned_to_first_three():
         assert roles[2] == "expressive"
 
 
+def test_broader_pool_picks_distinct_heroes_for_first_two():
+    """4 office candidates: first 2 share hero, 3rd has different hero.
+    Final top 2 must use different heroes — set selection wins over rank."""
+    brief = build_brief(router_occasion="office", query="office today")
+    shirt_a = "shirt_a"
+    shirt_b = "shirt_b"
+    shirt_c = "shirt_c"
+    cards = [
+        _card(0, shirt_a, "trs_a"),  # rank 1 — shirt_a
+        _card(1, shirt_a, "trs_b"),  # rank 2 — same shirt_a
+        _card(2, shirt_b, "trs_b"),  # rank 3 — shirt_b
+        _card(3, shirt_c, "trs_c"),  # rank 4 — shirt_c
+    ]
+    # Stack scores so the duplicate-hero card would naturally win rank 2.
+    cards[0]["score_meta"]["score"] = 9.0
+    cards[1]["score_meta"]["score"] = 8.5
+    cards[2]["score_meta"]["score"] = 6.0
+    cards[3]["score_meta"]["score"] = 5.5
+
+    chosen = select_board_set(cards, brief, max_n=2)
+    assert len(chosen) == 2
+    heroes = [c["items"][0]["id"] for c in chosen]
+    assert heroes[0] != heroes[1], (
+        f"first two heroes must differ; got {heroes}"
+    )
+
+
 def test_forbidden_signal_card_is_filtered_out():
     brief = build_brief(query="gym workout")
     good = {

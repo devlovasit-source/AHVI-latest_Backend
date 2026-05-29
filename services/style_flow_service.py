@@ -2546,13 +2546,18 @@ def finalize_style_cards(
     exclude_signatures: Any = None,
     requested_count: Optional[int] = None,
     default_limit: int = 6,
+    candidate_pool_size: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     excluded = {
         _safe_text(x).lower()
         for x in (exclude_signatures or [])
         if _safe_text(x)
     }
-    limit = max(1, min(6, requested_count or default_limit))
+    # When the caller wants a broader candidate pool for downstream
+    # validation/selection (e.g. style_brief.select_board_set needs diverse
+    # heroes), `candidate_pool_size` lifts the standard 6-card cap.
+    hard_cap = max(6, int(candidate_pool_size or 6))
+    limit = max(1, min(hard_cap, requested_count or candidate_pool_size or default_limit))
 
     canonical: List[Dict[str, Any]] = []
     seen: set[str] = set()
@@ -2908,6 +2913,7 @@ def finalize_style_response_payload(
     exclude_style_signatures: Any = None,
     requested_board_count: Optional[int] = None,
     cache_bypass: bool = True,
+    candidate_pool_size: Optional[int] = None,
 ) -> Dict[str, Any]:
     ctx = dict(context or {})
     style_identity = normalize_style_identity(_dict(ctx.get("user_profile")))
@@ -2928,7 +2934,10 @@ def finalize_style_response_payload(
         occasion_interpretation=occasion_interpretation,
         exclude_signatures=exclude_style_signatures,
         requested_count=requested_board_count if style_action in {"more_options", "more_looks", "next_best"} else None,
+        candidate_pool_size=candidate_pool_size,
     )
+    raw_candidate_count = len(candidates)
+    pool_count = len(cards)
     normalized_occasion = _normalize_occasion_value(
         occasion_interpretation.get("occasion")
         or _dict(occasion_interpretation.get("board_generation_notes")).get("occasion_kind")
@@ -3411,6 +3420,12 @@ def build_style_flow_response(
     if not isinstance(result, dict):
         result = {}
 
+    # Broader candidate pool so style_brief.select_board_set has real
+    # diversity to choose from. Final response is sliced to requested N
+    # after brief validation/selection.
+    _final_target = int(requested_board_count or 3)
+    _pool_size = max(_final_target * 4, 8)
+
     finalized = finalize_style_response_payload(
         result,
         user_id=user_id,
@@ -3426,6 +3441,14 @@ def build_style_flow_response(
         exclude_style_signatures=exclude_style_signatures,
         requested_board_count=requested_board_count,
         cache_bypass=cache_bypass,
+        candidate_pool_size=_pool_size,
+    )
+    logger.info(
+        "style_candidates.generated raw_candidates=%d candidate_cards=%d requested=%d pool=%d",
+        len(result.get("cards") or []) + len(result.get("outfits") or []),
+        len(finalized.get("cards") or []),
+        _final_target,
+        _pool_size,
     )
     if finalized.get("type") in {
         "missing_core_wardrobe_slots",
@@ -3481,13 +3504,18 @@ def build_style_flow_response(
         ctx["style_brief"] = brief
 
         if cards:
-            chosen = select_board_set(cards, brief, max_n=3)
-            rejected = len(cards) - len(chosen)
+            _candidate_pool_count = len(cards)
+            chosen = select_board_set(cards, brief, max_n=_final_target)
+            rejected = _candidate_pool_count - len(chosen)
             if rejected > 0:
                 logger.info(
                     "style_board.rejected occasion=%s rejected=%d from=%d",
-                    brief.get("occasion"), rejected, len(cards),
+                    brief.get("occasion"), rejected, _candidate_pool_count,
                 )
+            logger.info(
+                "style_candidates.generated candidate_cards=%d selected=%d requested=%d",
+                _candidate_pool_count, len(chosen), _final_target,
+            )
             for card in chosen:
                 # Enforce occasion-safe badge + title only when current ones
                 # conflict with the brief's allowed set.
