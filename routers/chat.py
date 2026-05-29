@@ -55,7 +55,7 @@ _ORCH_TIMEOUT_SECONDS = max(
     int(
         os.getenv("ORCHESTRATOR_TIMEOUT_SECONDS")
         or os.getenv("CHAT_ORCHESTRATOR_TIMEOUT_SECONDS")
-        or "20"
+        or "45"
     ),
 )
 _ORCHESTRATOR_EXECUTOR = concurrent.futures.ThreadPoolExecutor(

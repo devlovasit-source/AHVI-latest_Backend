@@ -445,21 +445,36 @@ def merge_agent_payload_into_context(
 
     style_context["agent_orchestration"] = agent_payload
 
-    # These keys are direct intent signals — the agent payload wins when it
-    # produced a meaningful value, otherwise we leave the existing context
-    # untouched.
-    for key in (
-        "occasion",
-        "sub_intent",
-        "formality",
-        "style_direction",
-    ):
+    # Confidence-aware merge: a low-confidence agent payload (e.g. confidence
+    # 0.0 or below threshold, common when the agent times out or falls back to
+    # defaults) must NOT downgrade router-derived intent like occasion or
+    # sub_intent. Only non-conflicting hints (avoid_items, required_slots,
+    # palette_direction, accessory_policy, style_direction when missing) merge
+    # through.
+    try:
+        confidence = float(agent_payload.get("confidence") or 0.0)
+    except Exception:
+        confidence = 0.0
+    confidence_floor = 0.6
+    high_confidence = confidence >= confidence_floor
+
+    for key in ("occasion", "sub_intent", "formality"):
         value = agent_payload.get(key)
-        if value:
-            style_context.setdefault(key, value)
-            # Promote agent value when current context value is empty/default.
-            if not style_context.get(key):
+        if not value:
+            continue
+        existing = style_context.get(key)
+        if existing:
+            # Router/caller already supplied this key. Only overwrite when the
+            # agent is confident; otherwise preserve the router value.
+            if high_confidence and value != existing:
                 style_context[key] = value
+        else:
+            style_context[key] = value
+
+    # style_direction is a softer hint — let it merge even at low confidence
+    # when the router did not pick one.
+    if agent_payload.get("style_direction") and not style_context.get("style_direction"):
+        style_context["style_direction"] = agent_payload["style_direction"]
 
     # Lists/dicts: always expose them so downstream engines can read uniformly.
     style_context["avoid_items"] = list(agent_payload.get("avoid_items") or [])
@@ -472,6 +487,13 @@ def merge_agent_payload_into_context(
     style_context["accessory_policy"] = dict(
         agent_payload.get("accessory_policy") or {}
     )
+
+    if not high_confidence:
+        logger.info(
+            "ahvi.agent.merge_low_confidence preserved_router_intent=%s confidence=%.2f",
+            {k: style_context.get(k) for k in ("occasion", "sub_intent", "formality") if style_context.get(k)},
+            confidence,
+        )
     return style_context
 
 

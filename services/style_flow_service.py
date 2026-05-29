@@ -3206,55 +3206,23 @@ def finalize_style_response_payload(
     )
 
     if weak_match:
+        # AHVI safety gate RELAXED: generated cards are returned as
+        # "closest wardrobe-safe options" instead of being suppressed.
+        # Each card is annotated so the UI can label it appropriately.
         logger.info(
-            "style_safety_gate_triggered user_id=%s occasion=%s best_score=%.2f threshold=%.2f cards=%s",
+            "style_safety_gate_relaxed user_id=%s occasion=%s best_score=%.2f threshold=%.2f cards=%s",
             user_id, normalized_occasion, best_occasion_score, threshold, len(cards),
         )
-        logger.info(
-            "style_weak_match_suppressed user_id=%s occasion=%s reason=below_confidence",
-            user_id, normalized_occasion,
-        )
-        weak_msg = (
-            "I checked your wardrobe against the occasion. I found a few close matches, "
-            "but none are strong enough to recommend confidently yet. I can show the "
-            "closest option, adjust the occasion, or suggest what item would complete the look."
-        )
-        return {
-            "success": True,
-            "ok": True,
-            "type": "weak_match",
-            "intent": "style",
-            "message": {"role": "assistant", "content": weak_msg},
-            "message_text": weak_msg,
-            "response": weak_msg,
-            "cards": [],
-            "style_boards": [],
-            "board_ids": "",
-            "chips": [
-                {"label": "Show closest option", "value": "show_closest_option"},
-                {"label": "Try another occasion", "value": "Try another occasion"},
-                {"label": "Find missing item", "value": "Find missing item"},
-                {"label": "Use safer outfit", "value": "Use safer outfit"},
-            ],
-            "data": {
-                "outfits": [],
-                "rendered_boards": [],
-                "weak_match": True,
-                "occasion_score": best_occasion_score,
-                "occasion": normalized_occasion,
-                "threshold": threshold,
-                "requires_user_confirmation": True,
-                "original_prompt": query,
-            },
-            "meta": {
-                "mode": "weak_match",
-                "occasion_compatibility_threshold": threshold,
-                "occasion_compatibility_best": best_occasion_score,
-                "style_action": style_action or None,
-                "occasion_interpretation": occasion_interpretation,
-            },
-            "audio_job_id": "offline",
-        }
+        for c in cards:
+            if not isinstance(c, dict):
+                continue
+            c.setdefault("badge", "CLOSEST OPTION")
+            c.setdefault(
+                "confidence_note",
+                "Closest wardrobe-safe option for this occasion.",
+            )
+            c["weak_match"] = True
+        # Fall through to the normal final response path below.
 
     if closest_option_requested:
         logger.info(

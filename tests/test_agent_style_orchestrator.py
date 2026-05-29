@@ -87,6 +87,7 @@ def test_merge_agent_payload_into_context_promotes_signals():
             "required_slots": ["top", "bottom", "footwear", "outerwear"],
             "palette_direction": ["navy"],
             "accessory_policy": {"allow_open_toe_footwear": False},
+            "confidence": 0.9,
         }
     )
     merged = merge_agent_payload_into_context(ctx, payload)
@@ -95,6 +96,37 @@ def test_merge_agent_payload_into_context_promotes_signals():
     assert merged["required_slots"] == ["top", "bottom", "footwear", "outerwear"]
     assert merged["palette_direction"] == ["navy"]
     assert merged["accessory_policy"] == {"allow_open_toe_footwear": False}
+
+
+def test_low_confidence_agent_does_not_downgrade_router_intent():
+    """Router detected office/client_meeting. Agent returns casual at 0.0
+    confidence (fallback default). Merge must preserve router values."""
+    ctx: Dict[str, Any] = {
+        "occasion": "office",
+        "sub_intent": "client_meeting",
+    }
+    payload = validate_agent_style_payload(
+        {
+            "occasion": "casual",
+            "sub_intent": "outfit_generation",
+            "confidence": 0.0,
+            "avoid_items": ["slides"],
+        }
+    )
+    merged = merge_agent_payload_into_context(ctx, payload)
+    assert merged["occasion"] == "office"
+    assert merged["sub_intent"] == "client_meeting"
+    # Non-conflicting hints still flow through.
+    assert merged["avoid_items"] == ["slides"]
+
+
+def test_high_confidence_agent_overrides_router():
+    ctx: Dict[str, Any] = {"occasion": "office"}
+    payload = validate_agent_style_payload(
+        {"occasion": "date_night", "confidence": 0.85}
+    )
+    merged = merge_agent_payload_into_context(ctx, payload)
+    assert merged["occasion"] == "date_night"
 
 
 # ---------------------------------------------------------------------------
