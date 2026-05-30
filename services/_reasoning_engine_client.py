@@ -303,6 +303,41 @@ def _call_engine_with_fallbacks(engine, system: str, prompt: str):
     )
 
 
+def _discover_operation_names(resource_id: str) -> List[str]:
+    """Return the class_method names registered on the deployed agent.
+
+    Uses `agent.operation_schemas()` (available on AgentEngine handles)
+    to ask Vertex which operations were registered when the agent was
+    deployed. Falls back to ('stream_query', 'query') if discovery
+    fails for any reason.
+    """
+    fallback = ["stream_query", "query"]
+    try:
+        from vertexai import agent_engines  # type: ignore
+
+        agent = agent_engines.get(resource_id.strip())
+        schemas_fn = getattr(agent, "operation_schemas", None)
+        if not callable(schemas_fn):
+            return fallback
+        try:
+            schemas = schemas_fn()
+        except Exception:
+            return fallback
+        names: List[str] = []
+        for sch in schemas or []:
+            if isinstance(sch, dict):
+                name = sch.get("name") or sch.get("operation_id") or sch.get("method_name")
+                if isinstance(name, str) and name:
+                    names.append(name)
+            else:
+                name = getattr(sch, "name", None) or getattr(sch, "method_name", None)
+                if isinstance(name, str) and name:
+                    names.append(name)
+        return names or fallback
+    except Exception:
+        return fallback
+
+
 def _proto_to_python(msg: Any) -> Optional[Any]:
     """Convert a gapic / protobuf chunk to a plain Python value.
 
@@ -431,6 +466,7 @@ def _invoke_via_gapic(
     location: str,
     prompt: str,
     user_id: str = "ahvi-backend",
+    preferred_class_methods: Optional[List[str]] = None,
 ) -> Optional[Any]:
     """Call the deployed Agent Engine through the gapic execution client.
 
@@ -481,11 +517,26 @@ def _invoke_via_gapic(
     # Prefer streaming because that's how ADK Agent Engines expose
     # LlmAgent.run output; fall back to non-streaming `query` if present.
     last_exc: Optional[Exception] = None
-    for call_name in ("stream_query_reasoning_engine", "query_reasoning_engine"):
+    discovered = list(preferred_class_methods or [])
+    # Build a (rpc, class_method) probe matrix. Use discovered operations
+    # first so we don't waste calls on names the agent never registered.
+    if discovered:
+        stream_methods = [m for m in discovered if "stream" in m.lower()]
+        nonstream_methods = [m for m in discovered if "stream" not in m.lower()]
+    else:
+        stream_methods = ["stream_query"]
+        nonstream_methods = ["query"]
+
+    probes = []
+    for cm in stream_methods:
+        probes.append(("stream_query_reasoning_engine", cm))
+    for cm in nonstream_methods:
+        probes.append(("query_reasoning_engine", cm))
+
+    for call_name, method_short in probes:
         method = getattr(client, call_name, None)
         if not callable(method):
             continue
-        method_short = "stream_query" if call_name.startswith("stream") else "query"
         request_payloads = [_build_request(method_short, agent_input) for agent_input in adk_inputs]
         for req in request_payloads:
             try:
@@ -572,12 +623,24 @@ def _invoke_reasoning_engine_sync(
         except Exception:
             pass
 
+        # Discover the operations the deployed agent actually registered.
+        # Logged once per call so we can iterate without re-deploying.
+        registered_ops = _discover_operation_names(resource_id)
+        logger.info(
+            "ahvi.agent.reasoning_engine_operations resource=%s ops=%s",
+            resource_id,
+            registered_ops,
+        )
+
         # PRIMARY PATH: gapic ReasoningEngineExecutionServiceClient.
         # The high-level AgentEngine handle returned by agent_engines.get()
         # only exposes management ops (create/delete/list/update). The
         # actual stream_query / query operations live on the gapic client.
         gapic_result = _invoke_via_gapic(
-            resource_id, location=location, prompt=prompt
+            resource_id,
+            location=location,
+            prompt=prompt,
+            preferred_class_methods=registered_ops,
         )
         if gapic_result is not None:
             logger.info(
