@@ -265,10 +265,39 @@ async def _call_gemini_agent(prompt: str, *, model: str, timeout: float) -> Opti
     if not endpoint:
         return None
 
+    # Vertex AI Reasoning Engine resource id (e.g.
+    # projects/<num>/locations/<region>/reasoningEngines/<id>) — call the
+    # Vertex SDK instead of treating the string as an HTTP URL.
+    try:
+        from services._reasoning_engine_client import (
+            call_reasoning_engine,
+            looks_like_resource_id,
+        )
+
+        if looks_like_resource_id(endpoint):
+            engine_result = await call_reasoning_engine(
+                endpoint,
+                system=_SYSTEM_PROMPT,
+                prompt=prompt,
+                timeout=timeout,
+            )
+            if isinstance(engine_result, dict):
+                return engine_result
+            return None
+    except Exception:
+        logger.debug("ahvi.agent.reasoning_engine_path_failed", exc_info=True)
+
     try:
         import httpx  # type: ignore
     except Exception:
         logger.debug("ahvi.agent.httpx_unavailable")
+        return None
+
+    if not endpoint.startswith(("http://", "https://")):
+        logger.warning(
+            "ahvi.agent.endpoint_not_http endpoint=%s — skipping HTTP fallback",
+            endpoint[:80],
+        )
         return None
 
     headers = {"Content-Type": "application/json"}

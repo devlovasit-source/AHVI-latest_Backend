@@ -224,9 +224,37 @@ async def _call_agent(prompt: str, *, model: str, timeout: float) -> Optional[Di
     if not endpoint:
         return None
 
+    # Vertex AI Reasoning Engine resource id — call the Vertex SDK rather
+    # than treating the string as an HTTP URL.
+    try:
+        from services._reasoning_engine_client import (
+            call_reasoning_engine,
+            looks_like_resource_id,
+        )
+
+        if looks_like_resource_id(endpoint):
+            engine_result = await call_reasoning_engine(
+                endpoint,
+                system=_SYSTEM_PROMPT,
+                prompt=prompt,
+                timeout=timeout,
+            )
+            if isinstance(engine_result, dict):
+                return engine_result
+            return None
+    except Exception:
+        logger.debug("ahvi.metadata.reasoning_engine_path_failed", exc_info=True)
+
     try:
         import httpx  # type: ignore
     except Exception:
+        return None
+
+    if not endpoint.startswith(("http://", "https://")):
+        logger.warning(
+            "ahvi.metadata.endpoint_not_http endpoint=%s — skipping HTTP fallback",
+            endpoint[:80],
+        )
         return None
 
     headers = {"Content-Type": "application/json"}
