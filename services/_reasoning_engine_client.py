@@ -20,7 +20,7 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("ahvi.agent.reasoning_engine")
 
@@ -81,9 +81,22 @@ def _parse_engine_payload(payload: Any) -> Optional[Dict[str, Any]]:
         # coerce missing keys.
         return payload
     if isinstance(payload, str):
+        text = payload.strip()
+        # ADK / LLM models sometimes wrap JSON in markdown code fences
+        # despite the strict-output instructions.
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
         try:
-            return json.loads(payload)
+            return json.loads(text)
         except Exception:
+            # Last-ditch: pull the first {...} block.
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            if m:
+                try:
+                    return json.loads(m.group(0))
+                except Exception:
+                    return None
             return None
     return None
 
@@ -124,9 +137,81 @@ _METHOD_NAMES = (
 )
 
 
+def _extract_text_from_adk_events(events: List[Any]) -> str:
+    """Pull the final assistant text out of an ADK stream_query event list.
+
+    ADK emits events like:
+      {"content": {"parts": [{"text": "..."}]}, "author": "agent", ...}
+    The system prompt + reasoning trail also flow through; the assistant's
+    final answer is the last event whose `content.parts[*].text` is non-empty.
+    """
+    last_text = ""
+    for ev in events or []:
+        if not isinstance(ev, dict):
+            continue
+        content = ev.get("content")
+        if not isinstance(content, dict):
+            # Some events use {"output": "..."} or plain text.
+            txt = ev.get("output") or ev.get("text")
+            if isinstance(txt, str) and txt.strip():
+                last_text = txt
+            continue
+        parts = content.get("parts")
+        if isinstance(parts, list):
+            for p in parts:
+                if isinstance(p, dict):
+                    txt = p.get("text")
+                    if isinstance(txt, str) and txt.strip():
+                        last_text = txt
+    return last_text
+
+
+def _ensure_session(engine, user_id: str) -> Optional[str]:
+    """ADK Agent Engines expect a session id on every stream_query call.
+
+    Try the documented surfaces; return None when the engine has no
+    session concept (older Reasoning Engines that accept naked input).
+    """
+    for fn_name in ("create_session", "start_session"):
+        fn = getattr(engine, fn_name, None)
+        if not callable(fn):
+            continue
+        try:
+            sess = fn(user_id=user_id)
+        except TypeError:
+            try:
+                sess = fn(user_id)
+            except Exception:
+                continue
+        except Exception:
+            continue
+        if isinstance(sess, dict):
+            return str(sess.get("id") or sess.get("session_id") or "")
+        sid = getattr(sess, "id", None) or getattr(sess, "session_id", None)
+        if sid:
+            return str(sid)
+    return None
+
+
 def _call_engine_with_fallbacks(engine, system: str, prompt: str):
-    """Try every plausible method + signature on the engine handle."""
-    payloads = [
+    """Try every plausible method + signature on the engine handle.
+
+    Prefer ADK signatures (stream_query with message/user_id/session_id)
+    since that's what AHVI's Style Orchestrator and Metadata Validator
+    deploy as. The system prompt is baked into the agent at build time
+    so we only send the user prompt here.
+    """
+    user_id = "ahvi-backend"
+    session_id = _ensure_session(engine, user_id)
+
+    # ADK Agent Engine call patterns (message-based + session-scoped).
+    adk_payloads: List[Dict[str, Any]] = [
+        {"message": prompt, "user_id": user_id, "session_id": session_id or ""},
+        {"message": prompt, "user_id": user_id},
+        {"message": prompt},
+    ]
+    # Generic Reasoning Engine fallback payloads.
+    generic_payloads: List[Dict[str, Any]] = [
         {"input": {"system": system, "prompt": prompt}},
         {"input": f"{system}\n\n{prompt}"},
         {"input": prompt},
@@ -135,19 +220,23 @@ def _call_engine_with_fallbacks(engine, system: str, prompt: str):
             {"role": "user", "content": prompt},
         ]},
     ]
+
     last_exc: Optional[Exception] = None
     for name in _METHOD_NAMES:
         fn = getattr(engine, name, None)
         if not callable(fn):
             continue
+        is_stream = name.startswith("stream")
+        # ADK signatures first for stream_query, generic first for query/run.
+        payloads = (adk_payloads + generic_payloads) if is_stream else (generic_payloads + adk_payloads)
         for payload in payloads:
+            # Strip session_id when blank to avoid TypeError on strict engines.
+            clean_payload = {k: v for k, v in payload.items() if v != ""}
             try:
-                result = fn(**payload)
+                result = fn(**clean_payload)
             except TypeError:
-                # Method exists but doesn't accept these kwargs — try
-                # positional with the first value.
                 try:
-                    first_val = next(iter(payload.values()))
+                    first_val = next(iter(clean_payload.values()))
                     result = fn(first_val)
                 except Exception as exc:
                     last_exc = exc
@@ -156,16 +245,27 @@ def _call_engine_with_fallbacks(engine, system: str, prompt: str):
                 last_exc = exc
                 continue
 
-            # Some engines return generators (stream_query). Drain them.
+            # Drain generators (stream_query yields events).
             if hasattr(result, "__iter__") and not isinstance(result, (dict, str, bytes, list)):
                 try:
-                    chunks = list(result)
-                except Exception:
-                    chunks = []
-                if not chunks:
+                    events = list(result)
+                except Exception as exc:
+                    last_exc = exc
+                    continue
+                if not events:
                     last_exc = RuntimeError(f"{name} returned empty stream")
                     continue
-                result = chunks[-1] if isinstance(chunks[-1], (dict, str)) else chunks
+                # If it looks like an ADK event list, pull the assistant text.
+                text = _extract_text_from_adk_events(events)
+                if text:
+                    return text, name
+                # Otherwise return the last chunk as-is.
+                return events[-1], name
+            if isinstance(result, list):
+                text = _extract_text_from_adk_events(result)
+                if text:
+                    return text, name
+                return result, name
             return result, name
     if last_exc is not None:
         raise last_exc
