@@ -303,6 +303,110 @@ def _call_engine_with_fallbacks(engine, system: str, prompt: str):
     )
 
 
+def _invoke_via_gapic(
+    resource_id: str,
+    *,
+    location: str,
+    prompt: str,
+    user_id: str = "ahvi-backend",
+) -> Optional[Any]:
+    """Call the deployed Agent Engine through the gapic execution client.
+
+    The high-level vertexai handle (`AgentEngine`) only exposes management
+    operations (create/delete/update/operation_schemas). The actual
+    `query` / `stream_query` operations on a deployed ADK agent live on
+    `ReasoningEngineExecutionServiceClient` in google-cloud-aiplatform.
+    """
+    try:
+        from google.cloud import aiplatform_v1beta1 as aiplatform_gapic  # type: ignore
+    except Exception as exc:
+        logger.warning(
+            "ahvi.agent.reasoning_engine_gapic_unavailable err=%s", str(exc)[:200]
+        )
+        return None
+
+    api_endpoint = f"{location}-aiplatform.googleapis.com"
+    try:
+        client = aiplatform_gapic.ReasoningEngineExecutionServiceClient(
+            client_options={"api_endpoint": api_endpoint}
+        )
+    except Exception as exc:
+        logger.warning(
+            "ahvi.agent.reasoning_engine_client_init_failed err=%s", str(exc)[:200]
+        )
+        return None
+
+    # The ADK agent's stream_query operation takes
+    # input.message + input.user_id + input.session_id (session optional).
+    request_payloads = [
+        {
+            "name": resource_id,
+            "input": {"message": prompt, "user_id": user_id},
+        },
+        {
+            "name": resource_id,
+            "input": {"input": prompt},
+        },
+        {
+            "name": resource_id,
+            "input": {"prompt": prompt},
+        },
+    ]
+
+    # Prefer streaming because that's how ADK Agent Engines expose
+    # LlmAgent.run output; fall back to non-streaming `query` if present.
+    last_exc: Optional[Exception] = None
+    for call_name in ("stream_query_reasoning_engine", "query_reasoning_engine"):
+        method = getattr(client, call_name, None)
+        if not callable(method):
+            continue
+        for req in request_payloads:
+            try:
+                resp = method(request=req)
+            except TypeError:
+                try:
+                    resp = method(**req)
+                except Exception as exc:
+                    last_exc = exc
+                    continue
+            except Exception as exc:
+                last_exc = exc
+                continue
+
+            # Streaming → iterate. Non-streaming → single response.
+            if hasattr(resp, "__iter__") and not isinstance(resp, (dict, str, bytes)):
+                chunks: List[Any] = []
+                try:
+                    for ch in resp:
+                        # gapic chunks are protobuf messages with .output.
+                        if hasattr(ch, "output"):
+                            chunks.append(ch.output)
+                        elif isinstance(ch, dict):
+                            chunks.append(ch)
+                        else:
+                            chunks.append(str(ch))
+                except Exception as exc:
+                    last_exc = exc
+                    continue
+                if chunks:
+                    return {"output": {"content": chunks[-1]} if isinstance(chunks[-1], str) else chunks[-1], "_method": call_name}
+            else:
+                if hasattr(resp, "output"):
+                    return {"output": {"content": resp.output}, "_method": call_name}
+                if isinstance(resp, dict):
+                    resp.setdefault("_method", call_name)
+                    return resp
+                return {"output": {"content": str(resp)}, "_method": call_name}
+
+    if last_exc is not None:
+        logger.warning(
+            "ahvi.agent.reasoning_engine_gapic_call_failed resource=%s err=%s",
+            resource_id,
+            str(last_exc)[:200],
+        )
+    return None
+
+
 def _invoke_reasoning_engine_sync(
     resource_id: str,
     *,
@@ -331,6 +435,23 @@ def _invoke_reasoning_engine_sync(
         except Exception:
             pass
 
+        # PRIMARY PATH: gapic ReasoningEngineExecutionServiceClient.
+        # The high-level AgentEngine handle returned by agent_engines.get()
+        # only exposes management ops (create/delete/list/update). The
+        # actual stream_query / query operations live on the gapic client.
+        gapic_result = _invoke_via_gapic(
+            resource_id, location=location, prompt=prompt
+        )
+        if gapic_result is not None:
+            logger.info(
+                "ahvi.agent.reasoning_engine_call_ok resource=%s method=%s",
+                resource_id,
+                gapic_result.get("_method") if isinstance(gapic_result, dict) else "gapic",
+            )
+            return _parse_engine_payload(gapic_result)
+
+        # FALLBACK PATH: try the high-level handle's bound methods in
+        # case the SDK is newer and exposes them directly.
         engine = _load_engine(resource_id)
         if engine is None:
             logger.warning(
@@ -339,8 +460,6 @@ def _invoke_reasoning_engine_sync(
             )
             return None
 
-        # One-shot introspection so the operator can see in Cloud Logs
-        # which callables this Agent Engine actually exposes.
         all_callables = _list_engine_callables(engine)
         logger.info(
             "ahvi.agent.reasoning_engine_loaded resource=%s type=%s callables=%s",
