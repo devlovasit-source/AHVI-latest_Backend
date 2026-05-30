@@ -609,6 +609,36 @@ def _log_gapic_detail(exc: Exception, req: Dict[str, Any]) -> None:
     )
 
 
+def _timeout_from_env() -> float:
+    """Reasoning Engine call timeout, honouring whichever AGENT_*_TIMEOUT
+    env var the calling agent layer set.
+
+    Vertex Agent Runtime stream_query for ADK LlmAgents can take
+    20–40s end-to-end (Gemini 2.5 flash + session + stream). If the
+    outer agent layer's timeout is shorter than the stream timeout the
+    response gets parsed successfully but nobody is listening — so
+    pick the MAX of the two env vars we know about, then clamp.
+    """
+    candidates = (
+        os.getenv("AGENT_REASONING_ENGINE_TIMEOUT_SECONDS"),
+        os.getenv("AGENT_STYLE_ORCHESTRATOR_TIMEOUT_SECONDS"),
+        os.getenv("AGENT_METADATA_VALIDATOR_TIMEOUT_SECONDS"),
+    )
+    best = 0.0
+    for raw in candidates:
+        if not raw:
+            continue
+        try:
+            v = float(raw)
+            if v > best:
+                best = v
+        except Exception:
+            continue
+    if best <= 0.0:
+        best = 30.0
+    return max(15.0, min(best, 120.0))
+
+
 def _google_bearer_token() -> Optional[str]:
     """Mint a bearer token via Application Default Credentials."""
     try:
@@ -667,12 +697,22 @@ def _adk_invoke_via_rest(
         "Content-Type": "application/json",
     }
 
-    # --- Step 1: create session ---
-    # Runtime operation names vary: try `create_session` first (current
-    # deployed agent ships this) and fall back to `async_create_session`.
+    # --- Step 1: create session (optional) ---
+    # Runtime operation names vary. The currently deployed AHVI
+    # orchestrator agent does NOT register either `create_session` nor
+    # `async_create_session` — both 400 Not Found and just burn time
+    # before the real stream_query call. The
+    # AGENT_REASONING_ENGINE_USE_SESSIONS env var controls whether we
+    # probe at all (default off because the failure is the common case).
     session_id: Optional[str] = None
     session_method_used: Optional[str] = None
-    for sess_method in ("create_session", "async_create_session"):
+    use_sessions = os.getenv(
+        "AGENT_REASONING_ENGINE_USE_SESSIONS", ""
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    session_methods = (
+        ("create_session", "async_create_session") if use_sessions else ()
+    )
+    for sess_method in session_methods:
         try:
             sess_resp = requests.post(
                 f"{base}:query",
@@ -1066,6 +1106,7 @@ def _invoke_reasoning_engine_sync(
             resource_id,
             location=location,
             prompt=prompt,
+            timeout=_timeout_from_env(),
         )
         if isinstance(adk_result, dict) and adk_result:
             logger.info(
