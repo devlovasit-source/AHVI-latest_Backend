@@ -131,10 +131,39 @@ _METHOD_NAMES = (
     "stream_query",
     "stream_query_text",
     "run",
+    "run_live",
     "invoke",
     "predict",
     "generate",
+    "chat",
+    "send",
+    "complete",
+    "respond",
+    "__call__",
 )
+
+
+def _list_engine_callables(engine) -> List[str]:
+    """Return every public callable attribute on the engine handle.
+
+    Used in warning logs so we can see — without re-deploying — what
+    method names the deployed Agent Engine actually exposes (these are
+    bound dynamically per agent).
+    """
+    out: List[str] = []
+    try:
+        for name in dir(engine):
+            if name.startswith("_"):
+                continue
+            try:
+                attr = getattr(engine, name)
+            except Exception:
+                continue
+            if callable(attr):
+                out.append(name)
+    except Exception:
+        pass
+    return sorted(out)
 
 
 def _extract_text_from_adk_events(events: List[Any]) -> str:
@@ -310,14 +339,27 @@ def _invoke_reasoning_engine_sync(
             )
             return None
 
+        # One-shot introspection so the operator can see in Cloud Logs
+        # which callables this Agent Engine actually exposes.
+        all_callables = _list_engine_callables(engine)
+        logger.info(
+            "ahvi.agent.reasoning_engine_loaded resource=%s type=%s callables=%s",
+            resource_id,
+            type(engine).__name__,
+            all_callables[:30],
+        )
+
         try:
             raw, method = _call_engine_with_fallbacks(engine, system, prompt)
         except Exception as exc:
             logger.warning(
-                "ahvi.agent.reasoning_engine_call_failed resource=%s err=%s available_methods=%s",
+                "ahvi.agent.reasoning_engine_call_failed resource=%s err=%s "
+                "probed=%s available_methods=%s engine_type=%s",
                 resource_id,
                 str(exc)[:200],
-                [m for m in _METHOD_NAMES if callable(getattr(engine, m, None))],
+                list(_METHOD_NAMES),
+                all_callables,
+                type(engine).__name__,
             )
             return None
 
