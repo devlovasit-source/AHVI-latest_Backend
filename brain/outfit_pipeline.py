@@ -2670,8 +2670,11 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     master_type, master_piece = master_candidates[0]
 
     # Two-phase combo pool build (see _build_diverse_combo_pool).
-    per_master_min = 6
-    global_max = 60
+    # Bumped per_master_min 6→8 and per-master batch 12→20 below so
+    # phase-2 round-robin has enough overflow to keep ≥4 unique heroes
+    # in the final brief pool after quality-guard rejections.
+    per_master_min = 8
+    global_max = 80
     unique_hero_target = 4
 
     def _hero_label(piece: Dict[str, Any]) -> str:
@@ -2687,7 +2690,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             candidate_piece,
             # Generous batch per master so phase 2 has overflow to
             # round-robin from; the global cap below still applies.
-            max_combos=12,
+            max_combos=20,
         )
         master_to_combos.append((_hero_label(candidate_piece), candidate_combinations))
 

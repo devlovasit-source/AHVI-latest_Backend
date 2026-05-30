@@ -790,6 +790,7 @@ class UnifiedStyleScorer:
             "occasion_item": 0.0,
             "occasion_compatibility": 0.0,
             "weather_compatibility": 0.0,
+            "metadata_richness": 0.0,
         }
 
         rules = style_engine.get_scoring_rules(style_dna, context)
@@ -916,6 +917,63 @@ class UnifiedStyleScorer:
             if agent_delta:
                 breakdown["agent_orchestration"] = round(float(agent_delta), 3)
                 reasons.extend(agent_reasons)
+
+        # ---- Metadata Validator richness signals as RANKING boosts ----
+        # The quality guard already uses these to reject/penalize unsafe
+        # combos. Surface them in the score breakdown too so good
+        # capsule / client / date items rise to the top before
+        # diversity-selection trims the pool.
+        try:
+            occ_text = (
+                str(context.get("occasion") or "").lower()
+                + " "
+                + str(context.get("query") or context.get("user_query") or "").lower()
+            )
+            md_delta = 0.0
+            md_reasons: List[str] = []
+            for it in items:
+                meta = it.get("style_metadata") if isinstance(it, dict) else None
+                if not isinstance(meta, dict):
+                    continue
+                try:
+                    cm = float(meta.get("client_meeting_score") or 0.0)
+                    br = float(meta.get("boardroom_score") or 0.0)
+                    cap = float(meta.get("capsule_score") or 0.0)
+                    ver = float(meta.get("versatility_score") or 0.0)
+                    dn = float(meta.get("date_night_score") or 0.0)
+                except Exception:
+                    continue
+                noise = str(meta.get("visual_noise") or "").strip().lower()
+                stmt = str(meta.get("statement_level") or "").strip().lower()
+                if "client" in occ_text or "meeting" in occ_text or "boardroom" in occ_text:
+                    if cm:
+                        md_delta += (cm - 0.5) * 2.0
+                        md_reasons.append("metadata.client_meeting_score boost")
+                    if br:
+                        md_delta += (br - 0.5) * 1.5
+                if "capsule" in occ_text or "essentials" in occ_text:
+                    if cap:
+                        md_delta += (cap - 0.5) * 3.0
+                        md_reasons.append("metadata.capsule_score boost")
+                    if ver:
+                        md_delta += (ver - 0.5) * 1.5
+                if "date" in occ_text or "dinner" in occ_text or "evening" in occ_text:
+                    if dn:
+                        md_delta += (dn - 0.5) * 2.0
+                        md_reasons.append("metadata.date_night_score boost")
+                # Universal penalties for noise / statement on professional
+                # & capsule briefs.
+                if noise == "high" and ("client" in occ_text or "meeting" in occ_text or "capsule" in occ_text):
+                    md_delta -= 1.0
+                if stmt in {"statement", "risky"} and "capsule" in occ_text:
+                    md_delta -= 1.5
+            if md_delta:
+                # Clamp so metadata can shift ranking but not dominate.
+                md_delta = max(-3.0, min(3.0, md_delta))
+                breakdown["metadata_richness"] = round(float(md_delta), 3)
+                reasons.extend(md_reasons[:3])
+        except Exception:
+            pass
 
         raw_score = sum(float(v or 0.0) for v in breakdown.values())
         score = max(0.0, min(raw_score, 10.0))

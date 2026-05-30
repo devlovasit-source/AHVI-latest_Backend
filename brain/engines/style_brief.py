@@ -106,20 +106,26 @@ _OCCASION_TOKENS: Dict[str, set] = {
     "party": {"party", "house_party", "night_out", "happy_hour", "celebration"},
     "travel": {"travel", "airport", "flight", "vacation", "trip", "transit"},
     "temple_modest": {"temple", "mandir", "pooja", "puja", "shrine", "darshan", "religious"},
+    "swimming": {"swim", "swimming", "swimwear", "swimsuit", "pool_day"},
+    "capsule": {"capsule", "essentials", "core_wardrobe", "minimal_wardrobe", "wardrobe_essentials"},
     "daily": {"daily", "today"},
     "casual": {"casual", "weekend", "errand", "coffee_run", "coffee"},
 }
 
 # When BOTH client and office tokens fire, prefer client_meeting.
 _OCCASION_PRIORITY: List[str] = [
+    "capsule",          # capsule beats everything — different engine.
+    "swimming",         # swimming beats beach because swim items are stricter.
     "workout",          # workout MUST beat office to fix the "work in workout" bug.
     "client_meeting",
     "wedding",
     "beach",
     "rave",
     "cocktail",
+    "party",            # party should beat date_night when both fire
+                        # (e.g. "party look tonight" — `tonight` alone
+                        # is ambiguous, `party` is the strong signal).
     "date_night",
-    "party",
     "travel",
     "temple_modest",
     "brunch",
@@ -304,6 +310,43 @@ _OCCASION_CONTRACTS: Dict[str, Dict[str, Any]] = {
         "allowed_badges": ["CASUAL", "DAILY"],
         "allowed_titles": ["Clean Daily", "Refined Casual", "Easy Daily"],
     },
+    "swimming": {
+        "sub_intent": "swimming",
+        "formality": "low",
+        "movement_requirement": "high",
+        "polish_requirement": "low",
+        "required_slots": ["top", "bottom", "footwear"],
+        "preferred_item_signals": [
+            "swimwear", "swim trunks", "swimsuit", "rash guard", "slides",
+            "sandals", "towel", "swim cap",
+        ],
+        "forbidden_item_signals": [
+            "blazer", "suit", "trouser", "trousers", "loafer", "loafers",
+            "boots", "office", "boardroom", "tie", "shirt",
+        ],
+        "board_mood": ["coastal", "easy", "swim-ready"],
+        "allowed_badges": ["SWIM", "POOL"],
+        "allowed_titles": ["Pool Ready", "Swim Casual", "Coastal Swim"],
+    },
+    "capsule": {
+        "sub_intent": "capsule_wardrobe",
+        "formality": "mid",
+        "movement_requirement": "medium",
+        "polish_requirement": "mid",
+        "required_slots": ["top", "bottom", "footwear"],
+        "preferred_item_signals": [
+            "white", "black", "navy", "neutral", "shirt", "trouser",
+            "trousers", "chino", "chinos", "denim", "tee", "sneaker",
+            "sneakers", "loafer", "loafers", "blazer",
+        ],
+        "forbidden_item_signals": [
+            "sequined", "neon", "embroidered", "printed", "novelty",
+            "shiny", "metallic", "statement",
+        ],
+        "board_mood": ["timeless", "versatile", "neutral", "repeatable"],
+        "allowed_badges": ["CAPSULE", "ESSENTIALS"],
+        "allowed_titles": ["Capsule Foundation", "Versatile Core", "Essentials Edit"],
+    },
     "daily": {
         "sub_intent": "daily",
         "formality": "mid",
@@ -397,6 +440,23 @@ _ACCESSORY_OCCASION_RULES: Dict[str, Dict[str, List[str]]] = {
     "daily": {
         "allowed": ["watch", "cap", "bag", "sunglasses", "chain", "ring"],
         "forbidden": ["swim cap", "swim goggles", "snorkel"],
+    },
+    "swimming": {
+        "allowed": [
+            "swim cap", "swim goggles", "goggles", "snorkel", "towel",
+            "sunglasses", "tote", "beach bag", "slides", "sandals",
+            "water bottle",
+        ],
+        "forbidden": [
+            "tie", "pocket square", "briefcase", "watch", "belt", "loafer",
+        ],
+    },
+    "capsule": {
+        "allowed": ["watch", "belt", "ring", "bag", "sunglasses"],
+        "forbidden": [
+            "swim cap", "swim goggles", "snorkel", "fanny pack", "neon",
+            "statement", "sequined", "novelty",
+        ],
     },
 }
 
@@ -777,6 +837,65 @@ def _palette(board: Dict[str, Any]) -> str:
     return "|".join(sorted(set(colors)))
 
 
+def _accessory_keys(board: Dict[str, Any]) -> List[str]:
+    keys: List[str] = []
+    for item in board.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or item.get("slot") or "").lower()
+        if role != "accessory":
+            continue
+        keys.append(
+            str(item.get("id") or item.get("$id") or item.get("name") or "").lower()
+        )
+    return [k for k in keys if k]
+
+
+def _rotate_accessories_across_boards(
+    boards: List[Dict[str, Any]],
+) -> None:
+    """In-place dedup so the same accessory doesn't appear in every board.
+
+    Per board (after the first), drop any accessory item whose id/name
+    already appeared on a previously-chosen board. Top/bottom/footwear
+    are never touched.
+    """
+    if not isinstance(boards, list) or len(boards) <= 1:
+        return
+    used: set = set()
+    for idx, board in enumerate(boards):
+        if not isinstance(board, dict):
+            continue
+        items = board.get("items") or []
+        new_items: List[Dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                new_items.append(item)
+                continue
+            role = str(item.get("role") or item.get("slot") or "").lower()
+            if role != "accessory":
+                new_items.append(item)
+                continue
+            key = str(item.get("id") or item.get("$id") or item.get("name") or "").lower()
+            if idx > 0 and key and key in used:
+                # Drop the duplicate accessory; another board can keep it.
+                continue
+            if key:
+                used.add(key)
+            new_items.append(item)
+        board["items"] = new_items
+        if isinstance(board.get("accessories"), list):
+            board["accessories"] = [
+                acc for acc in board["accessories"]
+                if not isinstance(acc, dict)
+                or str(acc.get("id") or acc.get("$id") or acc.get("name") or "").lower() not in used
+                or (
+                    # Keep accessory if THIS board's primary accessory.
+                    idx == 0
+                )
+            ]
+
+
 def select_board_set(
     candidates: List[Dict[str, Any]],
     brief: Dict[str, Any],
@@ -856,6 +975,10 @@ def select_board_set(
     role_labels = ["primary", "alternate", "expressive"]
     for idx, card in enumerate(chosen):
         card["set_role"] = role_labels[idx] if idx < len(role_labels) else "extra"
+
+    # Accessory rotation: drop accessories already worn by an earlier
+    # board so the same gold ring / watch doesn't appear three times.
+    _rotate_accessories_across_boards(chosen)
 
     logger.info(
         "style_set.selected occasion=%s chosen=%d from=%d",

@@ -282,13 +282,81 @@ def _build_summary(occasion_key: str, style_meta: Dict[str, Any]) -> str:
     return "Clean, intentional, and easy to wear."
 
 
+_OCCASION_WHY_TEMPLATES: Dict[str, List[str]] = {
+    "client_meeting": [
+        "The tailored bottom and clean footwear keep the look client-facing and polished while staying approachable.",
+        "The composed top + structured bottom combination reads intentional in a boardroom without trying too hard.",
+        "Clean lines and a restrained palette let the work speak — nothing on the body competes with the conversation.",
+    ],
+    "office": [
+        "The shirt + trouser register stays smart-casual without leaning corporate-stiff.",
+        "Footwear and palette keep this credible for the office while remaining easy to move in.",
+        "Composed proportions read intentional from across a room without feeling overdressed.",
+    ],
+    "date_night": [
+        "Soft texture on top and a darker bottom register make this read intentional after dark.",
+        "The relaxed silhouette + cleaner footwear gives an effortless evening polish.",
+        "Restrained palette + one quiet accessory finish keeps the focus on you, not the outfit.",
+    ],
+    "party": [
+        "The statement piece is paired with quieter neutrals so the look has a hero without competing.",
+        "Sharper bottom + relaxed top + considered footwear gives the social-edited finish.",
+    ],
+    "workout": [
+        "Activewear pairing keeps movement easy with no formal pieces fighting the brief.",
+        "Performance-led top + bottom combo with the right footwear for the session.",
+    ],
+    "travel": [
+        "Comfortable layers + composed footwear handle a long day across transit without looking thrown together.",
+        "The neutral palette reads polished on arrival and forgiving en route.",
+    ],
+    "beach": [
+        "Breathable top + relaxed bottom + sand-friendly footwear stay coastal without effort.",
+        "Light fabric + neutral palette reads resort-easy in heat.",
+    ],
+    "swimming": [
+        "Swim-ready essentials only — nothing here will fight the pool.",
+        "Easy slip-on footwear and a swim-appropriate top keep the brief honest.",
+    ],
+    "wedding": [
+        "Formal-event pairing with respectful tailoring + clean footwear for a ceremony register.",
+        "Composed silhouette + a restrained accessory finish keeps the focus on the moment.",
+    ],
+    "formal_event": [
+        "Tailored top + structured bottom + formal footwear keeps the register correct for the event.",
+        "Quiet palette + considered accessory keeps the look composed without overstating.",
+    ],
+    "capsule": [
+        "These pieces form a versatile foundation — each can recombine across multiple briefs without leaning into novelty.",
+        "Neutral palette + clean cuts mean every item earns repeat wear instead of single-occasion use.",
+    ],
+    "casual": [
+        "Easy top + relaxed bottom + clean footwear delivers a polished daily without overworking.",
+    ],
+    "daily": [
+        "Clean smart-casual base that handles whatever the day asks of it.",
+    ],
+}
+
+
 def _build_why(
     outfit: Dict[str, Any],
     score_reasons: List[str],
     palette: List[str],
     style_direction: str,
     weather: str,
+    occasion_key: str = "",
 ) -> str:
+    # Occasion-aware editorial template wins when the brief is known —
+    # avoids the legacy "carries the personality" / "keeps it from
+    # turning loud" generic copy.
+    occ_key = (occasion_key or "").lower()
+    if occ_key in _OCCASION_WHY_TEMPLATES:
+        templates = _OCCASION_WHY_TEMPLATES[occ_key]
+        stable_key = _text(outfit.get("combo_id") or outfit.get("id") or "board")
+        idx = (sum(ord(c) for c in stable_key) if stable_key else 0) % len(templates)
+        return templates[idx]
+
     breakdown = _dict(outfit.get("score_breakdown"))
     try:
         color_hint = float(breakdown.get("color_intelligence") or breakdown.get("palette") or 0.0)
@@ -309,7 +377,7 @@ def _build_why(
         if x
     ).strip()
 
-    if bank:
+    if bank and "personality" not in bank.lower() and "loud" not in bank.lower():
         return _truncate_sentence(bank)
 
     if "palette aligned" in score_reasons:
@@ -462,7 +530,7 @@ class BoardStoryteller:
                 fallback_title=_text(board.get("title")),
             ),
             "summary": _build_summary(occasion_key, style_meta),
-            "why": _build_why(outfit, score_reasons, palette, style_direction, weather),
+            "why": _build_why(outfit, score_reasons, palette, style_direction, weather, occasion_key=occasion_key),
             "personal_note": _build_personal_note(context, style_meta),
             "occasion_fit": _build_occasion_fit(occasion_key, weather),
             "tip": _build_tip(occasion_key, palette),

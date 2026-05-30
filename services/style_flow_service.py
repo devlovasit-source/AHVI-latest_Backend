@@ -3328,6 +3328,28 @@ def build_style_flow_response(
     if normalized_occasion:
         ctx["occasion"] = normalized_occasion
 
+    # Capsule wardrobe short-circuit. Capsule requests don't want a
+    # single styled board — they want a foundation + sample looks +
+    # missing-slot guidance. Detect early and bypass the standard
+    # outfit pipeline entirely.
+    try:
+        from brain.engines.capsule_engine import (
+            build_capsule_response,
+            looks_like_capsule_request,
+        )
+
+        if looks_like_capsule_request(query) or normalized_occasion == "capsule":
+            logger.info(
+                "ahvi.style_flow.capsule_request user=%s query=%r", user_id, query
+            )
+            return build_capsule_response(
+                user_id=user_id,
+                wardrobe=wardrobe if isinstance(wardrobe, list) else [],
+                query=query,
+            )
+    except Exception:
+        logger.warning("ahvi.style_flow.capsule_route_failed", exc_info=True)
+
     # AHVI Style Orchestrator agent layer — produces structured intent from
     # the AHVI Style Orchestrator Agent / Gemini. Fully gated by the
     # ENABLE_AGENT_STYLE_ORCHESTRATOR env flag; safe defaults are merged when
@@ -3422,9 +3444,11 @@ def build_style_flow_response(
 
     # Broader candidate pool so style_brief.select_board_set has real
     # diversity to choose from. Final response is sliced to requested N
-    # after brief validation/selection.
+    # after brief validation/selection. Bumped from 4x to 8x with a
+    # 24-card floor so accessory + hero diversity survive even after
+    # quality-guard rejections.
     _final_target = int(requested_board_count or 3)
-    _pool_size = max(_final_target * 4, 8)
+    _pool_size = max(_final_target * 8, 24)
 
     finalized = finalize_style_response_payload(
         result,
