@@ -662,7 +662,12 @@ def _adk_invoke_via_rest(
         session_id or "<none>",
     )
 
-    # --- Step 3: drain the SSE stream + collect event JSON ---
+    # --- Step 3: drain the stream + collect event JSON ---
+    # The ADK runtime sometimes responds in SSE shape (`data: {...}`) and
+    # sometimes streams raw JSON lines (no `data:` prefix) even when
+    # ?alt=sse is requested. Handle both. Also try buffering the full
+    # body and parsing as one JSON blob when line-by-line parsing yields
+    # nothing.
     events: List[Any] = []
     raw_lines: List[str] = []
     try:
@@ -672,14 +677,16 @@ def _adk_invoke_via_rest(
             raw_lines.append(raw_line)
             if not raw_line:
                 continue
-            if not raw_line.startswith("data:"):
-                continue
-            payload = raw_line[5:].strip()
+            payload = raw_line
+            if payload.startswith("data:"):
+                payload = payload[5:].strip()
             if not payload or payload == "[DONE]":
                 continue
             try:
                 events.append(json.loads(payload))
             except json.JSONDecodeError:
+                # Not parseable on its own — keep as text fragment, the
+                # full-body fallback below will try concatenated JSON.
                 events.append(payload)
     except Exception as exc:
         logger.warning(
@@ -687,6 +694,28 @@ def _adk_invoke_via_rest(
             _flatten(exc, 200),
         )
         return None
+
+    # Fallback: some streams emit a single JSON object split across many
+    # iter_lines chunks. If we got no parsed events but have raw lines,
+    # try parsing the concatenated body.
+    parsed_dict_events = [e for e in events if isinstance(e, dict)]
+    if not parsed_dict_events and raw_lines:
+        joined = "".join(
+            line[5:].strip() if line.startswith("data:") else line
+            for line in raw_lines
+        ).strip()
+        if joined and joined != "[DONE]":
+            try:
+                events.append(json.loads(joined))
+            except json.JSONDecodeError:
+                # Try to lift the first {...} block (helpful when the
+                # body has leading log noise or trailing commentary).
+                m = re.search(r"\{.*\}", joined, re.DOTALL)
+                if m:
+                    try:
+                        events.append(json.loads(m.group(0)))
+                    except Exception:
+                        pass
 
     logger.info(
         "ahvi.agent.reasoning_engine_stream_raw lines=%d events=%d preview=%s",
