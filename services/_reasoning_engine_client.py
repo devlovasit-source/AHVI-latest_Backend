@@ -381,6 +381,17 @@ def _extract_assistant_text(chunks: List[Any]) -> str:
     return last_text
 
 
+def _flatten(value: Any, limit: int = 500) -> str:
+    """Single-line, length-bounded representation for log fields.
+
+    Cloud Logging splits stdout on `\\n`, so any newline in str(exc)
+    cuts off the rest of the warning line and we lose detail/class_method/
+    input_keys.
+    """
+    text = "" if value is None else str(value)
+    return text.replace("\n", " | ").replace("\r", " ")[:limit]
+
+
 def _log_gapic_detail(exc: Exception, req: Dict[str, Any]) -> None:
     """Surface the underlying gRPC/REST error detail.
 
@@ -400,12 +411,15 @@ def _log_gapic_detail(exc: Exception, req: Dict[str, Any]) -> None:
                 break
         except Exception:
             continue
+    # repr(exc) keeps everything on one line including the chained cause
+    # which often carries the real schema error.
     logger.warning(
         "ahvi.agent.reasoning_engine_gapic_attempt_failed "
-        "err=%s err_type=%s detail=%s class_method=%s input_keys=%s",
-        str(exc)[:200],
+        "err=%s err_type=%s detail=%s repr=%s class_method=%s input_keys=%s",
+        _flatten(exc, 300),
         type(exc).__name__,
-        detail[:500],
+        _flatten(detail, 600),
+        _flatten(repr(exc), 600),
         (req.get("input") or {}).get("class_method"),
         sorted(list(((req.get("input") or {}).get("input") or {}).keys())),
     )
