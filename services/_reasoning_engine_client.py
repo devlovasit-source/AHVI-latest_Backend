@@ -303,6 +303,84 @@ def _call_engine_with_fallbacks(engine, system: str, prompt: str):
     )
 
 
+def _proto_to_python(msg: Any) -> Optional[Any]:
+    """Convert a gapic / protobuf chunk to a plain Python value.
+
+    Handles three shapes seen on stream_query_reasoning_engine:
+    1. `proto-plus` messages (have a `.to_dict()` classmethod or instance).
+    2. Raw protobuf messages (use google.protobuf.json_format.MessageToDict).
+    3. Already-decoded dicts / strings / lists.
+    """
+    if msg is None:
+        return None
+    if isinstance(msg, (dict, list, str, int, float, bool)):
+        return msg
+    # proto-plus instance method.
+    to_dict_method = getattr(type(msg), "to_dict", None)
+    if callable(to_dict_method):
+        try:
+            return type(msg).to_dict(msg)
+        except Exception:
+            pass
+    # Plain google.protobuf.
+    try:
+        from google.protobuf.json_format import MessageToDict  # type: ignore
+
+        return MessageToDict(msg, preserving_proto_field_name=True)
+    except Exception:
+        pass
+    # Last resort.
+    try:
+        return dict(msg)  # type: ignore[arg-type]
+    except Exception:
+        return None
+
+
+def _extract_assistant_text(chunks: List[Any]) -> str:
+    """Walk ADK stream_query chunks and return the last assistant text.
+
+    Each chunk after MessageToDict looks like:
+      {"output": {"content": "..."}}                          # generic
+      {"content": {"parts": [{"text": "..."}], "role": "..."}} # ADK
+      {"output": {"parts": [{"text": "..."}]}}                # variant
+    """
+    last_text = ""
+    for ch in chunks or []:
+        if not isinstance(ch, dict):
+            continue
+        # Top-level content.
+        content = ch.get("content")
+        if isinstance(content, dict):
+            parts = content.get("parts")
+            if isinstance(parts, list):
+                for p in parts:
+                    if isinstance(p, dict) and isinstance(p.get("text"), str) and p["text"].strip():
+                        last_text = p["text"]
+        if isinstance(content, str) and content.strip():
+            last_text = content
+        # output.content / output.parts.
+        output = ch.get("output")
+        if isinstance(output, dict):
+            inner = output.get("content")
+            if isinstance(inner, str) and inner.strip():
+                last_text = inner
+            if isinstance(inner, dict):
+                parts = inner.get("parts")
+                if isinstance(parts, list):
+                    for p in parts:
+                        if isinstance(p, dict) and isinstance(p.get("text"), str) and p["text"].strip():
+                            last_text = p["text"]
+            outer_parts = output.get("parts")
+            if isinstance(outer_parts, list):
+                for p in outer_parts:
+                    if isinstance(p, dict) and isinstance(p.get("text"), str) and p["text"].strip():
+                        last_text = p["text"]
+        # Plain text field.
+        if isinstance(ch.get("text"), str) and ch["text"].strip():
+            last_text = ch["text"]
+    return last_text
+
+
 def _invoke_via_gapic(
     resource_id: str,
     *,
@@ -378,24 +456,30 @@ def _invoke_via_gapic(
                 chunks: List[Any] = []
                 try:
                     for ch in resp:
-                        # gapic chunks are protobuf messages with .output.
-                        if hasattr(ch, "output"):
-                            chunks.append(ch.output)
-                        elif isinstance(ch, dict):
-                            chunks.append(ch)
-                        else:
-                            chunks.append(str(ch))
+                        chunk_py = _proto_to_python(ch)
+                        if chunk_py is not None:
+                            chunks.append(chunk_py)
                 except Exception as exc:
                     last_exc = exc
                     continue
                 if chunks:
-                    return {"output": {"content": chunks[-1]} if isinstance(chunks[-1], str) else chunks[-1], "_method": call_name}
+                    logger.info(
+                        "ahvi.agent.reasoning_engine_gapic_chunks resource=%s count=%d sample_keys=%s",
+                        resource_id,
+                        len(chunks),
+                        sorted(list(chunks[-1].keys()))[:8] if isinstance(chunks[-1], dict) else [],
+                    )
+                    return {
+                        "_method": call_name,
+                        "_chunks": chunks,
+                        "output": {"content": _extract_assistant_text(chunks)},
+                    }
             else:
-                if hasattr(resp, "output"):
-                    return {"output": {"content": resp.output}, "_method": call_name}
-                if isinstance(resp, dict):
-                    resp.setdefault("_method", call_name)
-                    return resp
+                py = _proto_to_python(resp)
+                if py is not None:
+                    if isinstance(py, dict):
+                        py.setdefault("_method", call_name)
+                    return py
                 return {"output": {"content": str(resp)}, "_method": call_name}
 
     if last_exc is not None:
