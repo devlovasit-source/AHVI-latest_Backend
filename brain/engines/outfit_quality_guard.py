@@ -799,6 +799,86 @@ def guard_outfit(
                 penalty -= 10
                 reasons.append("low-confidence style_metadata for high-stakes occasion")
 
+            # ---- Metadata Validator richness signals ----
+            def _meta_float(key: str) -> float:
+                try:
+                    return float(meta.get(key) or 0.0)
+                except Exception:
+                    return 0.0
+
+            client_meeting_score = _meta_float("client_meeting_score")
+            boardroom_score = _meta_float("boardroom_score")
+            capsule_score = _meta_float("capsule_score")
+            versatility_score = _meta_float("versatility_score")
+            date_night_score = _meta_float("date_night_score")
+
+            visual_noise = str(meta.get("visual_noise") or "").strip().lower()
+            statement_level = str(meta.get("statement_level") or "").strip().lower()
+            pattern_intensity = str(meta.get("pattern_intensity") or "").strip().lower()
+            risk_flags = {
+                str(flag).strip().lower()
+                for flag in (meta.get("risk_flags") or [])
+                if str(flag).strip()
+            }
+
+            if professional:
+                if client_meeting_score and client_meeting_score < 0.50:
+                    penalty -= 40
+                    reasons.append("low client meeting suitability")
+
+                if boardroom_score and boardroom_score < 0.45:
+                    penalty -= 30
+                    reasons.append("low boardroom suitability")
+
+                if visual_noise == "high":
+                    penalty -= 35
+                    reasons.append("high visual noise for professional context")
+
+                if pattern_intensity in {"loud", "moderate"}:
+                    penalty -= 25
+                    reasons.append("pattern intensity weakens professional polish")
+
+                if statement_level in {"statement", "risky"}:
+                    penalty -= 30
+                    reasons.append("statement/risky garment in professional context")
+
+                if "too_casual_for_professional" in risk_flags:
+                    return False, -100, ["style_metadata risk: too casual for professional"], fixed
+
+                if "high_visual_noise" in risk_flags and client_meeting_score < 0.55:
+                    penalty -= 30
+                    reasons.append("high visual noise risk")
+
+            if formal:
+                if boardroom_score and boardroom_score < 0.40:
+                    penalty -= 35
+                    reasons.append("low formal suitability")
+
+                if statement_level == "risky":
+                    return False, -100, ["style_metadata risk: risky garment for formal context"], fixed
+
+            if "capsule" in occasion_for_meta or "capsule" in query.lower():
+                if capsule_score:
+                    if capsule_score < 0.45:
+                        penalty -= 35
+                        reasons.append("low capsule wardrobe suitability")
+                    elif capsule_score >= 0.80:
+                        penalty += 10
+                        reasons.append("strong capsule wardrobe foundation")
+
+                if versatility_score and versatility_score < 0.45:
+                    penalty -= 20
+                    reasons.append("low versatility for capsule wardrobe")
+
+                if statement_level in {"statement", "risky"}:
+                    penalty -= 30
+                    reasons.append("statement garment weakens capsule wardrobe")
+
+            if "date" in occasion_for_meta or "dinner" in occasion_for_meta:
+                if date_night_score and date_night_score >= 0.75:
+                    penalty += 8
+                    reasons.append("strong date-night suitability")
+
     # ---- AHVI Style Orchestrator agent guard ----
     agent_payload = outfit.get("agent_orchestration") if isinstance(outfit, dict) else None
     if not isinstance(agent_payload, dict):
