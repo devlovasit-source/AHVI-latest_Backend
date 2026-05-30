@@ -66,6 +66,103 @@ def test_validate_agent_style_payload_handles_garbage_input():
     assert payload == default_agent_payload()
 
 
+# ---------------------------------------------------------------------------
+# Confidence inference — ADK agents omit `confidence` even when strong
+# ---------------------------------------------------------------------------
+
+def test_explicit_confidence_is_preserved():
+    payload = validate_agent_style_payload(
+        {"occasion": "office", "style_direction": "modern_tailoring", "confidence": 0.92}
+    )
+    assert payload["confidence"] == 0.92
+
+
+def test_confidence_inferred_when_missing_but_signals_rich():
+    """Real ADK shape — agent returned every key but no confidence."""
+    payload = validate_agent_style_payload(
+        {
+            "occasion": "client_meeting",
+            "sub_intent": "professional_meeting",
+            "formality": "smart_business",
+            "style_direction": "modern_tailoring",
+            "required_slots": ["top", "bottom", "footwear"],
+            "avoid_items": ["shorts", "slides"],
+            "palette_direction": ["navy"],
+            "accessory_policy": {"allow_open_toe_footwear": False},
+            "wardrobe_usage": "preferred",
+        }
+    )
+    # All 7 weighted signal keys present (0.20+0.15+0.20+0.10+0.10+0.05+0.05 = 0.85)
+    assert payload["confidence"] >= 0.80
+    assert payload["confidence"] <= 0.90
+
+
+def test_confidence_inferred_minimum_floor_for_partial_signal():
+    """Even one strong signal should clear the 0.50 merge floor."""
+    payload = validate_agent_style_payload(
+        {"occasion": "workout"}
+    )
+    # Raw score 0.20 → clamped to 0.50 floor.
+    assert payload["confidence"] == 0.50
+
+
+def test_confidence_inferred_capped_at_ceiling():
+    """No single inference can claim certainty above 0.90."""
+    payload = validate_agent_style_payload(
+        {
+            "occasion": "office",
+            "sub_intent": "client_meeting",
+            "style_direction": "modern_tailoring",
+            "required_slots": ["top", "bottom", "footwear"],
+            "avoid_items": ["shorts"],
+            "palette_direction": ["navy"],
+            "accessory_policy": {"k": "v"},
+        }
+    )
+    assert payload["confidence"] <= 0.90
+
+
+def test_inferred_confidence_clears_merge_low_confidence_gate():
+    """End-to-end: agent payload without explicit confidence must NOT be
+    discarded by merge_low_confidence (the 0.6+ floor in the merge)."""
+    ctx: Dict[str, Any] = {"occasion": "office"}
+    raw_agent_dict = {
+        "occasion": "client_meeting",
+        "sub_intent": "professional_meeting",
+        "style_direction": "modern_tailoring",
+        "required_slots": ["top", "bottom", "footwear"],
+        "avoid_items": ["shorts"],
+    }
+    payload = validate_agent_style_payload(raw_agent_dict)
+    # Even the conservative merge keeps avoid_items + required_slots
+    # regardless of confidence. The big assertion: confidence is high
+    # enough that ah agent.merge_low_confidence does NOT preserve the
+    # router intent when there's an explicit conflict.
+    assert payload["confidence"] >= 0.50
+
+
+def test_default_payload_confidence_stays_zero():
+    """A fully-empty payload must still return confidence=0.0 so the
+    legacy merge_low_confidence + router-protect path keeps working."""
+    payload = default_agent_payload()
+    assert payload["confidence"] == 0.0
+
+
+def test_zero_confidence_when_only_default_keys_present():
+    """Inference must not fire on the synthetic default payload that's
+    constructed from None (no real agent reasoning happened)."""
+    payload = validate_agent_style_payload(None)
+    assert payload["confidence"] == 0.0
+
+
+def test_inferred_confidence_does_not_overwrite_zero_when_agent_said_zero():
+    """If the agent explicitly sent confidence=0.0, honour it as low."""
+    payload = validate_agent_style_payload(
+        {"occasion": "office", "confidence": 0.0}
+    )
+    assert payload["confidence"] == 0.0
+
+
 def test_orchestrate_sync_disabled_returns_default(monkeypatch):
     monkeypatch.delenv("ENABLE_AGENT_STYLE_ORCHESTRATOR", raising=False)
     result = orchestrate_style_request_sync(

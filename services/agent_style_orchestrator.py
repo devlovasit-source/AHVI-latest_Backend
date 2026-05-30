@@ -120,13 +120,85 @@ def _coerce_confidence(value: Any) -> float:
     return c
 
 
+# Keys whose presence (non-empty) signals real agent reasoning happened.
+_CONFIDENCE_SIGNAL_KEYS_WEIGHTED = (
+    ("occasion", 0.20),
+    ("sub_intent", 0.15),
+    ("style_direction", 0.20),
+    ("required_slots", 0.10),
+    ("avoid_items", 0.10),
+    ("palette_direction", 0.05),
+    ("accessory_policy", 0.05),
+)
+
+
+def _has_value(raw: Dict[str, Any], key: str) -> bool:
+    """True when key is present AND non-empty / non-default."""
+    if not isinstance(raw, dict) or key not in raw:
+        return False
+    val = raw.get(key)
+    if val is None:
+        return False
+    if isinstance(val, str):
+        return bool(val.strip())
+    if isinstance(val, (list, tuple, set, dict)):
+        return bool(val)
+    return True
+
+
+def _infer_confidence(raw: Dict[str, Any]) -> float:
+    """Score signal richness when the agent forgot to include confidence.
+
+    Each populated orchestration key contributes per
+    _CONFIDENCE_SIGNAL_KEYS_WEIGHTED; the sum is clamped to [0.50, 0.90].
+    """
+    if not isinstance(raw, dict) or not raw:
+        return 0.0
+    score = 0.0
+    for key, weight in _CONFIDENCE_SIGNAL_KEYS_WEIGHTED:
+        if _has_value(raw, key):
+            score += weight
+    if score <= 0.0:
+        return 0.0
+    if score < 0.50:
+        score = 0.50
+    if score > 0.90:
+        score = 0.90
+    return round(score, 2)
+
+
 def validate_agent_style_payload(payload: Any) -> Dict[str, Any]:
     """Normalize and defensively coerce an agent payload to the documented schema.
 
     Missing or invalid fields fall back to safe defaults. Always returns a
     full payload — callers can rely on every key being present.
+
+    Confidence handling:
+    - If the agent supplied an explicit confidence number, honour it.
+    - If the field is missing AND the payload carries real orchestration
+      signals (occasion / sub_intent / style_direction / required_slots /
+      avoid_items / palette_direction / accessory_policy), infer a
+      richness-weighted confidence in [0.50, 0.90] and log it. ADK agents
+      frequently omit the confidence field even when their output is
+      strong, which otherwise causes merge_low_confidence to discard the
+      whole payload.
     """
     raw = payload if isinstance(payload, dict) else {}
+
+    explicit_confidence = "confidence" in raw and raw.get("confidence") is not None
+    if explicit_confidence:
+        confidence_value = _coerce_confidence(raw.get("confidence"))
+    else:
+        confidence_value = _infer_confidence(raw)
+        if confidence_value > 0.0:
+            try:
+                logger.info(
+                    "ahvi.agent.confidence_inferred confidence=%.2f keys=%s",
+                    confidence_value,
+                    sorted(raw.keys())[:12],
+                )
+            except Exception:
+                pass
 
     validated: Dict[str, Any] = {
         "occasion": _coerce_str(raw.get("occasion"), _DEFAULT_PAYLOAD["occasion"]),
@@ -146,7 +218,7 @@ def validate_agent_style_payload(payload: Any) -> Dict[str, Any]:
         "accessory_policy": _coerce_dict(raw.get("accessory_policy")),
         "clarification_needed": _coerce_bool(raw.get("clarification_needed"), False),
         "clarification_reason": _coerce_str(raw.get("clarification_reason"), ""),
-        "confidence": _coerce_confidence(raw.get("confidence")),
+        "confidence": confidence_value,
     }
     return validated
 
