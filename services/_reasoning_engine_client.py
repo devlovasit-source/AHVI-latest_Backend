@@ -381,6 +381,36 @@ def _extract_assistant_text(chunks: List[Any]) -> str:
     return last_text
 
 
+def _log_gapic_detail(exc: Exception, req: Dict[str, Any]) -> None:
+    """Surface the underlying gRPC/REST error detail.
+
+    Vertex wraps the real reason (e.g. "Operation 'stream_query' not
+    registered" or "Schema validation failed: missing field 'X'") inside
+    a generic '400 Reasoning Engine Execution failed.' string. Pull the
+    detail off the exception so we can iterate without re-deploying.
+    """
+    detail = ""
+    for attr in ("details", "message", "reason"):
+        val = getattr(exc, attr, None)
+        try:
+            if callable(val):
+                val = val()
+            if val:
+                detail = str(val)
+                break
+        except Exception:
+            continue
+    logger.warning(
+        "ahvi.agent.reasoning_engine_gapic_attempt_failed "
+        "err=%s err_type=%s detail=%s class_method=%s input_keys=%s",
+        str(exc)[:200],
+        type(exc).__name__,
+        detail[:500],
+        (req.get("input") or {}).get("class_method"),
+        sorted(list(((req.get("input") or {}).get("input") or {}).keys())),
+    )
+
+
 def _invoke_via_gapic(
     resource_id: str,
     *,
@@ -451,9 +481,11 @@ def _invoke_via_gapic(
                     resp = method(**req)
                 except Exception as exc:
                     last_exc = exc
+                    _log_gapic_detail(exc, req)
                     continue
             except Exception as exc:
                 last_exc = exc
+                _log_gapic_detail(exc, req)
                 continue
 
             # Streaming → iterate. Non-streaming → single response.
