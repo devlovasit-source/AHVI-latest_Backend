@@ -414,22 +414,25 @@ def _invoke_via_gapic(
         )
         return None
 
-    # The ADK agent's stream_query operation takes
-    # input.message + input.user_id + input.session_id (session optional).
-    request_payloads = [
-        {
-            "name": resource_id,
-            "input": {"message": prompt, "user_id": user_id},
-        },
-        {
-            "name": resource_id,
-            "input": {"input": prompt},
-        },
-        {
-            "name": resource_id,
-            "input": {"prompt": prompt},
-        },
+    # Vertex Agent Engine dispatches to the deployed agent's registered
+    # operations via `class_method`. For ADK LlmAgents the live operations
+    # are `stream_query` (event stream) and sometimes `query` (single
+    # response). Each gets the agent's input under nested `input.input`.
+    adk_inputs = [
+        {"message": prompt, "user_id": user_id},
+        {"input": prompt, "user_id": user_id},
+        {"prompt": prompt, "user_id": user_id},
+        {"message": prompt},
     ]
+
+    def _build_request(class_method: str, agent_input: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "name": resource_id,
+            "input": {
+                "class_method": class_method,
+                "input": agent_input,
+            },
+        }
 
     # Prefer streaming because that's how ADK Agent Engines expose
     # LlmAgent.run output; fall back to non-streaming `query` if present.
@@ -438,6 +441,8 @@ def _invoke_via_gapic(
         method = getattr(client, call_name, None)
         if not callable(method):
             continue
+        method_short = "stream_query" if call_name.startswith("stream") else "query"
+        request_payloads = [_build_request(method_short, agent_input) for agent_input in adk_inputs]
         for req in request_payloads:
             try:
                 resp = method(request=req)
@@ -484,9 +489,11 @@ def _invoke_via_gapic(
 
     if last_exc is not None:
         logger.warning(
-            "ahvi.agent.reasoning_engine_gapic_call_failed resource=%s err=%s",
+            "ahvi.agent.reasoning_engine_gapic_call_failed resource=%s err=%s "
+            "last_request_keys=%s",
             resource_id,
-            str(last_exc)[:200],
+            str(last_exc)[:300],
+            sorted(list((request_payloads[-1].get("input") or {}).keys())) if request_payloads else [],
         )
     return None
 
