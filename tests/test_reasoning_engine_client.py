@@ -77,6 +77,120 @@ def test_parse_engine_payload_invalid_inner_json_returns_none():
 
 
 # ---------------------------------------------------------------------------
+# Robust agent-response extraction (the actual ADK shape from production)
+# ---------------------------------------------------------------------------
+
+def test_strip_json_fence_removes_backticks():
+    assert rec._strip_json_fence("```json\n{\"a\":1}\n```") == '{"a":1}'
+    assert rec._strip_json_fence("```\n{\"a\":1}\n```") == '{"a":1}'
+    assert rec._strip_json_fence('{"a":1}') == '{"a":1}'
+
+
+def test_try_parse_json_text_handles_fenced_block():
+    assert rec._try_parse_json_text("```json\n{\"occasion\":\"office\"}\n```") == {"occasion": "office"}
+
+
+def test_try_parse_json_text_lifts_first_dict_when_wrapped_in_prose():
+    raw = "Here you go: {\"occasion\":\"date_night\"} hope that helps"
+    assert rec._try_parse_json_text(raw) == {"occasion": "date_night"}
+
+
+def test_try_parse_json_text_returns_none_on_unsalvageable():
+    assert rec._try_parse_json_text("hello world") is None
+    assert rec._try_parse_json_text(None) is None
+
+
+def test_extract_agent_json_direct_dict():
+    p = {"occasion": "office", "style_direction": "smart_casual", "confidence": 0.9}
+    assert rec._extract_agent_json(p) == p
+
+
+def test_extract_agent_json_adk_content_parts_text_with_fence():
+    """The exact ADK runtime shape AHVI returns in production."""
+    payload = {
+        "model_version": "gemini-2.5-flash",
+        "content": {
+            "parts": [
+                {
+                    "text": "```json\n"
+                            "{\n"
+                            "  \"occasion\": \"client_meeting\",\n"
+                            "  \"sub_intent\": \"professional_meeting\",\n"
+                            "  \"formality\": \"smart_business\",\n"
+                            "  \"style_direction\": \"modern_tailoring\",\n"
+                            "  \"avoid_items\": [\"shorts\"],\n"
+                            "  \"required_slots\": [\"top\", \"bottom\", \"footwear\"]\n"
+                            "}\n"
+                            "```"
+                }
+            ]
+        },
+    }
+    parsed = rec._extract_agent_json(payload)
+    assert parsed is not None
+    assert parsed["occasion"] == "client_meeting"
+    assert parsed["sub_intent"] == "professional_meeting"
+    assert parsed["style_direction"] == "modern_tailoring"
+    assert "shorts" in parsed["avoid_items"]
+
+
+def test_extract_agent_json_output_string_envelope():
+    payload = {"output": "```json {\"occasion\":\"workout\"}```"}
+    parsed = rec._extract_agent_json(payload)
+    assert parsed == {"occasion": "workout"}
+
+
+def test_extract_agent_json_response_string_envelope():
+    payload = {"response": "{\"occasion\":\"date_night\"}"}
+    parsed = rec._extract_agent_json(payload)
+    assert parsed == {"occasion": "date_night"}
+
+
+def test_extract_agent_json_gemini_candidates_envelope():
+    payload = {
+        "candidates": [
+            {"content": {"parts": [{"text": "{\"occasion\":\"travel\"}"}]}}
+        ]
+    }
+    parsed = rec._extract_agent_json(payload)
+    assert parsed == {"occasion": "travel"}
+
+
+def test_extract_agent_json_list_of_events_picks_last_match():
+    events = [
+        {"content": {"parts": [{"text": "thinking..."}]}},
+        {"content": {"parts": [{"text": "{\"occasion\":\"office\"}"}]}},
+    ]
+    parsed = rec._extract_agent_json(events)
+    assert parsed == {"occasion": "office"}
+
+
+def test_extract_agent_json_metadata_schema_keys_match():
+    """Metadata validator returns a different key set; should still extract."""
+    payload = {
+        "content": {
+            "parts": [
+                {"text": "{\"category\":\"Tops\",\"style_role\":\"businesswear\",\"confidence\":0.9}"}
+            ]
+        }
+    }
+    parsed = rec._extract_agent_json(payload)
+    assert parsed["category"] == "Tops"
+    assert parsed["style_role"] == "businesswear"
+
+
+def test_extract_agent_json_returns_none_when_no_schema_keys():
+    payload = {"content": {"parts": [{"text": "{\"foo\":\"bar\"}"}]}}
+    assert rec._extract_agent_json(payload) is None
+
+
+def test_extract_agent_json_handles_garbage():
+    assert rec._extract_agent_json(None) is None
+    assert rec._extract_agent_json("hello") is None
+    assert rec._extract_agent_json(42) is None
+
+
+# ---------------------------------------------------------------------------
 # call_reasoning_engine async wrapper safety
 # ---------------------------------------------------------------------------
 

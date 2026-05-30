@@ -338,6 +338,155 @@ def _discover_operation_names(resource_id: str) -> List[str]:
         return fallback
 
 
+# ---------------------------------------------------------------------------
+# Agent response parsing
+#
+# The Vertex Agent Runtime / ADK streams responses in many envelope
+# shapes depending on the deployed agent and SDK version. The three
+# helpers below are the canonical parsing pipeline. Transport code calls
+# `_extract_agent_json(payload)` and gets back a flat dict ready for the
+# schema validator, or None.
+# ---------------------------------------------------------------------------
+
+# Keys that, if present in a dict, mean we found the agent's structured
+# output and should stop the recursive search.
+_AGENT_SCHEMA_KEYS = {
+    "occasion",
+    "sub_intent",
+    "formality",
+    "style_direction",
+    "required_slots",
+    "avoid_items",
+    "palette_direction",
+    "category",          # metadata validator schema
+    "style_role",        # metadata validator schema
+}
+
+
+def _strip_json_fence(text: str) -> str:
+    """Drop ```json ... ``` (or plain ``` ... ```) wrappers."""
+    if not isinstance(text, str):
+        return text
+    t = text.strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```(?:json|JSON)?\s*", "", t)
+        t = re.sub(r"\s*```\s*$", "", t)
+    return t.strip()
+
+
+def _try_parse_json_text(text: Any) -> Optional[Any]:
+    """Best-effort parse. Returns dict/list/None.
+
+    - Strips ```json fences
+    - Falls back to lifting the first {...} block when surrounding prose
+      breaks json.loads
+    """
+    if not isinstance(text, str):
+        return None
+    raw = _strip_json_fence(text)
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+    m = re.search(r"\{.*\}", raw, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except Exception:
+            return None
+    return None
+
+
+def _looks_like_agent_dict(d: Any) -> bool:
+    """True when a dict has at least one AHVI schema key."""
+    if not isinstance(d, dict):
+        return False
+    return any(k in _AGENT_SCHEMA_KEYS for k in d.keys())
+
+
+def _extract_agent_json(payload: Any, _depth: int = 0) -> Optional[Dict[str, Any]]:
+    """Recursively walk any agent response envelope and return the first
+    dict that matches the AHVI schema.
+
+    Supports envelopes:
+      A) Direct dict already matching the schema.
+      B) ADK Runtime: {"content": {"parts": [{"text": "```json {...}```"}]}}
+      C) {"output": "```json {...} ```"}
+      D) {"response": "```json {...} ```"} / {"response": {"text": ...}}
+      E) {"candidates": [{"content": {"parts": [...]}}]} (Gemini envelope)
+      F) Arbitrarily nested dict/list combinations of the above.
+    """
+    if _depth > 8 or payload is None:
+        return None
+
+    # Direct match — early exit.
+    if isinstance(payload, dict) and _looks_like_agent_dict(payload):
+        return {k: v for k, v in payload.items() if not k.startswith("_")}
+
+    if isinstance(payload, str):
+        parsed = _try_parse_json_text(payload)
+        if parsed is None:
+            return None
+        return _extract_agent_json(parsed, _depth + 1)
+
+    if isinstance(payload, list):
+        # Walk newest-first so the assistant's final answer wins over
+        # intermediate reasoning chunks when the agent streams events.
+        for item in reversed(payload):
+            found = _extract_agent_json(item, _depth + 1)
+            if found is not None:
+                return found
+        return None
+
+    if isinstance(payload, dict):
+        # Common single-text fields the agent embeds JSON into.
+        for key in ("text", "output", "response", "content", "message", "result"):
+            if key not in payload:
+                continue
+            inner = payload[key]
+            # If it's a plain string with embedded JSON, parse + recurse.
+            if isinstance(inner, str):
+                found = _extract_agent_json(inner, _depth + 1)
+                if found is not None:
+                    return found
+            elif isinstance(inner, (dict, list)):
+                found = _extract_agent_json(inner, _depth + 1)
+                if found is not None:
+                    return found
+
+        # ADK message envelope: content.parts[*].text
+        content = payload.get("content")
+        if isinstance(content, dict):
+            parts = content.get("parts")
+            if isinstance(parts, list):
+                for p in parts:
+                    if isinstance(p, dict):
+                        text = p.get("text")
+                        if isinstance(text, str):
+                            found = _extract_agent_json(text, _depth + 1)
+                            if found is not None:
+                                return found
+
+        # Gemini candidates envelope.
+        for key in ("candidates", "predictions", "outputs", "events", "_chunks"):
+            inner = payload.get(key)
+            if isinstance(inner, list):
+                found = _extract_agent_json(inner, _depth + 1)
+                if found is not None:
+                    return found
+
+        # Last-ditch: walk all remaining dict/list/string values.
+        for v in payload.values():
+            if isinstance(v, (dict, list, str)):
+                found = _extract_agent_json(v, _depth + 1)
+                if found is not None:
+                    return found
+
+    return None
+
+
 def _proto_to_python(msg: Any) -> Optional[Any]:
     """Convert a gapic / protobuf chunk to a plain Python value.
 
@@ -727,34 +876,21 @@ def _adk_invoke_via_rest(
     if not events:
         return None
 
-    # Pull the final assistant text from the events.
-    text = _extract_assistant_text(events)
-    if not text:
-        # Some agents stream a single JSON dict directly without ADK
-        # content envelope — try the last event as-is.
-        last = events[-1]
-        if isinstance(last, dict):
-            parsed = _parse_engine_payload(last)
-            if isinstance(parsed, dict) and parsed:
-                logger.info("ahvi.agent.reasoning_engine_parse_success path=last_event")
-                return parsed
-        text = str(last) if last is not None else ""
-
-    if not text:
-        logger.warning(
-            "ahvi.agent.reasoning_engine_parse_failed reason=no_text "
-            "preview=%s", _flatten(events[-1], 300),
-        )
-        return None
-
-    parsed = _parse_engine_payload(text)
+    # Recursive extractor handles every envelope we've seen so far:
+    # ADK content.parts[*].text with ```json fences, direct dict,
+    # {output:...}, {response:...}, {candidates:[...]} etc.
+    parsed = _extract_agent_json(events)
     if isinstance(parsed, dict) and parsed:
-        logger.info("ahvi.agent.reasoning_engine_parse_success path=text")
+        logger.info(
+            "ahvi.agent.reasoning_engine_parse_success keys=%s",
+            sorted(parsed.keys())[:12],
+        )
         return parsed
 
+    preview = _flatten(events[-1] if events else raw_lines, 500)
     logger.warning(
-        "ahvi.agent.reasoning_engine_parse_failed reason=text_not_json preview=%s",
-        _flatten(text, 300),
+        "ahvi.agent.reasoning_engine_parse_failed preview=%s",
+        preview,
     )
     return None
 
