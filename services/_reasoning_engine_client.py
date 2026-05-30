@@ -460,6 +460,223 @@ def _log_gapic_detail(exc: Exception, req: Dict[str, Any]) -> None:
     )
 
 
+def _google_bearer_token() -> Optional[str]:
+    """Mint a bearer token via Application Default Credentials."""
+    try:
+        from google.auth import default as google_auth_default  # type: ignore
+        from google.auth.transport.requests import Request as GAuthRequest  # type: ignore
+
+        creds, _ = google_auth_default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        if not creds.valid:
+            creds.refresh(GAuthRequest())
+        return getattr(creds, "token", None)
+    except Exception as exc:
+        logger.warning(
+            "ahvi.agent.reasoning_engine_auth_failed err=%s", _flatten(exc, 200)
+        )
+        return None
+
+
+def _adk_invoke_via_rest(
+    resource_id: str,
+    *,
+    location: str,
+    prompt: str,
+    user_id: str = "ahvi_backend",
+    timeout: float = 20.0,
+) -> Optional[Dict[str, Any]]:
+    """Invoke a deployed ADK Agent Runtime via the v1 REST API.
+
+    Per https://adk.dev/deploy/agent-runtime/test/ the dispatch is:
+      Step 1: POST {resource}:query
+              { "class_method": "async_create_session",
+                "input": {"user_id": ...} }
+              -> {"output": {"id": "<session_id>", ...}}
+      Step 2: POST {resource}:streamQuery?alt=sse
+              { "class_method": "async_stream_query",
+                "input": {"user_id": ..., "session_id": ..., "message": ...} }
+              -> Server-Sent Events stream of agent events.
+    """
+    try:
+        import requests  # type: ignore  (google-auth pulls it in)
+    except Exception as exc:
+        logger.warning(
+            "ahvi.agent.reasoning_engine_requests_unavailable err=%s",
+            _flatten(exc, 200),
+        )
+        return None
+
+    token = _google_bearer_token()
+    if not token:
+        return None
+
+    base = f"https://{location}-aiplatform.googleapis.com/v1/{resource_id.strip()}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    # --- Step 1: create session ---
+    try:
+        sess_resp = requests.post(
+            f"{base}:query",
+            json={
+                "class_method": "async_create_session",
+                "input": {"user_id": user_id},
+            },
+            headers=headers,
+            timeout=max(5.0, timeout),
+        )
+    except Exception as exc:
+        logger.warning(
+            "ahvi.agent.reasoning_engine_session_request_failed err=%s",
+            _flatten(exc, 200),
+        )
+        return None
+
+    if sess_resp.status_code >= 400:
+        logger.warning(
+            "ahvi.agent.reasoning_engine_session_http_error status=%d body=%s",
+            sess_resp.status_code,
+            _flatten(sess_resp.text, 400),
+        )
+        return None
+
+    try:
+        sess_data = sess_resp.json()
+    except Exception:
+        logger.warning(
+            "ahvi.agent.reasoning_engine_session_bad_json body=%s",
+            _flatten(sess_resp.text, 400),
+        )
+        return None
+
+    output = sess_data.get("output") if isinstance(sess_data, dict) else None
+    session_id = None
+    if isinstance(output, dict):
+        session_id = output.get("id") or output.get("session_id")
+    elif isinstance(sess_data, dict):
+        session_id = sess_data.get("id") or sess_data.get("session_id")
+    if not session_id:
+        logger.warning(
+            "ahvi.agent.reasoning_engine_session_missing_id body=%s",
+            _flatten(sess_data, 400),
+        )
+        return None
+
+    logger.info(
+        "ahvi.agent.reasoning_engine_session_created resource=%s session_id=%s",
+        resource_id,
+        session_id,
+    )
+
+    # --- Step 2: stream the query ---
+    try:
+        stream_resp = requests.post(
+            f"{base}:streamQuery?alt=sse",
+            json={
+                "class_method": "async_stream_query",
+                "input": {
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "message": prompt,
+                },
+            },
+            headers=headers,
+            timeout=max(10.0, timeout),
+            stream=True,
+        )
+    except Exception as exc:
+        logger.warning(
+            "ahvi.agent.reasoning_engine_stream_request_failed err=%s",
+            _flatten(exc, 200),
+        )
+        return None
+
+    if stream_resp.status_code >= 400:
+        logger.warning(
+            "ahvi.agent.reasoning_engine_stream_http_error status=%d body=%s",
+            stream_resp.status_code,
+            _flatten(stream_resp.text, 400),
+        )
+        return None
+
+    logger.info(
+        "ahvi.agent.reasoning_engine_stream_call resource=%s session_id=%s",
+        resource_id,
+        session_id,
+    )
+
+    # --- Step 3: drain the SSE stream + collect event JSON ---
+    events: List[Any] = []
+    raw_lines: List[str] = []
+    try:
+        for raw_line in stream_resp.iter_lines(decode_unicode=True):
+            if raw_line is None:
+                continue
+            raw_lines.append(raw_line)
+            if not raw_line:
+                continue
+            if not raw_line.startswith("data:"):
+                continue
+            payload = raw_line[5:].strip()
+            if not payload or payload == "[DONE]":
+                continue
+            try:
+                events.append(json.loads(payload))
+            except json.JSONDecodeError:
+                events.append(payload)
+    except Exception as exc:
+        logger.warning(
+            "ahvi.agent.reasoning_engine_stream_iter_failed err=%s",
+            _flatten(exc, 200),
+        )
+        return None
+
+    logger.info(
+        "ahvi.agent.reasoning_engine_stream_raw lines=%d events=%d preview=%s",
+        len(raw_lines),
+        len(events),
+        _flatten(raw_lines[-3:] if raw_lines else [], 300),
+    )
+
+    if not events:
+        return None
+
+    # Pull the final assistant text from the events.
+    text = _extract_assistant_text(events)
+    if not text:
+        # Some agents stream a single JSON dict directly without ADK
+        # content envelope — try the last event as-is.
+        last = events[-1]
+        if isinstance(last, dict):
+            parsed = _parse_engine_payload(last)
+            if isinstance(parsed, dict) and parsed:
+                logger.info("ahvi.agent.reasoning_engine_parse_success path=last_event")
+                return parsed
+        text = str(last) if last is not None else ""
+
+    if not text:
+        logger.warning(
+            "ahvi.agent.reasoning_engine_parse_failed reason=no_text "
+            "preview=%s", _flatten(events[-1], 300),
+        )
+        return None
+
+    parsed = _parse_engine_payload(text)
+    if isinstance(parsed, dict) and parsed:
+        logger.info("ahvi.agent.reasoning_engine_parse_success path=text")
+        return parsed
+
+    logger.warning(
+        "ahvi.agent.reasoning_engine_parse_failed reason=text_not_json preview=%s",
+        _flatten(text, 300),
+    )
+    return None
+
+
 def _invoke_via_gapic(
     resource_id: str,
     *,
@@ -623,8 +840,24 @@ def _invoke_reasoning_engine_sync(
         except Exception:
             pass
 
-        # Discover the operations the deployed agent actually registered.
-        # Logged once per call so we can iterate without re-deploying.
+        # PRIMARY PATH: ADK Agent Runtime REST flow (per adk.dev docs).
+        # Two POSTs: async_create_session then async_stream_query against
+        # the deployed reasoning engine. This is the only dispatch shape
+        # the runtime accepts for ADK-deployed LlmAgents.
+        adk_result = _adk_invoke_via_rest(
+            resource_id,
+            location=location,
+            prompt=prompt,
+        )
+        if isinstance(adk_result, dict) and adk_result:
+            logger.info(
+                "ahvi.agent.reasoning_engine_call_ok resource=%s method=adk_async_stream_query",
+                resource_id,
+            )
+            return adk_result
+
+        # FALLBACK: discover operation names + gapic execution client.
+        # Used when the REST flow returns nothing (custom non-ADK engine).
         registered_ops = _discover_operation_names(resource_id)
         logger.info(
             "ahvi.agent.reasoning_engine_operations resource=%s ops=%s",
@@ -632,10 +865,6 @@ def _invoke_reasoning_engine_sync(
             registered_ops,
         )
 
-        # PRIMARY PATH: gapic ReasoningEngineExecutionServiceClient.
-        # The high-level AgentEngine handle returned by agent_engines.get()
-        # only exposes management ops (create/delete/list/update). The
-        # actual stream_query / query operations live on the gapic client.
         gapic_result = _invoke_via_gapic(
             resource_id,
             location=location,
