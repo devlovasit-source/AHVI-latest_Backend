@@ -460,6 +460,30 @@ async def orchestrate_style_request(
     if not raw:
         return default_agent_payload()
 
+    # Inject inferred confidence on the RAW agent response before
+    # validation. Some ADK-deployed agents return every orchestration
+    # key but omit the documented `confidence` field, which would
+    # otherwise leave validated.confidence at 0.0 and trip the
+    # merge_low_confidence gate that discards the whole payload.
+    if isinstance(raw, dict) and "confidence" not in raw:
+        signal_keys = {
+            "occasion",
+            "sub_intent",
+            "formality",
+            "style_direction",
+            "required_slots",
+            "avoid_items",
+            "palette_direction",
+            "accessory_policy",
+        }
+        if any(k in raw and raw.get(k) for k in signal_keys):
+            raw["confidence"] = _infer_confidence(raw) or 0.75
+            logger.info(
+                "ahvi.agent.confidence_inferred confidence=%.2f keys=%s",
+                raw["confidence"],
+                sorted(raw.keys())[:12],
+            )
+
     validated = validate_agent_style_payload(raw)
     logger.info(
         "ahvi.agent.style_orchestration user_id=%s occasion=%s sub_intent=%s "
