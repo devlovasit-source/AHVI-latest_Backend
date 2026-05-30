@@ -519,94 +519,147 @@ def _adk_invoke_via_rest(
     }
 
     # --- Step 1: create session ---
-    try:
-        sess_resp = requests.post(
-            f"{base}:query",
-            json={
-                "class_method": "async_create_session",
-                "input": {"user_id": user_id},
-            },
-            headers=headers,
-            timeout=max(5.0, timeout),
-        )
-    except Exception as exc:
-        logger.warning(
-            "ahvi.agent.reasoning_engine_session_request_failed err=%s",
-            _flatten(exc, 200),
-        )
-        return None
+    # Runtime operation names vary: try `create_session` first (current
+    # deployed agent ships this) and fall back to `async_create_session`.
+    session_id: Optional[str] = None
+    session_method_used: Optional[str] = None
+    for sess_method in ("create_session", "async_create_session"):
+        try:
+            sess_resp = requests.post(
+                f"{base}:query",
+                json={
+                    "class_method": sess_method,
+                    "input": {"user_id": user_id},
+                },
+                headers=headers,
+                timeout=max(5.0, timeout),
+            )
+        except Exception as exc:
+            logger.warning(
+                "ahvi.agent.reasoning_engine_session_request_failed "
+                "method=%s err=%s",
+                sess_method, _flatten(exc, 200),
+            )
+            continue
 
-    if sess_resp.status_code >= 400:
-        logger.warning(
-            "ahvi.agent.reasoning_engine_session_http_error status=%d body=%s",
-            sess_resp.status_code,
-            _flatten(sess_resp.text, 400),
-        )
-        return None
+        if sess_resp.status_code >= 400:
+            logger.warning(
+                "ahvi.agent.reasoning_engine_session_http_error "
+                "method=%s status=%d body=%s",
+                sess_method, sess_resp.status_code,
+                _flatten(sess_resp.text, 400),
+            )
+            continue
 
-    try:
-        sess_data = sess_resp.json()
-    except Exception:
-        logger.warning(
-            "ahvi.agent.reasoning_engine_session_bad_json body=%s",
-            _flatten(sess_resp.text, 400),
-        )
-        return None
+        try:
+            sess_data = sess_resp.json()
+        except Exception:
+            logger.warning(
+                "ahvi.agent.reasoning_engine_session_bad_json method=%s body=%s",
+                sess_method, _flatten(sess_resp.text, 400),
+            )
+            continue
 
-    output = sess_data.get("output") if isinstance(sess_data, dict) else None
-    session_id = None
-    if isinstance(output, dict):
-        session_id = output.get("id") or output.get("session_id")
-    elif isinstance(sess_data, dict):
-        session_id = sess_data.get("id") or sess_data.get("session_id")
-    if not session_id:
+        output = sess_data.get("output") if isinstance(sess_data, dict) else None
+        if isinstance(output, dict):
+            session_id = output.get("id") or output.get("session_id")
+        elif isinstance(sess_data, dict):
+            session_id = sess_data.get("id") or sess_data.get("session_id")
+        if session_id:
+            session_method_used = sess_method
+            break
         logger.warning(
-            "ahvi.agent.reasoning_engine_session_missing_id body=%s",
-            _flatten(sess_data, 400),
+            "ahvi.agent.reasoning_engine_session_missing_id method=%s body=%s",
+            sess_method, _flatten(sess_data, 400),
         )
-        return None
 
-    logger.info(
-        "ahvi.agent.reasoning_engine_session_created resource=%s session_id=%s",
-        resource_id,
-        session_id,
-    )
+    if session_id:
+        logger.info(
+            "ahvi.agent.reasoning_engine_session_created "
+            "resource=%s method=%s session_id=%s",
+            resource_id, session_method_used, session_id,
+        )
 
     # --- Step 2: stream the query ---
-    try:
-        stream_resp = requests.post(
-            f"{base}:streamQuery?alt=sse",
-            json={
-                "class_method": "async_stream_query",
+    # Build attempt list. When session was created, send with full envelope
+    # (ADK-style message object first, then plain string fallback). If
+    # session creation failed, still try stream_query without a session id.
+    adk_message_obj = {"role": "user", "parts": [{"text": prompt}]}
+    base_payloads: List[Dict[str, Any]] = []
+    if session_id:
+        base_payloads.extend([
+            {
+                "class_method": "stream_query",
+                "input": {
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "message": adk_message_obj,
+                },
+            },
+            {
+                "class_method": "stream_query",
                 "input": {
                     "user_id": user_id,
                     "session_id": session_id,
                     "message": prompt,
                 },
             },
-            headers=headers,
-            timeout=max(10.0, timeout),
-            stream=True,
-        )
-    except Exception as exc:
-        logger.warning(
-            "ahvi.agent.reasoning_engine_stream_request_failed err=%s",
-            _flatten(exc, 200),
-        )
-        return None
+        ])
+    base_payloads.extend([
+        {
+            "class_method": "stream_query",
+            "input": {"message": adk_message_obj},
+        },
+        {
+            "class_method": "stream_query",
+            "input": {"message": prompt},
+        },
+    ])
 
-    if stream_resp.status_code >= 400:
-        logger.warning(
-            "ahvi.agent.reasoning_engine_stream_http_error status=%d body=%s",
-            stream_resp.status_code,
-            _flatten(stream_resp.text, 400),
+    stream_resp = None
+    for body in base_payloads:
+        logger.info(
+            "ahvi.agent.reasoning_engine_stream_attempt class_method=%s input_keys=%s",
+            body.get("class_method"),
+            sorted(list((body.get("input") or {}).keys())),
         )
+        try:
+            stream_resp = requests.post(
+                f"{base}:streamQuery?alt=sse",
+                json=body,
+                headers=headers,
+                timeout=max(10.0, timeout),
+                stream=True,
+            )
+        except Exception as exc:
+            logger.warning(
+                "ahvi.agent.reasoning_engine_stream_request_failed "
+                "class_method=%s err=%s",
+                body.get("class_method"), _flatten(exc, 200),
+            )
+            stream_resp = None
+            continue
+
+        if stream_resp.status_code >= 400:
+            logger.warning(
+                "ahvi.agent.reasoning_engine_stream_http_error "
+                "class_method=%s input_keys=%s status=%d body=%s",
+                body.get("class_method"),
+                sorted(list((body.get("input") or {}).keys())),
+                stream_resp.status_code,
+                _flatten(stream_resp.text, 400),
+            )
+            stream_resp = None
+            continue
+        break
+
+    if stream_resp is None:
         return None
 
     logger.info(
         "ahvi.agent.reasoning_engine_stream_call resource=%s session_id=%s",
         resource_id,
-        session_id,
+        session_id or "<none>",
     )
 
     # --- Step 3: drain the SSE stream + collect event JSON ---
@@ -851,7 +904,7 @@ def _invoke_reasoning_engine_sync(
         )
         if isinstance(adk_result, dict) and adk_result:
             logger.info(
-                "ahvi.agent.reasoning_engine_call_ok resource=%s method=adk_async_stream_query",
+                "ahvi.agent.reasoning_engine_call_ok resource=%s method=adk_rest_stream_query",
                 resource_id,
             )
             return adk_result
