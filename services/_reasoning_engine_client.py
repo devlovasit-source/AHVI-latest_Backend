@@ -88,6 +88,92 @@ def _parse_engine_payload(payload: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _load_engine(resource_id: str):
+    """Return a live engine handle from the Vertex SDK.
+
+    Newer Vertex SDKs expose Agent Engines via `vertexai.agent_engines.get`.
+    Older / preview ones use `vertexai.preview.reasoning_engines.ReasoningEngine`.
+    Try both so we keep working across SDK versions.
+    """
+    # Newer API surface (preferred).
+    try:
+        from vertexai import agent_engines  # type: ignore
+        return agent_engines.get(resource_id.strip())
+    except Exception:
+        pass
+    # Preview API surface.
+    try:
+        from vertexai.preview import reasoning_engines  # type: ignore
+        # Some SDK builds support a `get(resource_id)` constructor; others
+        # accept the resource id directly on the class.
+        if hasattr(reasoning_engines, "ReasoningEngine"):
+            return reasoning_engines.ReasoningEngine(resource_id.strip())
+    except Exception:
+        pass
+    return None
+
+
+_METHOD_NAMES = (
+    "query",
+    "stream_query",
+    "stream_query_text",
+    "run",
+    "invoke",
+    "predict",
+    "generate",
+)
+
+
+def _call_engine_with_fallbacks(engine, system: str, prompt: str):
+    """Try every plausible method + signature on the engine handle."""
+    payloads = [
+        {"input": {"system": system, "prompt": prompt}},
+        {"input": f"{system}\n\n{prompt}"},
+        {"input": prompt},
+        {"messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ]},
+    ]
+    last_exc: Optional[Exception] = None
+    for name in _METHOD_NAMES:
+        fn = getattr(engine, name, None)
+        if not callable(fn):
+            continue
+        for payload in payloads:
+            try:
+                result = fn(**payload)
+            except TypeError:
+                # Method exists but doesn't accept these kwargs — try
+                # positional with the first value.
+                try:
+                    first_val = next(iter(payload.values()))
+                    result = fn(first_val)
+                except Exception as exc:
+                    last_exc = exc
+                    continue
+            except Exception as exc:
+                last_exc = exc
+                continue
+
+            # Some engines return generators (stream_query). Drain them.
+            if hasattr(result, "__iter__") and not isinstance(result, (dict, str, bytes, list)):
+                try:
+                    chunks = list(result)
+                except Exception:
+                    chunks = []
+                if not chunks:
+                    last_exc = RuntimeError(f"{name} returned empty stream")
+                    continue
+                result = chunks[-1] if isinstance(chunks[-1], (dict, str)) else chunks
+            return result, name
+    if last_exc is not None:
+        raise last_exc
+    raise AttributeError(
+        f"engine exposes no callable in {list(_METHOD_NAMES)}"
+    )
+
+
 def _invoke_reasoning_engine_sync(
     resource_id: str,
     *,
@@ -100,8 +186,7 @@ def _invoke_reasoning_engine_sync(
     surrounding event loop is not blocked.
     """
     try:
-        import vertexai  # type: ignore
-        from vertexai.preview import reasoning_engines  # type: ignore
+        import vertexai  # type: ignore  # noqa: F401  (kept for SDK init)
     except Exception as exc:
         logger.warning("ahvi.agent.reasoning_engine_sdk_unavailable err=%s", str(exc)[:200])
         return None
@@ -110,19 +195,37 @@ def _invoke_reasoning_engine_sync(
     location = _location_from_resource(resource_id, fallback="us-central1")
 
     try:
-        if project:
-            vertexai.init(project=project, location=location)
-        engine = reasoning_engines.ReasoningEngine(resource_id.strip())
-        # ReasoningEngine.query signatures differ across SDK versions.
-        # Try the documented `input` keyword first, then fall back to
-        # positional, then to a dict payload.
         try:
-            raw = engine.query(input={"system": system, "prompt": prompt})
-        except TypeError:
-            try:
-                raw = engine.query({"system": system, "prompt": prompt})
-            except Exception:
-                raw = engine.query(input=prompt)
+            import vertexai  # type: ignore
+            if project:
+                vertexai.init(project=project, location=location)
+        except Exception:
+            pass
+
+        engine = _load_engine(resource_id)
+        if engine is None:
+            logger.warning(
+                "ahvi.agent.reasoning_engine_load_failed resource=%s reason=no_sdk_handle",
+                resource_id,
+            )
+            return None
+
+        try:
+            raw, method = _call_engine_with_fallbacks(engine, system, prompt)
+        except Exception as exc:
+            logger.warning(
+                "ahvi.agent.reasoning_engine_call_failed resource=%s err=%s available_methods=%s",
+                resource_id,
+                str(exc)[:200],
+                [m for m in _METHOD_NAMES if callable(getattr(engine, m, None))],
+            )
+            return None
+
+        logger.info(
+            "ahvi.agent.reasoning_engine_call_ok resource=%s method=%s",
+            resource_id,
+            method,
+        )
         return _parse_engine_payload(raw)
     except Exception as exc:
         logger.warning(
