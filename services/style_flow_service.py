@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import logging
+import math
 import os
 import re
 import time
@@ -2535,6 +2536,30 @@ def _select_diverse_cards(
     enforce_accessory_limit = len(unique_accessories) > 1
     enforce_base_variation = len(unique_bases) > 1
     strong_office_footwear_exists = _office_has_strong_footwear(cards, query)
+    top_reuse_needed = math.ceil(limit / max(1, len(unique_tops)))
+    bottom_reuse_needed = math.ceil(limit / max(1, len(unique_bottoms)))
+    footwear_reuse_needed = math.ceil(limit / max(1, len(unique_footwear)))
+    accessory_reuse_needed = math.ceil(limit / max(1, len(unique_accessories)))
+    base_reuse_needed = math.ceil(limit / max(1, len(unique_bases)))
+    max_top_reuse = max(MAX_TOP_REUSE, top_reuse_needed) if allow_core_variants else MAX_TOP_REUSE
+    max_bottom_reuse = max(3, bottom_reuse_needed) if allow_core_variants else MAX_BOTTOM_REUSE
+    max_footwear_reuse = max(MAX_FOOTWEAR_REUSE, footwear_reuse_needed) if allow_core_variants else MAX_FOOTWEAR_REUSE
+    max_accessory_reuse = max(2, accessory_reuse_needed) if allow_core_variants else MAX_ACCESSORY_REUSE
+    relaxed_base_reuse = max(RELAXED_TOP_BOTTOM_REUSE, base_reuse_needed) if allow_core_variants else RELAXED_TOP_BOTTOM_REUSE
+    logger.info(
+        "style_flow.finalizer_diversity_caps limit=%s pool=%s unique_tops=%s unique_bottoms=%s unique_footwear=%s unique_accessories=%s max_top_reuse=%s max_bottom_reuse=%s max_footwear_reuse=%s max_accessory_reuse=%s relaxed_base_reuse=%s",
+        limit,
+        len(cards),
+        len(unique_tops),
+        len(unique_bottoms),
+        len(unique_footwear),
+        len(unique_accessories),
+        max_top_reuse,
+        max_bottom_reuse,
+        max_footwear_reuse,
+        max_accessory_reuse,
+        relaxed_base_reuse,
+    )
     selected: List[Dict[str, Any]] = []
     selected_sigs: set[str] = set()
     selected_exact_sigs: set[str] = set()
@@ -2560,26 +2585,26 @@ def _select_diverse_cards(
             # Strict mode treats a repeated top+bottom pair as the same outfit, even
             # when footwear/accessories change. Relaxed mode allows a second pass only
             # when the wardrobe is too small to fill the requested count.
-            max_base = MAX_TOP_BOTTOM_REUSE if strict else RELAXED_TOP_BOTTOM_REUSE
+            max_base = MAX_TOP_BOTTOM_REUSE if strict else relaxed_base_reuse
             if _count_value(selected_bases, base_sig) >= max_base:
                 return False
-            if strict and base_sig in selected_bases:
+            if strict and not allow_core_variants and base_sig in selected_bases:
                 return False
-        if enforce_top_limit and top and _count_value(selected_tops, top) >= MAX_TOP_REUSE:
+        if enforce_top_limit and top and _count_value(selected_tops, top) >= max_top_reuse:
             return False
         if enforce_bottom_limit and bottom:
-            max_bottom = MAX_BOTTOM_REUSE if strict else max(2, MAX_BOTTOM_REUSE)
+            max_bottom = MAX_BOTTOM_REUSE if strict and not allow_core_variants else max_bottom_reuse
             if _selected_count(selected, "bottom", bottom) >= max_bottom:
                 return False
         if enforce_footwear_limit and footwear:
-            if _selected_count(selected, "footwear", footwear) >= MAX_FOOTWEAR_REUSE:
+            if _selected_count(selected, "footwear", footwear) >= max_footwear_reuse:
                 return False
         if enforce_accessory_limit:
             selected_accessories = [key for selected_card in selected for key in _accessory_keys(selected_card)]
             selected_types = [typ for selected_card in selected for typ in _accessory_types(selected_card)]
-            if any(selected_accessories.count(key) >= MAX_ACCESSORY_REUSE for key in _accessory_keys(card)):
+            if any(selected_accessories.count(key) >= max_accessory_reuse for key in _accessory_keys(card)):
                 return False
-            if strict and any(selected_types.count(typ) >= MAX_ACCESSORY_REUSE for typ in _accessory_types(card)):
+            if strict and not allow_core_variants and any(selected_types.count(typ) >= MAX_ACCESSORY_REUSE for typ in _accessory_types(card)):
                 return False
         if _occasion_flags(query)["office"] and strong_office_footwear_exists and len(selected) < 3:
             if _footwear_formality_score(_item_by_role(card, "footwear"), query) <= -3.0:
@@ -2648,7 +2673,7 @@ def _select_diverse_cards(
         len(selected),
         limit,
         len(unique_accessories),
-        MAX_ACCESSORY_REUSE,
+        max_accessory_reuse,
     )
     return selected[:limit]
 
