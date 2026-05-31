@@ -925,8 +925,6 @@ def _variant_card_signature(card: Any) -> str:
         card.get("pipeline_style_signature")
         or metadata.get("pipeline_style_signature")
     )
-    if source_sig:
-        return f"pipeline:{source_sig.lower()}"
     role_parts = []
     for role in ("dress", "top", "bottom", "footwear", "outerwear"):
         key = _role_key(card, role)
@@ -937,6 +935,7 @@ def _variant_card_signature(card: Any) -> str:
         f"hero:{_safe_text(card.get('hero_item_id'))}",
         f"target:{_safe_text(card.get('_target_archetype') or card.get('style_archetype'))}",
         f"energy:{_safe_text(card.get('_target_style_energy') or card.get('style_energy'))}",
+        f"pipeline:{source_sig}",
     ]
     clean = [part.lower() for part in role_parts + accessory_parts + target_parts if part and not part.endswith(":")]
     if clean:
