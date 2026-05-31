@@ -911,6 +911,32 @@ def core_card_signature(card: Any) -> str:
     return "|".join(clean)
 
 
+def _variant_card_signature(card: Any) -> str:
+    """Broad-pool exact signature.
+
+    The normal signature is intentionally conservative for small/default calls.
+    For 5-6 board generation, keep card variants distinct when AHVI changes the
+    hero, visible pieces, accessory direction, or target archetype.
+    """
+    if not isinstance(card, dict):
+        return ""
+    role_parts = []
+    for role in ("dress", "top", "bottom", "footwear", "outerwear"):
+        key = _role_key(card, role)
+        if key:
+            role_parts.append(f"{role}:{key}")
+    accessory_parts = [f"accessory:{key}" for key in sorted(set(_accessory_keys(card)))]
+    target_parts = [
+        f"hero:{_safe_text(card.get('hero_item_id'))}",
+        f"target:{_safe_text(card.get('_target_archetype') or card.get('style_archetype'))}",
+        f"energy:{_safe_text(card.get('_target_style_energy') or card.get('style_energy'))}",
+    ]
+    clean = [part.lower() for part in role_parts + accessory_parts + target_parts if part and not part.endswith(":")]
+    if clean:
+        return "|".join(clean)
+    return card_signature(card)
+
+
 def _card_items(card: Dict[str, Any], *, include_slots: bool = False) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for key in ("items", "accessories"):
@@ -2684,8 +2710,27 @@ def finalize_style_cards(
                 ],
             )
             continue
-        sig = card_signature(fixed)
+        sig = _variant_card_signature(fixed) if allow_core_variants else card_signature(fixed)
         core_sig = core_card_signature(fixed) or sig
+        logger.info(
+            "style_flow.signature_variant hero=%s top=%s bottom=%s footwear=%s sig=%s",
+            _safe_text(fixed.get("hero_item_id")),
+            _role_key(fixed, "top") or _role_key(fixed, "dress"),
+            _role_key(fixed, "bottom"),
+            _role_key(fixed, "footwear"),
+            sig,
+        )
+        logger.info(
+            "style_flow.signature_debug sig=%s core_sig=%s title=%s items=%s",
+            sig,
+            core_sig,
+            fixed.get("title"),
+            [
+                item.get("name") or item.get("title") or item.get("label")
+                for item in fixed.get("items", [])
+                if isinstance(item, dict)
+            ],
+        )
         if not sig:
             skipped_counts["missing_signature"] = skipped_counts.get("missing_signature", 0) + 1
             continue
