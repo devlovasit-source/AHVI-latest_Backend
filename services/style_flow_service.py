@@ -3091,7 +3091,36 @@ def finalize_style_response_payload(
     finalizer_query = f"{query} {resolved_brief}".strip() if resolved_brief else query
     raw_cards = result.get("cards") if isinstance(result.get("cards"), list) else []
     raw_outfits = result.get("outfits") if isinstance(result.get("outfits"), list) else []
-    candidates = list(raw_outfits or []) + list(raw_cards or [])
+    # Pipeline returns both outfit dicts and their rendered card dicts. Feeding
+    # both into the finalizer doubles the same looks and makes signature dedupe
+    # collapse otherwise valid 5-6 board sets. Prefer cards because they carry
+    # display metadata; fall back to outfits only when cards are absent.
+    source_candidates = list(raw_cards or []) if raw_cards else list(raw_outfits or [])
+    candidates: List[Dict[str, Any]] = []
+    seen_candidate_sigs: set[str] = set()
+    for candidate in source_candidates:
+        if not isinstance(candidate, dict):
+            continue
+        metadata = candidate.get("style_metadata") if isinstance(candidate.get("style_metadata"), dict) else {}
+        sig = _safe_text(
+            candidate.get("_style_signature")
+            or candidate.get("style_signature")
+            or candidate.get("pipeline_style_signature")
+            or metadata.get("style_signature")
+            or metadata.get("pipeline_style_signature")
+            or card_signature(candidate)
+        )
+        if sig and sig in seen_candidate_sigs:
+            continue
+        if sig:
+            seen_candidate_sigs.add(sig)
+        candidates.append(candidate)
+    logger.info(
+        "style_flow.candidate_merge raw_cards=%s raw_outfits=%s merged_unique=%s",
+        len(raw_cards),
+        len(raw_outfits),
+        len(candidates),
+    )
 
     finalize_started = time.perf_counter()
     cards = finalize_style_cards(
