@@ -11,11 +11,29 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
+from services.agent_metadata_validator import (
+    upsert_wardrobe_style_metadata_sync,
+    validate_metadata_payload,
+    validate_wardrobe_metadata_sync,
+)
 from services.wardrobe_intelligence_service import enrich_wardrobe_item
 
 log = logging.getLogger("ahvi.backfill_style_metadata")
 STYLE_METADATA_RESOURCE = "wardrobe_style_metadata"
 _SAFE_DOC_ID_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+_NEW_STYLE_KEYS = {
+    "visual_noise",
+    "pattern_intensity",
+    "statement_level",
+    "professionalism_score",
+    "client_meeting_score",
+    "boardroom_score",
+    "capsule_score",
+    "versatility_score",
+    "date_night_score",
+    "risk_flags",
+    "styling_notes",
+}
 
 
 def _doc_id(doc: Dict[str, Any]) -> str:
@@ -27,11 +45,63 @@ def _safe_document_id(value: Any) -> str:
     return (safe or "metadata")[:36]
 
 
-def _metadata_payload(doc_id: str, user_id: str, doc: Dict[str, Any]) -> Dict[str, Any]:
+def _merge_if_present(target: Dict[str, Any], source: Dict[str, Any]) -> Dict[str, Any]:
+    for key, value in source.items():
+        if value in (None, "", [], {}):
+            continue
+        target[key] = value
+    return target
+
+
+def _style_metadata_for_doc(
+    doc: Dict[str, Any],
+    *,
+    user_id: str,
+    use_agent: bool,
+) -> Dict[str, Any]:
+    """Build refreshed metadata for a wardrobe row.
+
+    The legacy local enrichment keeps existing AHVI heuristics. The validator
+    pass adds the new professional/capsule/date scores and category-aware
+    defaults even when the external validator agent is not used.
+    """
+
+    metadata = enrich_wardrobe_item(doc if isinstance(doc, dict) else {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    deterministic = validate_metadata_payload({}, base_item=doc)
+    _merge_if_present(metadata, deterministic)
+
+    if use_agent:
+        agent_meta = validate_wardrobe_metadata_sync(
+            item=doc,
+            user_id=user_id,
+            vision_result=doc.get("vision_result") if isinstance(doc, dict) else None,
+            context={"source": "backfill_style_metadata"},
+        )
+        if isinstance(agent_meta, dict):
+            _merge_if_present(metadata, agent_meta)
+            metadata["agent_validated"] = True
+            metadata["agent_confidence"] = float(agent_meta.get("confidence") or 0.0)
+
+    return metadata
+
+
+def _metadata_payload(
+    doc_id: str,
+    user_id: str,
+    doc: Dict[str, Any],
+    *,
+    use_agent: bool,
+) -> Dict[str, Any]:
+    style_metadata = _style_metadata_for_doc(doc, user_id=user_id, use_agent=use_agent)
     return {
         "item_id": doc_id,
         "userId": user_id,
-        "style_metadata": json.dumps(enrich_wardrobe_item(doc)),
+        "style_metadata": json.dumps(
+            style_metadata, separators=(",", ":"), ensure_ascii=False
+        ),
     }
 
 
@@ -47,21 +117,54 @@ def _upsert_style_metadata(proxy: AppwriteProxy, doc_id: str, payload: Dict[str,
     return "created"
 
 
-def run(limit: int = 100, dry_run: bool = False) -> Dict[str, int]:
+def _has_new_style_keys(doc: Dict[str, Any]) -> bool:
+    raw = doc.get("style_metadata")
+    if isinstance(raw, str) and raw.strip():
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    if not isinstance(raw, dict):
+        return False
+    return bool(_NEW_STYLE_KEYS.intersection(raw.keys()))
+
+
+def run(
+    *,
+    user_id: str = "",
+    all_users: bool = False,
+    limit: int = 100,
+    dry_run: bool = False,
+    force: bool = False,
+    use_agent: bool = False,
+) -> Dict[str, int]:
+    if not all_users and not user_id:
+        raise ValueError("Pass --user-id for a scoped backfill, or --all-users.")
+
+    target_user_id = user_id
     proxy = AppwriteProxy()
     offset = 0
     updated = 0
     created = 0
     skipped = 0
     failed = 0
+    scanned = 0
+    unchanged = 0
 
     while True:
-        page = proxy.list_documents("outfits", limit=limit, offset=offset, return_meta=True)
+        page = proxy.list_documents(
+            "outfits",
+            user_id=(target_user_id or None),
+            limit=limit,
+            offset=offset,
+            return_meta=True,
+        )
         docs = page.get("documents") if isinstance(page, dict) else page
         if not isinstance(docs, list) or not docs:
             break
 
         for doc in docs:
+            scanned += 1
             if not isinstance(doc, dict):
                 skipped += 1
                 continue
@@ -69,21 +172,39 @@ def run(limit: int = 100, dry_run: bool = False) -> Dict[str, int]:
             if not doc_id:
                 skipped += 1
                 continue
-            user_id = str(doc.get("userId") or doc.get("user_id") or "").strip()
-            if not user_id:
+            doc_user_id = str(doc.get("userId") or doc.get("user_id") or "").strip()
+            if not doc_user_id:
                 skipped += 1
                 continue
-            payload = _metadata_payload(doc_id, user_id, doc)
+            if not force and _has_new_style_keys(doc):
+                unchanged += 1
+                continue
+
+            payload = _metadata_payload(doc_id, doc_user_id, doc, use_agent=use_agent)
             if dry_run:
+                style_meta = json.loads(payload.get("style_metadata") or "{}")
                 log.info(
-                    "dry_run metadata doc=%s payload=%s",
+                    "dry_run metadata doc=%s user=%s category=%s subcategory=%s formality=%s role=%s client=%.2f boardroom=%.2f capsule=%.2f",
                     doc_id,
-                    json.dumps(payload, ensure_ascii=False),
+                    doc_user_id,
+                    style_meta.get("category"),
+                    style_meta.get("subcategory"),
+                    style_meta.get("formality"),
+                    style_meta.get("style_role"),
+                    float(style_meta.get("client_meeting_score") or 0.0),
+                    float(style_meta.get("boardroom_score") or 0.0),
+                    float(style_meta.get("capsule_score") or 0.0),
                 )
                 updated += 1
                 continue
             try:
-                result = _upsert_style_metadata(proxy, doc_id, payload)
+                style_meta = json.loads(payload.get("style_metadata") or "{}")
+                result_doc = upsert_wardrobe_style_metadata_sync(
+                    doc_user_id, doc_id, style_meta
+                )
+                result = str(result_doc.get("status") or "")
+                if result == "failed":
+                    raise RuntimeError(result_doc.get("reason") or "metadata upsert failed")
                 if result == "created":
                     created += 1
                 else:
@@ -97,13 +218,40 @@ def run(limit: int = 100, dry_run: bool = False) -> Dict[str, int]:
             break
         offset += len(docs)
 
-    return {"updated": updated, "created": created, "skipped": skipped, "failed": failed}
+    return {
+        "scanned": scanned,
+        "updated": updated,
+        "created": created,
+        "unchanged": unchanged,
+        "skipped": skipped,
+        "failed": failed,
+    }
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Backfill style_metadata for wardrobe items.")
+    parser.add_argument("--user-id", default="", help="Backfill one user's wardrobe.")
+    parser.add_argument(
+        "--all-users",
+        action="store_true",
+        help="Backfill every wardrobe row. Prefer --user-id for release fixes.",
+    )
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force", action="store_true", help="Refresh rows even if metadata already has new score keys.")
+    parser.add_argument("--use-agent", action="store_true", help="Call the external metadata validator agent when enabled.")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    print(json.dumps(run(limit=args.limit, dry_run=args.dry_run), indent=2))
+    print(
+        json.dumps(
+            run(
+                user_id=args.user_id,
+                all_users=args.all_users,
+                limit=args.limit,
+                dry_run=args.dry_run,
+                force=args.force,
+                use_agent=args.use_agent,
+            ),
+            indent=2,
+        )
+    )
