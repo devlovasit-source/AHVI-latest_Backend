@@ -1,4 +1,7 @@
+import logging
 from typing import Any, Dict, List, Tuple, Optional
+
+logger = logging.getLogger("ahvi.style_scorer")
 
 from services.wardrobe_intelligence_service import (
     _style_meta,
@@ -367,6 +370,12 @@ def resolve_occasion_profile(occasion: Any, context: Optional[Dict[str, Any]] = 
         ctx.setdefault("occasion", occasion)
     resolved = _resolve_occasion(ctx)
     rules = OCCASION_COMPATIBILITY_RULES.get(resolved, {})
+    logger.info(
+        "occasion_profile.selected occasion=%s has_rules=%s preferred_formality=%s",
+        resolved,
+        bool(rules),
+        rules.get("preferred_formality"),
+    )
     return {
         "occasion": resolved,
         "preferred_formality": rules.get("preferred_formality"),
@@ -972,6 +981,12 @@ class UnifiedStyleScorer:
                 md_delta = max(-3.0, min(3.0, md_delta))
                 breakdown["metadata_richness"] = round(float(md_delta), 3)
                 reasons.extend(md_reasons[:3])
+                logger.info(
+                    "metadata_rank.applied delta=%.3f occasion_text=%r reasons=%s",
+                    md_delta,
+                    occ_text[:120],
+                    md_reasons[:3],
+                )
         except Exception:
             pass
 

@@ -923,6 +923,8 @@ def _accessory_type(item: Dict[str, Any]) -> str:
     for typ, words in (
         ("watch", {"watch", "watches"}),
         ("eyewear", {"sunglass", "sunglasses", "eyewear", "glasses"}),
+        ("bottle", {"bottle", "flask", "hydration"}),
+        ("towel", {"towel", "towels"}),
         ("bag", {"bag", "bags", "purse", "tote", "clutch"}),
         ("belt", {"belt", "belts"}),
         ("headwear", {"cap", "caps", "hat", "hats", "beanie"}),
@@ -935,8 +937,11 @@ def _accessory_type(item: Dict[str, Any]) -> str:
 
 
 _SOCIAL_ACCESSORIES = {"watch", "belt", "jewelry", "eyewear", "bag", "scarf"}
-_PROFESSIONAL_ACCESSORIES = {"watch", "belt", "jewelry", "eyewear", "bag", "scarf"}
-_CASUAL_ACCESSORIES = {"watch", "belt", "jewelry", "eyewear", "bag", "scarf", "headwear"}
+_PROFESSIONAL_ACCESSORIES = {"watch", "belt", "jewelry", "bag", "scarf"}
+_DATE_ACCESSORIES = {"watch", "jewelry", "scarf", "belt"}
+_BEACH_ACCESSORIES = {"eyewear", "bag", "towel", "headwear", "bottle"}
+_WORKOUT_ACCESSORIES = {"bag", "bottle", "watch", "headwear", "towel"}
+_CASUAL_ACCESSORIES = {"watch", "belt", "jewelry", "eyewear", "bag", "scarf", "headwear", "bottle"}
 
 
 def _allows_headwear(query: str) -> bool:
@@ -966,10 +971,16 @@ def _accessory_allowed_for_query(item: Dict[str, Any], query: str) -> bool:
     kind = _occasion_kind(query)
     if typ == "headwear" and not _allows_headwear(query):
         return False
-    if kind in {"office", "date", "wedding"}:
+    if kind == "office" or kind == "wedding":
         return typ in _PROFESSIONAL_ACCESSORIES
+    if kind == "date":
+        return typ in _DATE_ACCESSORIES
     if kind == "party":
         return typ in _SOCIAL_ACCESSORIES or _allows_headwear(query)
+    if kind == "beach":
+        return typ in _BEACH_ACCESSORIES
+    if kind == "workout":
+        return typ in _WORKOUT_ACCESSORIES
     if kind in {"travel", "casual", "daily"}:
         return typ in _CASUAL_ACCESSORIES
     return typ != "headwear" or _allows_headwear(query)
@@ -978,10 +989,18 @@ def _accessory_allowed_for_query(item: Dict[str, Any], query: str) -> bool:
 def _accessory_priority(item: Dict[str, Any], query: str) -> int:
     typ = _accessory_type(item)
     kind = _occasion_kind(query)
-    if kind in {"office", "date", "wedding"}:
-        order = ["belt", "watch", "jewelry", "eyewear", "bag", "scarf", "accessory", "headwear"]
+    if kind == "office":
+        order = ["watch", "belt", "bag", "scarf", "jewelry", "accessory", "eyewear", "headwear"]
+    elif kind == "date":
+        order = ["watch", "jewelry", "scarf", "belt", "bag", "accessory", "eyewear", "headwear"]
+    elif kind == "wedding":
+        order = ["watch", "belt", "jewelry", "scarf", "bag", "accessory", "eyewear", "headwear"]
     elif kind == "party":
         order = ["jewelry", "watch", "belt", "eyewear", "bag", "scarf", "headwear", "accessory"]
+    elif kind == "beach":
+        order = ["eyewear", "bag", "towel", "headwear", "bottle", "watch", "accessory", "jewelry"]
+    elif kind == "workout":
+        order = ["bottle", "bag", "watch", "headwear", "towel", "accessory", "jewelry"]
     elif kind == "travel":
         order = ["bag", "eyewear", "watch", "belt", "scarf", "headwear", "jewelry", "accessory"]
     else:
@@ -2236,24 +2255,54 @@ def _explanation_for(card: Dict[str, Any], query: str, index: int) -> Dict[str, 
     top = _item_name(card, "top", _item_name(card, "dress", "the hero piece"))
     bottom = _item_name(card, "bottom", "the base")
     footwear = _item_name(card, "footwear", "the footwear")
-    top_color = _safe_text(_item_by_role(card, "top").get("color") or _item_by_role(card, "dress").get("color")).title()
-    bottom_color = _safe_text(_item_by_role(card, "bottom").get("color")).title()
     footwear_mood = _footwear_mood(_item_by_role(card, "footwear"))
     has_accessory = bool([x for x in card.get("accessories", []) if isinstance(x, dict)])
 
-    hero_label = top if top != "the hero piece" else "The hero piece"
-    base_label = "darker base" if "black" in bottom.lower() or bottom_color.lower() == "black" else "quieter base"
-    accent_line = "The small accent breaks the severity." if has_accessory else "Nothing extra is fighting the line."
+    kind = _occasion_kind(query)
+    accessory_line = (
+        "The accessory stays restrained so the outfit still reads intentional."
+        if has_accessory
+        else "The clean line works without extra accessories."
+    )
 
+    by_occasion = {
+        "office": (
+            f"The {top}-and-{footwear} pairing keeps the look client-facing and polished, "
+            f"while {bottom} gives it a cleaner business line."
+        ),
+        "date": (
+            f"{footwear} adds evening polish while {top} keeps the outfit relaxed enough for dinner."
+        ),
+        "party": (
+            f"The statement energy comes through without overwhelming the base; {footwear} keeps it night-out ready."
+        ),
+        "beach": (
+            "This keeps the outfit practical for water or heat while separating swim essentials from everyday casualwear."
+        ),
+        "workout": (
+            "The active pieces prioritize movement, breathability, and easy transitions before and after training."
+        ),
+        "wedding": (
+            f"The polished core keeps the outfit event-appropriate, and {footwear} gives it a formal finish."
+        ),
+        "travel": (
+            "The pieces stay comfortable for movement while still looking considered on arrival."
+        ),
+    }
+    capsule_copy = (
+        "These pieces form a repeatable wardrobe foundation because they can be recombined across work, casual, and smart-casual settings."
+        if "capsule" in str(query or "").lower()
+        else ""
+    )
     copy = {
-        "color_harmony": f"{hero_label} carries the personality. The {base_label} keeps it from turning loud.",
-        "silhouette_balance": f"Structure leads above; {footwear} gives the line a cleaner finish.",
-        "texture_contrast": f"The visual pressure stays controlled. {bottom} and {footwear} keep the finish grounded.",
-        "occasion_alignment": f"The register is clean enough for the brief without feeling dressed-up for its own sake.",
-        "footwear_polish": f"{footwear} sharpens the mood into {footwear_mood}. Intentional rather than easy.",
-        "smart_contrast": f"Sharper above, quieter below. The point is the restraint.",
-        "minimal_aesthetic": f"A clean column, then one controlled break. {accent_line}",
-        "relaxed_tailoring": f"Ease with a backbone. The polish comes from what is left out.",
+        "color_harmony": capsule_copy or by_occasion.get(kind, f"{top} and {bottom} keep the palette balanced for the request."),
+        "silhouette_balance": by_occasion.get(kind, f"{top} sets the proportion while {footwear} finishes the line as {footwear_mood}."),
+        "texture_contrast": by_occasion.get(kind, f"{bottom} and {footwear} keep the texture mix grounded and wearable."),
+        "occasion_alignment": by_occasion.get(kind, f"The outfit matches the brief without over-styling it. {accessory_line}"),
+        "footwear_polish": by_occasion.get(kind, f"{footwear} sharpens the outfit into {footwear_mood}."),
+        "smart_contrast": by_occasion.get(kind, f"The upper and base pieces create contrast while staying wearable."),
+        "minimal_aesthetic": capsule_copy or by_occasion.get(kind, f"The outfit stays clean and focused. {accessory_line}"),
+        "relaxed_tailoring": by_occasion.get(kind, f"The shape feels easy but still put-together for the occasion."),
     }
     tips = [
         f"Roll the sleeves once on {top} if you want the line less stiff.",
@@ -2385,7 +2434,7 @@ def _office_has_strong_footwear(cards: List[Dict[str, Any]], query: str) -> bool
 MAX_TOP_REUSE = 2
 MAX_BOTTOM_REUSE = 1
 MAX_FOOTWEAR_REUSE = 2
-MAX_ACCESSORY_REUSE = 2
+MAX_ACCESSORY_REUSE = 1
 MAX_TOP_BOTTOM_REUSE = 1
 RELAXED_TOP_BOTTOM_REUSE = 2
 
@@ -2534,6 +2583,13 @@ def _select_diverse_cards(cards: List[Dict[str, Any]], query: str, limit: int) -
             selected.append(picked)
             selected_sigs.add(_safe_text(picked.get("_style_core_signature")))
             remaining = [card for card in remaining if card is not picked]
+    logger.info(
+        "accessory_diversity.applied selected=%d requested=%d unique_accessories=%d max_reuse=%d",
+        len(selected),
+        limit,
+        len(unique_accessories),
+        MAX_ACCESSORY_REUSE,
+    )
     return selected[:limit]
 
 
@@ -3327,6 +3383,12 @@ def build_style_flow_response(
     )
     if normalized_occasion:
         ctx["occasion"] = normalized_occasion
+    logger.info(
+        "occasion_profile.selected occasion=%s query=%r wardrobe_count=%s",
+        normalized_occasion or _occasion_kind(query),
+        query,
+        len(wardrobe) if isinstance(wardrobe, list) else 0,
+    )
 
     # Capsule wardrobe short-circuit. Capsule requests don't want a
     # single styled board — they want a foundation + sample looks +
@@ -3342,6 +3404,7 @@ def build_style_flow_response(
             logger.info(
                 "ahvi.style_flow.capsule_request user=%s query=%r", user_id, query
             )
+            logger.info("capsule_flow.selected user=%s query=%r", user_id, query)
             return build_capsule_response(
                 user_id=user_id,
                 wardrobe=wardrobe if isinstance(wardrobe, list) else [],
@@ -3449,6 +3512,12 @@ def build_style_flow_response(
     # quality-guard rejections.
     _final_target = int(requested_board_count or 3)
     _pool_size = max(_final_target * 8, 24)
+    logger.info(
+        "candidate_pool.expanded requested=%d pool=%d wardrobe_count=%s",
+        _final_target,
+        _pool_size,
+        len(wardrobe) if isinstance(wardrobe, list) else 0,
+    )
 
     finalized = finalize_style_response_payload(
         result,
@@ -3474,11 +3543,24 @@ def build_style_flow_response(
         _final_target,
         _pool_size,
     )
+    logger.info(
+        "raw_candidates.generated raw_candidates=%d candidate_cards=%d requested=%d pool=%d",
+        len(result.get("cards") or []) + len(result.get("outfits") or []),
+        len(finalized.get("cards") or []),
+        _final_target,
+        _pool_size,
+    )
     if finalized.get("type") in {
         "missing_core_wardrobe_slots",
         "missing_occasion_wardrobe",
         "weak_occasion_match",
     }:
+        logger.info(
+            "missing_slots.generated type=%s slots=%s shopping_gaps=%s",
+            finalized.get("type"),
+            finalized.get("missing_slots") or [],
+            finalized.get("shopping_gaps") or [],
+        )
         total_ms = round((time.perf_counter() - started) * 1000, 2)
         logger.info(
             "style_flow.timing user=%s candidates_ms=%s total_ms=%s wardrobe_count=%s cards=%s fallback=%s",
@@ -3557,6 +3639,13 @@ def build_style_flow_response(
                 "style_candidates.generated candidate_cards=%d selected=%d requested=%d",
                 _candidate_pool_count, len(chosen), _final_target,
             )
+            logger.info(
+                "valid_cards_after_guard candidate_cards=%d selected=%d requested=%d occasion=%s",
+                _candidate_pool_count,
+                len(chosen),
+                _final_target,
+                brief.get("occasion"),
+            )
             for card in chosen:
                 # Enforce occasion-safe badge + title only when current ones
                 # conflict with the brief's allowed set.
@@ -3602,6 +3691,7 @@ def build_style_flow_response(
                 len(wardrobe) if isinstance(wardrobe, list) else 0,
                 gap_kind,
             )
+            logger.info("missing_slots.generated gap=%s cards=0", gap_kind)
             return _wardrobe_gap_response(
                 query=query,
                 wardrobe=wardrobe,

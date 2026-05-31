@@ -3420,17 +3420,29 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 allow_closest_option=closest_requested,
                 closest=closest_requested,
             )
-            if style_payload.get("cards"):
-                style_payload["success"] = True
-                style_payload["style_boards"] = style_payload.get("cards") or []
-                style_payload.setdefault("chips", _ahvi_style_action_chips())
-                style_payload.setdefault("data", {})
-                style_payload["meta"] = {
-                    **(style_payload.get("meta") or {}),
-                    "fast_style_route": True,
-                    "interpreted_occasion": interpreted_occasion,
-                }
-                return style_payload
+            # Do not fall through to the heavy orchestrator for known style
+            # requests. When no card survives the guards, the style service
+            # already returns a wardrobe-gap/closest-option payload that is
+            # more useful than the timeout fallback loop.
+            style_payload["success"] = bool(
+                style_payload.get("cards")
+                or style_payload.get("style_boards")
+                or style_payload.get("missing_slots")
+                or style_payload.get("shopping_gaps")
+            )
+            style_payload["style_boards"] = (
+                style_payload.get("style_boards")
+                or style_payload.get("cards")
+                or []
+            )
+            style_payload.setdefault("chips", _ahvi_style_action_chips())
+            style_payload.setdefault("data", {})
+            style_payload["meta"] = {
+                **(style_payload.get("meta") or {}),
+                "fast_style_route": True,
+                "interpreted_occasion": interpreted_occasion,
+            }
+            return style_payload
 
     # -------------------------
     # GENERAL CHAT / LLM ROUTE
