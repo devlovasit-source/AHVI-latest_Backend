@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import logging
+from collections import Counter
 from typing import Any, Dict, List, Tuple
 
 from brain.engines.style_rules_engine import style_engine
@@ -997,7 +998,11 @@ def _stable_item_key(item: Dict[str, Any]) -> str:
     )
 
 
-def _enforce_outfit_diversity(outfits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _enforce_outfit_diversity(
+    outfits: List[Dict[str, Any]],
+    *,
+    min_keep: int = 6,
+) -> List[Dict[str, Any]]:
     """Reject look-alike boards before they reach the carousel.
 
     Rules:
@@ -1017,6 +1022,7 @@ def _enforce_outfit_diversity(outfits: List[Dict[str, Any]]) -> List[Dict[str, A
     seen_dress: set[str] = set()
     bottom_count: Dict[str, int] = {}
     surviving: List[Dict[str, Any]] = []
+    skipped: List[Tuple[Dict[str, Any], str]] = []
 
     for outfit in sorted_outfits:
         top, bottom, footwear, _ = _extract_outfit_slots(outfit)
@@ -1032,6 +1038,7 @@ def _enforce_outfit_diversity(outfits: List[Dict[str, Any]]) -> List[Dict[str, A
 
         if dress_key:
             if dress_key in seen_dress:
+                skipped.append((outfit, "duplicate_dress"))
                 continue
             seen_dress.add(dress_key)
             surviving.append(outfit)
@@ -1040,16 +1047,44 @@ def _enforce_outfit_diversity(outfits: List[Dict[str, Any]]) -> List[Dict[str, A
         pair_key = f"{top_key}|{bottom_key}" if top_key and bottom_key else ""
         if pair_key and pair_key in seen_pair:
             # Same top+bottom already present — shoe/accessory variation only.
+            skipped.append((outfit, "duplicate_top_bottom"))
             continue
         if bottom_key:
             used = bottom_count.get(bottom_key, 0)
             if used >= 2:
+                skipped.append((outfit, "bottom_reuse_cap"))
                 continue
             bottom_count[bottom_key] = used + 1
         if pair_key:
             seen_pair.add(pair_key)
 
         surviving.append(outfit)
+
+    strict_count = len(surviving)
+    if len(surviving) < min_keep and skipped:
+        # Keep quality strict, but don't let similarity-only rules starve
+        # the carousel when the wardrobe has limited bottoms/layers. Refill
+        # with the highest-scoring guarded outfits, allowing shoe/accessory
+        # variations only after all truly distinct looks are exhausted.
+        selected_ids = {id(outfit) for outfit in surviving}
+        for outfit, reason in skipped:
+            if len(surviving) >= min_keep:
+                break
+            if id(outfit) in selected_ids:
+                continue
+            fixed = dict(outfit)
+            reasons = list(fixed.get("_quality_guard_reasons") or [])
+            reasons.append(f"diversity_refill:{reason}")
+            fixed["_quality_guard_reasons"] = reasons
+            surviving.append(fixed)
+            selected_ids.add(id(outfit))
+        logger.info(
+            "outfit_quality_guard.diversity_refill strict=%d refilled=%d target=%d skipped_reasons=%s",
+            strict_count,
+            len(surviving),
+            min_keep,
+            dict(Counter(reason for _, reason in skipped)),
+        )
 
     return surviving
 
@@ -1107,6 +1142,7 @@ def filter_and_guard_outfits(
     query: str = "",
 ) -> List[Dict[str, Any]]:
     guarded: List[Dict[str, Any]] = []
+    reject_reasons: Counter[str] = Counter()
 
     # Lazy import to avoid circular: style_scorer also imports from this
     # package indirectly via wardrobe_intelligence_service.
@@ -1137,6 +1173,10 @@ def filter_and_guard_outfits(
         )
 
         if not allowed:
+            for reason in list(reasons or [])[:5]:
+                reject_reasons[str(reason)] += 1
+            if not reasons:
+                reject_reasons["guard_penalty_threshold"] += 1
             logger.info(
                 "outfit_quality_guard.rejected occ=%s hero=%r penalty=%d reasons=%s",
                 intent or "",
@@ -1161,6 +1201,10 @@ def filter_and_guard_outfits(
                 "occasion_resolved": occ_result["occasion"],
             })
             if occ_result["reject"]:
+                reject_reasons[
+                    "occasion_mismatch:"
+                    + (",".join(occ_result.get("penalties") or [])[:80] or occ_result.get("reason") or "unknown")
+                ] += 1
                 logger.info(
                     "outfit_quality_editorial_rank reason='occasion_mismatch: %s for %s' score_meta=%s",
                     ", ".join(occ_result["penalties"][:3]) or occ_result["reason"],
@@ -1217,7 +1261,15 @@ def filter_and_guard_outfits(
         guarded.append(fixed)
 
     guarded.sort(key=lambda x: float(x.get("score") or 0), reverse=True)
+    pre_diversity_count = len(guarded)
     guarded = _apply_bottom_reuse_cooldown(guarded)
-    guarded = _enforce_outfit_diversity(guarded)
+    guarded = _enforce_outfit_diversity(guarded, min_keep=6)
+    logger.info(
+        "outfit_quality_guard.summary occ=%s accepted_before_diversity=%d after_diversity=%d rejected_reasons=%s",
+        intent or "",
+        pre_diversity_count,
+        len(guarded),
+        dict(reject_reasons.most_common(8)),
+    )
     return guarded
 
