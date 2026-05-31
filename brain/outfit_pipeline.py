@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import uuid
 from copy import deepcopy
@@ -2431,8 +2432,32 @@ def _diversify_outfits(
     pool = [o for o in outfits or [] if isinstance(o, dict)]
     unique_bottoms = {b for b in (_outfit_bottom_id(o) for o in pool) if b}
     unique_footwear = {s for s in (_outfit_footwear_id(o) for o in pool) if s}
-    max_bottom_reuse = 2 if len(unique_bottoms) > 1 else limit
-    max_footwear_reuse = 2 if len(unique_footwear) > 1 else limit
+    bottom_reuse_needed = math.ceil(limit / max(1, len(unique_bottoms)))
+    footwear_reuse_needed = math.ceil(limit / max(1, len(unique_footwear)))
+    broad_pool_selection = limit > 6 or len(pool) > max(12, limit * 2)
+    if broad_pool_selection:
+        max_bottom_reuse = (
+            max(3, bottom_reuse_needed)
+            if len(unique_bottoms) > 1
+            else limit
+        )
+        max_footwear_reuse = (
+            max(3, footwear_reuse_needed)
+            if len(unique_footwear) > 1
+            else limit
+        )
+    else:
+        max_bottom_reuse = 2 if len(unique_bottoms) > 1 else limit
+        max_footwear_reuse = 2 if len(unique_footwear) > 1 else limit
+    logger.info(
+        "outfit_pipeline.diversify_caps limit=%s pool=%s unique_bottoms=%s unique_footwear=%s max_bottom_reuse=%s max_footwear_reuse=%s",
+        limit,
+        len(pool),
+        len(unique_bottoms),
+        len(unique_footwear),
+        max_bottom_reuse,
+        max_footwear_reuse,
+    )
 
     def _count(role_fn, value: str) -> int:
         if not value:
@@ -2501,6 +2526,11 @@ def _diversify_outfits(
         if _can_add(outfit, strict=False):
             _add(outfit)
 
+    logger.info(
+        "outfit_pipeline.diversify_result limit=%s selected=%s",
+        limit,
+        len(selected),
+    )
     return selected
 
 
