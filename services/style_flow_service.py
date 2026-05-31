@@ -189,6 +189,10 @@ _CANONICAL_OCCASIONS = {
     "wedding",
     "casual",
     "daily",
+    "capsule",
+    "capsule_wardrobe",
+    "style_advice",
+    "daily_wear",
     "temple_modest",
 }
 
@@ -203,6 +207,17 @@ def _normalize_occasion_value(value: Any, query: Any = "") -> str:
     canonical occasion key.
     """
     explicit = _safe_text(value).lower().replace("-", "_")
+    combined_text = f"{_safe_text(value)} {_safe_text(query)}".strip().lower()
+    if "capsule" in combined_text and any(
+        token in combined_text
+        for token in ("wardrobe", "essentials", "core", "minimalist", "foundation")
+    ):
+        return "capsule"
+    if "rave" in combined_text:
+        return "party"
+    if any(token in combined_text for token in ("style tips", "style_tip", "give me style")):
+        if "current outfit:" in combined_text or "weather:" in combined_text or "daily wear" in combined_text:
+            return "style_advice"
     if explicit in _CANONICAL_OCCASIONS or explicit == "client_meeting":
         return explicit
     try:
@@ -3493,6 +3508,27 @@ def build_style_flow_response(
     ):
         return _clarification_response(occasion_interpretation)
 
+    # Broader candidate pool so style_brief.select_board_set has real
+    # diversity to choose from. Final response is sliced to requested N
+    # after brief validation/selection. This must be set before
+    # get_daily_outfits(), otherwise the raw combo funnel has already
+    # collapsed to the old 3-card/24-pool path.
+    try:
+        _final_target = int(requested_board_count or 6)
+    except Exception:
+        _final_target = 6
+    _final_target = max(1, min(_final_target, 6))
+    _pool_size = max(_final_target * 10, 48)
+    ctx["requested_board_count"] = _final_target
+    ctx["candidate_pool_size"] = _pool_size
+    ctx["raw_candidate_target"] = _pool_size
+    logger.info(
+        "candidate_pool.expanded requested=%d pool=%d wardrobe_count=%s",
+        _final_target,
+        _pool_size,
+        len(wardrobe) if isinstance(wardrobe, list) else 0,
+    )
+
     candidate_started = time.perf_counter()
     result = get_daily_outfits(
         {
@@ -3504,20 +3540,6 @@ def build_style_flow_response(
     candidate_ms = round((time.perf_counter() - candidate_started) * 1000, 2)
     if not isinstance(result, dict):
         result = {}
-
-    # Broader candidate pool so style_brief.select_board_set has real
-    # diversity to choose from. Final response is sliced to requested N
-    # after brief validation/selection. Bumped from 4x to 8x with a
-    # 24-card floor so accessory + hero diversity survive even after
-    # quality-guard rejections.
-    _final_target = int(requested_board_count or 3)
-    _pool_size = max(_final_target * 8, 24)
-    logger.info(
-        "candidate_pool.expanded requested=%d pool=%d wardrobe_count=%s",
-        _final_target,
-        _pool_size,
-        len(wardrobe) if isinstance(wardrobe, list) else 0,
-    )
 
     finalized = finalize_style_response_payload(
         result,
@@ -3532,7 +3554,7 @@ def build_style_flow_response(
         allow_closest_option=closest_requested,
         closest=closest_requested,
         exclude_style_signatures=exclude_style_signatures,
-        requested_board_count=requested_board_count,
+        requested_board_count=_final_target,
         cache_bypass=cache_bypass,
         candidate_pool_size=_pool_size,
     )

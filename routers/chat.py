@@ -895,7 +895,7 @@ def _ahvi_style_occasion(query_text):
         return "date night"
     if any(k in q for k in ["office", "meeting", "work", "client"]):
         return "office"
-    if any(k in q for k in ["party", "club", "night out"]):
+    if any(k in q for k in ["party", "club", "night out", "rave"]):
         return "party"
     if any(k in q for k in ["travel", "airport", "trip"]):
         return "travel"

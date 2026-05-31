@@ -320,8 +320,15 @@ _OCCASION_ALIASES: Dict[str, str] = {
     "date night": "date",
     "house_party": "party",
     "house party": "party",
+    "rave": "party",
+    "rave party": "party",
     "club night": "party",
+    "night out": "party",
     "dinner party": "party",
+    "capsule wardrobe": "capsule",
+    "wardrobe essentials": "capsule",
+    "core wardrobe": "capsule",
+    "minimalist wardrobe": "capsule",
     "airport outfit": "airport",
     "airport look": "airport",
     "road trip": "travel",
@@ -566,6 +573,11 @@ def _item_blob(item: dict) -> str:
 def normalize_occasion(occasion: Any) -> str:
     meta_occasion = normalize_style_occasion(occasion)
     text = str(occasion or "").strip().lower().replace("-", "_")
+    readable = text.replace("_", " ")
+    if any(w in readable for w in ["capsule wardrobe", "wardrobe essentials", "core wardrobe", "minimalist wardrobe"]):
+        return "capsule"
+    if "night out" in readable and not any(w in readable for w in ["date", "dinner"]):
+        return "party"
     if any(w in text for w in ["date_night", "date night", "date", "dinner", "tonight"]):
         return "date_night"
     if any(w in text for w in ["beach", "pool", "seaside", "coastal", "resort"]):
@@ -575,7 +587,7 @@ def normalize_occasion(occasion: Any) -> str:
     if "brunch" in text:
         return "brunch"
     if "rave" in text or "club" in text:
-        return "rave"
+        return "party"
     if "cocktail" in text:
         return "cocktail"
     if any(w in text for w in ["party", "house_party", "after_hours", "night out"]):

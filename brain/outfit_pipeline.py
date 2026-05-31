@@ -2537,6 +2537,24 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     style_dna = context.get("style_dna", {}) or {}
     raw_wardrobe = user.get("wardrobe", {}) or {}
 
+    def _bounded_int(value: Any, default: int) -> int:
+        try:
+            return int(value)
+        except Exception:
+            return default
+
+    raw_candidate_target = _bounded_int(
+        context.get("raw_candidate_target") or context.get("candidate_pool_size"),
+        48,
+    )
+    raw_candidate_target = max(24, min(raw_candidate_target, 80))
+    requested_board_count = _bounded_int(context.get("requested_board_count"), 6)
+    requested_board_count = max(1, min(requested_board_count, 6))
+    combo_stage_cap = raw_candidate_target
+    color_stage_cap = max(24, raw_candidate_target // 2)
+    pattern_stage_cap = max(24, raw_candidate_target // 2)
+    widen_cap = raw_candidate_target
+
     # Wardrobe can arrive as a dict wrapper from various callers; normalize early to avoid silent empty pipelines.
     if isinstance(raw_wardrobe, dict):
         for key in ("items", "documents", "wardrobe", "data"):
@@ -2626,11 +2644,25 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     occasion_filtered = _occasion_filter(wardrobe, occasion)
+    try:
+        logging.getLogger("ahvi.outfit_pipeline").info(
+            "ahvi.combo.slot_counts occasion=%s tops=%s bottoms=%s shoes=%s dresses=%s outerwear=%s accessories=%s",
+            occasion,
+            len(occasion_filtered.get("tops", []) or []),
+            len(occasion_filtered.get("bottoms", []) or []),
+            len(occasion_filtered.get("shoes", []) or []),
+            len(occasion_filtered.get("dresses", []) or []),
+            len(occasion_filtered.get("outerwear", []) or []),
+            len(occasion_filtered.get("accessories", []) or []),
+        )
+    except Exception:
+        pass
+    master_limit = max(12, min(18, raw_candidate_target // 3))
     master_candidates = _pick_master_candidates(
         occasion_filtered,
         occasion,
         semantic_map,
-        limit=6,
+        limit=master_limit,
     )
     try:
         _diag_picked = [
@@ -2673,8 +2705,8 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     # Bumped per_master_min 6→8 and per-master batch 12→20 below so
     # phase-2 round-robin has enough overflow to keep ≥4 unique heroes
     # in the final brief pool after quality-guard rejections.
-    per_master_min = 8
-    global_max = 80
+    per_master_min = max(8, min(12, raw_candidate_target // max(1, master_limit)))
+    global_max = raw_candidate_target
     unique_hero_target = 4
 
     def _hero_label(piece: Dict[str, Any]) -> str:
@@ -2690,7 +2722,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             candidate_piece,
             # Generous batch per master so phase 2 has overflow to
             # round-robin from; the global cap below still applies.
-            max_combos=20,
+            max_combos=max(20, raw_candidate_target),
         )
         master_to_combos.append((_hero_label(candidate_piece), candidate_combinations))
 
@@ -2704,7 +2736,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         _pool_logger = logging.getLogger("ahvi.outfit_pipeline")
         _pool_logger.info(
             "outfit_pipeline.master_combo_counts occ=%s counts=%s",
-            (merged_context.get("occasion") or merged_context.get("intent") or ""),
+            (context.get("occasion") or context.get("intent") or occasion or ""),
             master_combo_counts,
         )
         _pool_hero_counts: Dict[str, int] = {}
@@ -2777,14 +2809,18 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             groups.setdefault(hero_id, []).append(combo)
         return groups
 
-    def _filter_stage(stage_name: str, source_combos: List[Dict[str, Any]]):
+    def _filter_stage(
+        stage_name: str,
+        source_combos: List[Dict[str, Any]],
+        stage_cap: int,
+    ):
         kept_ids: List[str] = []
         groups = _group_by_hero(source_combos)
         # Decide a per-hero cap so the merged set is bounded but each hero
-        # is represented. With N heroes and a target of ~16 per stage we
-        # take ceil(16 / N), min 2, max 6.
+        # is represented. The target is now context-driven so we can score a
+        # broad pool and only slice after guard/diversity.
         n_heroes = max(1, len(groups))
-        per_hero_cap = max(2, min(6, (16 + n_heroes - 1) // n_heroes))
+        per_hero_cap = max(2, min(8, (stage_cap + n_heroes - 1) // n_heroes))
         for _, group_combos in groups.items():
             if not group_combos:
                 continue
@@ -2816,15 +2852,16 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             kept_ids.extend(ids)
         return kept_ids
 
-    color_keep = _filter_stage("color_combo", combinations)
+    color_source = combinations[:combo_stage_cap]
+    color_keep = _filter_stage("color_combo", color_source, color_stage_cap)
     color_filtered = [
-        c for c in combinations if str(c.get("combo_id")) in set(color_keep)
-    ] or combinations[:8]
+        c for c in color_source if str(c.get("combo_id")) in set(color_keep)
+    ] or color_source[:color_stage_cap]
 
-    pattern_keep = _filter_stage("pattern_combo", color_filtered)
+    pattern_keep = _filter_stage("pattern_combo", color_filtered, pattern_stage_cap)
     pattern_filtered = [
         c for c in color_filtered if str(c.get("combo_id")) in set(pattern_keep)
-    ] or color_filtered[:5]
+    ] or color_filtered[:pattern_stage_cap]
 
     logging.getLogger("ahvi.outfit_pipeline").info(
         "outfit_pipeline.diversity_trace user=%s stage=color_filter heroes=%s",
@@ -2837,8 +2874,9 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         _hero_names(pattern_filtered),
     )
 
-    candidate_combos = pattern_filtered
-    if len(candidate_combos) < 3:
+    candidate_combos = pattern_filtered[:raw_candidate_target]
+    min_candidate_floor = min(24, raw_candidate_target)
+    if len(candidate_combos) < min_candidate_floor and len(combinations) >= min_candidate_floor:
         widened: List[Dict[str, Any]] = []
         seen_combo_ids: set[str] = set()
         for source in (pattern_filtered, color_filtered, combinations):
@@ -2848,12 +2886,24 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
                     continue
                 seen_combo_ids.add(combo_id)
                 widened.append(combo)
-                if len(widened) >= 12:
+                if len(widened) >= widen_cap:
                     break
-            if len(widened) >= 12:
+            if len(widened) >= widen_cap:
                 break
         if widened:
             candidate_combos = widened
+
+    logging.getLogger("ahvi.outfit_pipeline").info(
+        "ahvi.combo.funnel occasion=%s masters=%s generated=%s color_filtered=%s pattern_filtered=%s candidate_combos=%s raw_target=%s requested=%s",
+        occasion,
+        len(master_candidates),
+        len(combinations),
+        len(color_filtered),
+        len(pattern_filtered),
+        len(candidate_combos),
+        raw_candidate_target,
+        requested_board_count,
+    )
 
     # Variant seed: repeated asks should not always show the exact same first look.
     query_hint = str(context.get("query") or context.get("prompt") or occasion or "")
@@ -2901,7 +2951,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             scored.append(scored_combo)
 
         ranked = outfit_ranker.rank(
-            user_id=user_id, outfits=scored, top_n=min(24, len(scored))
+            user_id=user_id, outfits=scored, top_n=min(raw_candidate_target, len(scored))
         )
         logging.getLogger("ahvi.outfit_pipeline").info(
             "outfit_pipeline.diversity_trace user=%s stage=ranked heroes=%s",
@@ -2990,7 +3040,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             reverse=True,
         )
 
-        ranked = _diversify_outfits(ranked, limit=6)
+        ranked = _diversify_outfits(ranked, limit=min(raw_candidate_target, len(ranked)))
         logging.getLogger("ahvi.outfit_pipeline").info(
             "outfit_pipeline.diversity_trace user=%s stage=diversified heroes=%s",
             user_id,
@@ -3071,6 +3121,14 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
                 closest_score_meta.get("occasion_penalties")
                 or closest_score_meta.get("closest_option_reason")
                 or [],
+            )
+
+        if ranked:
+            ranked = _diversify_outfits(ranked, limit=requested_board_count)
+            logging.getLogger("ahvi.outfit_pipeline").info(
+                "outfit_pipeline.diversity_trace user=%s stage=post_guard_diversified heroes=%s",
+                user_id,
+                _hero_names(ranked),
             )
 
         user_memory["recent_outfits"] = ranked + user_memory.get("recent_outfits", [])
