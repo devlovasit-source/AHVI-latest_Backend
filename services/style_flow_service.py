@@ -2482,7 +2482,13 @@ def _selected_count(selected: List[Dict[str, Any]], role: str, value: str) -> in
     return sum(1 for selected_card in selected if _role_key(selected_card, role) == value)
 
 
-def _select_diverse_cards(cards: List[Dict[str, Any]], query: str, limit: int) -> List[Dict[str, Any]]:
+def _select_diverse_cards(
+    cards: List[Dict[str, Any]],
+    query: str,
+    limit: int,
+    *,
+    allow_core_variants: bool = False,
+) -> List[Dict[str, Any]]:
     if not cards:
         return []
     unique_tops = {k for k in ((_role_key(card, "top") or _role_key(card, "dress")) for card in cards) if k}
@@ -2499,13 +2505,17 @@ def _select_diverse_cards(cards: List[Dict[str, Any]], query: str, limit: int) -
     strong_office_footwear_exists = _office_has_strong_footwear(cards, query)
     selected: List[Dict[str, Any]] = []
     selected_sigs: set[str] = set()
+    selected_exact_sigs: set[str] = set()
 
     def _count_value(values: List[str], value: str) -> int:
         return sum(1 for x in values if x and x == value)
 
     def can_add(card: Dict[str, Any], *, strict: bool) -> bool:
         core = _safe_text(card.get("_style_core_signature"))
-        if core in selected_sigs:
+        exact = _safe_text(card.get("_style_signature"))
+        if exact and exact in selected_exact_sigs:
+            return False
+        if core in selected_sigs and (strict or not allow_core_variants):
             return False
         top = _role_key(card, "top") or _role_key(card, "dress")
         bottom = _role_key(card, "bottom")
@@ -2526,7 +2536,8 @@ def _select_diverse_cards(cards: List[Dict[str, Any]], query: str, limit: int) -
         if enforce_top_limit and top and _count_value(selected_tops, top) >= MAX_TOP_REUSE:
             return False
         if enforce_bottom_limit and bottom:
-            if _selected_count(selected, "bottom", bottom) >= MAX_BOTTOM_REUSE:
+            max_bottom = MAX_BOTTOM_REUSE if strict else max(2, MAX_BOTTOM_REUSE)
+            if _selected_count(selected, "bottom", bottom) >= max_bottom:
                 return False
         if enforce_footwear_limit and footwear:
             if _selected_count(selected, "footwear", footwear) >= MAX_FOOTWEAR_REUSE:
@@ -2578,6 +2589,7 @@ def _select_diverse_cards(cards: List[Dict[str, Any]], query: str, limit: int) -
         picked["_target_title"] = target.get("title")
         selected.append(picked)
         selected_sigs.add(_safe_text(picked.get("_style_core_signature")))
+        selected_exact_sigs.add(_safe_text(picked.get("_style_signature")))
         remaining = [card for card in remaining if card is not picked]
 
     for strict in (True, False):
@@ -2597,6 +2609,7 @@ def _select_diverse_cards(cards: List[Dict[str, Any]], query: str, limit: int) -
             picked = choices[0]
             selected.append(picked)
             selected_sigs.add(_safe_text(picked.get("_style_core_signature")))
+            selected_exact_sigs.add(_safe_text(picked.get("_style_signature")))
             remaining = [card for card in remaining if card is not picked]
     logger.info(
         "accessory_diversity.applied selected=%d requested=%d unique_accessories=%d max_reuse=%d",
@@ -2630,8 +2643,14 @@ def finalize_style_cards(
     hard_cap = max(6, int(candidate_pool_size or 6))
     limit = max(1, min(hard_cap, requested_count or candidate_pool_size or default_limit))
 
+    allow_core_variants = bool(
+        (candidate_pool_size and int(candidate_pool_size or 0) > 6)
+        or (requested_count and int(requested_count or 0) > 3)
+    )
     canonical: List[Dict[str, Any]] = []
     seen: set[str] = set()
+    seen_exact: set[str] = set()
+    skipped_counts: Dict[str, int] = {}
     for idx, card in enumerate(cards or []):
         if not isinstance(card, dict):
             continue
@@ -2667,7 +2686,17 @@ def finalize_style_cards(
             continue
         sig = card_signature(fixed)
         core_sig = core_card_signature(fixed) or sig
-        if not sig or core_sig in seen or sig in excluded or core_sig in excluded:
+        if not sig:
+            skipped_counts["missing_signature"] = skipped_counts.get("missing_signature", 0) + 1
+            continue
+        if sig in seen_exact:
+            skipped_counts["duplicate_exact_signature"] = skipped_counts.get("duplicate_exact_signature", 0) + 1
+            continue
+        if not allow_core_variants and core_sig in seen:
+            skipped_counts["duplicate_core_signature"] = skipped_counts.get("duplicate_core_signature", 0) + 1
+            continue
+        if sig in excluded or core_sig in excluded:
+            skipped_counts["excluded_signature"] = skipped_counts.get("excluded_signature", 0) + 1
             continue
         fixed["_style_signature"] = sig
         fixed["_style_core_signature"] = core_sig
@@ -2677,10 +2706,25 @@ def finalize_style_cards(
         fixed["_style_identity_score"] = _identity_match_score(fixed, style_identity or {})
         fixed["_style_quality_score"] += float(fixed.get("_style_identity_score") or 0.0)
         seen.add(core_sig)
+        seen_exact.add(sig)
         canonical.append(fixed)
 
     canonical.sort(key=lambda c: float(c.get("_style_quality_score") or 0.0), reverse=True)
-    canonical = _select_diverse_cards(canonical, query, limit)
+    pre_diverse_count = len(canonical)
+    canonical = _select_diverse_cards(
+        canonical,
+        query,
+        limit,
+        allow_core_variants=allow_core_variants,
+    )
+    logger.info(
+        "style_flow.finalizer_funnel input=%d canonical=%d selected=%d limit=%d skipped=%s",
+        len(cards or []),
+        pre_diverse_count,
+        len(canonical),
+        limit,
+        skipped_counts,
+    )
     for idx, card in enumerate(canonical):
         archetype = _safe_text(card.get("_target_archetype")) or _ARCHETYPES[idx % len(_ARCHETYPES)]
         title = _safe_text(card.get("_target_title")) or _title_for(card, query, idx, archetype)
