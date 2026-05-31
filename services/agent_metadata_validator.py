@@ -78,6 +78,17 @@ _SCHEMA_KEYS = (
     "suitable_seasons",
     "climate_appropriateness",
     "material_characteristics",
+    "visual_noise",
+    "pattern_intensity",
+    "statement_level",
+    "professionalism_score",
+    "client_meeting_score",
+    "boardroom_score",
+    "capsule_score",
+    "versatility_score",
+    "date_night_score",
+    "risk_flags",
+    "styling_notes",
     "confidence",
 )
 
@@ -100,15 +111,212 @@ def _coerce_list(value: Any) -> List[str]:
 
 
 def _coerce_confidence(value: Any) -> float:
+    return _coerce_score(value, default=0.0)
+
+
+def _coerce_score(value: Any, default: float = 0.0) -> float:
     try:
         c = float(value)
     except Exception:
-        return 0.0
+        return default
     if c < 0.0:
         return 0.0
     if c > 1.0:
         return 1.0
     return c
+
+
+def _coerce_enum(value: Any, allowed: set[str], default: str) -> str:
+    text = _coerce_str(value, default).strip().lower().replace(" ", "_").replace("-", "_")
+    return text if text in allowed else default
+
+
+def _tokens_from(*values: Any) -> set[str]:
+    import re
+
+    return set(
+        re.sub(r"[^a-z0-9]+", " ", " ".join(str(v or "") for v in values).lower())
+        .strip()
+        .split()
+    )
+
+
+def _blob_from(base: Dict[str, Any], raw: Dict[str, Any]) -> str:
+    parts: List[str] = []
+    for source in (base, raw):
+        for key in (
+            "name",
+            "title",
+            "label",
+            "category",
+            "subcategory",
+            "sub_category",
+            "color",
+            "pattern",
+            "material",
+            "fabric",
+            "description",
+        ):
+            parts.append(str(source.get(key) or ""))
+        for key in ("vision_labels", "labels", "occasions"):
+            value = source.get(key)
+            if isinstance(value, list):
+                parts.extend(str(x) for x in value)
+            else:
+                parts.append(str(value or ""))
+    return " ".join(parts).lower()
+
+
+def _add_unique(values: List[str], additions: List[str]) -> List[str]:
+    out = list(values or [])
+    seen = {str(x).strip().lower() for x in out}
+    for value in additions:
+        text = str(value or "").strip()
+        if text and text.lower() not in seen:
+            out.append(text)
+            seen.add(text.lower())
+    return out
+
+
+def _max_score(meta: Dict[str, Any], key: str, value: float) -> None:
+    meta[key] = max(_coerce_score(meta.get(key), 0.0), float(value))
+
+
+def _apply_category_defaults(meta: Dict[str, Any], *, base: Dict[str, Any], raw: Dict[str, Any]) -> Dict[str, Any]:
+    blob = _blob_from(base, raw)
+    tokens = _tokens_from(blob)
+
+    def has_any(words: List[str]) -> bool:
+        return any(word in tokens or word in blob for word in words)
+
+    professional_garment = False
+    patterned = has_any(["stripe", "striped", "check", "checked", "plaid", "print", "printed", "graphic", "paisley", "embroidered"])
+    loud = has_any(["loud", "graphic", "neon", "bold print", "large print", "statement", "logo"])
+    specific_signal = any(
+        _coerce_str(source.get(key)).strip().lower() not in {"", "unknown", "none", "null"}
+        for source in (base, raw)
+        for key in ("name", "title", "label", "subcategory", "sub_category", "description")
+    )
+
+    if has_any(["boxer", "brief", "underwear", "undergarment", "innerwear", "trunks", "loungewear", "pajama", "pyjama"]):
+        meta.update(
+            {
+                "category": "innerwear",
+                "subcategory": "private_wear",
+                "formality": "homewear",
+                "style_role": "loungewear",
+                "visual_noise": meta.get("visual_noise") or "low",
+                "pattern_intensity": meta.get("pattern_intensity") or "none",
+                "statement_level": meta.get("statement_level") or "core",
+            }
+        )
+        meta["blocked_occasions"] = _add_unique(
+            meta.get("blocked_occasions", []),
+            ["office", "client_meeting", "boardroom", "formal_event", "public_outing"],
+        )
+        meta["allowed_occasions"] = _add_unique(meta.get("allowed_occasions", []), ["home", "private", "lounge"])
+        return meta
+
+    if has_any(["running shorts", "gym shorts", "training shorts", "track", "activewear", "workout", "gym", "running"]):
+        meta.update(
+            {
+                "style_role": "activewear",
+                "formality": "athletic",
+                "visual_noise": meta.get("visual_noise") or "low",
+                "pattern_intensity": meta.get("pattern_intensity") or "none",
+                "statement_level": meta.get("statement_level") or "core",
+            }
+        )
+        meta["blocked_occasions"] = _add_unique(
+            meta.get("blocked_occasions", []),
+            ["office", "client_meeting", "boardroom", "wedding", "formal_event"],
+        )
+        return meta
+
+    if has_any(["formal trousers", "tailored pants", "tailored trouser", "slacks"]):
+        professional_garment = True
+        meta.update({"category": "bottom", "subcategory": "formal_trousers", "formality": "business_casual", "style_role": "businesswear"})
+        _max_score(meta, "professionalism_score", 0.85)
+        _max_score(meta, "client_meeting_score", 0.80)
+        _max_score(meta, "boardroom_score", 0.75)
+        _max_score(meta, "capsule_score", 0.72)
+        _max_score(meta, "versatility_score", 0.72)
+    elif has_any(["trouser", "trousers", "chino", "chinos", "slack", "slacks"]) and not has_any(["jogger", "sweatpant", "track pant", "lounge", "pajama", "pyjama", "shorts", "distressed", "beach"]):
+        professional_garment = True
+        meta.update(
+            {
+                "category": "bottom",
+                "subcategory": "chinos" if has_any(["chino", "chinos", "khaki"]) else "trousers",
+                "formality": "business_casual" if has_any(["formal", "tailored"]) else "smart_casual",
+                "style_role": "businesswear",
+            }
+        )
+        _max_score(meta, "professionalism_score", 0.75)
+        _max_score(meta, "client_meeting_score", 0.70)
+        _max_score(meta, "boardroom_score", 0.60)
+        _max_score(meta, "capsule_score", 0.70)
+        _max_score(meta, "versatility_score", 0.70)
+    elif has_any(["button down", "button-down", "dress shirt", "oxford", "formal shirt"]):
+        professional_garment = True
+        meta.update({"category": "top", "formality": "business_casual", "style_role": "businesswear"})
+        _max_score(meta, "professionalism_score", 0.75)
+        _max_score(meta, "client_meeting_score", 0.70)
+        _max_score(meta, "capsule_score", 0.65)
+        _max_score(meta, "versatility_score", 0.65)
+    elif has_any(["blazer", "sport coat", "suit jacket"]):
+        professional_garment = True
+        meta.update({"category": "outerwear", "subcategory": "blazer", "formality": "business_casual", "style_role": "businesswear"})
+        _max_score(meta, "professionalism_score", 0.90)
+        _max_score(meta, "client_meeting_score", 0.85)
+        _max_score(meta, "boardroom_score", 0.85)
+        _max_score(meta, "capsule_score", 0.75)
+    elif has_any(["loafer", "loafers", "oxford", "oxfords", "derby", "derbies"]):
+        professional_garment = True
+        meta.update({"category": "footwear", "formality": "business_casual", "style_role": "businesswear"})
+        _max_score(meta, "professionalism_score", 0.80)
+        _max_score(meta, "client_meeting_score", 0.75)
+    elif has_any(["slides", "slipper", "slippers", "flip flop", "flip-flop", "flipflop"]):
+        meta.update({"category": "footwear", "formality": "casual", "style_role": "resortwear"})
+        meta["blocked_occasions"] = _add_unique(
+            meta.get("blocked_occasions", []),
+            ["office", "client_meeting", "boardroom", "formal_event"],
+        )
+
+    if professional_garment:
+        meta["allowed_occasions"] = _add_unique(
+            meta.get("allowed_occasions", []),
+            ["office", "client_meeting", "business_lunch", "travel", "dinner"],
+        )
+        meta["blocked_occasions"] = _add_unique(
+            meta.get("blocked_occasions", []),
+            ["workout", "gym", "beach", "sleepwear"],
+        )
+        meta["risk_flags"] = [
+            flag
+            for flag in meta.get("risk_flags", [])
+            if flag not in {"too_casual_for_professional"}
+        ]
+
+    if loud:
+        meta["visual_noise"] = "high"
+        meta["pattern_intensity"] = "loud"
+        meta["statement_level"] = "statement" if meta.get("statement_level") != "risky" else "risky"
+        meta["risk_flags"] = _add_unique(meta.get("risk_flags", []), ["high_visual_noise"])
+        meta["client_meeting_score"] = min(_coerce_score(meta.get("client_meeting_score"), 0.0), 0.45)
+    else:
+        meta["visual_noise"] = meta.get("visual_noise") or ("medium" if patterned else "low")
+        meta["pattern_intensity"] = meta.get("pattern_intensity") or ("subtle" if patterned else "none")
+        meta["statement_level"] = meta.get("statement_level") or "core"
+
+    if not professional_garment and (specific_signal or loud):
+        if _coerce_score(meta.get("client_meeting_score"), 0.0) < 0.50:
+            meta["risk_flags"] = _add_unique(meta.get("risk_flags", []), ["too_casual_for_professional"])
+            meta["blocked_occasions"] = _add_unique(meta.get("blocked_occasions", []), ["client_meeting", "boardroom", "executive_meeting"])
+        if _coerce_score(meta.get("boardroom_score"), 0.0) < 0.50:
+            meta["risk_flags"] = _add_unique(meta.get("risk_flags", []), ["too_casual_for_professional"])
+            meta["blocked_occasions"] = _add_unique(meta.get("blocked_occasions", []), ["boardroom", "executive_meeting"])
+
+    return meta
 
 
 def validate_metadata_payload(
@@ -143,8 +351,20 @@ def validate_metadata_payload(
         "suitable_seasons": _coerce_list(raw.get("suitable_seasons")),
         "climate_appropriateness": _coerce_list(raw.get("climate_appropriateness")),
         "material_characteristics": _coerce_list(raw.get("material_characteristics")),
+        "visual_noise": _coerce_enum(raw.get("visual_noise"), {"low", "medium", "high"}, "low"),
+        "pattern_intensity": _coerce_enum(raw.get("pattern_intensity"), {"none", "subtle", "moderate", "loud"}, "none"),
+        "statement_level": _coerce_enum(raw.get("statement_level"), {"core", "accent", "statement", "risky"}, "core"),
+        "professionalism_score": _coerce_score(raw.get("professionalism_score"), 0.0),
+        "client_meeting_score": _coerce_score(raw.get("client_meeting_score"), 0.0),
+        "boardroom_score": _coerce_score(raw.get("boardroom_score"), 0.0),
+        "capsule_score": _coerce_score(raw.get("capsule_score"), 0.0),
+        "versatility_score": _coerce_score(raw.get("versatility_score"), 0.0),
+        "date_night_score": _coerce_score(raw.get("date_night_score"), 0.0),
+        "risk_flags": _coerce_list(raw.get("risk_flags")),
+        "styling_notes": _coerce_list(raw.get("styling_notes")),
         "confidence": _coerce_confidence(raw.get("confidence")),
     }
+    validated = _apply_category_defaults(validated, base=base, raw=raw)
     if validated["confidence"] < _low_confidence_threshold():
         validated["manual_review_required"] = True
     return validated
@@ -365,14 +585,21 @@ async def validate_wardrobe_metadata(
     else:
         logger.info(
             "ahvi.metadata.validation_success user_id=%s item_id=%s category=%s "
-            "subcategory=%s formality=%s style_role=%s confidence=%.2f "
-            "blocked_occasions=%s",
+            "subcategory=%s formality=%s style_role=%s client_meeting_score=%.2f "
+            "boardroom_score=%.2f capsule_score=%.2f versatility_score=%.2f "
+            "visual_noise=%s risk_flags=%s confidence=%.2f blocked_occasions=%s",
             user_id,
             (item or {}).get("$id"),
             validated.get("category"),
             validated.get("subcategory"),
             validated.get("formality"),
             validated.get("style_role"),
+            float(validated.get("client_meeting_score") or 0.0),
+            float(validated.get("boardroom_score") or 0.0),
+            float(validated.get("capsule_score") or 0.0),
+            float(validated.get("versatility_score") or 0.0),
+            validated.get("visual_noise"),
+            validated.get("risk_flags"),
             confidence,
             validated.get("blocked_occasions"),
         )
@@ -441,6 +668,8 @@ def _json_compact(metadata: Dict[str, Any]) -> str:
         "incompatible_footwear",
         "allowed_occasions",
         "blocked_occasions",
+        "risk_flags",
+        "styling_notes",
     ):
         if isinstance(trimmed.get(key), list) and len(trimmed[key]) > 8:
             trimmed[key] = trimmed[key][:8]

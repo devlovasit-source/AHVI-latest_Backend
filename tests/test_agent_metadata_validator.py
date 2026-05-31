@@ -39,8 +39,9 @@ def test_validate_metadata_uses_base_item_for_defaults():
     meta = validate_metadata_payload(
         {}, base_item={"category": "Bottoms", "sub_category": "Trousers"}
     )
-    assert meta["category"] == "Bottoms"
-    assert meta["subcategory"] == "Trousers"
+    assert meta["category"] == "bottom"
+    assert "trousers" in meta["subcategory"]
+    assert meta["client_meeting_score"] >= 0.70
 
 
 def test_validate_metadata_coerces_malformed_input():
@@ -114,10 +115,11 @@ def test_boxer_shorts_metadata_shape():
         formality="homewear",
         blocked_occasions=["office", "client_meeting", "formal_event"],
     )
-    assert meta["category"] == "Bottoms"
+    assert meta["category"] == "innerwear"
     assert meta["style_role"] == "loungewear"
     assert "client_meeting" in meta["blocked_occasions"]
     assert "office" in meta["blocked_occasions"]
+    assert "boardroom" in meta["blocked_occasions"]
 
 
 def test_slides_metadata_shape():
@@ -127,7 +129,7 @@ def test_slides_metadata_shape():
         style_role="casualwear",
         blocked_occasions=["office", "client_meeting", "formal_event", "wedding"],
     )
-    assert meta["category"] == "Footwear"
+    assert meta["category"] == "footwear"
     assert "office" in meta["blocked_occasions"]
     assert "wedding" in meta["blocked_occasions"]
 
@@ -140,7 +142,7 @@ def test_blazer_metadata_shape():
         formality="business_casual",
         allowed_occasions=["office", "client_meeting", "interview"],
     )
-    assert meta["category"] == "Outerwear"
+    assert meta["category"] == "outerwear"
     assert "office" in meta["allowed_occasions"]
     assert "client_meeting" in meta["allowed_occasions"]
 
@@ -154,7 +156,61 @@ def test_running_shorts_metadata_shape():
         blocked_occasions=["office", "client_meeting", "formal_event", "wedding"],
     )
     assert meta["style_role"] == "activewear"
+    assert meta["formality"] == "athletic"
     assert "office" in meta["blocked_occasions"]
+    assert "boardroom" in meta["blocked_occasions"]
+
+
+def test_white_trousers_professional_defaults():
+    meta = validate_metadata_payload(
+        {"formality": "casual", "style_role": "casualwear", "confidence": 0.9},
+        base_item={"name": "White Trousers", "category": "Bottoms", "sub_category": "Trousers"},
+    )
+    assert meta["category"] == "bottom"
+    assert "trousers" in meta["subcategory"]
+    assert meta["formality"] in {"smart_casual", "business_casual", "formal"}
+    assert meta["style_role"] == "businesswear"
+    assert meta["client_meeting_score"] >= 0.70
+    assert meta["capsule_score"] >= 0.70
+    assert "too_casual_for_professional" not in meta["risk_flags"]
+
+
+def test_khaki_trousers_allow_professional_travel_and_dinner():
+    meta = validate_metadata_payload(
+        {"confidence": 0.9},
+        base_item={"name": "Khaki Trousers", "category": "Bottoms", "sub_category": "Trousers"},
+    )
+    assert meta["subcategory"] in {"trousers", "chinos"}
+    assert meta["formality"] in {"smart_casual", "business_casual"}
+    for occasion in ("office", "client_meeting", "travel", "dinner"):
+        assert occasion in meta["allowed_occasions"]
+
+
+def test_formal_trousers_preserve_business_intelligence():
+    meta = validate_metadata_payload(
+        {"formality": "casual", "style_role": "casualwear", "confidence": 0.9},
+        base_item={"name": "Formal trousers", "category": "Bottoms", "sub_category": "Formal trousers"},
+    )
+    assert meta["subcategory"] == "formal_trousers"
+    assert meta["formality"] in {"formal", "business_casual"}
+    assert meta["style_role"] == "businesswear"
+    assert meta["boardroom_score"] >= 0.75
+
+
+def test_loud_graphic_shirt_gets_professional_risk_flags():
+    meta = validate_metadata_payload(
+        {
+            "category": "Tops",
+            "subcategory": "Graphic Shirt",
+            "name": "Loud Graphic Shirt",
+            "confidence": 0.9,
+        }
+    )
+    assert meta["visual_noise"] == "high"
+    assert meta["pattern_intensity"] == "loud"
+    assert meta["statement_level"] in {"statement", "risky"}
+    assert meta["client_meeting_score"] < 0.50
+    assert "high_visual_noise" in meta["risk_flags"] or "too_casual_for_professional" in meta["risk_flags"]
 
 
 # ---------------------------------------------------------------------------
