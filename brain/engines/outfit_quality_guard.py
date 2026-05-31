@@ -115,11 +115,21 @@ def _tokens(text: str) -> set[str]:
 
 def normalize_occasion(occasion: Any) -> str:
     text = _norm(occasion).replace("-", "_")
+    readable = text.replace("_", " ")
+    tokens = _tokens(readable)
+    if (
+        any(w in readable for w in ["workout", "gym", "fitness", "strength training"])
+        or tokens.intersection({"training", "yoga", "running", "cardio", "pilates"})
+    ):
+        return "workout"
     if any(w in text for w in ["date_night", "date night", "date", "dinner", "tonight"]):
         return "date_night"
     if any(w in text for w in ["beach", "pool", "seaside", "coastal", "resort"]):
         return "beach"
-    if any(w in text for w in ["office", "corporate_office", "smart_casual_office", "work", "meeting", "client", "boardroom"]):
+    if (
+        any(w in text for w in ["office", "corporate_office", "smart_casual_office", "meeting", "client", "boardroom"])
+        or "work" in tokens
+    ):
         return "office"
     if "brunch" in text:
         return "brunch"
@@ -128,11 +138,9 @@ def normalize_occasion(occasion: Any) -> str:
     if "cocktail" in text:
         return "cocktail"
     if any(w in text for w in ["party", "house_party", "after_hours", "night out"]):
-        return "house_party"
+        return "party"
     if any(w in text for w in ["travel", "airport", "flight", "vacation", "trip"]):
         return "travel"
-    if any(w in text for w in ["workout", "gym", "fitness", "training", "yoga", "running"]):
-        return "workout"
     if any(w in text for w in ["temple_modest", "temple", "mandir", "pooja", "puja", "religious", "shrine", "darshan"]):
         return "temple_modest"
     if any(w in text for w in ["wedding", "reception", "ceremony", "event"]):

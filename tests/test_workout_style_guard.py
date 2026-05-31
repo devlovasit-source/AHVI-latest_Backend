@@ -30,6 +30,15 @@ def test_workout_query_does_not_normalize_to_office():
     assert _normalize_occasion_value("", "workout, not for the office") == "workout"
 
 
+def test_lower_style_normalizers_do_not_match_work_inside_workout():
+    from brain.engines.style_scorer import normalize_occasion as scorer_normalize
+    from brain.engines.outfit_quality_guard import normalize_occasion as guard_normalize
+
+    for raw in ("workout outfit", "Find training tee", "cardio workout", "gym look"):
+        assert scorer_normalize(raw) == "workout"
+        assert guard_normalize(raw) == "workout"
+
+
 def test_office_query_still_normalizes_to_office():
     from services.style_flow_service import _normalize_occasion_value
     assert _normalize_occasion_value("", "office today") == "office"

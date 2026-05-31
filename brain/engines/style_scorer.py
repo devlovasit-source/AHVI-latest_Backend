@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any, Dict, List, Tuple, Optional
 
 logger = logging.getLogger("ahvi.style_scorer")
@@ -334,9 +335,10 @@ _OCCASION_ALIASES: Dict[str, str] = {
     "road trip": "travel",
     "day trip": "travel",
     "overnight trip": "travel",
-    "strength training": "gym",
-    "cardio": "gym",
-    "yoga": "gym",
+    "strength training": "workout",
+    "cardio": "workout",
+    "yoga": "workout",
+    "gym": "workout",
     "indian wedding": "wedding",
     "western wedding": "wedding",
     "reception": "wedding",
@@ -574,15 +576,24 @@ def normalize_occasion(occasion: Any) -> str:
     meta_occasion = normalize_style_occasion(occasion)
     text = str(occasion or "").strip().lower().replace("-", "_")
     readable = text.replace("_", " ")
+    tokens = set(re.sub(r"[^a-z0-9]+", " ", readable).split())
     if any(w in readable for w in ["capsule wardrobe", "wardrobe essentials", "core wardrobe", "minimalist wardrobe"]):
         return "capsule"
+    if (
+        any(w in readable for w in ["workout", "gym", "fitness", "strength training"])
+        or tokens.intersection({"training", "yoga", "running", "cardio", "pilates"})
+    ):
+        return "workout"
     if "night out" in readable and not any(w in readable for w in ["date", "dinner"]):
         return "party"
     if any(w in text for w in ["date_night", "date night", "date", "dinner", "tonight"]):
         return "date_night"
     if any(w in text for w in ["beach", "pool", "seaside", "coastal", "resort"]):
         return "beach"
-    if any(w in text for w in ["office", "corporate_office", "smart_casual_office", "work", "meeting", "client", "boardroom"]):
+    if (
+        any(w in text for w in ["office", "corporate_office", "smart_casual_office", "meeting", "client", "boardroom"])
+        or "work" in tokens
+    ):
         return "office"
     if "brunch" in text:
         return "brunch"
@@ -591,11 +602,9 @@ def normalize_occasion(occasion: Any) -> str:
     if "cocktail" in text:
         return "cocktail"
     if any(w in text for w in ["party", "house_party", "after_hours", "night out"]):
-        return "house_party"
+        return "party"
     if any(w in text for w in ["travel", "airport", "flight", "vacation", "trip"]):
         return "travel"
-    if any(w in text for w in ["workout", "gym", "fitness", "training", "yoga", "running"]):
-        return "workout"
     if any(w in text for w in ["wedding", "reception", "ceremony", "event"]):
         return "wedding"
     if any(w in text for w in ["casual", "daily", "today", "weekend"]):
