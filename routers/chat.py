@@ -934,6 +934,62 @@ def _ahvi_style_occasion(query_text):
     return "today"
 
 
+def _daily_wear_style_tips_payload(query_text: str, user_id: str) -> Dict[str, Any] | None:
+    """Fast path for Daily Wear's Ask AHVI sheet.
+
+    Daily Wear sends a style-advice prompt with the current outfit/weather
+    embedded in text. That flow needs quick advice, not the full board
+    generator. Keeping it here avoids the slow style-board path and prevents
+    the frontend from sitting on the typing indicator for simple tips.
+    """
+    raw = str(query_text or "")
+    q = raw.lower()
+    if "current outfit:" not in q and "weather:" not in q:
+        return None
+    if not any(k in q for k in ("style tip", "style tips", "give me style", "tips")):
+        return None
+
+    def _line_after(label: str) -> str:
+        pattern = re.compile(rf"{re.escape(label)}\s*:\s*([^\n]+)", re.IGNORECASE)
+        match = pattern.search(raw)
+        return (match.group(1).strip(" .") if match else "").strip()
+
+    outfit_line = _line_after("Current outfit")
+    weather_line = _line_after("Weather")
+    outfit_name = (outfit_line.split(" - ", 1)[0] if outfit_line else "this look").strip()
+
+    heat_note = ""
+    if any(k in q for k in ("very hot", "hot", "40°", "40c", "39°", "38°")):
+        heat_note = " Since it is very hot, keep the styling breathable: avoid heavy layers, thick socks, and dark heat-trapping extras."
+    weather_note = f" Weather context: {weather_line}." if weather_line else ""
+    message = (
+        f"{outfit_name} already reads relaxed and warm-weather friendly."
+        f"{weather_note}{heat_note} For a sharper finish, keep the linen/breezy base, roll sleeves neatly, choose light footwear, and add one practical accessory like sunglasses, a slim watch, or a tote. If this is for evening, swap to cleaner shoes and keep the palette calm."
+    )
+    logger.info(
+        "daily_wear.style_tips.fast_response user_id=%s outfit=%r weather=%r",
+        user_id,
+        outfit_name,
+        weather_line,
+    )
+    return {
+        "success": True,
+        "type": "style_advice",
+        "module": "style",
+        "domain": "style",
+        "intent": "daily_wear_style_tips",
+        "message": message,
+        "message_text": message,
+        "response": message,
+        "chips": ["Make it cooler", "More polished", "Swap footwear", "Show alternatives"],
+        "quick_actions": ["Make it cooler", "More polished", "Swap footwear", "Show alternatives"],
+        "cards": [],
+        "style_boards": [],
+        "data": {},
+        "meta": {"fast_daily_wear_style_tips": True},
+    }
+
+
 def _ahvi_style_image(item):
     if not isinstance(item, dict):
         return ""
@@ -3371,6 +3427,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
     )
 
     if style_intent_candidate:
+        daily_wear_payload = _daily_wear_style_tips_payload(english_input, user_id)
+        if daily_wear_payload:
+            return daily_wear_payload
         try:
             style_interpretation = interpret_occasion(
                 english_input,
