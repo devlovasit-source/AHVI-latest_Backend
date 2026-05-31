@@ -144,6 +144,8 @@ def _group_by_role(wardrobe: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, A
 
 def _build_sample_looks(
     foundation: Dict[str, List[Dict[str, Any]]],
+    *,
+    limit: int = 6,
 ) -> List[Dict[str, Any]]:
     """Compose 2–3 capsule sample looks from the foundation."""
     tops = foundation.get("top") or []
@@ -153,26 +155,62 @@ def _build_sample_looks(
     accessories = foundation.get("accessory") or []
     if not tops or not bottoms or not footwears:
         return []
+    titles = [
+        "Foundation Daily",
+        "Smart Layer",
+        "Off-Duty Edit",
+        "Workday Capsule",
+        "Dinner Repeat",
+        "Travel Uniform",
+    ]
+    roles = ["primary", "alternate", "expressive", "work", "evening", "travel"]
+    available_variation = max(
+        len(tops),
+        len(bottoms),
+        len(footwears),
+        len(accessories) or 1,
+    )
+    look_count = min(max(3, int(limit or 6)), 6)
+    look_count = min(look_count, max(3, available_variation + (1 if outerwears else 0)))
     looks: List[Dict[str, Any]] = []
-    for idx in range(min(3, max(len(tops), 1))):
+    seen_signatures: set[str] = set()
+    for idx in range(look_count):
         t = tops[idx % len(tops)]
-        b = bottoms[idx % len(bottoms)]
-        f = footwears[idx % len(footwears)]
+        b = bottoms[(idx + (idx // max(1, len(tops)))) % len(bottoms)]
+        f = footwears[(idx + (idx // 2)) % len(footwears)]
+        signature = "|".join(
+            str(
+                (item or {}).get("id")
+                or (item or {}).get("$id")
+                or (item or {}).get("name")
+                or ""
+            )
+            for item in (t, b, f)
+        )
+        if signature in seen_signatures and idx >= 3:
+            continue
+        seen_signatures.add(signature)
         items = [
             {**t, "role": "top"},
             {**b, "role": "bottom"},
             {**f, "role": "footwear"},
         ]
-        if outerwears and idx == 0:
-            items.append({**outerwears[0], "role": "outerwear"})
+        if outerwears and idx in {0, 1, 3, 5}:
+            items.append({**outerwears[idx % len(outerwears)], "role": "outerwear"})
         if accessories:
             items.append({**accessories[idx % len(accessories)], "role": "accessory"})
         looks.append({
             "id": f"capsule_look_{idx + 1}",
-            "title": ["Foundation Daily", "Smart Layer", "Off-Duty Edit"][idx % 3],
+            "title": titles[idx % len(titles)],
             "badge": "CAPSULE",
+            "occasion": "capsule_wardrobe",
+            "occasion_label": "CAPSULE",
             "items": items,
-            "set_role": ["primary", "alternate", "expressive"][idx % 3],
+            "set_role": roles[idx % len(roles)],
+            "stylist_note": (
+                "These pieces form a repeatable wardrobe foundation because "
+                "they can be recombined across work, casual, and smart-casual settings."
+            ),
         })
     return looks
 
@@ -222,7 +260,7 @@ def build_capsule_response(
         cap = _FOUNDATION_TARGETS.get(role, 2 if role == "accessory" else 1)
         foundation[role] = items_sorted[:cap]
 
-    sample_looks = _build_sample_looks(foundation)
+    sample_looks = _build_sample_looks(foundation, limit=6)
     missing = _missing_slots(foundation)
     gaps = _shopping_gaps(missing)
 
@@ -264,6 +302,11 @@ def build_capsule_response(
         "intent": "capsule",
         "board": "style",
         "message": message,
+        "capsule_foundation": foundation,
+        "sample_looks": sample_looks,
+        "missing_slots": missing,
+        "shopping_gaps": gaps,
+        "styling_note": styling_note,
         "cards": sample_looks,
         "style_boards": sample_looks,
         "board_ids": sample_looks[0]["id"] if sample_looks else "",
@@ -273,11 +316,7 @@ def build_capsule_response(
             else ["Find missing piece", "Add wardrobe item"]
         ),
         "data": {
-            "capsule_foundation": [
-                {**item, "role": role}
-                for role, items in foundation.items()
-                for item in items
-            ],
+            "capsule_foundation": foundation,
             "sample_looks": sample_looks,
             "missing_slots": missing,
             "shopping_gaps": gaps,

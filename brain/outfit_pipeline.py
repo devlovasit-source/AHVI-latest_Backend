@@ -1445,6 +1445,7 @@ def _llm_filter_combo_ids(
     master_type: str,
     master_piece: Dict[str, Any],
     combos: List[Dict[str, Any]],
+    max_ids: int = 24,
 ) -> List[str]:
     if not combos:
         return []
@@ -1491,7 +1492,7 @@ Return strict JSON object:
   "selected_combo_ids": ["id1","id2","id3"]
 }}
 Rules:
-- Keep at most 8 ids.
+- Keep at most {max(1, int(max_ids))} ids.
 - Keep only ids present in the input.
 - Prioritize practical wearable harmony.
 """
@@ -1508,13 +1509,15 @@ Rules:
             cid = str(value).strip()
             if cid and cid in valid and cid not in normalized:
                 normalized.append(cid)
-        return normalized[:8]
+        return normalized[: max(1, int(max_ids))]
     except Exception:
         return []
 
 
 def _rule_color_fallback(
-    master_piece: Dict[str, Any], combos: List[Dict[str, Any]]
+    master_piece: Dict[str, Any],
+    combos: List[Dict[str, Any]],
+    max_ids: int = 24,
 ) -> List[str]:
     # Use each combo's own hero color, not just the singular master_piece
     # passed in (which is master_candidates[0] and discriminates against
@@ -1534,10 +1537,13 @@ def _rule_color_fallback(
             continue
         if len(uniq) <= 3 and any(c in neutrals for c in uniq):
             selected.append(str(combo.get("combo_id")))
-    return selected[:8]
+    return selected[: max(1, int(max_ids))]
 
 
-def _rule_pattern_fallback(combos: List[Dict[str, Any]]) -> List[str]:
+def _rule_pattern_fallback(
+    combos: List[Dict[str, Any]],
+    max_ids: int = 24,
+) -> List[str]:
     selected: List[str] = []
     for combo in combos:
         pats = [p for p in _combo_patterns(combo) if p]
@@ -1549,7 +1555,7 @@ def _rule_pattern_fallback(combos: List[Dict[str, Any]]) -> List[str]:
         )
         if standout <= 1:
             selected.append(str(combo.get("combo_id")))
-    return selected[:8]
+    return selected[: max(1, int(max_ids))]
 
 
 def _accessory_tokens(item: Dict[str, Any]) -> set[str]:
@@ -2553,6 +2559,7 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     combo_stage_cap = raw_candidate_target
     color_stage_cap = max(24, raw_candidate_target // 2)
     pattern_stage_cap = max(24, raw_candidate_target // 2)
+    filter_cap = max(24, raw_candidate_target // 2)
     widen_cap = raw_candidate_target
 
     # Wardrobe can arrive as a dict wrapper from various callers; normalize early to avoid silent empty pipelines.
@@ -2836,12 +2843,20 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
                 master_type=hero_master_type,
                 master_piece=hero_master,
                 combos=group_combos,
+                max_ids=filter_cap,
             )
             if not ids:
                 if stage_name == "color_combo":
-                    ids = _rule_color_fallback(hero_master, group_combos)
+                    ids = _rule_color_fallback(
+                        hero_master,
+                        group_combos,
+                        max_ids=filter_cap,
+                    )
                 else:
-                    ids = _rule_pattern_fallback(group_combos)
+                    ids = _rule_pattern_fallback(
+                        group_combos,
+                        max_ids=filter_cap,
+                    )
             # If no fallback returned anything, keep top-N by combo order.
             if not ids:
                 ids = [
@@ -2950,8 +2965,18 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             _attach_score_meta(scored_combo, merged_context)
             scored.append(scored_combo)
 
+        logging.getLogger("ahvi.outfit_pipeline").info(
+            "ahvi.score.funnel candidate_combos=%s scored=%s top_n=%s",
+            len(candidate_combos),
+            len(scored),
+            min(raw_candidate_target, len(scored)),
+        )
         ranked = outfit_ranker.rank(
             user_id=user_id, outfits=scored, top_n=min(raw_candidate_target, len(scored))
+        )
+        logging.getLogger("ahvi.outfit_pipeline").info(
+            "ahvi.rank.funnel ranked=%s",
+            len(ranked or []),
         )
         logging.getLogger("ahvi.outfit_pipeline").info(
             "outfit_pipeline.diversity_trace user=%s stage=ranked heroes=%s",
