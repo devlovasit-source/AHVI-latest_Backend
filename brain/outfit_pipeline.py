@@ -2410,6 +2410,285 @@ def _outfit_footwear_id(outfit: Dict[str, Any]) -> str:
     return _item_id(outfit.get("shoes") or outfit.get("footwear") or {})
 
 
+def _outfit_accessory_types(outfit: Dict[str, Any]) -> List[str]:
+    types: List[str] = []
+    for item in outfit.get("accessories") or []:
+        if isinstance(item, dict):
+            typ = _accessory_type(item)
+            if typ:
+                types.append(typ)
+    return types
+
+
+def _item_attr(item: Dict[str, Any], *keys: str) -> str:
+    if not isinstance(item, dict):
+        return ""
+    for key in keys:
+        value = item.get(key)
+        if value is not None:
+            text = str(value).strip().lower()
+            if text:
+                return text
+    meta = item.get("style_metadata") if isinstance(item.get("style_metadata"), dict) else {}
+    for key in keys:
+        value = meta.get(key)
+        if value is not None:
+            text = str(value).strip().lower()
+            if text:
+                return text
+    return ""
+
+
+def _outfit_items_for_diversity(outfit: Dict[str, Any]) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for key in ("dress", "top", "bottom", "shoes", "footwear", "outerwear"):
+        value = outfit.get(key)
+        if isinstance(value, dict) and value:
+            items.append(value)
+    for item in outfit.get("accessories") or []:
+        if isinstance(item, dict):
+            items.append(item)
+    return items
+
+
+def _outfit_palette_key(outfit: Dict[str, Any]) -> str:
+    colors: List[str] = []
+    for item in _outfit_items_for_diversity(outfit):
+        color = _item_attr(
+            item,
+            "color",
+            "colour",
+            "dominant_color",
+            "dominantColor",
+            "palette",
+            "tone",
+        )
+        if color:
+            colors.append(color)
+    if not colors and isinstance(outfit.get("palette"), list):
+        colors = [str(value).strip().lower() for value in outfit.get("palette") if str(value).strip()]
+    return "|".join(sorted(set(colors))[:3])
+
+
+def _outfit_formality_key(outfit: Dict[str, Any]) -> str:
+    values: List[str] = []
+    for item in _outfit_items_for_diversity(outfit):
+        value = _item_attr(
+            item,
+            "formality",
+            "style_role",
+            "styleRole",
+            "occasion",
+            "vibe",
+            "aesthetic",
+        )
+        if value:
+            values.append(value)
+    meta = outfit.get("score_meta") if isinstance(outfit.get("score_meta"), dict) else {}
+    if meta.get("formality"):
+        values.append(str(meta.get("formality")).strip().lower())
+    return "|".join(sorted(set(values))[:2])
+
+
+def _set_diversity_profile(outfit: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "signature": _outfit_signature(outfit),
+        "hero": _outfit_hero_id(outfit),
+        "bottom": _outfit_bottom_id(outfit),
+        "footwear": _outfit_footwear_id(outfit),
+        "accessories": _outfit_accessory_types(outfit),
+        "palette": _outfit_palette_key(outfit),
+        "formality": _outfit_formality_key(outfit),
+    }
+
+
+def _occasion_diversity_weights(occasion: str, query: str = "") -> Dict[str, float]:
+    text = f"{occasion or ''} {query or ''}".lower()
+    weights = {
+        "hero": 2.0,
+        "bottom": 1.25,
+        "footwear": 1.0,
+        "accessory": 0.5,
+        "palette": 0.5,
+        "formality": 0.35,
+    }
+    if any(token in text for token in ("office", "client", "business", "interview", "meeting", "work")):
+        weights.update({"bottom": 1.75, "footwear": 1.25, "hero": 2.0})
+    elif any(token in text for token in ("date", "dinner", "evening")):
+        weights.update({"hero": 2.0, "palette": 0.75, "footwear": 1.1})
+    elif any(token in text for token in ("party", "rave", "night_out", "night out", "club")):
+        weights.update({"hero": 2.0, "accessory": 0.85, "palette": 0.75})
+    elif any(token in text for token in ("capsule", "minimal", "core wardrobe")):
+        weights.update({"formality": 0.8, "palette": 0.7, "hero": 1.6})
+    elif any(token in text for token in ("beach", "swim", "pool")):
+        weights.update({"footwear": 1.3, "accessory": 0.9, "hero": 1.6})
+    elif any(token in text for token in ("workout", "gym", "fitness", "training")):
+        weights.update({"footwear": 1.4, "accessory": 0.9, "formality": 0.7})
+    elif any(token in text for token in ("casual", "weekend", "coffee")):
+        weights.update({"hero": 1.8, "palette": 0.75, "footwear": 1.1})
+    return weights
+
+
+def _outfit_base_score(outfit: Dict[str, Any]) -> float:
+    meta = outfit.get("score_meta") if isinstance(outfit.get("score_meta"), dict) else {}
+    unified = outfit.get("unified_style") if isinstance(outfit.get("unified_style"), dict) else {}
+    for value in (
+        meta.get("score"),
+        unified.get("score"),
+        outfit.get("rank_score"),
+        outfit.get("score"),
+        outfit.get("ml_score"),
+    ):
+        try:
+            return float(value or 0.0)
+        except Exception:
+            continue
+    return 0.0
+
+
+def _select_set_diverse_outfits(
+    outfits: List[Dict[str, Any]],
+    *,
+    limit: int,
+    occasion: str,
+    query: str = "",
+) -> List[Dict[str, Any]]:
+    """Select a diverse set from already guarded, occasion-valid outfits."""
+    pool = [outfit for outfit in outfits or [] if isinstance(outfit, dict)]
+    logger.info(
+        "ahvi.set_diversity.start occasion=%s limit=%s input=%s",
+        occasion,
+        limit,
+        len(pool),
+    )
+    if not pool or limit <= 0:
+        return []
+
+    profiles = {id(outfit): _set_diversity_profile(outfit) for outfit in pool}
+    heroes = {profile["hero"] for profile in profiles.values() if profile.get("hero")}
+    bottoms = {profile["bottom"] for profile in profiles.values() if profile.get("bottom")}
+    footwear = {profile["footwear"] for profile in profiles.values() if profile.get("footwear")}
+    accessory_types = {
+        typ
+        for profile in profiles.values()
+        for typ in (profile.get("accessories") or [])
+        if typ
+    }
+    palettes = {profile["palette"] for profile in profiles.values() if profile.get("palette")}
+    logger.info(
+        "ahvi.set_diversity.pool heroes=%s bottoms=%s footwear=%s accessory_types=%s palettes=%s",
+        len(heroes),
+        len(bottoms),
+        len(footwear),
+        len(accessory_types),
+        len(palettes),
+    )
+
+    pool.sort(key=_outfit_base_score, reverse=True)
+    weights = _occasion_diversity_weights(occasion, query)
+    selected: List[Dict[str, Any]] = []
+    seen_signatures: set[str] = set()
+
+    def counts(key: str) -> Dict[str, int]:
+        out: Dict[str, int] = {}
+        for row in selected:
+            profile = profiles.get(id(row), {})
+            values = profile.get(key)
+            if isinstance(values, list):
+                iterable = values
+            else:
+                iterable = [values]
+            for value in iterable:
+                if value:
+                    out[value] = out.get(value, 0) + 1
+        return out
+
+    def profile_score(outfit: Dict[str, Any]) -> float:
+        profile = profiles.get(id(outfit), {})
+        score = _outfit_base_score(outfit)
+        hero_counts = counts("hero")
+        bottom_counts = counts("bottom")
+        footwear_counts = counts("footwear")
+        palette_counts = counts("palette")
+        formality_counts = counts("formality")
+        accessory_counts = counts("accessories")
+
+        if profile.get("hero") and hero_counts.get(profile["hero"], 0):
+            score -= weights["hero"] * hero_counts[profile["hero"]]
+        elif profile.get("hero"):
+            score += 0.35
+        if profile.get("bottom") and bottom_counts.get(profile["bottom"], 0):
+            score -= weights["bottom"] * bottom_counts[profile["bottom"]]
+        elif profile.get("bottom"):
+            score += 0.25
+        if profile.get("footwear") and footwear_counts.get(profile["footwear"], 0):
+            score -= weights["footwear"] * footwear_counts[profile["footwear"]]
+        elif profile.get("footwear"):
+            score += 0.2
+        if profile.get("palette") and palette_counts.get(profile["palette"], 0):
+            score -= weights["palette"] * palette_counts[profile["palette"]]
+        elif profile.get("palette"):
+            score += 0.15
+        if profile.get("formality") and formality_counts.get(profile["formality"], 0):
+            score -= weights["formality"] * formality_counts[profile["formality"]]
+        accessories = profile.get("accessories") or []
+        for typ in accessories:
+            if accessory_counts.get(typ, 0):
+                score -= weights["accessory"] * accessory_counts[typ]
+            else:
+                score += 0.08
+        return score
+
+    def pick_best(candidates: List[Dict[str, Any]]) -> None:
+        nonlocal selected
+        viable = []
+        for outfit in candidates:
+            sig = profiles.get(id(outfit), {}).get("signature") or _outfit_signature(outfit)
+            if not sig or sig in seen_signatures:
+                continue
+            viable.append(outfit)
+        if not viable or len(selected) >= limit:
+            return
+        viable.sort(key=profile_score, reverse=True)
+        picked = viable[0]
+        sig = profiles.get(id(picked), {}).get("signature") or _outfit_signature(picked)
+        selected.append(picked)
+        seen_signatures.add(sig)
+
+    for key in ("hero", "bottom", "footwear"):
+        values = []
+        for outfit in pool:
+            value = profiles.get(id(outfit), {}).get(key)
+            if value and value not in values:
+                values.append(value)
+        for value in values:
+            if len(selected) >= limit:
+                break
+            pick_best([outfit for outfit in pool if profiles.get(id(outfit), {}).get(key) == value])
+
+    for typ in sorted(accessory_types):
+        if len(selected) >= limit:
+            break
+        pick_best([outfit for outfit in pool if typ in (profiles.get(id(outfit), {}).get("accessories") or [])])
+
+    while len(selected) < min(limit, len(pool)):
+        before = len(selected)
+        pick_best(pool)
+        if len(selected) == before:
+            break
+
+    selected_profiles = [profiles.get(id(outfit), {}) for outfit in selected]
+    logger.info(
+        "ahvi.set_diversity.selected count=%s heroes=%s bottoms=%s footwear=%s accessories=%s",
+        len(selected),
+        len({profile.get("hero") for profile in selected_profiles if profile.get("hero")}),
+        len({profile.get("bottom") for profile in selected_profiles if profile.get("bottom")}),
+        len({profile.get("footwear") for profile in selected_profiles if profile.get("footwear")}),
+        len({typ for profile in selected_profiles for typ in (profile.get("accessories") or []) if typ}),
+    )
+    return selected[:limit]
+
+
 def _diversify_outfits(
     outfits: List[Dict[str, Any]], limit: int = 6
 ) -> List[Dict[str, Any]]:
@@ -3179,7 +3458,18 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             )
 
         if ranked:
-            ranked = _diversify_outfits(ranked, limit=requested_board_count)
+            ranked = _select_set_diverse_outfits(
+                ranked,
+                limit=requested_board_count,
+                occasion=str(_guard_occ or occasion or ""),
+                query=str(
+                    merged_context.get("user_query")
+                    or merged_context.get("query")
+                    or locals().get("user_query")
+                    or locals().get("query")
+                    or ""
+                ),
+            )
             logging.getLogger("ahvi.outfit_pipeline").info(
                 "outfit_pipeline.diversity_trace user=%s stage=post_guard_diversified heroes=%s",
                 user_id,
