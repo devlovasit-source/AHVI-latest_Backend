@@ -2348,6 +2348,8 @@ def _build_cards(
         )
         if items is None:
             items = _flatten_outfit_items(outfit)
+        pipeline_signature = _outfit_signature(outfit)
+        set_profile = _set_diversity_profile(outfit)
         cards.append(
             {
                 "id": f"outfit_card_{idx + 1}",
@@ -2358,6 +2360,12 @@ def _build_cards(
                 "explanation": story.get("why_it_works"),
                 "story": story,
                 "tryon_payload": tryon_payload,
+                "pipeline_style_signature": pipeline_signature,
+                "pipeline_set_profile": set_profile,
+                "style_metadata": {
+                    "pipeline_style_signature": pipeline_signature,
+                    "set_diversity_profile": set_profile,
+                },
             }
         )
     return cards

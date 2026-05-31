@@ -920,6 +920,13 @@ def _variant_card_signature(card: Any) -> str:
     """
     if not isinstance(card, dict):
         return ""
+    metadata = card.get("style_metadata") if isinstance(card.get("style_metadata"), dict) else {}
+    source_sig = _safe_text(
+        card.get("pipeline_style_signature")
+        or metadata.get("pipeline_style_signature")
+    )
+    if source_sig:
+        return f"pipeline:{source_sig.lower()}"
     role_parts = []
     for role in ("dress", "top", "bottom", "footwear", "outerwear"):
         key = _role_key(card, role)
