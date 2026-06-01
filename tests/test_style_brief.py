@@ -74,6 +74,16 @@ def test_router_occasion_beats_low_confidence_agent():
     assert brief["_provenance"]["chosen_from"] == "router"
 
 
+def test_client_meeting_tokens_override_generic_office_router():
+    brief = build_brief(
+        query="outfit for client meeting",
+        router_occasion="office",
+        agent_payload={"occasion": "casual", "confidence": 0.0},
+    )
+    assert brief["occasion"] == "client_meeting"
+    assert brief["_provenance"]["chosen_from"] == "tokens_over_office_router"
+
+
 def test_high_confidence_agent_overrides_router():
     brief = build_brief(
         query="outfit for tonight",
@@ -150,6 +160,20 @@ def test_client_meeting_rejects_shorts_and_slides():
     assert any("forbidden_signal" in r for r in reasons)
 
 
+def test_client_meeting_rejects_short_sleeve_top():
+    brief = build_brief(router_occasion="client_meeting", query="client meeting")
+    board = _board(
+        [
+            {"id": "1", "name": "Short Sleeve Navy Shirt", "category": "shirt", "role": "top"},
+            {"id": "2", "name": "Tailored Trousers", "category": "trousers", "role": "bottom"},
+            {"id": "3", "name": "Loafers", "category": "loafers", "role": "footwear"},
+        ]
+    )
+    passes, reasons, _ = validate_board(board, brief)
+    assert passes is False
+    assert any("forbidden_signal" in r for r in reasons)
+
+
 def test_date_night_rejects_office_heavy_combo():
     brief = build_brief(router_occasion="date_night", query="dinner date")
     board = _board(
@@ -213,6 +237,22 @@ def test_select_board_set_preserves_count_when_only_one_top():
     ]
     chosen = select_board_set(cards, brief, max_n=3)
     assert len(chosen) == 2  # don't drop boards when wardrobe is sparse
+
+
+def test_client_meeting_does_not_fill_with_repeated_hero():
+    brief = build_brief(router_occasion="office", query="client meeting")
+    top = {"id": "only_top", "name": "Button Down Shirt", "category": "button down", "role": "top"}
+    trouser_a = {"id": "trs_a", "name": "Trouser A", "category": "trousers", "role": "bottom"}
+    trouser_b = {"id": "trs_b", "name": "Trouser B", "category": "trousers", "role": "bottom"}
+    loafer = {"id": "shoe_a", "name": "Loafers", "category": "loafers", "role": "footwear"}
+
+    cards = [
+        {"id": "c1", "title": "A", "items": [top, trouser_a, loafer]},
+        {"id": "c2", "title": "B", "items": [top, trouser_b, loafer]},
+    ]
+    chosen = select_board_set(cards, brief, max_n=3)
+    assert len(chosen) == 1
+    assert chosen[0]["items"][0]["id"] == "only_top"
 
 
 # ---------------------------------------------------------------------------

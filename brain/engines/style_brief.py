@@ -207,7 +207,8 @@ _OCCASION_CONTRACTS: Dict[str, Dict[str, Any]] = {
         "forbidden_item_signals": [
             "shorts", "slides", "sandal", "sandals", "tank", "tee",
             "t-shirt", "boxer", "boxers", "gym", "track", "training",
-            "sequined", "tropical", "saree", "lehenga",
+            "short sleeve", "short-sleeve", "sequined", "tropical",
+            "saree", "lehenga",
         ],
         "board_mood": ["composed", "polished", "client-ready"],
         "allowed_badges": ["CLIENT READY", "BOARDROOM", "OFFICE"],
@@ -503,8 +504,13 @@ def build_brief(
     occasion = ""
     chosen_from = ""
     if router_occ:
+        # "Client meeting" is stricter than generic office. Some upstream
+        # routers collapse it to office, so keep the user's explicit client
+        # wording authoritative when token detection finds it.
+        if router_occ == "office" and token_occ == "client_meeting":
+            occasion, chosen_from = "client_meeting", "tokens_over_office_router"
         # Router was explicit; agent may only override on high confidence.
-        if (
+        elif (
             agent_occ_raw
             and agent_occ_raw != router_occ
             and agent_conf >= 0.8
@@ -938,6 +944,10 @@ def select_board_set(
     seen_heros: set = set()
     seen_pairs: set = set()
     seen_palettes: set = set()
+    strict_hero_occasion = str(brief.get("occasion") or "").lower() in {
+        "client_meeting",
+        "wedding",
+    }
 
     def maybe_add(card: Dict[str, Any], strict: bool) -> bool:
         if len(chosen) >= max_n:
@@ -946,6 +956,8 @@ def select_board_set(
         bottom = _bottom_key(card)
         pair = f"{hero}|{bottom}"
         palette = _palette(card)
+        if strict_hero_occasion and hero and hero in seen_heros:
+            return False
         if strict:
             if hero and hero in seen_heros:
                 return False

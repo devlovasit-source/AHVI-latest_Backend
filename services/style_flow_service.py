@@ -2315,8 +2315,15 @@ def _explanation_for(card: Dict[str, Any], query: str, index: int) -> Dict[str, 
 
     by_occasion = {
         "office": (
-            f"The {top}-and-{footwear} pairing keeps the look client-facing and polished, "
-            f"while {bottom} gives it a cleaner business line."
+            (
+                f"{top}, {bottom}, and {footwear} keep the look client-ready, "
+                "structured, and free of casual noise."
+            )
+            if "client" in str(query or "").lower()
+            else (
+                f"The {top}-and-{footwear} pairing keeps the look office-facing and polished, "
+                f"while {bottom} gives it a cleaner business line."
+            )
         ),
         "date": (
             f"{footwear} adds evening polish while {top} keeps the outfit relaxed enough for dinner."
@@ -3824,8 +3831,9 @@ def build_style_flow_response(
                 if allowed_badges and str(card.get("badge") or "").upper() not in allowed_badges:
                     card["badge"] = safe_badge_for(brief)
                 allowed_titles = brief.get("allowed_titles") or []
-                if allowed_titles and not card.get("title"):
+                if allowed_titles and _safe_text(card.get("title")) not in set(allowed_titles):
                     card["title"] = safe_title_for(brief, chosen.index(card))
+                    card["name"] = card["title"]
                 logger.info(
                     "style_board.validated occasion=%s title=%r badge=%s set_role=%s",
                     brief.get("occasion"),
