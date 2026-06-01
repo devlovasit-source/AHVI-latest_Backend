@@ -227,6 +227,8 @@ _OCCASION_CONTRACTS: Dict[str, Dict[str, Any]] = {
         "forbidden_item_signals": [
             "shorts", "slides", "sandal", "sandals", "gym", "track",
             "training", "office", "boardroom", "saree", "lehenga",
+            "tee", "t-shirt", "navy blue sneaker", "blue sneaker",
+            "running sneaker", "sports sneaker", "athletic sneaker",
             "sequined", "tropical",
         ],
         "board_mood": ["soft", "evening", "intentional"],

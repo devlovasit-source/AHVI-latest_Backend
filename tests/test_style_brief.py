@@ -188,6 +188,34 @@ def test_date_night_rejects_office_heavy_combo():
     assert passes is False
 
 
+def test_date_night_rejects_tshirt_and_blue_sneakers():
+    brief = build_brief(router_occasion="date_night", query="dinner date")
+    board = _board(
+        [
+            {"id": "1", "name": "Pangolin T-Shirt", "category": "t-shirt", "role": "top"},
+            {"id": "2", "name": "Khaki Pants", "category": "trousers", "role": "bottom"},
+            {"id": "3", "name": "Navy Blue Sneakers", "category": "sneakers", "role": "footwear"},
+        ]
+    )
+    passes, reasons, _ = validate_board(board, brief)
+    assert passes is False
+    assert any("forbidden_signal" in r for r in reasons)
+
+
+def test_date_night_allows_polished_loafers():
+    brief = build_brief(router_occasion="date_night", query="dinner date")
+    board = _board(
+        [
+            {"id": "1", "name": "Black Shirt", "category": "shirt", "role": "top"},
+            {"id": "2", "name": "Dark Trousers", "category": "trousers", "role": "bottom"},
+            {"id": "3", "name": "Leather Loafers", "category": "loafers", "role": "footwear"},
+        ]
+    )
+    passes, _, scores = validate_board(board, brief)
+    assert passes is True
+    assert scores["occasion_fit_score"] >= 0.6
+
+
 def test_office_board_passes_office_brief():
     brief = build_brief(router_occasion="office", query="office today")
     board = _board(
