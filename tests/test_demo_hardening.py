@@ -336,11 +336,28 @@ class DemoHardeningTests(unittest.TestCase):
             result = persistence.persist_selected_items("user_auth", ["item_1"], [item])
 
         self.assertTrue(result["success"])
-        self.assertEqual(captured["data"]["image_url"], "https://raw.example/item.png")
+        self.assertEqual(captured["data"]["image_url"], "https://masked.example/item.png")
         self.assertNotIn("raw_url", captured["data"])
         self.assertEqual(captured["data"]["masked_url"], "https://masked.example/item.png")
         self.assertEqual(captured["data"]["userId"], "user_auth")
         self.assertEqual(captured["qdrant"]["image_url"], "https://masked.example/item.png")
+
+    def test_needs_review_leggings_promotes_to_bottoms(self):
+        from services.wardrobe_taxonomy import normalize_item
+
+        item = normalize_item(
+            {
+                "item_id": "item_leggings",
+                "name": "Black High-Waisted Leggings",
+                "category": "Needs Review",
+                "sub_category": "Needs Review",
+                "confidence": 0.9,
+            }
+        )
+
+        self.assertEqual(item["category"], "Bottoms")
+        self.assertEqual(item["sub_category"], "Bottom")
+        self.assertFalse(item.get("requires_manual_entry", False))
 
     def test_qdrant_wardrobe_upsert_accepts_minilm_vector(self):
         from services.qdrant_service import QdrantService

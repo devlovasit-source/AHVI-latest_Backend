@@ -319,6 +319,12 @@ async def run_hybrid_detection(image: Image.Image):
             "bbox": meta_row.get("bbox") or [],
             "raw_url": upload["raw_image_url"],
             "masked_url": upload["masked_image_url"],
+            "normalized_url": (
+                upload.get("normalized_image_url")
+                or upload.get("normalized_url")
+                or upload.get("image_url")
+                or upload.get("masked_image_url")
+            ),
             "raw_image_base64": fallback["raw_image_base64"],
             "masked_image_base64": fallback["masked_image_base64"],
             "upload_error": "",

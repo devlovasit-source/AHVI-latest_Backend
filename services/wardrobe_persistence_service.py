@@ -631,7 +631,7 @@ def _build_appwrite_doc(
     # Keep raw_url out of the Appwrite document unless the collection schema
     # explicitly adds it. Qdrant/search payloads can still use cleaner masked
     # assets below without breaking Appwrite writes.
-    final_image_url = raw_url or normalized_url or masked_url
+    final_image_url = normalized_url or masked_url or raw_url
     pixel_hash = _safe_text(
         item.get("pixel_hash") or item.get("pixelHash") or item.get("masked_pixel_hash")
     )

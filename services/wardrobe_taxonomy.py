@@ -123,9 +123,6 @@ def normalize(
         return "Skincare", _skincare_subcategory(name, sub_category)
     if explicit_raw in {"makeup", "make up", "make-up", "cosmetics"}:
         return "Makeup", _makeup_subcategory(name, sub_category)
-    if explicit_raw in {"needs review", "needs_review", "review"}:
-        return "Needs Review", "Needs Review"
-
     # Strong product keyword detection — covers items whose name implies
     # the category even when the user didn't pick it explicitly.
     if has(["sunscreen", "spf", "moisturizer", "moisturiser", "serum",
@@ -239,6 +236,9 @@ def normalize(
         return "Outerwear", "Outerwear"
 
     # Explicit category passthrough — only AFTER strong garment signals.
+    if explicit_raw in {"needs review", "needs_review", "review"}:
+        return "Needs Review", "Needs Review"
+
     explicit = str(category or "").strip().lower()
     explicit_map = {
         "tops": ("Tops", "Top"),
