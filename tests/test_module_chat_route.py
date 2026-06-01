@@ -14,6 +14,64 @@ def test_swimming_prompt_routes_to_style_without_daily_clarification():
     assert chat._needs_style_clarification("outfit for swimming", "swimming") is False
 
 
+def test_greeting_detection_exact_normalized_matches():
+    assert chat._is_greeting("hi") is True
+    assert chat._is_greeting("Hi!") is True
+    assert chat._is_greeting("hello ahvi") is True
+    assert chat._is_greeting("good morning") is True
+
+    assert chat._is_greeting("what can you do") is False
+    assert chat._is_greeting("hi what can you do") is False
+    assert chat._is_greeting("office outfit") is False
+
+
+def test_greeting_response_shape_preserves_module_context():
+    response = chat._ahvi_greeting_response("style")
+
+    assert response["type"] == "text"
+    assert response["cards"] == []
+    assert response["style_boards"] == []
+    assert response["meta"]["mode"] == "greeting_bypass"
+    assert response["meta"]["module_context"] == "style"
+
+
+def test_text_chat_greeting_bypasses_style_and_orchestrator(monkeypatch):
+    def fail_style(*args, **kwargs):
+        raise AssertionError("greeting should not hit style service")
+
+    def fail_orchestrator(*args, **kwargs):
+        raise AssertionError("greeting should not hit orchestrator")
+
+    monkeypatch.setattr(chat, "_demo_style_board_payload", fail_style)
+    monkeypatch.setattr(chat.ahvi_orchestrator, "run", fail_orchestrator)
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def add_user(request, call_next):
+        request.state.user = {"user_id": "user-1"}
+        return await call_next(request)
+
+    app.include_router(chat.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/text",
+        json={
+            "module_context": "style",
+            "messages": [{"role": "user", "content": "Hi!"}],
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["message"] == "Hi, I’m here. What would you like help with today?"
+    assert body["message_text"] == "Hi, I’m here. What would you like help with today?"
+    assert body["cards"] == []
+    assert body["style_boards"] == []
+    assert body["meta"]["mode"] == "greeting_bypass"
+
+
 def test_module_chat_legacy_nested_route_exists(monkeypatch):
     def fake_response(*, module, user_message, history, context_data, user_profile):
         return {

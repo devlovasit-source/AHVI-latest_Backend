@@ -355,6 +355,49 @@ _VAGUE_STYLE_LITERALS = {
     "today outfit",
 }
 
+
+def _is_greeting(text: str) -> bool:
+    q = re.sub(r"[^a-z0-9\s]", " ", str(text or "").lower())
+    q = re.sub(r"\s+", " ", q).strip()
+    return q in {
+        "hi",
+        "hello",
+        "hey",
+        "hi ahvi",
+        "hello ahvi",
+        "hey ahvi",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "good night",
+    }
+
+
+def _ahvi_greeting_response(module_context: str = ""):
+    return {
+        "success": True,
+        "message": "Hi, I’m here. What would you like help with today?",
+        "message_text": "Hi, I’m here. What would you like help with today?",
+        "response": "Hi, I’m here. What would you like help with today?",
+        "board": "general",
+        "type": "text",
+        "cards": [],
+        "style_boards": [],
+        "chips": [
+            {"label": "Today's Outfit", "value": "Outfit for today"},
+            {"label": "Office Look", "value": "Office outfit"},
+            {"label": "Plan My Day", "value": "Plan my day"},
+            {"label": "Workout", "value": "Today's workout"},
+        ],
+        "data": {},
+        "meta": {
+            "mode": "greeting_bypass",
+            "module_context": module_context or "chat",
+        },
+        "audio_job_id": "offline",
+    }
+
+
 # Broad fashion words that, when used alone or in a 1-4 word prompt,
 # need clarification before we burn 10s of orchestrator time.
 _BROAD_FASHION_TOKENS = {
@@ -3413,6 +3456,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
     except Exception:
         english_input = user_input
         target_lang = "en"
+
+    if _is_greeting(english_input):
+        return _ahvi_greeting_response(request.module_context)
 
     # Style clarification guard. Run for EVERY style-shaped prompt, not
     # only when visual_context is set, so vague 1-4 word prompts like
