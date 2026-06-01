@@ -177,6 +177,7 @@ def _tokens(value: Any) -> set[str]:
 
 _CANONICAL_OCCASIONS = {
     "date_night",
+    "swimming",
     "beach",
     "office",
     "client_meeting",
@@ -1021,6 +1022,8 @@ def _accessory_allowed_for_query(item: Dict[str, Any], query: str) -> bool:
         return False
     if kind == "office" or kind == "wedding":
         return typ in _PROFESSIONAL_ACCESSORIES
+    if kind == "swimming":
+        return typ in _BEACH_ACCESSORIES
     if kind == "date":
         return typ in _DATE_ACCESSORIES
     if kind == "party":
@@ -1172,7 +1175,8 @@ def _occasion_flags(query: str) -> Dict[str, bool]:
     q = str(query or "").lower()
     return {
         "temple_modest": any(k in q for k in ("temple", "mandir", "pooja", "puja", "religious", "shrine", "darshan")),
-        "beach": any(k in q for k in ("beach", "pool", "seaside", "coastal", "sand-friendly", "sand friendly")),
+        "swimming": any(k in q for k in ("swim", "swimming", "swimwear", "swimsuit", "pool")),
+        "beach": any(k in q for k in ("beach", "seaside", "coastal", "sand-friendly", "sand friendly")),
         "workout": any(k in q for k in ("workout", "gym", "fitness", "training", "yoga", "running")),
         "brunch": any(k in q for k in ("brunch",)),
         "office": any(k in q for k in ("office", "work", "meeting", "client", "business", "interview", "corporate")),
@@ -1287,7 +1291,7 @@ def _coherence_score(card: Dict[str, Any]) -> float:
 
 def _occasion_kind(query: str) -> str:
     flags = _occasion_flags(query)
-    for key in ("temple_modest", "beach", "workout", "brunch", "office", "date", "party", "travel", "wedding", "casual"):
+    for key in ("temple_modest", "swimming", "beach", "workout", "brunch", "office", "date", "party", "travel", "wedding", "casual"):
         if flags.get(key):
             return key
     # Generic "today"/"daily"/no signal → daily, NOT office.
@@ -1296,6 +1300,8 @@ def _occasion_kind(query: str) -> str:
 
 def _style_direction(query: str) -> str:
     q = str(query or "").lower()
+    if _occasion_kind(query) == "swimming":
+        return "swim_functional"
     if _occasion_kind(query) == "beach":
         return "coastal_casual"
     if _occasion_kind(query) == "workout":
@@ -1315,6 +1321,8 @@ def _style_direction(query: str) -> str:
     if _occasion_kind(query) == "daily":
         return "smart_casual_office"
     flags = _occasion_flags(query)
+    if flags["swimming"]:
+        return "swim_functional"
     if flags["beach"]:
         return "coastal_casual"
     if flags["workout"]:
@@ -1352,7 +1360,9 @@ def interpret_occasion(query: str, context: Optional[Dict[str, Any]] = None) -> 
     reason = ""
     confidence = "high"
 
-    if kind == "date":
+    if kind == "swimming":
+        brief = "swim-ready, pool appropriate, quick-dry, easy layers"
+    elif kind == "date":
         if any(k in q for k in ("dinner", "restaurant", "candle", "tonight", "evening")):
             brief = "polished dinner, low light, intentional but not overworked"
         elif any(k in q for k in ("coffee", "day", "afternoon", "walk")):

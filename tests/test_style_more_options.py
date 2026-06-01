@@ -662,6 +662,14 @@ def test_occasion_interpreter_resolves_beach_brief_without_question():
     assert interpreted["footwear_energy"] == "sand-friendly"
 
 
+def test_occasion_interpreter_resolves_swimming_without_question():
+    interpreted = interpret_occasion("outfit for swimming", {"module_context": "style"})
+
+    assert interpreted["ask_user"] is False
+    assert interpreted["occasion"] == "swimming"
+    assert "swim-ready" in interpreted["resolved_brief"]
+
+
 def test_date_night_blocks_office_language():
     board = {
         "title": "Boardroom Casual",

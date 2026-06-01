@@ -17,7 +17,9 @@ def detect_occasion(query: str) -> str:
     q = _text(query)
     if _has_any(q, ("temple", "mandir", "pooja", "puja", "religious", "shrine", "darshan")):
         return "temple_modest"
-    if _has_any(q, ("beach", "pool", "seaside", "coastal", "sand-friendly", "sand friendly")):
+    if _has_any(q, ("swim", "swimming", "swimwear", "swimsuit", "pool")):
+        return "swimming"
+    if _has_any(q, ("beach", "seaside", "coastal", "sand-friendly", "sand friendly")):
         return "beach"
     if _has_any(q, ("gym", "workout", "fitness", "training", "yoga", "run ", "running")):
         return "workout"
@@ -106,6 +108,10 @@ def interpret_occasion_context(query: str, context: Optional[Dict[str, Any]] = N
         brief = "beach ready, sand-friendly, relaxed resort casual"
         confidence = "high"
         reason = "beach_context_detected"
+    elif kind == "swimming":
+        brief = "swim-ready, pool appropriate, quick-dry, easy layers"
+        confidence = "high"
+        reason = "swimming_context_detected"
     elif kind == "party":
         if _has_any(q, ("rave", "club", "edm", "festival")):
             brief = "rave party, after-hours energy, movement friendly, expressive edge"

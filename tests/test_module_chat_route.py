@@ -9,6 +9,11 @@ def test_interpreted_occasion_does_not_reclarify():
     assert chat._needs_style_clarification("Casual office wear", "office") is False
 
 
+def test_swimming_prompt_routes_to_style_without_daily_clarification():
+    assert chat._ahvi_style_occasion("outfit for swimming") == "swimming"
+    assert chat._needs_style_clarification("outfit for swimming", "swimming") is False
+
+
 def test_module_chat_legacy_nested_route_exists(monkeypatch):
     def fake_response(*, module, user_message, history, context_data, user_profile):
         return {

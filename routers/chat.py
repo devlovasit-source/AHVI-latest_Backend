@@ -888,7 +888,9 @@ def _fetch_wardrobe_for_style(
 
 def _ahvi_style_occasion(query_text):
     q = str(query_text or "").lower()
-    if any(k in q for k in ["beach", "pool", "seaside", "coastal", "resort"]):
+    if any(k in q for k in ["swim", "swimming", "swimwear", "swimsuit", "pool"]):
+        return "swimming"
+    if any(k in q for k in ["beach", "seaside", "coastal", "resort"]):
         return "beach"
     if any(k in q for k in ["gym", "workout", "fitness", "training", "yoga"]):
         return "workout"
@@ -3426,7 +3428,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
         visual_context
         or (request.module_context or "").lower() in {"style", "wardrobe", "daily_wear"}
         or _needs_style_clarification(english_input)
-        or _ahvi_style_occasion(english_input) in {"beach", "office", "party", "date", "travel", "workout", "wedding", "gym"}
+        or _ahvi_style_occasion(english_input) in {"swimming", "beach", "office", "party", "date", "travel", "workout", "wedding", "gym"}
     )
 
     if style_intent_candidate:
