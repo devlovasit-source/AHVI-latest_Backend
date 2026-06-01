@@ -212,6 +212,25 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
     slots: Dict[str, Any] = {}
     normalized = " ".join(t.replace("'", "").split())
 
+    help_identity_phrases = {
+        "what can you do",
+        "who are you",
+        "what are you",
+        "what is ahvi",
+        "tell me about yourself",
+        "how can you help",
+        "help",
+        "what do you do",
+        "what are your features",
+        "what can ahvi do",
+    }
+    if normalized in help_identity_phrases:
+        return {
+            "intent": "general",
+            "slots": {"sub_intent": "help_identity"},
+            "confidence": 0.95,
+        }
+
     def _has_any(*phrases: str) -> bool:
         return any(phrase in t or phrase in normalized for phrase in phrases)
 
@@ -515,7 +534,14 @@ def detect_intent(
 
     if history:
         last = history[-1] if history else {}
-        if parsed.get("intent") == "general" and last.get("intent"):
+        _sub_intent = (parsed.get("slots") or {}).get("sub_intent")
+        # Never let a previous style intent override a fresh help/identity
+        # request — "who are you" after an outfit chat must stay general.
+        if (
+            parsed.get("intent") == "general"
+            and _sub_intent != "help_identity"
+            and last.get("intent")
+        ):
             last_intent = _norm_key(last.get("intent"))
             if last_intent in _ALLOWED_INTENTS and last_intent != "general":
                 parsed["intent"] = last_intent

@@ -373,6 +373,23 @@ def _is_greeting(text: str) -> bool:
     }
 
 
+def _is_help_identity_request(text: str) -> bool:
+    q = re.sub(r"[^a-z0-9\s]", " ", str(text or "").lower())
+    q = re.sub(r"\s+", " ", q).strip()
+    return q in {
+        "what can you do",
+        "who are you",
+        "what are you",
+        "what is ahvi",
+        "tell me about yourself",
+        "how can you help",
+        "help",
+        "what do you do",
+        "what are your features",
+        "what can ahvi do",
+    }
+
+
 def _ahvi_greeting_response(module_context: str = ""):
     return {
         "success": True,
@@ -3459,6 +3476,29 @@ def text_chat(request: TextChatRequest, http_request: Request):
 
     if _is_greeting(english_input):
         return _ahvi_greeting_response(request.module_context)
+
+    # Help / identity bypass. Must run BEFORE the style clarification
+    # guard + fast_board_route, because "what can you do", "who are you",
+    # "help" etc. otherwise fall into _needs_style_clarification or the
+    # orchestrator and return wardrobe outfit boards instead of an LLM
+    # answer about AHVI itself.
+    if _is_help_identity_request(english_input):
+        logger.info(
+            "chat.help_identity_bypass user_id=%s prompt=%r",
+            user_id,
+            english_input,
+        )
+        response = _llm_chat_response(
+            messages=request.messages,
+            english_input=english_input,
+            user_id=user_id,
+            user_profile=effective_user_profile,
+            user_message_style=user_message_style,
+            module_context=request.module_context,
+        )
+        if not cache_visual_boards:
+            _CHAT_CACHE.set(cache_key, response)
+        return response
 
     # Style clarification guard. Run for EVERY style-shaped prompt, not
     # only when visual_context is set, so vague 1-4 word prompts like
