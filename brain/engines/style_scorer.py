@@ -966,6 +966,7 @@ class UnifiedStyleScorer:
                 if not isinstance(meta, dict):
                     continue
                 try:
+                    pro = float(meta.get("professionalism_score") or 0.0)
                     cm = float(meta.get("client_meeting_score") or 0.0)
                     br = float(meta.get("boardroom_score") or 0.0)
                     cap = float(meta.get("capsule_score") or 0.0)
@@ -975,28 +976,38 @@ class UnifiedStyleScorer:
                     continue
                 noise = str(meta.get("visual_noise") or "").strip().lower()
                 stmt = str(meta.get("statement_level") or "").strip().lower()
-                if "client" in occ_text or "meeting" in occ_text or "boardroom" in occ_text:
+                professional_context = any(
+                    marker in occ_text
+                    for marker in ("client", "meeting", "boardroom", "office", "business", "interview")
+                )
+                capsule_context = "capsule" in occ_text or "essentials" in occ_text
+                date_context = "date" in occ_text or "dinner" in occ_text or "evening" in occ_text
+                if professional_context:
+                    if pro:
+                        md_delta += (pro - 0.5) * 1.5
                     if cm:
-                        md_delta += (cm - 0.5) * 2.0
+                        md_delta += (cm - 0.5) * 2.2
                         md_reasons.append("metadata.client_meeting_score boost")
                     if br:
-                        md_delta += (br - 0.5) * 1.5
-                if "capsule" in occ_text or "essentials" in occ_text:
+                        md_delta += (br - 0.5) * 1.8
+                    if noise == "high":
+                        md_delta -= 1.25
+                    if stmt in {"statement", "risky"}:
+                        md_delta -= 1.25
+                if capsule_context:
                     if cap:
                         md_delta += (cap - 0.5) * 3.0
                         md_reasons.append("metadata.capsule_score boost")
                     if ver:
                         md_delta += (ver - 0.5) * 1.5
-                if "date" in occ_text or "dinner" in occ_text or "evening" in occ_text:
+                    if noise == "high":
+                        md_delta -= 1.0
+                    if stmt in {"statement", "risky"}:
+                        md_delta -= 1.5
+                if date_context:
                     if dn:
-                        md_delta += (dn - 0.5) * 2.0
+                        md_delta += (dn - 0.5) * 2.2
                         md_reasons.append("metadata.date_night_score boost")
-                # Universal penalties for noise / statement on professional
-                # & capsule briefs.
-                if noise == "high" and ("client" in occ_text or "meeting" in occ_text or "capsule" in occ_text):
-                    md_delta -= 1.0
-                if stmt in {"statement", "risky"} and "capsule" in occ_text:
-                    md_delta -= 1.5
             if md_delta:
                 # Clamp so metadata can shift ranking but not dominate.
                 md_delta = max(-3.0, min(3.0, md_delta))

@@ -213,6 +213,109 @@ def test_loud_graphic_shirt_gets_professional_risk_flags():
     assert "high_visual_noise" in meta["risk_flags"] or "too_casual_for_professional" in meta["risk_flags"]
 
 
+def test_zero_score_white_trousers_get_deterministic_scores():
+    meta = validate_metadata_payload(
+        {"confidence": 0.0},
+        base_item={"name": "White Trousers", "category": "Bottoms", "sub_category": "Trousers"},
+    )
+    assert meta["professionalism_score"] == pytest.approx(0.80)
+    assert meta["client_meeting_score"] == pytest.approx(0.75)
+    assert meta["boardroom_score"] == pytest.approx(0.65)
+    assert meta["capsule_score"] == pytest.approx(0.80)
+    assert meta["versatility_score"] == pytest.approx(0.85)
+    assert meta["date_night_score"] == pytest.approx(0.55)
+    assert meta.get("manual_review_required") is not True
+
+
+def test_zero_score_blue_button_down_gets_deterministic_scores():
+    meta = validate_metadata_payload(
+        {"confidence": 0.0},
+        base_item={"name": "Blue Button Down Shirt", "category": "Tops", "sub_category": "Button-up"},
+    )
+    assert meta["professionalism_score"] == pytest.approx(0.75)
+    assert meta["client_meeting_score"] == pytest.approx(0.72)
+    assert meta["boardroom_score"] == pytest.approx(0.60)
+    assert meta["capsule_score"] == pytest.approx(0.75)
+    assert meta["versatility_score"] == pytest.approx(0.82)
+    assert meta["date_night_score"] == pytest.approx(0.60)
+    assert meta.get("manual_review_required") is not True
+
+
+def test_zero_score_graphic_tee_gets_low_professional_scores():
+    meta = validate_metadata_payload(
+        {"confidence": 0.0},
+        base_item={"name": "Graphic Tee", "category": "Tops", "sub_category": "T-Shirt"},
+    )
+    assert meta["professionalism_score"] == pytest.approx(0.10)
+    assert meta["client_meeting_score"] == pytest.approx(0.05)
+    assert meta["boardroom_score"] == pytest.approx(0.00)
+    assert meta["capsule_score"] == pytest.approx(0.25)
+    assert meta["versatility_score"] == pytest.approx(0.35)
+    assert meta["date_night_score"] == pytest.approx(0.20)
+    assert "too_casual_for_professional" in meta["risk_flags"]
+
+
+def test_zero_score_blazer_gets_deterministic_scores():
+    meta = validate_metadata_payload(
+        {"confidence": 0.0},
+        base_item={"name": "Navy Blazer", "category": "Outerwear", "sub_category": "Blazer"},
+    )
+    assert meta["professionalism_score"] == pytest.approx(0.95)
+    assert meta["client_meeting_score"] == pytest.approx(0.90)
+    assert meta["boardroom_score"] == pytest.approx(0.90)
+    assert meta["capsule_score"] == pytest.approx(0.75)
+    assert meta["date_night_score"] == pytest.approx(0.65)
+
+
+def test_zero_score_loafers_get_deterministic_scores():
+    meta = validate_metadata_payload(
+        {"confidence": 0.0},
+        base_item={"name": "Brown Loafers", "category": "Footwear", "sub_category": "Loafers"},
+    )
+    assert meta["professionalism_score"] == pytest.approx(0.85)
+    assert meta["client_meeting_score"] == pytest.approx(0.80)
+    assert meta["boardroom_score"] == pytest.approx(0.75)
+    assert meta["capsule_score"] == pytest.approx(0.70)
+    assert meta["versatility_score"] == pytest.approx(0.70)
+    assert meta["date_night_score"] == pytest.approx(0.65)
+
+
+def test_zero_score_cap_gets_deterministic_scores():
+    meta = validate_metadata_payload(
+        {"confidence": 0.0},
+        base_item={"name": "Baseball Cap", "category": "Accessories", "sub_category": "Cap"},
+    )
+    assert meta["professionalism_score"] == pytest.approx(0.10)
+    assert meta["client_meeting_score"] == pytest.approx(0.05)
+    assert meta["boardroom_score"] == pytest.approx(0.00)
+    assert meta["capsule_score"] == pytest.approx(0.35)
+    assert meta["versatility_score"] == pytest.approx(0.45)
+    assert meta["date_night_score"] == pytest.approx(0.20)
+
+
+def test_nonzero_agent_scores_are_preserved():
+    meta = validate_metadata_payload(
+        {
+            "category": "Bottoms",
+            "subcategory": "Trousers",
+            "professionalism_score": 0.42,
+            "client_meeting_score": 0.41,
+            "boardroom_score": 0.40,
+            "capsule_score": 0.39,
+            "versatility_score": 0.38,
+            "date_night_score": 0.37,
+            "confidence": 0.9,
+        },
+        base_item={"name": "White Trousers", "category": "Bottoms", "sub_category": "Trousers"},
+    )
+    assert meta["professionalism_score"] == pytest.approx(0.42)
+    assert meta["client_meeting_score"] == pytest.approx(0.41)
+    assert meta["boardroom_score"] == pytest.approx(0.40)
+    assert meta["capsule_score"] == pytest.approx(0.39)
+    assert meta["versatility_score"] == pytest.approx(0.38)
+    assert meta["date_night_score"] == pytest.approx(0.37)
+
+
 # ---------------------------------------------------------------------------
 # Wardrobe enrichment
 # ---------------------------------------------------------------------------

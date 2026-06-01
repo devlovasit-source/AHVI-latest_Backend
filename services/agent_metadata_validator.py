@@ -34,6 +34,14 @@ DEFAULT_LOW_CONFIDENCE = 0.55
 
 # Appwrite string attributes have a default upper bound. Keep us well under.
 APPWRITE_STRING_SOFT_LIMIT = 16000
+_SCORE_KEYS = (
+    "professionalism_score",
+    "client_meeting_score",
+    "boardroom_score",
+    "capsule_score",
+    "versatility_score",
+    "date_night_score",
+)
 
 
 def is_enabled() -> bool:
@@ -180,6 +188,196 @@ def _add_unique(values: List[str], additions: List[str]) -> List[str]:
 
 def _max_score(meta: Dict[str, Any], key: str, value: float) -> None:
     meta[key] = max(_coerce_score(meta.get(key), 0.0), float(value))
+
+
+def _all_scores_zero(meta: Dict[str, Any]) -> bool:
+    return all(_coerce_score(meta.get(key), 0.0) <= 0.0 for key in _SCORE_KEYS)
+
+
+def _set_score_defaults(
+    meta: Dict[str, Any],
+    *,
+    scores: Dict[str, float],
+    visual_noise: Optional[str] = None,
+    statement_level: Optional[str] = None,
+    pattern_intensity: Optional[str] = None,
+    risk_flags: Optional[List[str]] = None,
+    confidence: float = 0.75,
+) -> None:
+    for key in _SCORE_KEYS:
+        meta[key] = _coerce_score(scores.get(key), 0.0)
+    if visual_noise:
+        meta["visual_noise"] = visual_noise
+    if statement_level:
+        meta["statement_level"] = statement_level
+    if pattern_intensity:
+        meta["pattern_intensity"] = pattern_intensity
+    if risk_flags:
+        meta["risk_flags"] = _add_unique(meta.get("risk_flags", []), risk_flags)
+    meta["confidence"] = max(_coerce_confidence(meta.get("confidence")), confidence)
+    meta["manual_review_required"] = False
+
+
+def _apply_metadata_score_defaults(
+    meta: Dict[str, Any], *, base: Dict[str, Any], raw: Dict[str, Any], force: bool = False
+) -> Dict[str, Any]:
+    """Fill deterministic score vectors only when the agent produced none."""
+    if not force and not _all_scores_zero(meta):
+        return meta
+
+    blob = _blob_from(base, raw)
+    tokens = _tokens_from(blob)
+
+    def has_any(words: List[str]) -> bool:
+        return any(word in tokens or word in blob for word in words)
+
+    applied = ""
+    if has_any(["formal trouser", "formal trousers", "trouser", "trousers", "chino", "chinos", "slacks", "tailored pants"]):
+        formal_trousers = has_any(["formal trouser", "formal trousers", "tailored pants", "slacks"])
+        meta.update(
+            {
+                "category": "bottom",
+                "subcategory": "formal_trousers" if formal_trousers else ("chinos" if has_any(["chino", "chinos", "khaki"]) else "trousers"),
+                "formality": "business_casual" if formal_trousers else "smart_casual",
+                "style_role": "businesswear",
+            }
+        )
+        _set_score_defaults(
+            meta,
+            scores={
+                "professionalism_score": 0.85 if formal_trousers else 0.80,
+                "client_meeting_score": 0.80 if formal_trousers else 0.75,
+                "boardroom_score": 0.75 if formal_trousers else 0.65,
+                "capsule_score": 0.80,
+                "versatility_score": 0.85,
+                "date_night_score": 0.55,
+            },
+            visual_noise="low",
+            statement_level="core",
+            pattern_intensity="none",
+        )
+        applied = "trousers"
+    elif has_any(["button down", "button up", "buttondown", "buttonup", "button-up", "button-down", "dress shirt", "oxford", "formal shirt"]):
+        meta.update({"category": "top", "formality": "business_casual", "style_role": "businesswear"})
+        _set_score_defaults(
+            meta,
+            scores={
+                "professionalism_score": 0.75,
+                "client_meeting_score": 0.72,
+                "boardroom_score": 0.60,
+                "capsule_score": 0.75,
+                "versatility_score": 0.82,
+                "date_night_score": 0.60,
+            },
+        )
+        applied = "button_down"
+    elif has_any(["polo", "polo shirt"]):
+        meta.update({"category": "top", "formality": "smart_casual", "style_role": "casualwear"})
+        _set_score_defaults(
+            meta,
+            scores={
+                "professionalism_score": 0.55,
+                "client_meeting_score": 0.50,
+                "boardroom_score": 0.30,
+                "capsule_score": 0.70,
+                "versatility_score": 0.80,
+                "date_night_score": 0.55,
+            },
+            confidence=0.70,
+        )
+        applied = "polo"
+    elif has_any(["graphic tee", "graphic t shirt", "graphic t-shirt", "graphic shirt", "loud graphic"]):
+        meta.update({"category": "top", "formality": "casual", "style_role": "casualwear"})
+        _set_score_defaults(
+            meta,
+            scores={
+                "professionalism_score": 0.10,
+                "client_meeting_score": 0.05,
+                "boardroom_score": 0.00,
+                "capsule_score": 0.25,
+                "versatility_score": 0.35,
+                "date_night_score": 0.20,
+            },
+            visual_noise="high",
+            statement_level="statement",
+            pattern_intensity="loud",
+            risk_flags=["too_casual_for_professional", "high_visual_noise"],
+            confidence=0.70,
+        )
+        applied = "graphic_tee"
+    elif has_any(["blazer", "sport coat", "suit jacket"]):
+        meta.update({"category": "outerwear", "subcategory": "blazer", "formality": "business_casual", "style_role": "businesswear"})
+        _set_score_defaults(
+            meta,
+            scores={
+                "professionalism_score": 0.95,
+                "client_meeting_score": 0.90,
+                "boardroom_score": 0.90,
+                "capsule_score": 0.75,
+                "versatility_score": 0.70,
+                "date_night_score": 0.65,
+            },
+        )
+        applied = "blazer"
+    elif has_any(["loafer", "loafers", "oxford", "oxfords", "derby", "derbies"]):
+        meta.update({"category": "footwear", "formality": "business_casual", "style_role": "businesswear"})
+        _set_score_defaults(
+            meta,
+            scores={
+                "professionalism_score": 0.85,
+                "client_meeting_score": 0.80,
+                "boardroom_score": 0.75,
+                "capsule_score": 0.70,
+                "versatility_score": 0.70,
+                "date_night_score": 0.65,
+            },
+        )
+        applied = "loafers_oxfords"
+    elif has_any(["sneaker", "sneakers", "trainer", "trainers"]):
+        meta.update({"category": "footwear", "formality": "casual", "style_role": "casualwear"})
+        _set_score_defaults(
+            meta,
+            scores={
+                "professionalism_score": 0.30,
+                "client_meeting_score": 0.25,
+                "boardroom_score": 0.10,
+                "capsule_score": 0.60,
+                "versatility_score": 0.80,
+                "date_night_score": 0.45,
+            },
+            confidence=0.70,
+        )
+        applied = "sneakers"
+    elif has_any(["cap", "hat", "baseball cap"]):
+        meta.update({"category": "accessories", "formality": "casual", "style_role": "casualwear"})
+        _set_score_defaults(
+            meta,
+            scores={
+                "professionalism_score": 0.10,
+                "client_meeting_score": 0.05,
+                "boardroom_score": 0.00,
+                "capsule_score": 0.35,
+                "versatility_score": 0.45,
+                "date_night_score": 0.20,
+            },
+            confidence=0.70,
+        )
+        applied = "cap_hat"
+
+    if applied:
+        logger.info(
+            "ahvi.metadata.score_defaults_applied item=%s category=%s subcategory=%s professionalism_score=%.2f client_meeting_score=%.2f boardroom_score=%.2f capsule_score=%.2f versatility_score=%.2f date_night_score=%.2f",
+            _coerce_str(base.get("name") or raw.get("name") or base.get("title") or raw.get("title") or applied),
+            meta.get("category"),
+            meta.get("subcategory"),
+            _coerce_score(meta.get("professionalism_score")),
+            _coerce_score(meta.get("client_meeting_score")),
+            _coerce_score(meta.get("boardroom_score")),
+            _coerce_score(meta.get("capsule_score")),
+            _coerce_score(meta.get("versatility_score")),
+            _coerce_score(meta.get("date_night_score")),
+        )
+    return meta
 
 
 def _apply_category_defaults(meta: Dict[str, Any], *, base: Dict[str, Any], raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -329,6 +527,8 @@ def validate_metadata_payload(
     """
     raw = payload if isinstance(payload, dict) else {}
     base = base_item if isinstance(base_item, dict) else {}
+    raw_scores = {key: _coerce_score(raw.get(key), 0.0) for key in _SCORE_KEYS}
+    raw_all_scores_zero = all(value <= 0.0 for value in raw_scores.values())
 
     default_category = _coerce_str(base.get("category"), "unknown")
     default_subcategory = _coerce_str(
@@ -365,8 +565,20 @@ def validate_metadata_payload(
         "confidence": _coerce_confidence(raw.get("confidence")),
     }
     validated = _apply_category_defaults(validated, base=base, raw=raw)
+    if not raw_all_scores_zero:
+        for key, value in raw_scores.items():
+            if value > 0.0:
+                validated[key] = value
+    validated = _apply_metadata_score_defaults(
+        validated,
+        base=base,
+        raw=raw,
+        force=raw_all_scores_zero,
+    )
     if validated["confidence"] < _low_confidence_threshold():
         validated["manual_review_required"] = True
+    elif validated.get("manual_review_required") is False:
+        validated.pop("manual_review_required", None)
     return validated
 
 
