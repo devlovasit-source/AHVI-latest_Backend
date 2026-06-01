@@ -293,7 +293,7 @@ def test_zero_score_cap_gets_deterministic_scores():
     assert meta["date_night_score"] == pytest.approx(0.20)
 
 
-def test_nonzero_agent_scores_are_preserved():
+def test_weak_nonzero_agent_scores_do_not_override_professional_floors():
     meta = validate_metadata_payload(
         {
             "category": "Bottoms",
@@ -304,16 +304,20 @@ def test_nonzero_agent_scores_are_preserved():
             "capsule_score": 0.39,
             "versatility_score": 0.38,
             "date_night_score": 0.37,
+            "blocked_occasions": ["black_tie", "client_meeting", "boardroom"],
             "confidence": 0.9,
         },
         base_item={"name": "White Trousers", "category": "Bottoms", "sub_category": "Trousers"},
     )
-    assert meta["professionalism_score"] == pytest.approx(0.42)
-    assert meta["client_meeting_score"] == pytest.approx(0.41)
-    assert meta["boardroom_score"] == pytest.approx(0.40)
-    assert meta["capsule_score"] == pytest.approx(0.39)
-    assert meta["versatility_score"] == pytest.approx(0.38)
+    assert meta["professionalism_score"] == pytest.approx(0.75)
+    assert meta["client_meeting_score"] == pytest.approx(0.70)
+    assert meta["boardroom_score"] == pytest.approx(0.60)
+    assert meta["capsule_score"] == pytest.approx(0.70)
+    assert meta["versatility_score"] == pytest.approx(0.70)
     assert meta["date_night_score"] == pytest.approx(0.37)
+    assert "client_meeting" not in meta["blocked_occasions"]
+    assert "boardroom" not in meta["blocked_occasions"]
+    assert "black_tie" in meta["blocked_occasions"]
 
 
 # ---------------------------------------------------------------------------

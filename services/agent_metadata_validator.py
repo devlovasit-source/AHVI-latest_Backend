@@ -485,6 +485,20 @@ def _apply_category_defaults(meta: Dict[str, Any], *, base: Dict[str, Any], raw:
             meta.get("allowed_occasions", []),
             ["office", "client_meeting", "business_lunch", "travel", "dinner"],
         )
+        meta["blocked_occasions"] = [
+            occasion
+            for occasion in meta.get("blocked_occasions", [])
+            if str(occasion).strip().lower()
+            not in {
+                "office",
+                "work",
+                "client_meeting",
+                "boardroom",
+                "executive_meeting",
+                "business_lunch",
+                "dinner",
+            }
+        ]
         meta["blocked_occasions"] = _add_unique(
             meta.get("blocked_occasions", []),
             ["workout", "gym", "beach", "sleepwear"],
@@ -565,10 +579,6 @@ def validate_metadata_payload(
         "confidence": _coerce_confidence(raw.get("confidence")),
     }
     validated = _apply_category_defaults(validated, base=base, raw=raw)
-    if not raw_all_scores_zero:
-        for key, value in raw_scores.items():
-            if value > 0.0:
-                validated[key] = value
     validated = _apply_metadata_score_defaults(
         validated,
         base=base,
