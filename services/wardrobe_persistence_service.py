@@ -1001,6 +1001,149 @@ def _patch_document(
     )
 
 
+def _delete_document_at_location(
+    document_id: str,
+    *,
+    collection_id: str,
+    database_id: str,
+) -> None:
+    target_collection = _safe_text(collection_id)
+    target_database = _safe_text(database_id)
+    document_id = _safe_text(document_id)
+    if not target_collection or not target_database or not document_id:
+        raise RuntimeError("Missing Appwrite delete target.")
+
+    url = (
+        f"{APPWRITE_ENDPOINT}/databases/{target_database}"
+        f"/collections/{target_collection}/documents/{document_id}"
+    )
+    res = requests.delete(url, headers=HEADERS, timeout=20)
+    if res.status_code in (200, 202, 204):
+        return
+    if res.status_code == 404:
+        # Idempotent delete: if the owner check saw the row but a retry or
+        # concurrent request already removed it, the end state is correct.
+        return
+    raise RuntimeError(f"Appwrite delete error: {res.status_code} {res.text}")
+
+
+def _delete_style_metadata_document(proxy: AppwriteProxy, document_id: str) -> bool:
+    doc_id = _safe_text(document_id)
+    if not doc_id:
+        return False
+    try:
+        proxy.delete_document(STYLE_METADATA_RESOURCE, doc_id)
+        return True
+    except AppwriteProxyError as exc:
+        msg = str(exc).lower()
+        if "404" in msg or "not found" in msg:
+            return False
+        raise
+
+
+def _delete_wardrobe_style_metadata(*, user_id: str, item_id: str) -> bool:
+    proxy = AppwriteProxy()
+    deleted_any = False
+    tried_ids: set[str] = set()
+
+    for doc_id in (item_id, item_id.replace("-", "")):
+        clean = _safe_text(doc_id)
+        if not clean or clean in tried_ids:
+            continue
+        tried_ids.add(clean)
+        deleted_any = _delete_style_metadata_document(proxy, clean) or deleted_any
+
+    try:
+        docs = proxy.list_documents(
+            STYLE_METADATA_RESOURCE,
+            user_id=user_id,
+            limit=int(os.getenv("WARDROBE_DELETE_METADATA_SCAN_LIMIT", "500")),
+        )
+    except Exception:
+        logging.getLogger("ahvi.wardrobe_persistence").warning(
+            "ahvi.wardrobe.delete.metadata_query_failed item=%s user=%s",
+            item_id,
+            user_id,
+            exc_info=True,
+        )
+        docs = []
+
+    for doc in docs if isinstance(docs, list) else []:
+        if not isinstance(doc, dict):
+            continue
+        owner = _safe_text(doc.get("userId") or doc.get("user_id"))
+        if owner and owner != user_id:
+            continue
+        if _safe_text(doc.get("item_id")) != item_id:
+            continue
+        doc_id = _safe_text(doc.get("$id") or doc.get("id"))
+        if not doc_id or doc_id in tried_ids:
+            continue
+        tried_ids.add(doc_id)
+        deleted_any = _delete_style_metadata_document(proxy, doc_id) or deleted_any
+
+    return deleted_any
+
+
+def delete_wardrobe_item(
+    *,
+    user_id: str,
+    item_id: str,
+) -> Dict[str, Any]:
+    """Owner-verified delete of one wardrobe item and its style metadata."""
+    log = logging.getLogger("ahvi.wardrobe_persistence")
+
+    user_id = _safe_text(user_id)
+    item_id = _safe_text(item_id)
+    if not user_id:
+        raise PermissionError("Missing user_id.")
+    if not item_id:
+        raise ValueError("Missing item_id.")
+
+    existing, source_collection, source_database = _fetch_document(item_id)
+    owner = _safe_text(existing.get("userId") or existing.get("user_id"))
+    if not owner:
+        raise PermissionError("Wardrobe item has no owner. Refusing delete.")
+    if owner != user_id:
+        log.warning(
+            "ahvi.wardrobe.delete.forbidden item=%s owner=%s requester=%s",
+            item_id,
+            owner,
+            user_id,
+        )
+        raise PermissionError("Item does not belong to user.")
+
+    _delete_document_at_location(
+        item_id,
+        collection_id=source_collection,
+        database_id=source_database,
+    )
+    log.info(
+        "ahvi.wardrobe.delete.main_deleted user_id=%s item_id=%s collection=%s",
+        user_id,
+        item_id,
+        source_collection,
+    )
+
+    metadata_deleted = _delete_wardrobe_style_metadata(
+        user_id=user_id,
+        item_id=item_id,
+    )
+    log.info(
+        "ahvi.wardrobe.delete.metadata_deleted user_id=%s item_id=%s deleted=%s",
+        user_id,
+        item_id,
+        metadata_deleted,
+    )
+
+    return {
+        "success": True,
+        "deleted_item_id": item_id,
+        "metadata_deleted": metadata_deleted,
+        "item": existing,
+    }
+
+
 def update_item_labels(
     *,
     user_id: str,
@@ -1192,4 +1335,5 @@ __all__ = [
     "normalize_category",
     "normalize_display_name_and_subcategory",
     "update_item_labels",
+    "delete_wardrobe_item",
 ]

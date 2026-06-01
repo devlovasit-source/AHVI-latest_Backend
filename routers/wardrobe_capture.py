@@ -27,6 +27,7 @@ from services.image_fingerprint import compute_hash_from_base64, compute_hash_fr
 from services.qdrant_service import qdrant_service
 from services.r2_storage import R2Storage
 from services.wardrobe_persistence_service import (
+    delete_wardrobe_item,
     persist_selected_items,
     update_item_labels,
 )
@@ -127,6 +128,84 @@ def wardrobe_diagnostics(http_request: Request):
         "all_known_collection_ids": list(_KNOWN_COLLECTIONS),
         "user_id": user_id_optional,
     }
+
+
+@wardrobe_router.delete("/{item_id}")
+def delete_wardrobe_item_route(item_id: str, http_request: Request):
+    log = logging.getLogger("ahvi.wardrobe.delete")
+    user_id = _request_user_id(http_request)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    clean_item_id = str(item_id or "").strip()
+    if not clean_item_id:
+        raise HTTPException(status_code=400, detail="Missing item_id")
+
+    log.info(
+        "ahvi.wardrobe.delete.started user_id=%s item_id=%s",
+        user_id,
+        clean_item_id,
+    )
+
+    images_deleted = False
+    try:
+        result = delete_wardrobe_item(user_id=user_id, item_id=clean_item_id)
+        r2_result = _ahvi_delete_r2_images_for_item(result.get("item") or {})
+        images_deleted = any(
+            bool(r2_result.get(key))
+            for key in ("raw_deleted", "masked_deleted", "normalized_deleted")
+        )
+        log.info(
+            "ahvi.wardrobe.delete.images_deleted user_id=%s item_id=%s deleted=%s status=%s",
+            user_id,
+            clean_item_id,
+            images_deleted,
+            r2_result.get("status"),
+        )
+        return {
+            "success": True,
+            "deleted_item_id": clean_item_id,
+            "metadata_deleted": bool(result.get("metadata_deleted")),
+            "images_deleted": images_deleted,
+        }
+    except LookupError as exc:
+        log.warning(
+            "ahvi.wardrobe.delete.failed user_id=%s item_id=%s err=%s",
+            user_id,
+            clean_item_id,
+            exc,
+        )
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PermissionError as exc:
+        log.warning(
+            "ahvi.wardrobe.delete.failed user_id=%s item_id=%s err=%s",
+            user_id,
+            clean_item_id,
+            exc,
+        )
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        log.warning(
+            "ahvi.wardrobe.delete.failed user_id=%s item_id=%s err=%s",
+            user_id,
+            clean_item_id,
+            exc,
+        )
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        log.exception(
+            "ahvi.wardrobe.delete.failed user_id=%s item_id=%s",
+            user_id,
+            clean_item_id,
+        )
+        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception as exc:
+        log.exception(
+            "ahvi.wardrobe.delete.failed user_id=%s item_id=%s",
+            user_id,
+            clean_item_id,
+        )
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 class CaptureAnalyzeRequest(BaseModel):

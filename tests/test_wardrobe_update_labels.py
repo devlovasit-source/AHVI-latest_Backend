@@ -144,13 +144,109 @@ def test_metadata_failure_does_not_raise(monkeypatch):
     assert result == "failed"
 
 
+def test_delete_wardrobe_item_deletes_main_row_and_metadata(monkeypatch):
+    deleted_urls = []
+    metadata_deleted = []
+
+    monkeypatch.setattr(
+        persistence,
+        "_fetch_document",
+        lambda document_id: (
+            {
+                "$id": document_id,
+                "userId": "user_1",
+                "image_url": "https://example.test/wardrobe_item.png",
+            },
+            "outfits",
+            "db",
+        ),
+    )
+
+    def fake_delete(url, headers, timeout):
+        deleted_urls.append(url)
+        return _FakeResponse(204)
+
+    monkeypatch.setattr(persistence.requests, "delete", fake_delete)
+    monkeypatch.setattr(
+        persistence,
+        "_delete_wardrobe_style_metadata",
+        lambda **kwargs: metadata_deleted.append(kwargs) or True,
+    )
+
+    result = persistence.delete_wardrobe_item(user_id="user_1", item_id="item-1")
+
+    assert result["success"] is True
+    assert result["deleted_item_id"] == "item-1"
+    assert result["metadata_deleted"] is True
+    assert result["item"]["$id"] == "item-1"
+    assert deleted_urls == [
+        f"{persistence.APPWRITE_ENDPOINT}/databases/db/collections/outfits/documents/item-1"
+    ]
+    assert metadata_deleted == [{"user_id": "user_1", "item_id": "item-1"}]
+
+
+def test_delete_wardrobe_item_rejects_other_user(monkeypatch):
+    monkeypatch.setattr(
+        persistence,
+        "_fetch_document",
+        lambda document_id: (
+            {"$id": document_id, "userId": "other_user"},
+            "outfits",
+            "db",
+        ),
+    )
+
+    try:
+        persistence.delete_wardrobe_item(user_id="user_1", item_id="item-1")
+    except PermissionError as exc:
+        assert "belong" in str(exc)
+    else:
+        raise AssertionError("Expected PermissionError")
+
+
+def test_delete_style_metadata_tries_hyphenless_and_query_matches(monkeypatch):
+    calls = []
+
+    class FakeProxy:
+        def delete_document(self, resource, document_id):
+            calls.append(("delete", resource, document_id))
+            if document_id == "item-1":
+                raise persistence.AppwriteProxyError("Appwrite request failed (404): not found")
+
+        def list_documents(self, resource, user_id=None, limit=100):
+            calls.append(("list", resource, user_id, limit))
+            return [
+                {
+                    "$id": "metadata_doc",
+                    "item_id": "item-1",
+                    "userId": "user_1",
+                },
+                {
+                    "$id": "other_metadata_doc",
+                    "item_id": "item-1",
+                    "userId": "other_user",
+                },
+            ]
+
+    monkeypatch.setattr(persistence, "AppwriteProxy", lambda: FakeProxy())
+
+    assert persistence._delete_wardrobe_style_metadata(
+        user_id="user_1",
+        item_id="item-1",
+    ) is True
+    assert ("delete", "wardrobe_style_metadata", "item-1") in calls
+    assert ("delete", "wardrobe_style_metadata", "item1") in calls
+    assert ("delete", "wardrobe_style_metadata", "metadata_doc") in calls
+    assert ("delete", "wardrobe_style_metadata", "other_metadata_doc") not in calls
+
+
 def test_backfill_targets_metadata_table_and_dry_run_does_not_write(monkeypatch):
     from scripts import backfill_style_metadata
 
     writes = []
 
     class FakeProxy:
-        def list_documents(self, resource, limit=100, offset=0, return_meta=False):
+        def list_documents(self, resource, limit=100, offset=0, return_meta=False, **kwargs):
             assert resource == "outfits"
             if offset:
                 return {"documents": [], "meta": {"has_more": False}}
@@ -169,18 +265,32 @@ def test_backfill_targets_metadata_table_and_dry_run_does_not_write(monkeypatch)
     monkeypatch.setattr(backfill_style_metadata, "AppwriteProxy", lambda: FakeProxy())
     monkeypatch.setattr(
         backfill_style_metadata,
-        "_upsert_style_metadata",
-        lambda proxy, doc_id, payload: writes.append(
-            {"proxy": proxy, "doc_id": doc_id, "payload": payload}
+        "upsert_wardrobe_style_metadata_sync",
+        lambda user_id, doc_id, style_meta: writes.append(
+            {"user_id": user_id, "doc_id": doc_id, "style_meta": style_meta}
         )
-        or "updated",
+        or {"status": "updated"},
     )
 
-    dry = backfill_style_metadata.run(dry_run=True)
-    assert dry == {"updated": 1, "created": 0, "skipped": 0, "failed": 0}
+    dry = backfill_style_metadata.run(dry_run=True, all_users=True)
+    assert dry == {
+        "updated": 1,
+        "created": 0,
+        "skipped": 0,
+        "failed": 0,
+        "scanned": 1,
+        "unchanged": 0,
+    }
     assert writes == []
 
-    real = backfill_style_metadata.run(dry_run=False)
-    assert real == {"updated": 1, "created": 0, "skipped": 0, "failed": 0}
+    real = backfill_style_metadata.run(dry_run=False, all_users=True)
+    assert real == {
+        "updated": 1,
+        "created": 0,
+        "skipped": 0,
+        "failed": 0,
+        "scanned": 1,
+        "unchanged": 0,
+    }
     assert writes[0]["doc_id"] == "item_1"
-    assert writes[0]["payload"]["userId"] == "user_1"
+    assert writes[0]["user_id"] == "user_1"
