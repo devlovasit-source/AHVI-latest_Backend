@@ -429,6 +429,9 @@ def _needs_style_clarification(
     if not tokens:
         return False
 
+    if str(interpreted_occasion or "").strip():
+        return False
+
     # Only short prompts are candidates for clarification. Anything 5+
     # words usually has enough signal; let the orchestrator decide.
     if len(tokens) > 4:

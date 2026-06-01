@@ -4,6 +4,11 @@ from fastapi.testclient import TestClient
 from routers import chat
 
 
+def test_interpreted_occasion_does_not_reclarify():
+    assert chat._needs_style_clarification("Office", "office") is False
+    assert chat._needs_style_clarification("Casual office wear", "office") is False
+
+
 def test_module_chat_legacy_nested_route_exists(monkeypatch):
     def fake_response(*, module, user_message, history, context_data, user_profile):
         return {
