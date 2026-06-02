@@ -53,7 +53,7 @@ _OPEN_MODULES: Dict[str, Dict[str, str]] = {
     "bills": {"module": "bills", "route": "/organize/bills"},
     "calendar": {"module": "calendar", "route": "/organize/calendar"},
     "skincare": {"module": "skincare", "route": "/organize/skincare"},
-    "planner": {"module": "planner", "route": "/organize/calendar"},
+    "planner": {"module": "planner", "route": "/organize/planner"},
 }
 
 
