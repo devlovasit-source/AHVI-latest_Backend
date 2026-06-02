@@ -4,11 +4,19 @@ import re
 from typing import Any, Dict, List
 
 
-GENERAL_STYLE_ADVICE = "general_style_advice"
-BODY_TYPE_ADVICE = "body_type_advice"
-SKIN_TONE_ADVICE = "skin_tone_advice"
+STYLE_ADVICE = "style_advice"
 WARDROBE_STYLE = "wardrobe_style"
 SHOPPING_ASSIST = "shopping_assist"
+STYLE_EDUCATION = "style_education"
+COLOR_BODY_ADVICE = "color_body_advice"
+
+STYLE_MODES = {
+    STYLE_ADVICE,
+    WARDROBE_STYLE,
+    SHOPPING_ASSIST,
+    STYLE_EDUCATION,
+    COLOR_BODY_ADVICE,
+}
 
 
 def _norm(text: Any) -> str:
@@ -17,251 +25,378 @@ def _norm(text: Any) -> str:
 
 
 def _has_any(q: str, phrases: tuple[str, ...]) -> bool:
-    return any(p in q for p in phrases)
+    return any(phrase in q for phrase in phrases)
 
 
-def classify_stylist_intent(text: Any) -> str:
-    q = _norm(text)
-    if not q:
+def _token_after(q: str, phrase: str) -> str:
+    idx = q.find(phrase)
+    if idx < 0:
         return ""
+    return q[idx + len(phrase):].strip()
 
-    wardrobe_markers = (
+
+def is_wardrobe_style_request(
+    text: Any,
+    *,
+    module_context: str = "",
+    style_action: str = "",
+) -> bool:
+    q = _norm(text)
+    module = _norm(module_context)
+    action = _norm(style_action)
+
+    if module in {"wardrobe", "closet"} and q:
+        return True
+    if action in {"use_my_wardrobe", "wardrobe_style", "style_saved_item"}:
+        return True
+
+    explicit = (
         "use my wardrobe",
+        "use wardrobe",
         "from my wardrobe",
         "with my wardrobe",
+        "with my clothes",
+        "use my clothes",
+        "with my closet",
+        "from my closet",
+        "build a look from my closet",
         "build a look from my wardrobe",
         "build an outfit from my wardrobe",
         "style from my wardrobe",
-        "use my clothes",
+        "style my uploaded item",
+        "style uploaded item",
+        "style this uploaded item",
+        "style this item",
+        "style saved item",
         "use my items",
-        "my blue shirt",
-        "my shirt",
-        "my pants",
-        "my dress",
-        "my blazer",
-        "my jacket",
-        "my shoes",
-        "my saree",
-        "my kurta",
+        "use my wardrobe for",
     )
-    if _has_any(q, wardrobe_markers):
-        return WARDROBE_STYLE
+    if _has_any(q, explicit):
+        return True
 
-    shopping_markers = (
-        "what should i buy",
-        "what to buy",
-        "recommend shoes",
-        "recommend footwear",
-        "recommend missing",
-        "complete this look",
-        "shopping suggestions",
-        "show shopping",
-        "buy for this outfit",
-        "similar looks",
+    # "style my X" is wardrobe-specific only when X is a concrete item,
+    # not when the user says "style my day" or asks for abstract advice.
+    item_markers = (
+        "shirt",
+        "t shirt",
+        "tee",
+        "pants",
+        "trousers",
+        "jeans",
+        "dress",
+        "skirt",
+        "blazer",
+        "jacket",
+        "coat",
+        "shoes",
+        "sneakers",
+        "loafers",
+        "saree",
+        "kurta",
+        "top",
+        "hoodie",
     )
-    if _has_any(q, shopping_markers):
-        return SHOPPING_ASSIST
+    return "style my" in q and _has_any(q, item_markers)
 
-    skin_markers = (
-        "skin tone",
-        "warm skin",
-        "cool skin",
-        "neutral skin",
-        "colors suit",
-        "colours suit",
-        "what colors",
-        "what colours",
-        "avoid wearing",
+
+def is_shopping_assist_request(text: Any) -> bool:
+    q = _norm(text)
+    return _has_any(
+        q,
+        (
+            "what should i buy",
+            "what to buy",
+            "find this",
+            "shop similar",
+            "shop this",
+            "show similar",
+            "similar pieces",
+            "recommend shoes",
+            "recommend footwear",
+            "complete this look",
+            "missing piece",
+            "missing pieces",
+            "shopping suggestions",
+            "show shopping",
+            "buy for this outfit",
+        ),
     )
-    if _has_any(q, skin_markers):
-        return SKIN_TONE_ADVICE
 
-    body_markers = (
-        "body type",
-        "body shape",
-        "pear body",
-        "apple body",
-        "rectangle body",
-        "hourglass",
-        "athletic body",
-        "broad shoulders",
-        "narrow shoulders",
-        "wide hips",
-        "what suits my body",
+
+def is_color_body_advice_request(text: Any) -> bool:
+    q = _norm(text)
+    return _has_any(
+        q,
+        (
+            "what colors suit",
+            "what colours suit",
+            "colors suit me",
+            "colours suit me",
+            "skin tone",
+            "warm skin",
+            "cool skin",
+            "neutral skin",
+            "body type",
+            "body shape",
+            "what works for my body",
+            "what suits my body",
+            "pear body",
+            "apple body",
+            "rectangle body",
+            "hourglass",
+            "broad shoulders",
+            "wide hips",
+            "avoid wearing",
+        ),
     )
-    if _has_any(q, body_markers):
-        return BODY_TYPE_ADVICE
 
-    style_advice_markers = (
+
+def is_style_education_request(text: Any) -> bool:
+    q = _norm(text)
+    return _has_any(
+        q,
+        (
+            "what is",
+            "explain",
+            "teach me",
+            "how does",
+            "what does",
+            "difference between",
+            "why does",
+            "style rule",
+            "dress code",
+        ),
+    ) and _has_any(
+        q,
+        (
+            "style",
+            "fashion",
+            "dress code",
+            "silhouette",
+            "color harmony",
+            "colour harmony",
+            "quiet luxury",
+            "old money",
+            "smart casual",
+            "business casual",
+            "modesty",
+            "proportion",
+        ),
+    )
+
+
+def is_style_advice_request(text: Any) -> bool:
+    q = _norm(text)
+    if not q:
+        return False
+
+    advice_markers = (
         "what should i wear",
         "what do i wear",
         "what to wear",
+        "what is appropriate",
+        "is appropriate",
+        "how should i dress",
+        "how to dress",
+        "what works for",
         "wear to",
         "wear for",
         "dress for",
+        "dress to",
         "outfit for",
+        "outfit to",
+        "look for",
+        "style me for",
+        "style me",
         "style advice",
         "fashion advice",
+        "suggest an outfit",
+        "suggest outfit",
+        "recommend an outfit",
     )
-    occasion_markers = (
-        "coffee date",
-        "date",
-        "funeral",
-        "christian funeral",
-        "work",
-        "office",
-        "wedding",
-        "dinner",
-        "party",
-        "interview",
-        "travel",
-        "casual weekend",
-    )
-    if _has_any(q, style_advice_markers) and _has_any(q, occasion_markers):
-        return GENERAL_STYLE_ADVICE
+    if _has_any(q, advice_markers):
+        return True
 
+    # Compact style requests should still get advice first unless wardrobe
+    # usage is explicit. This covers "office outfit", "party look", etc.
+    compact_markers = (
+        "outfit",
+        "look",
+        "wear",
+        "dress",
+        "style",
+    )
+    occasionish = (
+        "office",
+        "client",
+        "date",
+        "party",
+        "wedding",
+        "funeral",
+        "temple",
+        "lunch",
+        "pitch",
+        "meeting",
+        "travel",
+        "interview",
+        "dinner",
+        "brunch",
+        "work",
+        "college",
+        "school",
+        "beach",
+        "gym",
+        "workout",
+        "today",
+        "tomorrow",
+    )
+    if _has_any(q, compact_markers) and _has_any(q, occasionish):
+        return True
+
+    short_occasionish = tuple(x for x in occasionish if x not in {"today", "tomorrow"})
+    if len(q.split()) <= 4 and _has_any(q, short_occasionish):
+        return True
+
+    return False
+
+
+def classify_style_mode(
+    text: Any,
+    *,
+    module_context: str = "",
+    style_action: str = "",
+) -> str:
+    if is_wardrobe_style_request(
+        text,
+        module_context=module_context,
+        style_action=style_action,
+    ):
+        return WARDROBE_STYLE
+    if is_shopping_assist_request(text):
+        return SHOPPING_ASSIST
+    if is_color_body_advice_request(text):
+        return COLOR_BODY_ADVICE
+    if is_style_education_request(text):
+        return STYLE_EDUCATION
+    if is_style_advice_request(text):
+        return STYLE_ADVICE
     return ""
 
 
-def _occasion_from_text(text: Any) -> str:
-    q = _norm(text)
-    if "christian funeral" in q:
-        return "Christian funeral"
-    if "funeral" in q:
-        return "funeral"
-    if "coffee date" in q:
-        return "coffee date"
-    if "date" in q:
-        return "date"
-    if "wedding" in q:
-        return "wedding"
-    if "interview" in q:
-        return "interview"
-    if "work" in q or "office" in q:
-        return "office"
-    if "dinner" in q:
-        return "dinner"
-    if "party" in q:
-        return "party"
-    if "travel" in q:
-        return "travel"
-    return "occasion"
+def _extract_context_phrase(query: str) -> str:
+    q = str(query or "").strip()
+    normalized = _norm(q)
+    for phrase in (
+        "what should i wear to",
+        "what should i wear for",
+        "what do i wear to",
+        "what do i wear for",
+        "what to wear to",
+        "what to wear for",
+        "how should i dress for",
+        "how should i dress to",
+        "how to dress for",
+        "dress for",
+        "outfit for",
+        "outfit to",
+        "look for",
+    ):
+        rest = _token_after(normalized, phrase)
+        if rest:
+            return rest
+    return q or "this situation"
 
 
-def _advice_blocks(kind: str, text: Any) -> Dict[str, List[str] | str]:
-    occasion = _occasion_from_text(text)
-    q = _norm(text)
+def _principle_cards(mode: str, query: str) -> Dict[str, List[str] | str]:
+    context_phrase = _extract_context_phrase(query)
 
-    if kind == SKIN_TONE_ADVICE:
-        tone = "warm" if "warm" in q else "cool" if "cool" in q else "neutral"
+    if mode == COLOR_BODY_ADVICE:
         return {
-            "title": "Color Guidance",
-            "intro": f"For {tone} skin, the strongest colors usually echo your undertone instead of fighting it.",
+            "title": "Color and Body Guidance",
+            "intro": "Start with undertone, proportion, and where you want the eye to land.",
             "recommended": [
-                "Warm: ivory, camel, olive, rust, tomato red, warm navy",
-                "Cool: optic white, charcoal, cobalt, emerald, berry, icy pastels",
-                "Neutral: stone, navy, soft black, teal, dusty rose, balanced earth tones",
+                "Choose one color near the face that makes your skin look clear and awake.",
+                "Use vertical color continuity when you want a longer, cleaner line.",
+                "Balance proportions with structure: shoulder, waist, hem, and footwear all matter.",
+                "Repeat one material or color so the outfit feels intentional.",
             ],
             "outfit": [
-                "Keep one color close to your face that flatters your undertone.",
-                "Use neutrals as anchors, then add one controlled accent.",
+                "Face-framing color or neckline",
+                "A base silhouette that skims rather than fights the body",
+                "A grounding shoe that matches the outfit weight",
+                "One controlled accessory, not a cluster",
             ],
             "avoid": [
-                "Colors that make your skin look grey, tired, or overly yellow",
-                "Too many competing brights near the face",
-            ],
-        }
-
-    if kind == BODY_TYPE_ADVICE:
-        body = "pear" if "pear" in q else "apple" if "apple" in q else "rectangle" if "rectangle" in q else "athletic" if "athletic" in q else "your body shape"
-        return {
-            "title": "Body Type Advice",
-            "intro": f"For {body}, the goal is balance, clean proportion, and an intentional focal point.",
-            "recommended": [
-                "Use structured shoulders or open necklines to frame the upper body.",
-                "Choose rises, hems, and layers that create a clear waist or vertical line.",
-                "Repeat one color vertically when you want a longer, cleaner silhouette.",
-            ],
-            "outfit": [
-                "A fitted or lightly structured top",
-                "A bottom that skims rather than clings",
-                "One polished layer or accessory to finish the line",
-            ],
-            "avoid": [
+                "Colors that make the skin look grey, dull, or overly yellow",
                 "Cuts that stop at the widest point without structure",
-                "Bulky layers with no waist or vertical break",
+                "Too many focal points competing at once",
             ],
         }
 
-    if kind == SHOPPING_ASSIST:
+    if mode == STYLE_EDUCATION:
+        return {
+            "title": "Style Education",
+            "intro": "The useful style rule is not a fixed formula; it is matching visual signals to the setting.",
+            "recommended": [
+                "Formality: match the room before adding personality.",
+                "Silhouette: decide whether the outfit should read sharp, soft, relaxed, or elongated.",
+                "Color harmony: use neutrals as anchors and one deliberate accent.",
+                "Restraint: remove one detail if the outfit feels busy.",
+            ],
+            "outfit": [
+                "A clear base",
+                "One proportion choice",
+                "One texture or color decision",
+                "Footwear that confirms the dress code",
+            ],
+            "avoid": [
+                "Following an aesthetic without considering venue or comfort",
+                "Mixing multiple loud signals when the setting needs clarity",
+            ],
+        }
+
+    if mode == SHOPPING_ASSIST:
         return {
             "title": "Shopping Assist",
-            "intro": "I can help complete the look by identifying the missing piece instead of forcing a wardrobe board.",
+            "intro": "Treat shopping as filling a specific styling gap, not buying a whole new identity.",
             "recommended": [
-                "Start with the piece you already like, then buy only the gap.",
-                "Prioritize shoes, outer layer, or one accessory before adding more clothes.",
-                "Choose versatile neutrals unless the outfit needs a deliberate statement.",
+                "Identify the missing role: shoe, layer, bottom, accessory, or color anchor.",
+                "Buy the most reusable missing piece first.",
+                "Choose quality and fit over novelty when the piece must work often.",
+                "Use shopping ideas as options, then validate against comfort and lifestyle.",
             ],
             "outfit": [
-                "Similar looks",
-                "Missing-piece recommendations",
-                "Shopping suggestions by budget",
+                "Similar-look direction",
+                "Missing-piece shortlist",
+                "Budget-friendly alternatives",
+                "One higher-quality anchor if it solves many outfits",
             ],
             "avoid": [
-                "Buying a full outfit when one grounding piece would solve it",
-                "Trend pieces that do not match your real lifestyle",
-            ],
-        }
-
-    if "funeral" in occasion.lower():
-        return {
-            "title": "Stylist Advice",
-            "intro": f"{occasion.title()}s generally call for respectful, understated attire.",
-            "recommended": ["Black", "Charcoal", "Navy", "Deep grey"],
-            "outfit": [
-                "Plain shirt, blouse, kurta, or modest dress",
-                "Tailored trousers or a simple skirt",
-                "Closed shoes with minimal detailing",
-            ],
-            "avoid": [
-                "Bright colors",
-                "Loud prints",
-                "Excessive accessories",
-                "Very casual footwear",
-            ],
-        }
-
-    if "coffee date" in occasion.lower() or occasion == "date":
-        return {
-            "title": "Stylist Advice",
-            "intro": "A coffee date works best when the look feels easy, considered, and not overly formal.",
-            "recommended": ["Soft neutrals", "Denim blue", "Olive", "Cream", "Warm brown"],
-            "outfit": [
-                "Clean shirt, knit, or relaxed blouse",
-                "Straight denim, chinos, or tailored casual trousers",
-                "Loafers, minimal sneakers, or neat flats",
-            ],
-            "avoid": [
-                "Overly corporate styling",
-                "Very loud prints unless that is your signature",
-                "Anything uncomfortable to sit and walk in",
+                "Buying duplicates of pieces you already own",
+                "Statement items that only work for one narrow scenario",
             ],
         }
 
     return {
         "title": "Stylist Advice",
-        "intro": f"For {occasion}, start with the dress code, setting, and how visible you want the outfit to feel.",
-        "recommended": ["Clean neutrals", "One accent color", "Polished textures", "Occasion-appropriate shoes"],
+        "intro": f"For {context_phrase}, style it by reading the setting first, then choosing pieces that respect the room and still feel like you.",
+        "recommended": [
+            "Formality: choose a base that is one step more polished than casual if the setting is mixed.",
+            "Cultural sensitivity and modesty: keep coverage and fit respectful when the venue or people around you call for it.",
+            "Time, weather, and venue: let fabric weight, layering, and footwear match the real conditions.",
+            "Color harmony: use calm neutrals with one controlled accent, or keep the palette tonal.",
+            "Silhouette and comfort: pick shapes you can sit, walk, and move in without adjusting constantly.",
+        ],
         "outfit": [
-            "A strong base piece",
-            "A balanced second piece",
-            "Shoes that match the setting",
-            "One finishing detail",
+            "A clean base piece appropriate to the venue",
+            "A second piece that balances the silhouette",
+            "Footwear that matches formality and walking comfort",
+            "One restrained accessory or layer",
         ],
         "avoid": [
-            "Pieces that fight the occasion",
-            "Too many statement items at once",
-            "Shoes that are uncomfortable or too casual for the setting",
+            "Anything too loud for the setting before you understand the dress code",
+            "Footwear that contradicts the venue or comfort needs",
+            "Too many accessories, shiny details, or competing statement pieces",
         ],
     }
 
@@ -269,10 +404,10 @@ def _advice_blocks(kind: str, text: Any) -> Dict[str, List[str] | str]:
 def build_stylist_advice_response(
     *,
     query: str,
-    intent: str,
+    mode: str,
     module_context: str = "",
 ) -> Dict[str, Any]:
-    blocks = _advice_blocks(intent, query)
+    blocks = _principle_cards(mode, query)
     title = str(blocks["title"])
     intro = str(blocks["intro"])
     recommended = [str(x) for x in blocks["recommended"]]  # type: ignore[index]
@@ -283,7 +418,7 @@ def build_stylist_advice_response(
         [
             title,
             intro,
-            "Recommended:\n" + "\n".join(f"- {x}" for x in recommended),
+            "Styling principles:\n" + "\n".join(f"- {x}" for x in recommended),
             "Outfit direction:\n" + "\n".join(f"- {x}" for x in outfit),
             "Avoid:\n" + "\n".join(f"- {x}" for x in avoid),
         ]
@@ -299,17 +434,17 @@ def build_stylist_advice_response(
         "success": True,
         "ok": True,
         "type": "stylist_advice",
-        "intent": intent,
+        "intent": mode,
         "message": {"role": "assistant", "content": message},
         "message_text": message,
         "response": message,
         "text": message,
         "cards": [
             {
-                "type": "moodboard",
+                "type": "style_principles",
                 "title": title,
                 "subtitle": intro,
-                "palette": recommended[:6],
+                "principles": recommended,
                 "items": outfit,
                 "avoid": avoid,
             }
@@ -318,11 +453,12 @@ def build_stylist_advice_response(
         "chips": chips,
         "board_ids": "",
         "data": {
-            "intent": intent,
+            "intent": mode,
+            "style_mode": mode,
             "stylist_mode": True,
             "moodboard": {
                 "title": title,
-                "palette": recommended[:6],
+                "principles": recommended,
                 "items": outfit,
                 "avoid": avoid,
             },
@@ -330,7 +466,8 @@ def build_stylist_advice_response(
         },
         "meta": {
             "mode": "stylist_knowledge",
-            "intent": intent,
+            "style_mode": mode,
+            "intent": mode,
             "module_context": module_context or "chat",
             "wardrobe_lookup": False,
         },

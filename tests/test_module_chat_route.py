@@ -183,25 +183,11 @@ def test_text_chat_organize_prompts_route_to_module_service(monkeypatch):
     assert [payload["domain"] for payload, _ in captured] == list(expected.values())
 
 
-def test_text_chat_style_prompts_route_to_style_boards(monkeypatch):
-    captured = []
+def test_text_chat_style_prompts_route_to_advice_first(monkeypatch):
+    def fail_style(*args, **kwargs):
+        raise AssertionError("general style prompts should not hit style service")
 
-    def fake_style_payload(user_id, query_text, request_wardrobe, user_profile=None, **kwargs):
-        captured.append(query_text)
-        return {
-            "success": True,
-            "type": "cards",
-            "message": "Style boards ready.",
-            "message_text": "Style boards ready.",
-            "response": "Style boards ready.",
-            "cards": [{"id": "look-1", "items": []}],
-            "style_boards": [{"id": "look-1", "items": []}],
-            "chips": [],
-            "data": {"outfits": [{"id": "look-1"}]},
-            "meta": {"mode": "style_flow_service_adapter_v1"},
-        }
-
-    monkeypatch.setattr(chat, "_demo_style_board_payload", fake_style_payload)
+    monkeypatch.setattr(chat, "_demo_style_board_payload", fail_style)
     client = _text_chat_client_with_user()
 
     for prompt in ("office outfit", "client meeting", "date night", "client meeting outfit"):
@@ -211,10 +197,10 @@ def test_text_chat_style_prompts_route_to_style_boards(monkeypatch):
         )
         body = response.json()
         assert response.status_code == 200
-        assert body["style_boards"]
+        assert body["type"] == "stylist_advice"
+        assert body["style_boards"] == []
         assert body["cards"]
-
-    assert captured == ["office outfit", "client meeting", "date night", "client meeting outfit"]
+        assert body["meta"]["style_mode"] == "style_advice"
 
 
 def test_text_chat_general_style_advice_bypasses_wardrobe_style(monkeypatch):
@@ -246,6 +232,11 @@ def test_text_chat_general_style_advice_bypasses_wardrobe_style(monkeypatch):
         assert body["type"] == "stylist_advice"
         assert body["style_boards"] == []
         assert body["meta"]["mode"] == "stylist_knowledge"
+        assert body["meta"]["style_mode"] in {
+            "style_advice",
+            "color_body_advice",
+            "shopping_assist",
+        }
         assert body["meta"]["wardrobe_lookup"] is False
         assert "Use My Wardrobe" in [chip["label"] for chip in body["chips"]]
 
@@ -706,7 +697,7 @@ def test_chat_routing_intent_engine_prioritizes_plan_matrix():
 
     for prompt in ("office outfit", "client meeting", "date night", "casual dinner"):
         row = detect_intent(prompt)
-        assert row["intent"] == "occasion_outfit"
+        assert row["intent"] == "style_advice"
         assert row["intent"] != "organize_hub"
 
 
@@ -714,13 +705,15 @@ def test_stylist_first_intent_engine_routes_advice_before_wardrobe():
     from brain.intent_engine import detect_intent
 
     expected = {
-        "What should I wear to a coffee date?": "general_style_advice",
-        "What should I wear to a Christian funeral?": "general_style_advice",
-        "What colors suit warm skin?": "skin_tone_advice",
-        "I have a pear body type.": "body_type_advice",
+        "What should I wear to a coffee date?": "style_advice",
+        "What should I wear to a Christian funeral?": "style_advice",
+        "What should I wear to my cousin's temple lunch after a client pitch?": "style_advice",
+        "What colors suit warm skin?": "color_body_advice",
+        "I have a pear body type.": "color_body_advice",
         "Use my wardrobe for a coffee date.": "wardrobe_style",
         "Build a look from my wardrobe.": "wardrobe_style",
         "Recommend shoes for this outfit.": "shopping_assist",
+        "What is smart casual?": "style_education",
     }
 
     for prompt, intent in expected.items():

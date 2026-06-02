@@ -36,13 +36,14 @@ from services.style_flow_service import (
 )
 from services.module_chat_service import handle_module_chat
 from services.stylist_knowledge_service import (
-    BODY_TYPE_ADVICE,
-    GENERAL_STYLE_ADVICE,
+    COLOR_BODY_ADVICE,
     SHOPPING_ASSIST,
-    SKIN_TONE_ADVICE,
+    STYLE_ADVICE,
+    STYLE_EDUCATION,
+    STYLE_MODES,
     WARDROBE_STYLE,
     build_stylist_advice_response,
-    classify_stylist_intent,
+    classify_style_mode,
 )
 
 try:
@@ -3651,42 +3652,40 @@ def text_chat(request: TextChatRequest, http_request: Request):
     intent = str(intent_row.get("intent") or "general").strip().lower()
     slots = intent_row.get("slots") if isinstance(intent_row.get("slots"), dict) else {}
     detected_module = str(slots.get("module") or "").strip().lower()
-    stylist_intent = intent if intent in {
-        GENERAL_STYLE_ADVICE,
-        BODY_TYPE_ADVICE,
-        SKIN_TONE_ADVICE,
-        SHOPPING_ASSIST,
-        WARDROBE_STYLE,
-    } else classify_stylist_intent(english_input)
+    style_mode = intent if intent in STYLE_MODES else classify_style_mode(
+        english_input,
+        module_context=request.module_context or "",
+        style_action=style_action,
+    )
 
-    if stylist_intent in {
-        GENERAL_STYLE_ADVICE,
-        BODY_TYPE_ADVICE,
-        SKIN_TONE_ADVICE,
+    if style_mode in {
+        STYLE_ADVICE,
+        COLOR_BODY_ADVICE,
+        STYLE_EDUCATION,
         SHOPPING_ASSIST,
     }:
         logger.info(
             "chat.intent.route intent=%s module=%s path=%s text=%r",
-            stylist_intent,
+            style_mode,
             detected_module,
             "stylist_knowledge",
             english_input[:80],
         )
         response = build_stylist_advice_response(
             query=english_input,
-            intent=stylist_intent,
+            mode=style_mode,
             module_context=request.module_context or "chat",
         )
         if not cache_visual_boards:
             _CHAT_CACHE.set(cache_key, response)
         return response
 
-    if stylist_intent == WARDROBE_STYLE:
+    if style_mode == WARDROBE_STYLE:
         intent = "occasion_outfit"
         visual_context = True
         logger.info(
             "chat.intent.route intent=%s module=%s path=%s text=%r",
-            stylist_intent,
+            style_mode,
             detected_module,
             "wardrobe_style",
             english_input[:80],
@@ -3772,10 +3771,11 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # precise short-prompt + broad-fashion-token + specificity check,
     # so just call it directly.
     style_intent_candidate = (
-        visual_context
-        or (request.module_context or "").lower() in {"style", "wardrobe", "daily_wear"}
+        style_mode == WARDROBE_STYLE
+        or bool(style_action)
+        or bool(closest_requested)
+        or (request.module_context or "").lower() in {"wardrobe"}
         or _needs_style_clarification(english_input)
-        or _ahvi_style_occasion(english_input) in {"swimming", "beach", "office", "party", "date", "travel", "workout", "wedding", "gym"}
     )
 
     if style_intent_candidate:

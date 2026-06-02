@@ -27,13 +27,14 @@ from brain.tone.tone_engine import tone_engine
 from services.appwrite_proxy import AppwriteProxy
 from services.style_flow_service import build_style_flow_response
 from services.stylist_knowledge_service import (
-    BODY_TYPE_ADVICE,
-    GENERAL_STYLE_ADVICE,
+    COLOR_BODY_ADVICE,
     SHOPPING_ASSIST,
-    SKIN_TONE_ADVICE,
+    STYLE_ADVICE,
+    STYLE_EDUCATION,
+    STYLE_MODES,
     WARDROBE_STYLE,
     build_stylist_advice_response,
-    classify_stylist_intent,
+    classify_style_mode,
 )
 
 logger = logging.getLogger("ahvi.orchestrator")
@@ -748,32 +749,30 @@ class AhviOrchestrator:
         intent_row = detect_intent(query, history=(ctx.get("history") or []))
         intent = _safe_text(intent_row.get("intent")).lower() or "general"
         slots = _dict(intent_row.get("slots"))
-        stylist_intent = intent if intent in {
-            GENERAL_STYLE_ADVICE,
-            BODY_TYPE_ADVICE,
-            SKIN_TONE_ADVICE,
-            SHOPPING_ASSIST,
-            WARDROBE_STYLE,
-        } else classify_stylist_intent(query)
-        if stylist_intent in {
-            GENERAL_STYLE_ADVICE,
-            BODY_TYPE_ADVICE,
-            SKIN_TONE_ADVICE,
+        style_mode = intent if intent in STYLE_MODES else classify_style_mode(
+            query,
+            module_context=_safe_text(ctx.get("module_context")),
+            style_action=_safe_text(ctx.get("style_action")),
+        )
+        if style_mode in {
+            STYLE_ADVICE,
+            COLOR_BODY_ADVICE,
+            STYLE_EDUCATION,
             SHOPPING_ASSIST,
         }:
             out = build_stylist_advice_response(
                 query=query,
-                intent=stylist_intent,
+                mode=style_mode,
                 module_context=_safe_text(ctx.get("module_context")) or "chat",
             )
             out["meta"] = {
                 **_dict(out.get("meta")),
-                "intent": stylist_intent,
+                "intent": style_mode,
                 "confidence": float(intent_row.get("confidence", 0.0)),
                 "orchestrator_guard": True,
             }
             return out
-        if stylist_intent == WARDROBE_STYLE:
+        if style_mode == WARDROBE_STYLE:
             intent = "occasion_outfit"
         occasion = _extract_occasion(query, slots, ctx)
         if occasion:
