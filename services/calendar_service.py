@@ -186,6 +186,14 @@ def _extract_event_day(raw: str, base: datetime) -> date:
 
 def _extract_event_time(raw: str) -> tuple[int, int, bool]:
     lower = raw.lower()
+    if re.search(r"\bmorning\b", lower):
+        return 9, 0, True
+    if re.search(r"\bafternoon\b", lower):
+        return 14, 0, True
+    if re.search(r"\bevening\b", lower):
+        return 18, 0, True
+    if re.search(r"\bnight\b", lower):
+        return 20, 0, True
     patterns = [
         r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b",
         r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b",
@@ -212,8 +220,20 @@ def _event_type_and_title(raw: str, category: str | None) -> tuple[str, str]:
         return "birthday", "Birthday"
     if "doctor" in lower:
         return "appointment", "Doctor appointment"
+    if "dentist" in lower:
+        return "appointment", "Dentist appointment"
+    if "interview" in lower:
+        return "interview", "Interview"
     if "appointment" in lower:
         return "appointment", "Appointment"
+    meeting_with = re.search(r"\bmeeting\s+with\s+(.+?)(?:\s+(?:today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(?::\d{2})?\s*(?:am|pm)?|at)\b|$)", raw, re.I)
+    if meeting_with:
+        person = _safe_str(meeting_with.group(1)).strip(" ,.-")
+        return "meeting", f"Meeting with {person.title()}" if person else "Meeting"
+    call_with = re.search(r"\bcall\s+with\s+(.+?)(?:\s+(?:today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d{1,2}(?::\d{2})?\s*(?:am|pm)?|at)\b|$)", raw, re.I)
+    if call_with:
+        person = _safe_str(call_with.group(1)).strip(" ,.-")
+        return "call", f"Call with {person.title()}" if person else "Call"
     if "meeting" in lower:
         return "meeting", "Meeting"
     if "call" in lower:

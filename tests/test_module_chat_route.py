@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -202,7 +204,7 @@ def test_text_chat_style_prompts_route_to_style_boards(monkeypatch):
     monkeypatch.setattr(chat, "_demo_style_board_payload", fake_style_payload)
     client = _text_chat_client_with_user()
 
-    for prompt in ("office outfit", "client meeting", "date night"):
+    for prompt in ("office outfit", "client meeting", "date night", "client meeting outfit"):
         response = client.post(
             "/api/text",
             json={"module_context": "style", "messages": [{"role": "user", "content": prompt}]},
@@ -212,7 +214,105 @@ def test_text_chat_style_prompts_route_to_style_boards(monkeypatch):
         assert body["style_boards"]
         assert body["cards"]
 
-    assert captured == ["office outfit", "client meeting", "date night"]
+    assert captured == ["office outfit", "client meeting", "date night", "client meeting outfit"]
+
+
+def test_text_chat_calendar_event_prompt_creates_event(monkeypatch):
+    created = {}
+
+    def fake_create(user_id, payload):
+        created["user_id"] = user_id
+        created["payload"] = payload
+        return {"id": "event-1", "user_id": user_id, **payload}
+
+    def fail_style(*args, **kwargs):
+        raise AssertionError("calendar event prompts should not hit style service")
+
+    monkeypatch.setattr("services.calendar_service.create_calendar_event", fake_create)
+    monkeypatch.setattr(chat, "_demo_style_board_payload", fail_style)
+    client = _text_chat_client_with_user()
+
+    response = client.post(
+        "/api/text",
+        json={
+            "module_context": "chat",
+            "messages": [{"role": "user", "content": "doctor appointment tomorrow at 9am"}],
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["domain"] == "calendar"
+    assert body["intent"] == "calendar_event_created"
+    assert body["refresh"] == "calendar"
+    assert created["user_id"] == "user-1"
+    assert created["payload"]["title"] == "Doctor appointment"
+    assert created["payload"]["type"] == "appointment"
+    assert "09:00:00+05:30" in created["payload"]["start_time"]
+
+
+def test_calendar_module_chat_creates_meeting_event(monkeypatch):
+    from services import module_chat_service
+
+    created = {}
+
+    def fake_create(user_id, payload):
+        created["user_id"] = user_id
+        created["payload"] = payload
+        return {"id": "event-2", "user_id": user_id, **payload}
+
+    monkeypatch.setattr("services.calendar_service.create_calendar_event", fake_create)
+
+    result = asyncio.run(
+        module_chat_service.handle_calendar_chat(
+            "meeting with client friday 4pm",
+            {"timezone": "Asia/Kolkata"},
+            "user-1",
+        )
+    )
+
+    assert result["success"] is True
+    assert result["domain"] == "calendar"
+    assert result["intent"] == "calendar_event_created"
+    assert result["refresh"] == "calendar"
+    assert created["user_id"] == "user-1"
+    assert created["payload"]["title"] == "Meeting with Client"
+    assert "16:00:00+05:30" in created["payload"]["start_time"]
+
+
+def test_plan_my_day_uses_calendar_plan_and_meal_data(monkeypatch):
+    from services import module_chat_service
+
+    class FakeProxy:
+        def list_documents(self, resource, **kwargs):
+            if resource == "plans":
+                return [{"title": "Submit project update"}]
+            if resource == "meal_plans":
+                return [{"title": "High protein day"}]
+            return []
+
+    monkeypatch.setattr(
+        "services.calendar_service.list_today_calendar_events",
+        lambda user_id: [
+            {
+                "title": "Doctor appointment",
+                "start_time": "2026-06-02T09:00:00+05:30",
+                "description": "Doctor appointment tomorrow at 9am",
+            }
+        ],
+    )
+    monkeypatch.setattr(module_chat_service, "AppwriteProxy", FakeProxy)
+
+    result = asyncio.run(module_chat_service.handle_calendar_chat("plan my day", {}, "user-1"))
+
+    assert result["domain"] == "calendar"
+    assert result["intent"] == "plan_my_day"
+    assert result["data"]["events_count"] == 1
+    assert result["data"]["plans_count"] == 1
+    assert result["data"]["meal_plans_count"] == 1
+    assert "Doctor appointment" in str(result["cards"])
+    assert "Submit project update" in str(result["cards"])
+    assert "High protein day" in str(result["cards"])
 
 
 def test_module_chat_legacy_nested_route_exists(monkeypatch):
@@ -541,6 +641,28 @@ def test_chat_routing_intent_engine_prioritizes_plan_matrix():
         row = detect_intent(prompt)
         assert row["intent"] == "occasion_outfit"
         assert row["intent"] != "organize_hub"
+
+
+def test_calendar_event_intents_do_not_route_to_style():
+    from brain.intent_engine import detect_intent
+
+    prompts = [
+        "doctor appointment tomorrow at 9am",
+        "meeting with client friday 4pm",
+        "call with kavya tomorrow",
+        "dentist Friday 6pm",
+        "interview Monday morning",
+    ]
+
+    for prompt in prompts:
+        row = detect_intent(prompt)
+        assert row["intent"] == "organize_hub"
+        assert row["slots"]["module"] == "calendar"
+        assert row["slots"]["action"] == "create_event"
+        assert row["confidence"] >= 0.9
+
+    style_row = detect_intent("client meeting outfit")
+    assert style_row["intent"] == "occasion_outfit"
 
 
 def test_occasion_guards_block_called_out_bad_pairings():

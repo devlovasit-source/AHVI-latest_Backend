@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from services.appwrite_proxy import AppwriteProxy
@@ -93,6 +93,217 @@ def _envelope(
         "open_module": open_module,
         "data": payload,
     }
+
+
+def _looks_like_event_create(message: str) -> bool:
+    text = str(message or "").lower().strip()
+    if not text or text in {"add event", "view events", "open events", "open calendar"}:
+        return False
+    event_tokens = (
+        "appointment",
+        "doctor",
+        "dentist",
+        "meeting with",
+        "call with",
+        "call at",
+        "interview",
+        "remind me",
+        "schedule meeting",
+        "birthday",
+    )
+    date_tokens = (
+        "today",
+        "tomorrow",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "jan",
+        "january",
+        "feb",
+        "february",
+        "mar",
+        "march",
+        "apr",
+        "april",
+        "may",
+        "jun",
+        "june",
+        "jul",
+        "july",
+        "aug",
+        "august",
+        "sep",
+        "sept",
+        "september",
+        "oct",
+        "october",
+        "nov",
+        "november",
+        "dec",
+        "december",
+    )
+    has_date = any(token in text for token in date_tokens) or bool(re.search(r"\b\d{1,2}(?:st|nd|rd|th)?\b", text))
+    has_time = bool(re.search(r"\b(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b", text)) or any(
+        token in text for token in (" morning", " afternoon", " evening", " night")
+    )
+    return any(token in text for token in event_tokens) and (has_date or has_time)
+
+
+def _format_event_when(start_time: Any) -> str:
+    raw = _text(start_time)
+    if not raw:
+        return "your calendar"
+    try:
+        start = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except Exception:
+        return raw
+    now = datetime.now(start.tzinfo or timezone.utc)
+    if start.date() == now.date():
+        day = "today"
+    elif start.date() == (now + timedelta(days=1)).date():
+        day = "tomorrow"
+    else:
+        day = start.strftime("%d %B")
+    return f"{day} at {start.strftime('%I:%M %p').lstrip('0')}"
+
+
+def _calendar_event_created_envelope(event: Dict[str, Any]) -> Dict[str, Any]:
+    title = _text(event.get("title")) or "Event"
+    when = _format_event_when(event.get("start_time"))
+    message = f"{title} added for {when}."
+    card = {
+        "type": "module_card",
+        "module": "calendar",
+        "title": title,
+        "subtitle": when,
+        "summary": _text(event.get("description")) or when,
+        "cta": {"label": "Open calendar", "module": "calendar", "route": "calendar"},
+        "open_module": "calendar",
+    }
+    return _envelope(
+        domain="calendar",
+        message=message,
+        chips=["View events", "Add reminder", "Plan my day"],
+        cards=[card],
+        data={
+            "intent": "calendar_event_created",
+            "event": event,
+            "refresh": "calendar",
+        },
+    ) | {
+        "intent": "calendar_event_created",
+        "refresh": "calendar",
+        "card": card,
+    }
+
+
+def _event_needs_time_envelope() -> Dict[str, Any]:
+    message = "What time should I save this for?"
+    return _envelope(
+        domain="calendar",
+        message=message,
+        chips=["Today 6 PM", "Tomorrow 9 AM", "Open calendar"],
+        data={"intent": "event_needs_time", "refresh": "calendar"},
+    ) | {"intent": "event_needs_time", "refresh": "calendar"}
+
+
+def _safe_docs(resource: str, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    if not user_id:
+        return []
+    try:
+        rows = AppwriteProxy().list_documents(resource, user_id=user_id, limit=limit)
+    except Exception:
+        return []
+    if isinstance(rows, dict):
+        rows = rows.get("documents") or rows.get("items") or []
+    return [row for row in rows or [] if isinstance(row, dict)]
+
+
+def _row_title(row: Dict[str, Any]) -> str:
+    return _text(
+        row.get("title")
+        or row.get("name")
+        or row.get("label")
+        or row.get("description")
+        or row.get("summary")
+    )
+
+
+def _plan_my_day_envelope(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+    from services.calendar_service import list_today_calendar_events
+
+    try:
+        events = list_today_calendar_events(user_id=user_id)
+    except Exception:
+        events = []
+    plans = _safe_docs("plans", user_id, limit=20)
+    meal_plans = _safe_docs("meal_plans", user_id, limit=10)
+
+    morning: List[str] = []
+    afternoon: List[str] = []
+    evening: List[str] = []
+
+    for event in events:
+        title = _row_title(event) or "Calendar event"
+        when = _format_event_when(event.get("start_time"))
+        line = f"{title} - {when}"
+        try:
+            start = datetime.fromisoformat(_text(event.get("start_time")).replace("Z", "+00:00"))
+            hour = start.hour
+        except Exception:
+            hour = 12
+        if hour < 12:
+            morning.append(line)
+        elif hour < 17:
+            afternoon.append(line)
+        else:
+            evening.append(line)
+
+    for row in plans[:4]:
+        title = _row_title(row)
+        if title:
+            afternoon.append(title)
+
+    meal_title = _row_title(meal_plans[0]) if meal_plans else ""
+    if meal_title:
+        evening.append(f"Meal plan: {meal_title}")
+
+    has_data = bool(events or plans or meal_plans)
+    if has_data:
+        parts = [f"You have {len(events)} calendar event{'s' if len(events) != 1 else ''} today."]
+        if plans:
+            parts.append(f"I also found {len(plans)} saved plan{'s' if len(plans) != 1 else ''}.")
+        if meal_plans:
+            parts.append("Your latest meal plan is available for food timing.")
+        reply = " ".join(parts)
+    else:
+        reply = (
+            "Your day is open in AHVI right now. Add a calendar event, meal plan, or priority task and I can turn it into a morning, afternoon, and evening flow."
+        )
+
+    cards = [
+        {"title": "Morning", "items": morning or ["No saved morning events yet."]},
+        {"title": "Afternoon", "items": afternoon or ["No saved afternoon plans yet."]},
+        {"title": "Evening", "items": evening or ["No saved evening plans yet."]},
+    ]
+    return _envelope(
+        domain="calendar",
+        message=reply,
+        chips=["Add event", "View events", "Eat today", "Workout today"],
+        cards=cards,
+        data={
+            "intent": "plan_my_day",
+            "refresh": "calendar",
+            "events_count": len(events),
+            "plans_count": len(plans),
+            "meal_plans_count": len(meal_plans),
+            "sections": {"morning": morning, "afternoon": afternoon, "evening": evening},
+        },
+    ) | {"refresh": "calendar"}
 
 
 async def handle_diet_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
@@ -221,19 +432,27 @@ async def handle_calendar_chat(message: str, context: Dict[str, Any], user_id: s
     elif "view events" in lower or "open events" in lower or "open calendar" in lower:
         reply = "Opening Calendar."
     elif "plan my day" in lower or "plan day" in lower:
-        reply = (
-            "Here is a simple day plan: handle the most important task first, keep one focused admin block, leave a buffer before evening commitments, "
-            "and add only the items you truly want reminders for."
-        )
+        return _plan_my_day_envelope(message, context, user_id)
     elif "prioritize" in lower:
         reply = (
             "Prioritize by urgency and energy: do time-sensitive work first, then high-value tasks, then small admin. "
             "If you share your list, I will sort it into today, later, and optional."
         )
-    elif any(token in lower for token in ("meeting", "appointment", "call", "at ")):
-        reply = (
-            "I can turn that into a planner entry. Add the title, time, and any location or dress code, then tap Add plan to save it."
-        )
+    elif _looks_like_event_create(message):
+        from services.calendar_service import create_calendar_event, parse_plan_text_to_payload
+
+        user_profile = context.get("user_profile") if isinstance(context.get("user_profile"), dict) else {}
+        timezone_name = _text(context.get("timezone") or user_profile.get("timezone")) or "Asia/Kolkata"
+        try:
+            payload = parse_plan_text_to_payload(message, category="Plan", timezone_name=timezone_name)
+            event = create_calendar_event(user_id, payload)
+            return _calendar_event_created_envelope(event)
+        except ValueError as exc:
+            if str(exc) == "time_required":
+                return _event_needs_time_envelope()
+            reply = "I could not parse that event yet. Try: Doctor appointment tomorrow at 9 AM."
+        except Exception:
+            reply = "I tried to save that calendar event, but the calendar could not sync yet. Please try again."
     elif "add plan" in lower:
         reply = "Tell me the plan in one line, for example: 'Client meeting at 9 PM'."
     else:

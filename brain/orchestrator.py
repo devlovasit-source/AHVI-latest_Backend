@@ -5,6 +5,7 @@ import logging
 import re
 import base64
 import uuid
+import asyncio
 from typing import Any, Dict, List
 
 from brain.daily_dependency_engine import build_daily_dependency_response
@@ -841,13 +842,39 @@ class AhviOrchestrator:
 
         if intent == "organize_hub":
             module_key = _resolve_organize_module(query, slots, ctx)
-            out = _organize_hub_response(
-                uid=uid,
-                query=query,
-                module_key=module_key,
-                context=ctx,
-                user_profile=user_profile,
+            logger.info(
+                "organize_hub routed module=%s query=%s",
+                module_key,
+                query[:100],
             )
+            try:
+                from services.module_chat_service import handle_module_chat
+
+                out = asyncio.run(
+                    handle_module_chat(
+                        {
+                            "domain": module_key,
+                            "module": module_key,
+                            "message": query,
+                            "context": ctx,
+                            "user_profile": user_profile,
+                        },
+                        user_id=uid,
+                    )
+                )
+            except Exception as exc:
+                logger.exception(
+                    "organize_hub module_chat_failed module=%s error=%s",
+                    module_key,
+                    str(exc),
+                )
+                out = _organize_hub_response(
+                    uid=uid,
+                    query=query,
+                    module_key=module_key,
+                    context=ctx,
+                    user_profile=user_profile,
+                )
             out["meta"] = {
                 **_dict(out.get("meta")),
                 "intent": intent,
@@ -858,13 +885,39 @@ class AhviOrchestrator:
 
         module_key = _resolve_organize_module(query, slots, ctx)
         if module_key == "workout":
-            out = _organize_hub_response(
-                uid=uid,
-                query=query,
-                module_key=module_key,
-                context=ctx,
-                user_profile=user_profile,
+            logger.info(
+                "organize_hub routed module=%s query=%s",
+                module_key,
+                query[:100],
             )
+            try:
+                from services.module_chat_service import handle_module_chat
+
+                out = asyncio.run(
+                    handle_module_chat(
+                        {
+                            "domain": module_key,
+                            "module": module_key,
+                            "message": query,
+                            "context": ctx,
+                            "user_profile": user_profile,
+                        },
+                        user_id=uid,
+                    )
+                )
+            except Exception as exc:
+                logger.exception(
+                    "organize_hub module_chat_failed module=%s error=%s",
+                    module_key,
+                    str(exc),
+                )
+                out = _organize_hub_response(
+                    uid=uid,
+                    query=query,
+                    module_key=module_key,
+                    context=ctx,
+                    user_profile=user_profile,
+                )
             out["meta"] = {
                 **_dict(out.get("meta")),
                 "intent": intent,

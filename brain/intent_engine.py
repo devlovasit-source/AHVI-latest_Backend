@@ -147,6 +147,10 @@ def _normalize_slots(raw: Any) -> Dict[str, Any]:
         if canonical in _ALLOWED_MODULES:
             out["module"] = canonical
 
+    action = _norm_key(slots.get("action"))
+    if action in {"create_event"}:
+        out["action"] = action
+
     style = _norm_text(slots.get("style"), max_len=48).lower()
     if style:
         out["style"] = style
@@ -202,6 +206,12 @@ def _validate_intent_row(row: Any, *, fallback: Dict[str, Any]) -> Dict[str, Any
             "intent": heuristic_intent,
             "slots": merged_slots,
             "confidence": max(float(fallback.get("confidence", 0.0) or 0.0), conf),
+        }
+
+    if heuristic_intent == intent:
+        slots = {
+            **_normalize_slots(fallback.get("slots")),
+            **slots,
         }
 
     return {"intent": intent, "slots": slots, "confidence": conf}
@@ -263,6 +273,55 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
 
     def _has_any(*phrases: str) -> bool:
         return any(phrase in t or phrase in normalized for phrase in phrases)
+
+    style_words = {"outfit", "wear", "style", "look", "looks", "wardrobe"}
+    has_style_word = any(word in normalized.split() for word in style_words)
+    calendar_event_phrases = (
+        "appointment",
+        "doctor",
+        "dentist",
+        "meeting with",
+        "call with",
+        "call at",
+        "interview",
+        "remind me",
+        "schedule meeting",
+        "tomorrow at",
+        "today at",
+        "monday at",
+        "tuesday at",
+        "wednesday at",
+        "thursday at",
+        "friday at",
+        "saturday at",
+        "sunday at",
+    )
+    explicit_event_phrase = _has_any(
+        "appointment",
+        "doctor",
+        "dentist",
+        "meeting with",
+        "call with",
+        "call at",
+        "interview",
+        "remind me",
+        "schedule meeting",
+    )
+    timed_event_phrase = _has_any(
+        "tomorrow at",
+        "today at",
+        "monday at",
+        "tuesday at",
+        "wednesday at",
+        "thursday at",
+        "friday at",
+        "saturday at",
+        "sunday at",
+    )
+    if _has_any(*calendar_event_phrases) and (explicit_event_phrase or (timed_event_phrase and not has_style_word)):
+        slots["module"] = "calendar"
+        slots["action"] = "create_event"
+        return {"intent": "organize_hub", "slots": slots, "confidence": 0.95}
 
     planner_phrases = (
         "plan my day",

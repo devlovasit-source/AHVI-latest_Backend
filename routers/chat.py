@@ -3446,6 +3446,11 @@ def text_chat(request: TextChatRequest, http_request: Request):
     if early_intent == "organize_hub":
         domain = _organize_domain_for_module(early_module)
         logger.info(
+            "organize_hub routed module=%s query=%s",
+            early_module or domain,
+            user_input[:100],
+        )
+        logger.info(
             "chat.intent.route intent=%s module=%s path=%s text=%r",
             early_intent,
             early_module,
@@ -3640,6 +3645,11 @@ def text_chat(request: TextChatRequest, http_request: Request):
 
     if intent == "organize_hub":
         domain = _organize_domain_for_module(detected_module)
+        logger.info(
+            "organize_hub routed module=%s query=%s",
+            detected_module or domain,
+            english_input[:100],
+        )
         logger.info(
             "chat.intent.route intent=%s module=%s path=%s text=%r",
             intent,
