@@ -35,6 +35,15 @@ from services.style_flow_service import (
     interpret_occasion,
 )
 from services.module_chat_service import handle_module_chat
+from services.stylist_knowledge_service import (
+    BODY_TYPE_ADVICE,
+    GENERAL_STYLE_ADVICE,
+    SHOPPING_ASSIST,
+    SKIN_TONE_ADVICE,
+    WARDROBE_STYLE,
+    build_stylist_advice_response,
+    classify_stylist_intent,
+)
 
 try:
     from services.job_tracker import job_tracker
@@ -3642,6 +3651,46 @@ def text_chat(request: TextChatRequest, http_request: Request):
     intent = str(intent_row.get("intent") or "general").strip().lower()
     slots = intent_row.get("slots") if isinstance(intent_row.get("slots"), dict) else {}
     detected_module = str(slots.get("module") or "").strip().lower()
+    stylist_intent = intent if intent in {
+        GENERAL_STYLE_ADVICE,
+        BODY_TYPE_ADVICE,
+        SKIN_TONE_ADVICE,
+        SHOPPING_ASSIST,
+        WARDROBE_STYLE,
+    } else classify_stylist_intent(english_input)
+
+    if stylist_intent in {
+        GENERAL_STYLE_ADVICE,
+        BODY_TYPE_ADVICE,
+        SKIN_TONE_ADVICE,
+        SHOPPING_ASSIST,
+    }:
+        logger.info(
+            "chat.intent.route intent=%s module=%s path=%s text=%r",
+            stylist_intent,
+            detected_module,
+            "stylist_knowledge",
+            english_input[:80],
+        )
+        response = build_stylist_advice_response(
+            query=english_input,
+            intent=stylist_intent,
+            module_context=request.module_context or "chat",
+        )
+        if not cache_visual_boards:
+            _CHAT_CACHE.set(cache_key, response)
+        return response
+
+    if stylist_intent == WARDROBE_STYLE:
+        intent = "occasion_outfit"
+        visual_context = True
+        logger.info(
+            "chat.intent.route intent=%s module=%s path=%s text=%r",
+            stylist_intent,
+            detected_module,
+            "wardrobe_style",
+            english_input[:80],
+        )
 
     if intent == "organize_hub":
         domain = _organize_domain_for_module(detected_module)

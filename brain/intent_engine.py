@@ -13,7 +13,7 @@ Return ONLY JSON.
 
 Schema:
 {
-  "intent": "daily_dependency | daily_outfit | occasion_outfit | explore_styles | wardrobe_query | try_on | organize_hub | plan_pack | general",
+  "intent": "daily_dependency | daily_outfit | occasion_outfit | explore_styles | wardrobe_query | try_on | organize_hub | plan_pack | general_style_advice | body_type_advice | skin_tone_advice | wardrobe_style | shopping_assist | general",
   "slots": {
     "occasion": "string or null",
     "style": "string or null",
@@ -33,6 +33,12 @@ Rules:
 - "try this / try on" -> try_on
 - "organize / life planner / bills / medicines / calendar / workout / skincare / contacts / goals" -> organize_hub
 - "plan trip / pack for travel / wedding checklist / business travel packing" -> plan_pack
+- "what should I wear to a coffee date/funeral/work/wedding" -> general_style_advice
+- "what colors suit warm/cool/neutral skin" -> skin_tone_advice
+- "pear body shape / broad shoulders / what suits my body" -> body_type_advice
+- "use my wardrobe / build a look from my wardrobe / style my blue shirt" -> wardrobe_style
+- "what should I buy / recommend shoes / complete this look" -> shopping_assist
+- Wardrobe styling should only run when the user explicitly asks to use wardrobe/clothes/items.
 - Fill slots if clearly mentioned
 - If unsure -> general
 
@@ -56,6 +62,11 @@ _ALLOWED_INTENTS = {
     "try_on",
     "organize_hub",
     "plan_pack",
+    "general_style_advice",
+    "body_type_advice",
+    "skin_tone_advice",
+    "wardrobe_style",
+    "shopping_assist",
     "general",
 }
 
@@ -274,6 +285,109 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
     def _has_any(*phrases: str) -> bool:
         return any(phrase in t or phrase in normalized for phrase in phrases)
 
+    wardrobe_style_phrases = (
+        "use my wardrobe",
+        "from my wardrobe",
+        "with my wardrobe",
+        "build a look from my wardrobe",
+        "build an outfit from my wardrobe",
+        "style from my wardrobe",
+        "use my clothes",
+        "use my items",
+        "style my",
+        "my blue shirt",
+        "my shirt",
+        "my pants",
+        "my dress",
+        "my blazer",
+        "my shoes",
+        "my saree",
+        "my kurta",
+    )
+    if _has_any(*wardrobe_style_phrases):
+        return {"intent": "wardrobe_style", "slots": slots, "confidence": 0.95}
+
+    shopping_phrases = (
+        "what should i buy",
+        "what to buy",
+        "recommend shoes",
+        "recommend footwear",
+        "complete this look",
+        "shopping suggestions",
+        "show shopping",
+        "similar looks",
+        "recommend missing",
+    )
+    if _has_any(*shopping_phrases):
+        return {"intent": "shopping_assist", "slots": slots, "confidence": 0.93}
+
+    skin_tone_phrases = (
+        "skin tone",
+        "warm skin",
+        "cool skin",
+        "neutral skin",
+        "colors suit",
+        "colours suit",
+        "what colors",
+        "what colours",
+        "avoid wearing",
+    )
+    if _has_any(*skin_tone_phrases):
+        return {"intent": "skin_tone_advice", "slots": slots, "confidence": 0.94}
+
+    body_type_phrases = (
+        "body type",
+        "body shape",
+        "pear body",
+        "apple body",
+        "rectangle body",
+        "hourglass",
+        "athletic body",
+        "broad shoulders",
+        "wide hips",
+        "what suits my body",
+    )
+    if _has_any(*body_type_phrases):
+        return {"intent": "body_type_advice", "slots": slots, "confidence": 0.94}
+
+    general_style_phrases = (
+        "what should i wear",
+        "what do i wear",
+        "what to wear",
+        "wear to",
+        "wear for",
+        "dress for",
+        "outfit for",
+    )
+    stylist_occasion_phrases = (
+        "coffee date",
+        "date",
+        "funeral",
+        "christian funeral",
+        "work",
+        "office",
+        "wedding",
+        "dinner",
+        "party",
+        "interview",
+        "travel",
+        "casual weekend",
+    )
+    if _has_any(*general_style_phrases) and _has_any(*stylist_occasion_phrases):
+        if "funeral" in normalized:
+            slots["occasion"] = "funeral"
+        elif "coffee date" in normalized:
+            slots["occasion"] = "coffee_date"
+        elif "date" in normalized:
+            slots["occasion"] = "date_night"
+        elif "office" in normalized or "work" in normalized:
+            slots["occasion"] = "office"
+        elif "wedding" in normalized:
+            slots["occasion"] = "wedding"
+        elif "interview" in normalized:
+            slots["occasion"] = "interview"
+        return {"intent": "general_style_advice", "slots": slots, "confidence": 0.93}
+
     style_words = {"outfit", "wear", "style", "look", "looks", "wardrobe"}
     has_style_word = any(word in normalized.split() for word in style_words)
     calendar_event_phrases = (
@@ -342,7 +456,6 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
         "date night",
         "party look",
         "casual dinner",
-        "what should i wear",
         "style me",
     )
     if _has_any(*style_priority_phrases):
@@ -517,6 +630,9 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
         slots["time"] = "evening"
     elif "night" in t:
         slots["time"] = "night"
+
+    if _has_any("what should i wear", "what to wear", "what do i wear"):
+        return {"intent": "general_style_advice", "slots": slots, "confidence": 0.86}
 
     if any(
         x in t

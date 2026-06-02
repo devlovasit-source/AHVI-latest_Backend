@@ -26,6 +26,15 @@ from brain.response.response_assembler import response_assembler
 from brain.tone.tone_engine import tone_engine
 from services.appwrite_proxy import AppwriteProxy
 from services.style_flow_service import build_style_flow_response
+from services.stylist_knowledge_service import (
+    BODY_TYPE_ADVICE,
+    GENERAL_STYLE_ADVICE,
+    SHOPPING_ASSIST,
+    SKIN_TONE_ADVICE,
+    WARDROBE_STYLE,
+    build_stylist_advice_response,
+    classify_stylist_intent,
+)
 
 logger = logging.getLogger("ahvi.orchestrator")
 
@@ -739,6 +748,33 @@ class AhviOrchestrator:
         intent_row = detect_intent(query, history=(ctx.get("history") or []))
         intent = _safe_text(intent_row.get("intent")).lower() or "general"
         slots = _dict(intent_row.get("slots"))
+        stylist_intent = intent if intent in {
+            GENERAL_STYLE_ADVICE,
+            BODY_TYPE_ADVICE,
+            SKIN_TONE_ADVICE,
+            SHOPPING_ASSIST,
+            WARDROBE_STYLE,
+        } else classify_stylist_intent(query)
+        if stylist_intent in {
+            GENERAL_STYLE_ADVICE,
+            BODY_TYPE_ADVICE,
+            SKIN_TONE_ADVICE,
+            SHOPPING_ASSIST,
+        }:
+            out = build_stylist_advice_response(
+                query=query,
+                intent=stylist_intent,
+                module_context=_safe_text(ctx.get("module_context")) or "chat",
+            )
+            out["meta"] = {
+                **_dict(out.get("meta")),
+                "intent": stylist_intent,
+                "confidence": float(intent_row.get("confidence", 0.0)),
+                "orchestrator_guard": True,
+            }
+            return out
+        if stylist_intent == WARDROBE_STYLE:
+            intent = "occasion_outfit"
         occasion = _extract_occasion(query, slots, ctx)
         if occasion:
             ctx["occasion"] = occasion
