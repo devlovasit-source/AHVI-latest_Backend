@@ -222,6 +222,7 @@ def reject_board_for_occasion(board: dict, occasion: str) -> Tuple[bool, str]:
             "black trousers",
             "black pants",
             "loafers",
+            "formal loafers",
             "dress shoes",
             "blazer",
             "office",
@@ -237,6 +238,7 @@ def reject_board_for_occasion(board: dict, occasion: str) -> Tuple[bool, str]:
         forbidden = [
             "slippers",
             "beach sandals",
+            "shorts",
             "gym shorts",
             "running shorts",
             "strapless",
@@ -579,9 +581,9 @@ def _contextual_occasion_weather_adjustment(
             if _has_any(footwear_text, {"sandals", "sandal", "sliders", "slider", "slippers", "slipper"}):
                 delta += 14
                 reasons.append("Relaxed footwear fits beach/resort context")
-            elif _has_any(footwear_text, {"formal shoes", "oxford", "derby"}):
-                delta -= 14
-                reasons.append("Formal footwear feels heavy for relaxed context")
+            elif _has_any(footwear_text, {"formal shoes", "formal loafers", "loafers", "loafer", "oxford", "derby"}):
+                delta -= 28
+                reasons.append("Formal footwear feels heavy for beach/resort context")
 
         if is_rain:
             if _has_any(footwear_text, RAIN_GOOD_FOOTWEAR):
@@ -970,6 +972,18 @@ def guard_outfit(
         if is_smart_occasion and not any(x in footwear_text for x in SMART_FOOTWEAR_GOOD):
             penalty -= 15
             reasons.append("Footwear is not ideal for smart styling")
+
+    if is_smart_occasion:
+        bottom_text = _item_text(bottom)
+        top_text = _item_text(top)
+        if any(term in bottom_text for term in ("shorts", "short pants", "running shorts", "gym shorts")):
+            return False, -100, ["Shorts blocked for office/date/client styling"], fixed
+        if (
+            "shirt" in top_text
+            and "gold" in top_text
+            and any(term in top_text for term in ("shiny", "metallic", "satin", "sequin", "sequins", "glossy"))
+        ):
+            return False, -100, ["Shiny gold shirt blocked for smart styling"], fixed
 
     contextual_delta, contextual_reasons = _contextual_occasion_weather_adjustment(
         top=top,

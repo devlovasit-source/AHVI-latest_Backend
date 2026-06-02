@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any, Optional
 from collections import OrderedDict
+import asyncio
 import os
 import logging
 import time
@@ -20,6 +21,7 @@ except Exception:
     run_heavy_audio_task = None
 
 from brain.orchestrator import ahvi_orchestrator
+from brain.intent_engine import detect_intent
 from brain.plan_pack_flow import build_plan_pack_response
 from brain.tone.tone_engine import tone_engine
 from brain.outfit_pipeline import save_feedback
@@ -390,6 +392,12 @@ def _is_help_identity_request(text: str) -> bool:
     }
 
 
+def _is_small_talk(text: str) -> bool:
+    q = re.sub(r"[^a-z0-9\s]", " ", str(text or "").lower())
+    q = re.sub(r"\s+", " ", q).strip()
+    return q in {"how are you", "thanks", "thank you"}
+
+
 def _ahvi_greeting_response(module_context: str = ""):
     return {
         "success": True,
@@ -413,6 +421,103 @@ def _ahvi_greeting_response(module_context: str = ""):
         },
         "audio_job_id": "offline",
     }
+
+
+def _ahvi_help_identity_response(text: str, module_context: str = ""):
+    q = re.sub(r"[^a-z0-9\s]", " ", str(text or "").lower())
+    q = re.sub(r"\s+", " ", q).strip()
+    if q in {"who are you", "what are you", "what is ahvi", "tell me about yourself"}:
+        message = (
+            "I'm AHVI, your personal assistant for Style, Planning, and Preparation. "
+            "I help you get dressed, organize your day, and prepare for what’s coming next."
+        )
+        chips = [
+            {"label": "Today's Outfit", "value": "Outfit for today"},
+            {"label": "Plan My Day", "value": "Plan my day"},
+            {"label": "Meals", "value": "Eat today"},
+            {"label": "Workout", "value": "Today's workout"},
+        ]
+    else:
+        message = (
+            "I can help with Style, Planning, and Preparation. I can create outfits from your wardrobe, "
+            "plan your day, suggest meals and workouts, organize routines, and help you prepare for events or trips."
+        )
+        chips = [
+            {"label": "Today's Outfit", "value": "Outfit for today"},
+            {"label": "Plan My Day", "value": "Plan my day"},
+            {"label": "Eat Today", "value": "Eat today"},
+            {"label": "Workout", "value": "Today's workout"},
+        ]
+    return {
+        "success": True,
+        "message": message,
+        "message_text": message,
+        "response": message,
+        "board": "general",
+        "type": "text",
+        "cards": [],
+        "style_boards": [],
+        "chips": chips,
+        "data": {},
+        "meta": {
+            "mode": "help_identity_bypass",
+            "module_context": module_context or "chat",
+        },
+        "audio_job_id": "offline",
+    }
+
+
+def _ahvi_small_talk_response(module_context: str = ""):
+    message = (
+        "Ready to help. Are we styling an outfit, planning your day, or preparing for something upcoming?"
+    )
+    return {
+        "success": True,
+        "message": message,
+        "message_text": message,
+        "response": message,
+        "board": "general",
+        "type": "text",
+        "cards": [],
+        "style_boards": [],
+        "chips": [
+            {"label": "Style Me", "value": "Style me"},
+            {"label": "Plan My Day", "value": "Plan my day"},
+            {"label": "Eat Today", "value": "Eat today"},
+            {"label": "Workout", "value": "Today's workout"},
+        ],
+        "data": {},
+        "meta": {
+            "mode": "small_talk_bypass",
+            "module_context": module_context or "chat",
+        },
+        "audio_job_id": "offline",
+    }
+
+
+def _organize_domain_for_module(module: str) -> str:
+    module_key = str(module or "").strip().lower().replace("-", "_")
+    return {
+        "meal_planner": "diet",
+        "meals": "diet",
+        "meal": "diet",
+        "diet": "diet",
+        "workout": "fitness",
+        "fitness": "fitness",
+        "calendar": "calendar",
+        "planner": "calendar",
+        "plan": "calendar",
+        "planning": "calendar",
+        "skincare": "skincare",
+        "medicines": "medi",
+        "medicine": "medi",
+        "meds": "medi",
+        "bills": "bills",
+    }.get(module_key, module_key or "chat")
+
+
+def _run_module_chat_sync(payload: Dict[str, Any], user_id: str = "") -> Dict[str, Any]:
+    return asyncio.run(handle_module_chat(payload, user_id=user_id))
 
 
 # Broad fashion words that, when used alone or in a 1-4 word prompt,
@@ -3334,6 +3439,30 @@ def text_chat(request: TextChatRequest, http_request: Request):
     )
     profile_ms = round((time.perf_counter() - profile_started) * 1000, 2)
 
+    early_intent_row = detect_intent(user_input)
+    early_intent = str(early_intent_row.get("intent") or "general").strip().lower()
+    early_slots = early_intent_row.get("slots") if isinstance(early_intent_row.get("slots"), dict) else {}
+    early_module = str(early_slots.get("module") or "").strip().lower()
+    if early_intent == "organize_hub":
+        domain = _organize_domain_for_module(early_module)
+        logger.info(
+            "chat.intent.route intent=%s module=%s path=%s text=%r",
+            early_intent,
+            early_module,
+            f"module:{domain}",
+            user_input[:80],
+        )
+        return _run_module_chat_sync(
+            {
+                "domain": domain,
+                "module": domain,
+                "message": user_input,
+                "context": {"user_profile": effective_user_profile},
+                "user_profile": effective_user_profile,
+            },
+            user_id=user_id,
+        )
+
     # -------------------------
     # MODULE SUMMARY CARD FAST PATH
     # -------------------------
@@ -3475,18 +3604,83 @@ def text_chat(request: TextChatRequest, http_request: Request):
         target_lang = "en"
 
     if _is_greeting(english_input):
+        logger.info(
+            "chat.intent.route intent=%s module=%s path=%s text=%r",
+            "general",
+            "",
+            "greeting",
+            english_input[:80],
+        )
         return _ahvi_greeting_response(request.module_context)
 
-    # Help / identity bypass. Must run BEFORE the style clarification
-    # guard + fast_board_route, because "what can you do", "who are you",
-    # "help" etc. otherwise fall into _needs_style_clarification or the
-    # orchestrator and return wardrobe outfit boards instead of an LLM
-    # answer about AHVI itself.
     if _is_help_identity_request(english_input):
         logger.info(
-            "chat.help_identity_bypass user_id=%s prompt=%r",
-            user_id,
-            english_input,
+            "chat.intent.route intent=%s module=%s path=%s text=%r",
+            "general",
+            "",
+            "help_identity",
+            english_input[:80],
+        )
+        return _ahvi_help_identity_response(english_input, request.module_context)
+
+    if _is_small_talk(english_input):
+        logger.info(
+            "chat.intent.route intent=%s module=%s path=%s text=%r",
+            "general",
+            "",
+            "small_talk",
+            english_input[:80],
+        )
+        return _ahvi_small_talk_response(request.module_context)
+
+    intent_row = detect_intent(english_input)
+    intent = str(intent_row.get("intent") or "general").strip().lower()
+    slots = intent_row.get("slots") if isinstance(intent_row.get("slots"), dict) else {}
+    detected_module = str(slots.get("module") or "").strip().lower()
+
+    if intent == "organize_hub":
+        domain = _organize_domain_for_module(detected_module)
+        logger.info(
+            "chat.intent.route intent=%s module=%s path=%s text=%r",
+            intent,
+            detected_module,
+            f"module:{domain}",
+            english_input[:80],
+        )
+        return _run_module_chat_sync(
+            {
+                "domain": domain,
+                "module": domain,
+                "message": english_input,
+                "context": {"user_profile": effective_user_profile},
+                "user_profile": effective_user_profile,
+            },
+            user_id=user_id,
+        )
+
+    if intent == "plan_pack":
+        logger.info(
+            "chat.intent.route intent=%s module=%s path=%s text=%r",
+            intent,
+            detected_module,
+            "plan_pack",
+            english_input[:80],
+        )
+        return _module_plan_pack_response(
+            module_key=str(request.module_context or "planner"),
+            user_message=english_input,
+            context_data={},
+            user_profile=effective_user_profile,
+            user_id=user_id,
+        )
+
+    if intent == "general":
+        logger.info(
+            "chat.intent.route intent=%s module=%s path=%s text=%r",
+            intent,
+            detected_module,
+            "general",
+            english_input[:80],
         )
         response = _llm_chat_response(
             messages=request.messages,
@@ -3499,6 +3693,14 @@ def text_chat(request: TextChatRequest, http_request: Request):
         if not cache_visual_boards:
             _CHAT_CACHE.set(cache_key, response)
         return response
+
+    logger.info(
+        "chat.intent.route intent=%s module=%s path=%s text=%r",
+        intent,
+        detected_module,
+        "style_candidate",
+        english_input[:80],
+    )
 
     # Style clarification guard. Run for EVERY style-shaped prompt, not
     # only when visual_context is set, so vague 1-4 word prompts like

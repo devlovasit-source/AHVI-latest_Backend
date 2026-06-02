@@ -212,6 +212,24 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
     slots: Dict[str, Any] = {}
     normalized = " ".join(t.replace("'", "").split())
 
+    greeting_phrases = {
+        "hi",
+        "hello",
+        "hey",
+        "hi ahvi",
+        "hello ahvi",
+        "hey ahvi",
+        "good morning",
+        "good evening",
+        "good afternoon",
+    }
+    if normalized in greeting_phrases:
+        return {
+            "intent": "general",
+            "slots": {"sub_intent": "greeting"},
+            "confidence": 0.96,
+        }
+
     help_identity_phrases = {
         "what can you do",
         "who are you",
@@ -231,8 +249,80 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
             "confidence": 0.95,
         }
 
+    small_talk_phrases = {
+        "how are you",
+        "thanks",
+        "thank you",
+    }
+    if normalized in small_talk_phrases:
+        return {
+            "intent": "general",
+            "slots": {"sub_intent": "small_talk"},
+            "confidence": 0.95,
+        }
+
     def _has_any(*phrases: str) -> bool:
         return any(phrase in t or phrase in normalized for phrase in phrases)
+
+    planner_phrases = (
+        "plan my day",
+        "organize my day",
+        "schedule my day",
+        "today plan",
+        "today schedule",
+        "plan today",
+        "prep my day",
+    )
+    if _has_any(*planner_phrases):
+        slots["module"] = "calendar"
+        return {"intent": "organize_hub", "slots": slots, "confidence": 0.9}
+
+    style_priority_phrases = (
+        "office outfit",
+        "client meeting",
+        "date night",
+        "party look",
+        "casual dinner",
+        "what should i wear",
+        "style me",
+    )
+    if _has_any(*style_priority_phrases):
+        if "client meeting" in normalized or "office" in normalized:
+            slots["occasion"] = "office"
+        elif "date" in normalized:
+            slots["occasion"] = "date_night"
+        elif "party" in normalized:
+            slots["occasion"] = "party"
+        elif "dinner" in normalized:
+            slots["occasion"] = "date_night"
+        return {"intent": "occasion_outfit", "slots": slots, "confidence": 0.9}
+
+    diet_phrases = (
+        "eat today",
+        "what should i eat",
+        "what to eat today",
+        "food today",
+        "meal today",
+        "diet today",
+        "meal plan",
+        "breakfast",
+        "lunch",
+        "dinner",
+    )
+    if _has_any(*diet_phrases):
+        slots["module"] = "meal_planner"
+        return {"intent": "organize_hub", "slots": slots, "confidence": 0.9}
+
+    workout_phrases = (
+        "workout today",
+        "today workout",
+        "gym today",
+        "exercise today",
+        "fitness today",
+    )
+    if _has_any(*workout_phrases):
+        slots["module"] = "workout"
+        return {"intent": "organize_hub", "slots": slots, "confidence": 0.9}
 
     plan_pack_words = [
         "plan trip",

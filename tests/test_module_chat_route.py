@@ -4,6 +4,18 @@ from fastapi.testclient import TestClient
 from routers import chat
 
 
+def _text_chat_client_with_user():
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def add_user(request, call_next):
+        request.state.user = {"user_id": "user-1"}
+        return await call_next(request)
+
+    app.include_router(chat.router, prefix="/api")
+    return TestClient(app)
+
+
 def test_interpreted_occasion_does_not_reclarify():
     assert chat._needs_style_clarification("Office", "office") is False
     assert chat._needs_style_clarification("Casual office wear", "office") is False
@@ -33,6 +45,24 @@ def test_greeting_response_shape_preserves_module_context():
     assert response["style_boards"] == []
     assert response["meta"]["mode"] == "greeting_bypass"
     assert response["meta"]["module_context"] == "style"
+
+
+def test_help_identity_and_small_talk_response_shapes():
+    help_response = chat._ahvi_help_identity_response("what can you do", "chat")
+    assert help_response["type"] == "text"
+    assert help_response["cards"] == []
+    assert help_response["style_boards"] == []
+    assert help_response["meta"]["mode"] == "help_identity_bypass"
+    assert help_response["message"].startswith("I can help with Style, Planning, and Preparation.")
+
+    small_talk = chat._ahvi_small_talk_response("style")
+    assert small_talk["type"] == "text"
+    assert small_talk["cards"] == []
+    assert small_talk["style_boards"] == []
+    assert small_talk["meta"]["mode"] == "small_talk_bypass"
+    assert small_talk["message"] == (
+        "Ready to help. Are we styling an outfit, planning your day, or preparing for something upcoming?"
+    )
 
 
 def test_text_chat_greeting_bypasses_style_and_orchestrator(monkeypatch):
@@ -70,6 +100,119 @@ def test_text_chat_greeting_bypasses_style_and_orchestrator(monkeypatch):
     assert body["cards"] == []
     assert body["style_boards"] == []
     assert body["meta"]["mode"] == "greeting_bypass"
+
+
+def test_text_chat_fixed_chat_prompts_do_not_hit_style_or_orchestrator(monkeypatch):
+    def fail_style(*args, **kwargs):
+        raise AssertionError("fixed chat prompts should not hit style service")
+
+    def fail_orchestrator(*args, **kwargs):
+        raise AssertionError("fixed chat prompts should not hit orchestrator")
+
+    monkeypatch.setattr(chat, "_demo_style_board_payload", fail_style)
+    monkeypatch.setattr(chat.ahvi_orchestrator, "run", fail_orchestrator)
+    client = _text_chat_client_with_user()
+
+    expected = {
+        "hi": "greeting_bypass",
+        "who are you": "help_identity_bypass",
+        "what can you do": "help_identity_bypass",
+        "help": "help_identity_bypass",
+        "how are you": "small_talk_bypass",
+    }
+
+    for prompt, mode in expected.items():
+        response = client.post(
+            "/api/text",
+            json={"module_context": "style", "messages": [{"role": "user", "content": prompt}]},
+        )
+        body = response.json()
+        assert response.status_code == 200
+        assert body["type"] == "text"
+        assert body["cards"] == []
+        assert body["style_boards"] == []
+        assert body["meta"]["mode"] == mode
+
+
+def test_text_chat_organize_prompts_route_to_module_service(monkeypatch):
+    captured = []
+
+    async def fake_module_chat(payload, user_id=""):
+        captured.append((payload, user_id))
+        domain = payload["domain"]
+        return {
+            "success": True,
+            "type": "module_chat",
+            "domain": domain,
+            "module": domain,
+            "message": f"{domain} ready",
+            "message_text": f"{domain} ready",
+            "response": f"{domain} ready",
+            "cards": [],
+            "style_boards": [],
+            "chips": [],
+            "data": {"domain": domain},
+            "meta": {"mode": domain},
+        }
+
+    def fail_style(*args, **kwargs):
+        raise AssertionError("organize prompts should not hit style service")
+
+    monkeypatch.setattr(chat, "handle_module_chat", fake_module_chat)
+    monkeypatch.setattr(chat, "_demo_style_board_payload", fail_style)
+    client = _text_chat_client_with_user()
+
+    expected = {
+        "plan my day": "calendar",
+        "eat today": "diet",
+        "workout today": "fitness",
+    }
+
+    for prompt, domain in expected.items():
+        response = client.post(
+            "/api/text",
+            json={"module_context": "chat", "messages": [{"role": "user", "content": prompt}]},
+        )
+        body = response.json()
+        assert response.status_code == 200
+        assert body["domain"] == domain
+        assert body["style_boards"] == []
+
+    assert [payload["domain"] for payload, _ in captured] == list(expected.values())
+
+
+def test_text_chat_style_prompts_route_to_style_boards(monkeypatch):
+    captured = []
+
+    def fake_style_payload(user_id, query_text, request_wardrobe, user_profile=None, **kwargs):
+        captured.append(query_text)
+        return {
+            "success": True,
+            "type": "cards",
+            "message": "Style boards ready.",
+            "message_text": "Style boards ready.",
+            "response": "Style boards ready.",
+            "cards": [{"id": "look-1", "items": []}],
+            "style_boards": [{"id": "look-1", "items": []}],
+            "chips": [],
+            "data": {"outfits": [{"id": "look-1"}]},
+            "meta": {"mode": "style_flow_service_adapter_v1"},
+        }
+
+    monkeypatch.setattr(chat, "_demo_style_board_payload", fake_style_payload)
+    client = _text_chat_client_with_user()
+
+    for prompt in ("office outfit", "client meeting", "date night"):
+        response = client.post(
+            "/api/text",
+            json={"module_context": "style", "messages": [{"role": "user", "content": prompt}]},
+        )
+        body = response.json()
+        assert response.status_code == 200
+        assert body["style_boards"]
+        assert body["cards"]
+
+    assert captured == ["office outfit", "client meeting", "date night"]
 
 
 def test_module_chat_legacy_nested_route_exists(monkeypatch):
@@ -379,6 +522,49 @@ def test_lifestyle_intent_engine_routes_known_prompts():
         assert row["intent"] == intent
         assert row["slots"]["module"] == module
         assert row["confidence"] >= 0.75
+
+
+def test_chat_routing_intent_engine_prioritizes_plan_matrix():
+    from brain.intent_engine import detect_intent
+
+    expected_modules = {
+        "plan my day": ("organize_hub", "calendar"),
+        "eat today": ("organize_hub", "meal_planner"),
+        "workout today": ("organize_hub", "workout"),
+    }
+    for prompt, (intent, module) in expected_modules.items():
+        row = detect_intent(prompt)
+        assert row["intent"] == intent
+        assert row["slots"]["module"] == module
+
+    for prompt in ("office outfit", "client meeting", "date night", "casual dinner"):
+        row = detect_intent(prompt)
+        assert row["intent"] == "occasion_outfit"
+        assert row["intent"] != "organize_hub"
+
+
+def test_occasion_guards_block_called_out_bad_pairings():
+    from brain.engines.occasion_style_rules import get_occasion_rule, reject_board_for_occasion, score_item_for_occasion
+    from brain.engines.outfit_quality_guard import reject_board_for_occasion as reject_quality_board
+
+    shiny_gold_shirt = {
+        "name": "Shiny Gold Satin Shirt",
+        "category": "shirt",
+        "color": "gold",
+        "material": "satin",
+    }
+    assert score_item_for_occasion(shiny_gold_shirt, get_occasion_rule("office")) <= -10
+    assert reject_board_for_occasion({"items": [shiny_gold_shirt]}, "office") == (
+        "shiny_gold_shirt_blocked_for_smart_occasion"
+    )
+
+    shorts_board = {"items": [{"name": "Tailored shorts", "category": "bottom"}]}
+    assert reject_board_for_occasion(shorts_board, "date_night") == "short_bottom_blocked_for_smart_occasion"
+    assert reject_quality_board(shorts_board, "office")[0] is True
+
+    beach_board = {"items": [{"name": "Formal loafers", "category": "footwear"}]}
+    assert reject_board_for_occasion(beach_board, "beach").startswith("occasion_mismatch:")
+    assert reject_quality_board(beach_board, "beach")[0] is True
 
 
 def test_plan_pack_prompts_route_without_generic_fallback():

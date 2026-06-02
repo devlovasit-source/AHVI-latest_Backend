@@ -153,6 +153,7 @@ OCCASION_STYLE_RULES: Dict[str, Dict[str, Any]] = {
             "slide",
             "sandal",
             "sandals",
+            "shorts",
             "birkenstock",
             "espadrille",
             "espadrilles",
@@ -181,6 +182,8 @@ OCCASION_STYLE_RULES: Dict[str, Dict[str, Any]] = {
             ["birkenstock", "trousers"],
             ["sandals", "shirt"],
             ["sandal", "trouser"],
+            ["shorts", "office"],
+            ["shorts", "shirt"],
             ["embroidered", "trouser"],
             ["embroidered", "chino"],
             ["festive", "trouser"],
@@ -200,12 +203,12 @@ OCCASION_STYLE_RULES: Dict[str, Dict[str, Any]] = {
         "formality_target": 3.1,
         "footwear_energy": "polished",
         "prefer_keywords": ["shirt", "knit", "dress", "loafer", "boot", "minimal sneaker", "watch"],
-        "avoid_keywords": ["slipper", "slides", "birkenstock", "gym", "running", "wrinkled"],
+        "avoid_keywords": ["slipper", "slides", "birkenstock", "gym", "running", "wrinkled", "shorts"],
         "preferred_colors": ["black", "cream", "white", "navy", "burgundy", "brown"],
         "avoid_colors": [],
         "preferred_materials": ["cotton", "leather", "suede", "silk", "knit"],
         "required_slots": ["top_or_dress", "bottom_or_dress", "footwear"],
-        "forbidden_pairings": [["slippers", "date"], ["birkenstock", "dinner"], ["running shoes", "dinner"]],
+        "forbidden_pairings": [["slippers", "date"], ["birkenstock", "dinner"], ["running shoes", "dinner"], ["shorts", "date"]],
         "fallback_message": "I don't see enough date-ready pieces yet.",
         "missing_recommendations": [
             {"label": "Polished shirt", "reason": "Keeps the mood intentional", "cta": "Find this"},
@@ -416,6 +419,7 @@ def get_occasion_rule(occasion: str) -> Dict[str, Any]:
 def score_item_for_occasion(item: Dict[str, Any], occasion_rule: Dict[str, Any]) -> float:
     blob = _item_blob(item)
     score = 0.0
+    direction = _text(occasion_rule.get("style_direction") or occasion_rule.get("resolved_brief"))
     for keyword in occasion_rule.get("prefer_keywords") or []:
         if _text(keyword) in blob:
             score += 2.0
@@ -431,6 +435,13 @@ def score_item_for_occasion(item: Dict[str, Any], occasion_rule: Dict[str, Any])
     for material in occasion_rule.get("preferred_materials") or []:
         if _text(material) and _text(material) in blob:
             score += 1.2
+    if (
+        ("office" in direction or "polished_social" in direction)
+        and "shirt" in blob
+        and "gold" in blob
+        and any(term in blob for term in ("shiny", "metallic", "satin", "sequin", "sequins", "glossy"))
+    ):
+        score -= 12.0
     try:
         formality = float(item.get("formality") or item.get("formality_score") or 2.5)
         target = float(occasion_rule.get("formality_target") or 2.5)
@@ -465,6 +476,7 @@ def reject_board_for_occasion(card: Dict[str, Any], occasion: str, occasion_rule
             "black trousers",
             "black pants",
             "loafers",
+            "formal loafers",
             "dress shoes",
             "oxford",
             "derby",
@@ -478,6 +490,15 @@ def reject_board_for_occasion(card: Dict[str, Any], occasion: str, occasion_rule
     if key in {"office", "date", "wedding"}:
         if any(term in text for term in ("slipper", "slippers", "slide", "slides", "birkenstock")):
             return "relaxed_footwear_blocked_for_occasion"
+    if key in {"office", "date"}:
+        if any(term in text for term in ("shorts", "short pants", "running shorts", "gym shorts")):
+            return "short_bottom_blocked_for_smart_occasion"
+        if (
+            "shirt" in text
+            and "gold" in text
+            and any(term in text for term in ("shiny", "metallic", "satin", "sequin", "sequins", "glossy"))
+        ):
+            return "shiny_gold_shirt_blocked_for_smart_occasion"
     if key == "office":
         if any(term in text for term in ("sandal", "sandals", "espadrille", "espadrilles", "flip flop", "flip-flop")):
             return "casual_footwear_blocked_for_office"

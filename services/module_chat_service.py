@@ -16,11 +16,18 @@ def _normalize_domain(value: Any) -> str:
     aliases = {
         "meal": "diet",
         "meals": "diet",
+        "meal_planner": "diet",
+        "diet": "diet",
+        "workout": "fitness",
+        "fitness": "fitness",
         "medical": "medi",
         "meds": "medi",
         "medicine": "medi",
+        "medicines": "medi",
         "planner": "calendar",
+        "plan": "calendar",
         "planning": "calendar",
+        "calendar": "calendar",
         "event": "calendar",
         "events": "calendar",
     }
