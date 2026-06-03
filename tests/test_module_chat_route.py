@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -16,6 +17,46 @@ def _text_chat_client_with_user():
 
     app.include_router(chat.router, prefix="/api")
     return TestClient(app)
+
+
+def _fake_style_reasoning_json(prompt, **kwargs):
+    mode = "visual_inspiration" if "visual inspiration" in prompt.lower() else "style_advice"
+    return json.dumps(
+        {
+            "mode": mode,
+            "occasion": "coffee date",
+            "goal": "Look relaxed and considered.",
+            "atmosphere": "easy and warm",
+            "emotion_state": "social",
+            "stylist_advice": "Keep it easy, clean, and approachable with one polished detail.",
+            "what_to_avoid": ["anything too stiff", "loud logos"],
+            "visual_directions": [
+                {
+                    "title": "Relaxed Oxford",
+                    "description": "Oxford shirt with dark denim and clean sneakers.",
+                    "palette": ["navy", "white", "tan"],
+                    "pieces": ["Oxford shirt", "dark denim", "clean sneakers"],
+                    "style_note": "Tidy without feeling formal.",
+                },
+                {
+                    "title": "Knit Polo Polish",
+                    "description": "Soft knit top with straight trousers and loafers.",
+                    "palette": ["cream", "olive", "brown"],
+                    "pieces": ["knit polo", "straight trousers", "loafers"],
+                    "style_note": "Texture keeps it warm.",
+                },
+                {
+                    "title": "Soft Layered Casual",
+                    "description": "Light jacket over a simple base.",
+                    "palette": ["stone", "blue", "charcoal"],
+                    "pieces": ["light jacket", "plain tee", "chinos"],
+                    "style_note": "Useful if the setting shifts.",
+                },
+            ],
+            "follow_up_question": None,
+            "confidence": 0.91,
+        }
+    )
 
 
 def test_interpreted_occasion_does_not_reclarify():
@@ -187,6 +228,7 @@ def test_text_chat_style_prompts_route_to_advice_first(monkeypatch):
     def fail_style(*args, **kwargs):
         raise AssertionError("general style prompts should not hit style service")
 
+    monkeypatch.setattr("services.style_reasoning_engine.generate_text", _fake_style_reasoning_json)
     monkeypatch.setattr(chat, "_demo_style_board_payload", fail_style)
     client = _text_chat_client_with_user()
 
@@ -200,6 +242,7 @@ def test_text_chat_style_prompts_route_to_advice_first(monkeypatch):
         assert body["type"] == "stylist_advice"
         assert body["style_boards"] == []
         assert body["cards"]
+        assert len(body["data"]["visual_directions"]) == 3
         assert body["meta"]["style_mode"] == "style_advice"
 
 
@@ -210,6 +253,7 @@ def test_text_chat_general_style_advice_bypasses_wardrobe_style(monkeypatch):
     def fail_orchestrator(*args, **kwargs):
         raise AssertionError("general style advice should not hit orchestrator")
 
+    monkeypatch.setattr("services.style_reasoning_engine.generate_text", _fake_style_reasoning_json)
     monkeypatch.setattr(chat, "_demo_style_board_payload", fail_style)
     monkeypatch.setattr(chat.ahvi_orchestrator, "run", fail_orchestrator)
     client = _text_chat_client_with_user()
@@ -231,6 +275,7 @@ def test_text_chat_general_style_advice_bypasses_wardrobe_style(monkeypatch):
         assert response.status_code == 200
         assert body["type"] == "stylist_advice"
         assert body["style_boards"] == []
+        assert len(body["data"]["visual_directions"]) == 3
         assert body["meta"]["mode"] == "style_reasoning"
         assert body["meta"]["style_mode"] in {
             "style_advice",
@@ -239,6 +284,31 @@ def test_text_chat_general_style_advice_bypasses_wardrobe_style(monkeypatch):
         }
         assert body["meta"]["wardrobe_lookup"] is False
         assert "Use my wardrobe" in [chip["label"] for chip in body["chips"]]
+
+
+def test_text_chat_visual_inspiration_returns_direction_cards(monkeypatch):
+    def fail_style(*args, **kwargs):
+        raise AssertionError("visual inspiration should not hit wardrobe board service")
+
+    monkeypatch.setattr("services.style_reasoning_engine.generate_text", _fake_style_reasoning_json)
+    monkeypatch.setattr(chat, "_demo_style_board_payload", fail_style)
+    client = _text_chat_client_with_user()
+
+    response = client.post(
+        "/api/text",
+        json={
+            "module_context": "style",
+            "messages": [{"role": "user", "content": "Show visual inspiration for coffee date"}],
+        },
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["type"] == "stylist_advice"
+    assert body["style_boards"] == []
+    assert body["meta"]["style_mode"] == "visual_inspiration"
+    assert len(body["data"]["visual_directions"]) == 3
+    assert len([card for card in body["cards"] if card["type"] == "visual_direction"]) == 3
 
 
 def test_text_chat_explicit_wardrobe_style_still_hits_style_service(monkeypatch):
@@ -721,8 +791,10 @@ def test_stylist_first_intent_engine_routes_advice_before_wardrobe():
         assert row["intent"] == intent
 
 
-def test_style_reasoning_engine_schema_and_decisions():
+def test_style_reasoning_engine_schema_and_decisions(monkeypatch):
     from services.style_reasoning_engine import style_reasoning_engine
+
+    monkeypatch.setattr("services.style_reasoning_engine.generate_text", _fake_style_reasoning_json)
 
     funeral = style_reasoning_engine.reason(
         query="What should I wear to a Christian funeral?",
@@ -734,6 +806,9 @@ def test_style_reasoning_engine_schema_and_decisions():
     assert funeral["advice"]
     assert funeral["meta"]["source"] == "style_reasoning_engine"
     assert funeral["meta"]["reason"] in {"sensitive_occasion", "style_advice"}
+    assert funeral["meta"]["goal"]
+    assert funeral["meta"]["atmosphere"]
+    assert len(funeral["visual_directions"]) == 3
 
     coffee = style_reasoning_engine.reason(
         query="What should I wear to a coffee date?",
@@ -742,6 +817,15 @@ def test_style_reasoning_engine_schema_and_decisions():
     assert coffee["mode"] == "style_advice"
     assert coffee["should_generate_board"] is False
     assert any(chip["label"] == "Use my wardrobe" for chip in coffee["cta"])
+    assert len(coffee["visual_directions"]) == 3
+
+    visual = style_reasoning_engine.reason(
+        query="Show visual inspiration for coffee date",
+        intent="style_advice",
+    )
+    assert visual["mode"] == "visual_inspiration"
+    assert visual["should_generate_board"] is False
+    assert len(visual["visual_directions"]) == 3
 
     wardrobe = style_reasoning_engine.reason(
         query="Use my wardrobe for a coffee date",
@@ -750,6 +834,7 @@ def test_style_reasoning_engine_schema_and_decisions():
     assert wardrobe["mode"] == "wardrobe_style"
     assert wardrobe["should_use_wardrobe"] is True
     assert wardrobe["should_generate_board"] is True
+    assert wardrobe["visual_directions"] == []
 
     color = style_reasoning_engine.reason(
         query="What colors suit warm olive skin?",
@@ -757,6 +842,7 @@ def test_style_reasoning_engine_schema_and_decisions():
     )
     assert color["mode"] == "color_body_advice"
     assert color["should_generate_board"] is False
+    assert len(color["visual_directions"]) == 3
 
 
 def test_calendar_event_intents_do_not_route_to_style():

@@ -25,7 +25,7 @@ from brain.plan_pack_flow import build_plan_pack_response
 from brain.response.response_assembler import response_assembler
 from brain.tone.tone_engine import tone_engine
 from services.appwrite_proxy import AppwriteProxy
-from services.style_reasoning_engine import style_reasoning_engine
+from services.style_reasoning_engine import VISUAL_INSPIRATION, style_reasoning_engine
 from services.style_flow_service import build_style_flow_response
 from services.stylist_knowledge_service import (
     COLOR_BODY_ADVICE,
@@ -772,8 +772,24 @@ class AhviOrchestrator:
             COLOR_BODY_ADVICE,
             STYLE_EDUCATION,
             SHOPPING_ASSIST,
+            VISUAL_INSPIRATION,
         } and not reasoning.get("should_generate_board"):
             message = _safe_text(reasoning.get("advice"))
+            visual_directions = reasoning.get("visual_directions")
+            if not isinstance(visual_directions, list):
+                visual_directions = []
+            visual_cards = [
+                {
+                    "type": "visual_direction",
+                    "title": _safe_text(item.get("title")) or "Style Direction",
+                    "description": _safe_text(item.get("description")),
+                    "palette": item.get("palette") if isinstance(item.get("palette"), list) else [],
+                    "pieces": item.get("pieces") if isinstance(item.get("pieces"), list) else [],
+                    "style_note": _safe_text(item.get("style_note")),
+                }
+                for item in visual_directions
+                if isinstance(item, dict)
+            ]
             out = {
                 "success": True,
                 "ok": True,
@@ -781,10 +797,14 @@ class AhviOrchestrator:
                 "message": message,
                 "message_text": message,
                 "response": message,
-                "cards": [],
+                "cards": visual_cards,
                 "style_boards": [],
                 "chips": reasoning.get("cta") if isinstance(reasoning.get("cta"), list) else [],
-                "data": {"style_reasoning": reasoning, "style_mode": style_mode},
+                "data": {
+                    "style_reasoning": reasoning,
+                    "style_mode": style_mode,
+                    "visual_directions": visual_directions,
+                },
                 "meta": {
                     **_dict(reasoning.get("meta")),
                     "mode": "style_reasoning",

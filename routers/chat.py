@@ -35,7 +35,7 @@ from services.style_flow_service import (
     interpret_occasion,
 )
 from services.module_chat_service import handle_module_chat
-from services.style_reasoning_engine import style_reasoning_engine
+from services.style_reasoning_engine import VISUAL_INSPIRATION, style_reasoning_engine
 from services.stylist_knowledge_service import (
     COLOR_BODY_ADVICE,
     SHOPPING_ASSIST,
@@ -359,6 +359,32 @@ def _style_reasoning_chat_response(reasoning: Dict[str, Any], query: str, module
     message = str(reasoning.get("advice") or "").strip()
     chips = reasoning.get("cta") if isinstance(reasoning.get("cta"), list) else []
     mode = str(reasoning.get("mode") or "style_advice")
+    visual_directions = reasoning.get("visual_directions")
+    if not isinstance(visual_directions, list):
+        visual_directions = []
+    visual_cards = [
+        {
+            "type": "visual_direction",
+            "title": str(item.get("title") or "Style Direction"),
+            "description": str(item.get("description") or ""),
+            "palette": item.get("palette") if isinstance(item.get("palette"), list) else [],
+            "pieces": item.get("pieces") if isinstance(item.get("pieces"), list) else [],
+            "style_note": str(item.get("style_note") or ""),
+        }
+        for item in visual_directions
+        if isinstance(item, dict)
+    ]
+    summary_cards = [
+        {
+            "type": "style_reasoning",
+            "title": "Stylist Advice",
+            "subtitle": message.split("\n", 1)[0] if message else "Style guidance",
+            "mode": mode,
+            "occasion": reasoning.get("occasion"),
+            "tone": reasoning.get("tone"),
+            "formality": reasoning.get("formality"),
+        }
+    ] if message else []
     return {
         "success": True,
         "ok": True,
@@ -368,17 +394,7 @@ def _style_reasoning_chat_response(reasoning: Dict[str, Any], query: str, module
         "message_text": message,
         "response": message,
         "text": message,
-        "cards": [
-            {
-                "type": "style_reasoning",
-                "title": "Stylist Advice",
-                "subtitle": message.split("\n", 1)[0] if message else "Style guidance",
-                "mode": mode,
-                "occasion": reasoning.get("occasion"),
-                "tone": reasoning.get("tone"),
-                "formality": reasoning.get("formality"),
-            }
-        ] if message else [],
+        "cards": summary_cards + visual_cards,
         "style_boards": [],
         "chips": chips,
         "board_ids": "",
@@ -388,6 +404,7 @@ def _style_reasoning_chat_response(reasoning: Dict[str, Any], query: str, module
             "style_reasoning": reasoning,
             "stylist_mode": True,
             "cta_actions": chips,
+            "visual_directions": visual_directions,
         },
         "meta": {
             **(reasoning.get("meta") if isinstance(reasoning.get("meta"), dict) else {}),
@@ -3729,6 +3746,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
         COLOR_BODY_ADVICE,
         STYLE_EDUCATION,
         SHOPPING_ASSIST,
+        VISUAL_INSPIRATION,
     } and not reasoning.get("should_generate_board"):
         logger.info(
             "chat.intent.route intent=%s module=%s path=%s text=%r",
