@@ -845,6 +845,57 @@ def test_style_reasoning_engine_schema_and_decisions(monkeypatch):
     assert len(color["visual_directions"]) == 3
 
 
+def test_stylist_advice_response_uses_gemini_visual_envelope(monkeypatch):
+    from services.stylist_knowledge_service import build_stylist_advice_response
+
+    monkeypatch.setattr("services.stylist_knowledge_service.generate_text", _fake_style_reasoning_json)
+
+    response = build_stylist_advice_response(
+        query="Show visual inspiration for a coffee date",
+        mode="visual_inspiration",
+        module_context="style",
+    )
+
+    assert response["success"] is True
+    assert response["type"] == "stylist_advice"
+    assert response["intent"] == "visual_inspiration"
+    assert response["style_boards"] == []
+    assert response["meta"]["mode"] == "stylist_knowledge_gemini"
+    assert response["meta"]["wardrobe_lookup"] is False
+    assert response["meta"]["goal"]
+    assert response["meta"]["atmosphere"]
+    assert len(response["data"]["visual_directions"]) == 3
+    assert len(response["cards"]) == 3
+    assert all(card["type"] == "visual_direction" for card in response["cards"])
+    text = response["message_text"]
+    assert "Styling principles" not in text
+    assert "Outfit direction" not in text
+    assert "Color harmony" not in text
+
+
+def test_stylist_advice_response_fallback_is_not_robotic(monkeypatch):
+    from services.stylist_knowledge_service import build_stylist_advice_response
+
+    def fail_generate(*args, **kwargs):
+        raise RuntimeError("gemini offline")
+
+    monkeypatch.setattr("services.stylist_knowledge_service.generate_text", fail_generate)
+
+    response = build_stylist_advice_response(
+        query="What should I wear to a Christian funeral?",
+        mode="style_advice",
+        module_context="style",
+    )
+
+    assert response["intent"] == "style_advice"
+    assert response["style_boards"] == []
+    assert response["meta"]["wardrobe_lookup"] is False
+    assert len(response["data"]["visual_directions"]) == 3
+    assert "Styling principles" not in response["message_text"]
+    assert "Outfit direction" not in response["message_text"]
+    assert "Color harmony" not in response["message_text"]
+
+
 def test_calendar_event_intents_do_not_route_to_style():
     from brain.intent_engine import detect_intent
 

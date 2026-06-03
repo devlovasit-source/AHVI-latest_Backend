@@ -3,12 +3,17 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List
 
+from prompts.core_prompts import AHVI_SYSTEM_PROMPT
+from prompts.styling_prompts import OCCASION_INTERPRETER_PROMPT
+from services.ai_gateway import generate_text, parse_json_object
+
 
 STYLE_ADVICE = "style_advice"
 WARDROBE_STYLE = "wardrobe_style"
 SHOPPING_ASSIST = "shopping_assist"
 STYLE_EDUCATION = "style_education"
 COLOR_BODY_ADVICE = "color_body_advice"
+VISUAL_INSPIRATION = "visual_inspiration"
 
 STYLE_MODES = {
     STYLE_ADVICE,
@@ -407,69 +412,333 @@ def build_stylist_advice_response(
     mode: str,
     module_context: str = "",
 ) -> Dict[str, Any]:
-    blocks = _principle_cards(mode, query)
-    title = str(blocks["title"])
-    intro = str(blocks["intro"])
-    recommended = [str(x) for x in blocks["recommended"]]  # type: ignore[index]
-    outfit = [str(x) for x in blocks["outfit"]]  # type: ignore[index]
-    avoid = [str(x) for x in blocks["avoid"]]  # type: ignore[index]
+    safe_query = str(query or "").strip()
+    safe_mode = _coerce_advice_mode(mode)
+    try:
+        payload = _generate_stylist_json(
+            query=safe_query,
+            mode=safe_mode,
+            module_context=module_context,
+        )
+    except Exception:
+        payload = _fallback_stylist_json(query=safe_query, mode=safe_mode)
 
-    message = "\n\n".join(
-        [
-            title,
-            intro,
-            "Styling principles:\n" + "\n".join(f"- {x}" for x in recommended),
-            "Outfit direction:\n" + "\n".join(f"- {x}" for x in outfit),
-            "Avoid:\n" + "\n".join(f"- {x}" for x in avoid),
-        ]
+    payload_mode = _coerce_advice_mode(payload.get("mode") or safe_mode)
+    advice = str(payload.get("stylist_advice") or "").strip()
+    if not advice:
+        advice = str(_fallback_stylist_json(query=safe_query, mode=payload_mode)["stylist_advice"])
+    visual_directions = _normalize_visual_directions(
+        payload.get("visual_directions"),
+        payload_mode,
+        safe_query,
     )
+    what_to_avoid = _string_list(payload.get("what_to_avoid"), limit=6)
+    goal = str(payload.get("goal") or "").strip() or _fallback_goal(payload_mode, safe_query)
+    atmosphere = str(payload.get("atmosphere") or "").strip() or _fallback_atmosphere(safe_query)
+    emotion_state = _coerce_emotion(payload.get("emotion_state"))
+    try:
+        confidence = max(0.0, min(1.0, float(payload.get("confidence", 0.84))))
+    except Exception:
+        confidence = 0.84
+    occasion = _nullable_text(payload.get("occasion")) or _extract_context_phrase(safe_query)
+    follow_up = _nullable_text(payload.get("follow_up_question"))
 
-    chips = [
-        {"label": "Generate Moodboard", "value": f"Generate moodboard for: {query}"},
-        {"label": "Use My Wardrobe", "value": f"Use my wardrobe for: {query}"},
-        {"label": "Show Shopping Ideas", "value": f"Show shopping ideas for: {query}"},
+    chips = _stylist_cta(safe_query)
+    cards = [
+        {
+            "type": "visual_direction",
+            "title": direction.get("title"),
+            "description": direction.get("description"),
+            "palette": direction.get("palette"),
+            "pieces": direction.get("pieces"),
+            "style_note": direction.get("style_note"),
+        }
+        for direction in visual_directions
     ]
 
     return {
         "success": True,
         "ok": True,
         "type": "stylist_advice",
-        "intent": mode,
-        "message": {"role": "assistant", "content": message},
-        "message_text": message,
-        "response": message,
-        "text": message,
-        "cards": [
-            {
-                "type": "style_principles",
-                "title": title,
-                "subtitle": intro,
-                "principles": recommended,
-                "items": outfit,
-                "avoid": avoid,
-            }
-        ],
+        "intent": payload_mode,
+        "message": {"role": "assistant", "content": advice},
+        "message_text": advice,
+        "response": advice,
+        "text": advice,
+        "cards": cards,
         "style_boards": [],
         "chips": chips,
         "board_ids": "",
         "data": {
-            "intent": mode,
-            "style_mode": mode,
+            "intent": payload_mode,
+            "style_mode": payload_mode,
             "stylist_mode": True,
-            "moodboard": {
-                "title": title,
-                "principles": recommended,
-                "items": outfit,
-                "avoid": avoid,
-            },
+            "visual_directions": visual_directions,
+            "what_to_avoid": what_to_avoid,
+            "follow_up_question": follow_up,
             "cta_actions": chips,
         },
         "meta": {
-            "mode": "stylist_knowledge",
-            "style_mode": mode,
-            "intent": mode,
+            "mode": "stylist_knowledge_gemini",
+            "style_mode": payload_mode,
+            "intent": payload_mode,
             "module_context": module_context or "chat",
             "wardrobe_lookup": False,
+            "goal": goal,
+            "atmosphere": atmosphere,
+            "emotion_state": emotion_state,
+            "confidence": confidence,
+            "occasion": occasion,
         },
         "audio_job_id": "offline",
     }
+
+
+def _coerce_advice_mode(mode: Any) -> str:
+    value = _norm(mode).replace(" ", "_")
+    if value in {
+        STYLE_ADVICE,
+        COLOR_BODY_ADVICE,
+        STYLE_EDUCATION,
+        SHOPPING_ASSIST,
+        VISUAL_INSPIRATION,
+    }:
+        return value
+    return STYLE_ADVICE
+
+
+def _nullable_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return None if not text or text.lower() == "null" else text
+
+
+def _string_list(value: Any, *, limit: int = 8) -> List[str]:
+    if isinstance(value, list):
+        out = [str(item or "").strip() for item in value if str(item or "").strip()]
+    elif str(value or "").strip():
+        out = [str(value).strip()]
+    else:
+        out = []
+    return out[:limit]
+
+
+def _coerce_emotion(value: Any) -> str:
+    emotion = _norm(value)
+    if emotion in {"neutral", "excited", "frustrated", "vulnerable", "professional", "social"}:
+        return emotion
+    q = emotion
+    if any(token in q for token in ("client", "meeting", "presentation", "work")):
+        return "professional"
+    return "neutral"
+
+
+def _stylist_cta(query: str) -> List[Dict[str, str]]:
+    return [
+        {"label": "Show visual inspiration", "value": f"Show visual inspiration for: {query}"},
+        {"label": "Use My Wardrobe", "value": f"Use my wardrobe for: {query}"},
+        {"label": "Show Shopping Ideas", "value": f"Show shopping ideas for: {query}"},
+    ]
+
+
+def _generate_stylist_json(*, query: str, mode: str, module_context: str) -> Dict[str, Any]:
+    prompt = f"""
+{AHVI_SYSTEM_PROMPT}
+
+{OCCASION_INTERPRETER_PROMPT}
+
+You are AHVI's stylist advice writer. Classification is already done; do not change wardrobe routing.
+Return ONLY valid JSON matching this schema:
+{{
+  "mode": "style_advice | color_body_advice | style_education | shopping_assist | visual_inspiration",
+  "occasion": string|null,
+  "goal": string,
+  "atmosphere": string,
+  "emotion_state": "neutral | excited | frustrated | vulnerable | professional | social",
+  "stylist_advice": string,
+  "what_to_avoid": [string],
+  "visual_directions": [
+    {{
+      "title": string,
+      "description": string,
+      "palette": [string],
+      "pieces": [string],
+      "style_note": string
+    }}
+  ],
+  "follow_up_question": string|null,
+  "confidence": float
+}}
+
+Rules:
+- Do not generate images.
+- visual_directions are structured inspiration cards only.
+- For style_advice and visual_inspiration, return exactly 3 visual_directions.
+- Each direction must be visibly different by mood, silhouette, palette, or formality.
+- Do not output headings named "Styling principles", "Outfit direction", or "Color harmony".
+- Do not sound like a fashion textbook.
+- Do not reuse the same skeleton for every occasion.
+- Christian funeral: respectful, understated, culturally aware.
+- Coffee date: relaxed, approachable, intentional.
+- Client presentation plus drinks: professional-first, social-second, transitional styling.
+- Wedding guest: celebratory but not competing with bride or groom.
+- Beach dinner: breathable, relaxed, evening-aware.
+- Wardrobe lookup is false. Do not mention missing wardrobe items unless the user explicitly asks for wardrobe.
+
+Mode: {mode}
+Module context: {module_context or "chat"}
+User query: {query}
+"""
+    raw = generate_text(
+        prompt,
+        options={"temperature": 0.55, "max_output_tokens": 900},
+        signals={"context_mode": "stylist_knowledge", "style_mode": mode},
+        usecase="stylist_knowledge",
+    )
+    parsed = parse_json_object(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("stylist knowledge response was not an object")
+    return parsed
+
+
+def _fallback_goal(mode: str, query: str) -> str:
+    q = _norm(query)
+    if mode == COLOR_BODY_ADVICE:
+        return "Find flattering colors and proportions without overcomplicating the outfit."
+    if mode == STYLE_EDUCATION:
+        return "Explain the style idea in a practical way."
+    if mode == SHOPPING_ASSIST:
+        return "Identify the right missing piece."
+    if "meeting" in q and "party" in q:
+        return "Stay credible first, then shift easily into the social setting."
+    return "Give useful style advice for the real setting."
+
+
+def _fallback_atmosphere(query: str) -> str:
+    q = _norm(query)
+    if any(word in q for word in ("funeral", "memorial", "condolence")):
+        return "quiet, respectful, and understated"
+    if "coffee" in q and "date" in q:
+        return "relaxed, warm, and intentional"
+    if "meeting" in q and "party" in q:
+        return "professional first, social second"
+    if "beach" in q and "dinner" in q:
+        return "breathable, relaxed, and evening-aware"
+    return "considered and human"
+
+
+def _fallback_stylist_json(*, query: str, mode: str) -> Dict[str, Any]:
+    blocks = _principle_cards(mode, query)
+    intro = str(blocks["intro"])
+    recommended = [str(x) for x in blocks["recommended"]]  # type: ignore[index]
+    outfit = [str(x) for x in blocks["outfit"]]  # type: ignore[index]
+    avoid = [str(x) for x in blocks["avoid"]]  # type: ignore[index]
+    return {
+        "mode": mode,
+        "occasion": _extract_context_phrase(query),
+        "goal": _fallback_goal(mode, query),
+        "atmosphere": _fallback_atmosphere(query),
+        "emotion_state": "professional" if "meeting" in _norm(query) else "neutral",
+        "stylist_advice": " ".join([intro, "Try " + ", ".join(outfit[:3]).lower() + "."]),
+        "what_to_avoid": avoid,
+        "visual_directions": _fallback_visual_directions(query, recommended, outfit),
+        "follow_up_question": None,
+        "confidence": 0.72,
+    }
+
+
+def _fallback_visual_directions(
+    query: str,
+    recommended: List[str],
+    outfit: List[str],
+) -> List[Dict[str, Any]]:
+    q = _norm(query)
+    if "funeral" in q:
+        return [
+            {
+                "title": "Quiet Formal",
+                "description": "Dark, clean, and respectful with closed footwear.",
+                "palette": ["black", "charcoal", "deep navy"],
+                "pieces": ["plain top", "tailored trousers", "closed shoes"],
+                "style_note": "Let the outfit stay in the background.",
+            },
+            {
+                "title": "Soft Traditional",
+                "description": "Modest coverage with muted color and gentle texture.",
+                "palette": ["ink blue", "soft white", "deep grey"],
+                "pieces": ["modest shirt", "straight bottom", "simple layer"],
+                "style_note": "Culturally aware without looking ceremonial unless the setting asks for it.",
+            },
+            {
+                "title": "Minimal Polished",
+                "description": "A tonal outfit with structure and almost no shine.",
+                "palette": ["navy", "stone", "black"],
+                "pieces": ["structured shirt", "clean bottom", "low-profile shoes"],
+                "style_note": "Respectful, calm, and easy to sit in.",
+            },
+        ]
+    if "coffee" in q and "date" in q:
+        return [
+            {
+                "title": "Relaxed Oxford",
+                "description": "A crisp shirt with dark denim and clean sneakers.",
+                "palette": ["navy", "white", "tan"],
+                "pieces": ["Oxford shirt", "dark denim", "clean sneakers"],
+                "style_note": "Approachable without trying too hard.",
+            },
+            {
+                "title": "Knit Polo Polish",
+                "description": "Soft texture with sharper bottoms and refined shoes.",
+                "palette": ["cream", "olive", "brown"],
+                "pieces": ["knit polo", "straight trousers", "loafers"],
+                "style_note": "Warm, intentional, and still relaxed.",
+            },
+            {
+                "title": "Soft Layered Casual",
+                "description": "A light layer over a simple base.",
+                "palette": ["stone", "blue", "charcoal"],
+                "pieces": ["light jacket", "plain tee", "chinos"],
+                "style_note": "Good when the date moves from cafe to a walk.",
+            },
+        ]
+    return [
+        {
+            "title": "Clean Base",
+            "description": recommended[0] if recommended else "Start with a clean base that matches the setting.",
+            "palette": ["navy", "white", "tan"],
+            "pieces": outfit[:3] or ["simple top", "clean bottom", "appropriate shoes"],
+            "style_note": "The safest direction when the room is unfamiliar.",
+        },
+        {
+            "title": "Soft Polish",
+            "description": recommended[1] if len(recommended) > 1 else "Add one polished detail without making the outfit stiff.",
+            "palette": ["cream", "olive", "brown"],
+            "pieces": outfit[1:4] or ["soft layer", "straight trousers", "refined shoes"],
+            "style_note": "Useful when you want confidence without formality.",
+        },
+        {
+            "title": "Easy Statement",
+            "description": recommended[2] if len(recommended) > 2 else "Use one controlled color or texture as the focal point.",
+            "palette": ["charcoal", "blue", "stone"],
+            "pieces": outfit[2:5] or ["hero piece", "quiet base", "grounded footwear"],
+            "style_note": "Keeps the outfit human rather than textbook.",
+        },
+    ]
+
+
+def _normalize_visual_directions(value: Any, mode: str, query: str) -> List[Dict[str, Any]]:
+    fallback = _fallback_stylist_json(query=query, mode=mode).get("visual_directions", [])
+    rows = value if isinstance(value, list) else []
+    normalized = []
+    for idx in range(3):
+        source = rows[idx] if idx < len(rows) and isinstance(rows[idx], dict) else {}
+        fb = fallback[idx] if idx < len(fallback) and isinstance(fallback[idx], dict) else {}
+        normalized.append(
+            {
+                "title": str(source.get("title") or fb.get("title") or "Style Direction").strip(),
+                "description": str(source.get("description") or fb.get("description") or "").strip(),
+                "palette": _string_list(source.get("palette") or fb.get("palette"), limit=5),
+                "pieces": _string_list(source.get("pieces") or fb.get("pieces"), limit=6),
+                "style_note": str(source.get("style_note") or source.get("styleNote") or fb.get("style_note") or "").strip(),
+            }
+        )
+    return normalized
