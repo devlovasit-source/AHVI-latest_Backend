@@ -345,6 +345,53 @@ def test_text_chat_explicit_wardrobe_style_still_hits_style_service(monkeypatch)
     assert captured == ["Use my wardrobe for a coffee date."]
 
 
+def test_text_chat_wardrobe_action_overrides_visual_inspiration(monkeypatch):
+    captured = []
+
+    def fake_style_payload(user_id, query_text, request_wardrobe, user_profile=None, **kwargs):
+        captured.append((query_text, kwargs))
+        return {
+            "success": True,
+            "type": "cards",
+            "message": "Wardrobe style board ready.",
+            "message_text": "Wardrobe style board ready.",
+            "response": "Wardrobe style board ready.",
+            "cards": [{"id": "look-1", "items": []}],
+            "style_boards": [{"id": "look-1", "items": []}],
+            "chips": [],
+            "data": {"outfits": [{"id": "look-1"}]},
+            "meta": {"mode": "style_flow_service_adapter_v1"},
+        }
+
+    def fail_reasoning(*args, **kwargs):
+        raise AssertionError("wardrobe action must skip visual inspiration reasoning")
+
+    monkeypatch.setattr(chat, "_demo_style_board_payload", fake_style_payload)
+    monkeypatch.setattr(chat.style_reasoning_engine, "reason", fail_reasoning)
+    client = _text_chat_client_with_user()
+
+    response = client.post(
+        "/api/text",
+        json={
+            "module_context": "style",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Use my wardrobe for: show visual inspiration for coffee date",
+                }
+            ],
+        },
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["style_boards"]
+    assert captured[0][0] == "Use my wardrobe for coffee date"
+    assert captured[0][1]["style_action"] == "use_wardrobe"
+    assert body["data"]["intent"] == "wardrobe_style"
+    assert body["meta"]["forced_pipeline"] == "outfit_pipeline"
+
+
 def test_text_chat_calendar_event_prompt_creates_event(monkeypatch):
     created = {}
 

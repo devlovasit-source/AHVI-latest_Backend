@@ -1457,6 +1457,53 @@ def _ahvi_style_action_chips() -> List[str]:
     return list(STYLE_ACTION_CHIPS)
 
 
+def _normalize_action_key(value: Any) -> str:
+    q = re.sub(r"[^a-z0-9\s_]", " ", str(value or "").lower())
+    q = re.sub(r"\s+", " ", q).strip().replace(" ", "_")
+    return q
+
+
+def _is_use_wardrobe_action(*, action: Any = "", prompt: str = "") -> bool:
+    action_key = _normalize_action_key(action)
+    q = re.sub(r"[^a-z0-9\s]", " ", str(prompt or "").lower())
+    q = re.sub(r"\s+", " ", q).strip()
+    return action_key in {
+        "use_wardrobe",
+        "use_my_wardrobe",
+        "from_my_wardrobe",
+        "with_my_clothes",
+        "from_my_closet",
+    } or q.startswith(
+        (
+            "use my wardrobe",
+            "use wardrobe",
+            "from my wardrobe",
+            "with my clothes",
+            "from my closet",
+        )
+    )
+
+
+def _wardrobe_action_prompt(prompt: str) -> str:
+    text = str(prompt or "").strip()
+    cleaned = re.sub(
+        r"^\s*(use\s+my\s+wardrobe|use\s+wardrobe|from\s+my\s+wardrobe|with\s+my\s+clothes|from\s+my\s+closet)\s*(for|with)?\s*:?\s*",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
+    cleaned = re.sub(
+        r"^\s*(show\s+visual\s+inspiration|visual\s+inspiration|show\s+me\s+visual\s+inspiration)\s*(for)?\s*:?\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    ).strip()
+    base = cleaned or text or "today"
+    if re.search(r"\b(use my wardrobe|from my wardrobe|with my clothes|from my closet)\b", base, re.I):
+        return base
+    return f"Use my wardrobe for {base}"
+
+
 def _demo_style_board_payload(
     user_id,
     query_text,
@@ -3711,6 +3758,65 @@ def text_chat(request: TextChatRequest, http_request: Request):
             english_input[:80],
         )
         return _ahvi_small_talk_response(request.module_context)
+
+    if _is_use_wardrobe_action(action=request.action or request.style_action, prompt=english_input):
+        forced_prompt = _wardrobe_action_prompt(english_input)
+        forced_occasion = _ahvi_style_occasion(forced_prompt)
+        logger.info(
+            "ahvi.action.route action=%s occasion=%s forced_pipeline=%s prompt=%r resolved_prompt=%r",
+            "use_wardrobe",
+            forced_occasion,
+            "outfit_pipeline",
+            english_input[:100],
+            forced_prompt[:100],
+        )
+        logger.info(
+            "chat.intent.route intent=%s module=%s path=%s text=%r",
+            WARDROBE_STYLE,
+            "",
+            "outfit_pipeline",
+            forced_prompt[:80],
+        )
+        style_payload = _demo_style_board_payload(
+            user_id,
+            forced_prompt,
+            request.wardrobe,
+            effective_user_profile,
+            style_action="use_wardrobe",
+            show_closest_option=False,
+            allow_closest_option=False,
+            closest=False,
+        )
+        style_payload["success"] = bool(
+            style_payload.get("cards")
+            or style_payload.get("style_boards")
+            or style_payload.get("missing_slots")
+            or style_payload.get("shopping_gaps")
+        )
+        style_payload["style_boards"] = (
+            style_payload.get("style_boards")
+            or style_payload.get("cards")
+            or []
+        )
+        style_payload.setdefault("chips", _ahvi_style_action_chips())
+        style_payload.setdefault("data", {})
+        style_payload["data"] = {
+            **(style_payload.get("data") or {}),
+            "intent": WARDROBE_STYLE,
+            "style_mode": WARDROBE_STYLE,
+            "forced_pipeline": "outfit_pipeline",
+        }
+        style_payload["meta"] = {
+            **(style_payload.get("meta") or {}),
+            "mode": "wardrobe_action",
+            "action": "use_wardrobe",
+            "style_mode": WARDROBE_STYLE,
+            "forced_pipeline": "outfit_pipeline",
+            "original_prompt": english_input,
+            "resolved_prompt": forced_prompt,
+            "board_type": "wardrobe_style",
+        }
+        return style_payload
 
     intent_row = detect_intent(english_input)
     intent = str(intent_row.get("intent") or "general").strip().lower()
