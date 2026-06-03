@@ -231,14 +231,14 @@ def test_text_chat_general_style_advice_bypasses_wardrobe_style(monkeypatch):
         assert response.status_code == 200
         assert body["type"] == "stylist_advice"
         assert body["style_boards"] == []
-        assert body["meta"]["mode"] == "stylist_knowledge"
+        assert body["meta"]["mode"] == "style_reasoning"
         assert body["meta"]["style_mode"] in {
             "style_advice",
             "color_body_advice",
             "shopping_assist",
         }
         assert body["meta"]["wardrobe_lookup"] is False
-        assert "Use My Wardrobe" in [chip["label"] for chip in body["chips"]]
+        assert "Use my wardrobe" in [chip["label"] for chip in body["chips"]]
 
 
 def test_text_chat_explicit_wardrobe_style_still_hits_style_service(monkeypatch):
@@ -719,6 +719,44 @@ def test_stylist_first_intent_engine_routes_advice_before_wardrobe():
     for prompt, intent in expected.items():
         row = detect_intent(prompt)
         assert row["intent"] == intent
+
+
+def test_style_reasoning_engine_schema_and_decisions():
+    from services.style_reasoning_engine import style_reasoning_engine
+
+    funeral = style_reasoning_engine.reason(
+        query="What should I wear to a Christian funeral?",
+        intent="style_advice",
+    )
+    assert funeral["mode"] == "style_advice"
+    assert funeral["should_use_wardrobe"] is False
+    assert funeral["should_generate_board"] is False
+    assert funeral["advice"]
+    assert funeral["meta"]["source"] == "style_reasoning_engine"
+    assert funeral["meta"]["reason"] in {"sensitive_occasion", "style_advice"}
+
+    coffee = style_reasoning_engine.reason(
+        query="What should I wear to a coffee date?",
+        intent="style_advice",
+    )
+    assert coffee["mode"] == "style_advice"
+    assert coffee["should_generate_board"] is False
+    assert any(chip["label"] == "Use my wardrobe" for chip in coffee["cta"])
+
+    wardrobe = style_reasoning_engine.reason(
+        query="Use my wardrobe for a coffee date",
+        intent="wardrobe_style",
+    )
+    assert wardrobe["mode"] == "wardrobe_style"
+    assert wardrobe["should_use_wardrobe"] is True
+    assert wardrobe["should_generate_board"] is True
+
+    color = style_reasoning_engine.reason(
+        query="What colors suit warm olive skin?",
+        intent="color_body_advice",
+    )
+    assert color["mode"] == "color_body_advice"
+    assert color["should_generate_board"] is False
 
 
 def test_calendar_event_intents_do_not_route_to_style():

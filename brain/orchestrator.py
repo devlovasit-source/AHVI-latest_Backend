@@ -25,6 +25,7 @@ from brain.plan_pack_flow import build_plan_pack_response
 from brain.response.response_assembler import response_assembler
 from brain.tone.tone_engine import tone_engine
 from services.appwrite_proxy import AppwriteProxy
+from services.style_reasoning_engine import style_reasoning_engine
 from services.style_flow_service import build_style_flow_response
 from services.stylist_knowledge_service import (
     COLOR_BODY_ADVICE,
@@ -33,7 +34,6 @@ from services.stylist_knowledge_service import (
     STYLE_EDUCATION,
     STYLE_MODES,
     WARDROBE_STYLE,
-    build_stylist_advice_response,
     classify_style_mode,
 )
 
@@ -754,17 +754,44 @@ class AhviOrchestrator:
             module_context=_safe_text(ctx.get("module_context")),
             style_action=_safe_text(ctx.get("style_action")),
         )
+        reasoning = style_reasoning_engine.reason(
+            query=query,
+            intent=intent_row,
+            user_profile=user_profile,
+            context=ctx,
+            wardrobe_summary={
+                "provided_count": len(ctx.get("wardrobe") or [])
+                if isinstance(ctx.get("wardrobe"), list)
+                else 0
+            },
+            history=ctx.get("history") or [],
+        )
+        style_mode = _safe_text(reasoning.get("mode")).lower() or style_mode
         if style_mode in {
             STYLE_ADVICE,
             COLOR_BODY_ADVICE,
             STYLE_EDUCATION,
             SHOPPING_ASSIST,
-        }:
-            out = build_stylist_advice_response(
-                query=query,
-                mode=style_mode,
-                module_context=_safe_text(ctx.get("module_context")) or "chat",
-            )
+        } and not reasoning.get("should_generate_board"):
+            message = _safe_text(reasoning.get("advice"))
+            out = {
+                "success": True,
+                "ok": True,
+                "type": "stylist_advice",
+                "message": message,
+                "message_text": message,
+                "response": message,
+                "cards": [],
+                "style_boards": [],
+                "chips": reasoning.get("cta") if isinstance(reasoning.get("cta"), list) else [],
+                "data": {"style_reasoning": reasoning, "style_mode": style_mode},
+                "meta": {
+                    **_dict(reasoning.get("meta")),
+                    "mode": "style_reasoning",
+                    "style_mode": style_mode,
+                    "orchestrator_guard": True,
+                },
+            }
             out["meta"] = {
                 **_dict(out.get("meta")),
                 "intent": style_mode,
@@ -772,7 +799,7 @@ class AhviOrchestrator:
                 "orchestrator_guard": True,
             }
             return out
-        if style_mode == WARDROBE_STYLE:
+        if style_mode == WARDROBE_STYLE or reasoning.get("should_use_wardrobe"):
             intent = "occasion_outfit"
         occasion = _extract_occasion(query, slots, ctx)
         if occasion:

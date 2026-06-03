@@ -35,6 +35,7 @@ from services.style_flow_service import (
     interpret_occasion,
 )
 from services.module_chat_service import handle_module_chat
+from services.style_reasoning_engine import style_reasoning_engine
 from services.stylist_knowledge_service import (
     COLOR_BODY_ADVICE,
     SHOPPING_ASSIST,
@@ -42,7 +43,6 @@ from services.stylist_knowledge_service import (
     STYLE_EDUCATION,
     STYLE_MODES,
     WARDROBE_STYLE,
-    build_stylist_advice_response,
     classify_style_mode,
 )
 
@@ -350,6 +350,53 @@ def _style_clarification_response(query: str, interpretation: Dict[str, Any]) ->
             "mode": "style_intent_clarification",
             "intent_status": "clarify",
             "occasion_interpretation": interpretation,
+        },
+        "audio_job_id": "offline",
+    }
+
+
+def _style_reasoning_chat_response(reasoning: Dict[str, Any], query: str, module_context: str = "") -> Dict[str, Any]:
+    message = str(reasoning.get("advice") or "").strip()
+    chips = reasoning.get("cta") if isinstance(reasoning.get("cta"), list) else []
+    mode = str(reasoning.get("mode") or "style_advice")
+    return {
+        "success": True,
+        "ok": True,
+        "type": "stylist_advice",
+        "intent": mode,
+        "message": {"role": "assistant", "content": message},
+        "message_text": message,
+        "response": message,
+        "text": message,
+        "cards": [
+            {
+                "type": "style_reasoning",
+                "title": "Stylist Advice",
+                "subtitle": message.split("\n", 1)[0] if message else "Style guidance",
+                "mode": mode,
+                "occasion": reasoning.get("occasion"),
+                "tone": reasoning.get("tone"),
+                "formality": reasoning.get("formality"),
+            }
+        ] if message else [],
+        "style_boards": [],
+        "chips": chips,
+        "board_ids": "",
+        "data": {
+            "intent": mode,
+            "style_mode": mode,
+            "style_reasoning": reasoning,
+            "stylist_mode": True,
+            "cta_actions": chips,
+        },
+        "meta": {
+            **(reasoning.get("meta") if isinstance(reasoning.get("meta"), dict) else {}),
+            "mode": "style_reasoning",
+            "style_mode": mode,
+            "intent": mode,
+            "module_context": module_context or "chat",
+            "wardrobe_lookup": False,
+            "original_prompt": query,
         },
         "audio_job_id": "offline",
     }
@@ -3657,30 +3704,49 @@ def text_chat(request: TextChatRequest, http_request: Request):
         module_context=request.module_context or "",
         style_action=style_action,
     )
+    reasoning = style_reasoning_engine.reason(
+        query=english_input,
+        intent=intent_row,
+        user_profile=effective_user_profile,
+        context={
+            "module_context": request.module_context or "",
+            "style_action": style_action,
+            "show_closest_option": closest_requested,
+        },
+        wardrobe_summary={
+            "provided_count": len(request.wardrobe or [])
+            if isinstance(request.wardrobe, list)
+            else 0
+        },
+        history=request.current_memory.get("history", [])
+        if isinstance(request.current_memory, dict)
+        else [],
+    )
+    style_mode = str(reasoning.get("mode") or style_mode or "").strip().lower()
 
     if style_mode in {
         STYLE_ADVICE,
         COLOR_BODY_ADVICE,
         STYLE_EDUCATION,
         SHOPPING_ASSIST,
-    }:
+    } and not reasoning.get("should_generate_board"):
         logger.info(
             "chat.intent.route intent=%s module=%s path=%s text=%r",
             style_mode,
             detected_module,
-            "stylist_knowledge",
+            "style_reasoning",
             english_input[:80],
         )
-        response = build_stylist_advice_response(
-            query=english_input,
-            mode=style_mode,
-            module_context=request.module_context or "chat",
+        response = _style_reasoning_chat_response(
+            reasoning,
+            english_input,
+            request.module_context or "chat",
         )
         if not cache_visual_boards:
             _CHAT_CACHE.set(cache_key, response)
         return response
 
-    if style_mode == WARDROBE_STYLE:
+    if style_mode == WARDROBE_STYLE or reasoning.get("should_use_wardrobe"):
         intent = "occasion_outfit"
         visual_context = True
         logger.info(
