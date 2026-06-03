@@ -424,9 +424,10 @@ def build_stylist_advice_response(
         payload = _fallback_stylist_json(query=safe_query, mode=safe_mode)
 
     payload_mode = _coerce_advice_mode(payload.get("mode") or safe_mode)
-    advice = str(payload.get("stylist_advice") or "").strip()
+    # stylist_reasoning leads; accept legacy stylist_advice as alias.
+    advice = str(payload.get("stylist_reasoning") or payload.get("stylist_advice") or "").strip()
     if not advice:
-        advice = str(_fallback_stylist_json(query=safe_query, mode=payload_mode)["stylist_advice"])
+        advice = str(_fallback_stylist_json(query=safe_query, mode=payload_mode)["stylist_reasoning"])
     visual_directions = _normalize_visual_directions(
         payload.get("visual_directions"),
         payload_mode,
@@ -434,7 +435,12 @@ def build_stylist_advice_response(
     )
     what_to_avoid = _string_list(payload.get("what_to_avoid"), limit=6)
     goal = str(payload.get("goal") or "").strip() or _fallback_goal(payload_mode, safe_query)
+    impression = str(payload.get("impression") or "").strip() or _fallback_impression(safe_query)
     atmosphere = str(payload.get("atmosphere") or "").strip() or _fallback_atmosphere(safe_query)
+    missing_piece_reasoning = (
+        str(payload.get("missing_piece_reasoning") or "").strip()
+        or _fallback_missing_piece(safe_query)
+    )
     emotion_state = _coerce_emotion(payload.get("emotion_state"))
     try:
         confidence = max(0.0, min(1.0, float(payload.get("confidence", 0.84))))
@@ -448,9 +454,11 @@ def build_stylist_advice_response(
         {
             "type": "visual_direction",
             "title": direction.get("title"),
+            "strategy": direction.get("strategy"),
             "description": direction.get("description"),
             "palette": direction.get("palette"),
             "pieces": direction.get("pieces"),
+            "why_it_works": direction.get("why_it_works"),
             "style_note": direction.get("style_note"),
         }
         for direction in visual_directions
@@ -473,6 +481,11 @@ def build_stylist_advice_response(
             "intent": payload_mode,
             "style_mode": payload_mode,
             "stylist_mode": True,
+            "stylist_reasoning": advice,
+            "goal": goal,
+            "impression": impression,
+            "atmosphere": atmosphere,
+            "missing_piece_reasoning": missing_piece_reasoning,
             "visual_directions": visual_directions,
             "what_to_avoid": what_to_avoid,
             "follow_up_question": follow_up,
@@ -485,7 +498,9 @@ def build_stylist_advice_response(
             "module_context": module_context or "chat",
             "wardrobe_lookup": False,
             "goal": goal,
+            "impression": impression,
             "atmosphere": atmosphere,
+            "missing_piece_reasoning": missing_piece_reasoning,
             "emotion_state": emotion_state,
             "confidence": confidence,
             "occasion": occasion,
@@ -546,22 +561,34 @@ def _generate_stylist_json(*, query: str, mode: str, module_context: str) -> Dic
 
 {OCCASION_INTERPRETER_PROMPT}
 
-You are AHVI's stylist advice writer. Classification is already done; do not change wardrobe routing.
+You are AHVI's senior stylist — a real human stylist thinking out loud, not a
+fashion database. Classification is already done; do not change wardrobe routing.
+
+Before recommending clothes, decide: (1) what impression the user should
+create, (2) what social outcome matters, (3) the styling strategy for the
+moment, (4) what to avoid and why, (5) the one missing piece that would most
+improve this direction. Lead with the opinion and reasoning; the directions
+only support it.
+
 Return ONLY valid JSON matching this schema:
 {{
   "mode": "style_advice | color_body_advice | style_education | shopping_assist | visual_inspiration",
   "occasion": string|null,
   "goal": string,
+  "impression": string,
   "atmosphere": string,
   "emotion_state": "neutral | excited | frustrated | vulnerable | professional | social",
-  "stylist_advice": string,
+  "stylist_reasoning": string,
   "what_to_avoid": [string],
+  "missing_piece_reasoning": string,
   "visual_directions": [
     {{
       "title": string,
+      "strategy": string,
       "description": string,
       "palette": [string],
       "pieces": [string],
+      "why_it_works": string,
       "style_note": string
     }}
   ],
@@ -569,20 +596,29 @@ Return ONLY valid JSON matching this schema:
   "confidence": float
 }}
 
-Rules:
-- Do not generate images.
-- visual_directions are structured inspiration cards only.
+Writing rules:
+- stylist_reasoning speaks like a stylist explaining a decision: "This works
+  because...", "I would avoid...", "The priority here is...", "The risk is...".
+  Social strategy first, clothing logic second. 2-4 sentences, occasion-specific.
+- why_it_works explains styling LOGIC, not the pieces. Bad: "Oxford with denim."
+  Good: "The shirt creates structure while the denim keeps it approachable."
+- missing_piece_reasoning justifies ONE piece and where else it earns its place.
+- Ban filler unless unavoidable: "balanced silhouette", "color harmony",
+  "approachable and tidy", "elevated aesthetic", "perfect for".
+
+Hard rules:
+- Do not generate images. visual_directions are structured cards only.
 - For style_advice and visual_inspiration, return exactly 3 visual_directions.
 - Each direction must be visibly different by mood, silhouette, palette, or formality.
 - Do not output headings named "Styling principles", "Outfit direction", or "Color harmony".
-- Do not sound like a fashion textbook.
-- Do not reuse the same skeleton for every occasion.
-- Christian funeral: respectful, understated, culturally aware.
-- Coffee date: relaxed, approachable, intentional.
-- Client presentation plus drinks: professional-first, social-second, transitional styling.
-- Wedding guest: celebratory but not competing with bride or groom.
-- Beach dinner: breathable, relaxed, evening-aware.
-- Wardrobe lookup is false. Do not mention missing wardrobe items unless the user explicitly asks for wardrobe.
+- Do not sound like a fashion textbook. Do not reuse one skeleton per occasion.
+- Christian funeral: respectful presence, understated, no bright/flashy.
+- Coffee date: approachable confidence, intentional not corporate.
+- Client presentation plus drinks: credibility first then social ease,
+  transitional styling, avoid full formal that feels awkward later.
+- Wedding guest: celebratory restraint, festive without competing, no bridal.
+- Beach dinner: relaxed evening polish, no swimwear/flip-flops after sunset.
+- Wardrobe lookup is false. Do not mention missing wardrobe items unless asked.
 
 Mode: {mode}
 Module context: {module_context or "chat"}
@@ -626,20 +662,62 @@ def _fallback_atmosphere(query: str) -> str:
     return "considered and human"
 
 
+def _fallback_impression(query: str) -> str:
+    q = _norm(query)
+    if any(word in q for word in ("funeral", "memorial", "condolence")):
+        return "understated and considerate"
+    if "coffee" in q and "date" in q:
+        return "intentional but relaxed"
+    if "meeting" in q and "party" in q:
+        return "competent but not stiff"
+    if "wedding" in q:
+        return "festive without competing"
+    if "beach" in q and "dinner" in q:
+        return "effortless vacation elegance"
+    return "considered and self-assured"
+
+
+def _fallback_missing_piece(query: str) -> str:
+    q = _norm(query)
+    if any(word in q for word in ("funeral", "memorial", "condolence")):
+        return (
+            "A pair of clean, closed leather shoes would anchor this and carry "
+            "across other formal or respectful settings."
+        )
+    if "meeting" in q and "party" in q:
+        return (
+            "A well-cut neutral blazer does the most work here — it sharpens the "
+            "look for the room and relaxes for drinks afterward."
+        )
+    if "coffee" in q and "date" in q:
+        return (
+            "A brown suede loafer would elevate this and earn its place across "
+            "coffee dates, weekend dinners, and smart-casual office days."
+        )
+    return (
+        "One refined pair of shoes would shift this from fine to intentional, "
+        "and it would carry across several other settings too."
+    )
+
+
 def _fallback_stylist_json(*, query: str, mode: str) -> Dict[str, Any]:
     blocks = _principle_cards(mode, query)
     intro = str(blocks["intro"])
     recommended = [str(x) for x in blocks["recommended"]]  # type: ignore[index]
     outfit = [str(x) for x in blocks["outfit"]]  # type: ignore[index]
     avoid = [str(x) for x in blocks["avoid"]]  # type: ignore[index]
+    reasoning = " ".join([intro, "Try " + ", ".join(outfit[:3]).lower() + "."])
     return {
         "mode": mode,
         "occasion": _extract_context_phrase(query),
         "goal": _fallback_goal(mode, query),
+        "impression": _fallback_impression(query),
         "atmosphere": _fallback_atmosphere(query),
         "emotion_state": "professional" if "meeting" in _norm(query) else "neutral",
-        "stylist_advice": " ".join([intro, "Try " + ", ".join(outfit[:3]).lower() + "."]),
+        "stylist_reasoning": reasoning,
+        "stylist_advice": reasoning,
         "what_to_avoid": avoid,
+        "missing_piece_reasoning": _fallback_missing_piece(query),
         "visual_directions": _fallback_visual_directions(query, recommended, outfit),
         "follow_up_question": None,
         "confidence": 0.72,
@@ -725,6 +803,28 @@ def _fallback_visual_directions(
     ]
 
 
+def _ensure_direction_logic(direction: Dict[str, Any]) -> Dict[str, Any]:
+    """Guarantee why_it_works + strategy so fallback cards still read like a
+    stylist explaining logic, not a database listing pieces."""
+    pieces = direction.get("pieces") or []
+    title = str(direction.get("title") or "this direction").strip()
+    if not direction.get("why_it_works"):
+        if len(pieces) >= 2:
+            direction["why_it_works"] = (
+                f"The {str(pieces[0]).lower()} sets the structure while the "
+                f"{str(pieces[1]).lower()} keeps it easy — so the look reads "
+                "intentional without trying too hard."
+            )
+        else:
+            direction["why_it_works"] = (
+                f"{title} keeps one clear focal point so the outfit feels "
+                "deliberate rather than busy."
+            )
+    if not direction.get("strategy"):
+        direction["strategy"] = str(direction.get("style_note") or "").strip()
+    return direction
+
+
 def _normalize_visual_directions(value: Any, mode: str, query: str) -> List[Dict[str, Any]]:
     fallback = _fallback_stylist_json(query=query, mode=mode).get("visual_directions", [])
     rows = value if isinstance(value, list) else []
@@ -733,12 +833,16 @@ def _normalize_visual_directions(value: Any, mode: str, query: str) -> List[Dict
         source = rows[idx] if idx < len(rows) and isinstance(rows[idx], dict) else {}
         fb = fallback[idx] if idx < len(fallback) and isinstance(fallback[idx], dict) else {}
         normalized.append(
-            {
-                "title": str(source.get("title") or fb.get("title") or "Style Direction").strip(),
-                "description": str(source.get("description") or fb.get("description") or "").strip(),
-                "palette": _string_list(source.get("palette") or fb.get("palette"), limit=5),
-                "pieces": _string_list(source.get("pieces") or fb.get("pieces"), limit=6),
-                "style_note": str(source.get("style_note") or source.get("styleNote") or fb.get("style_note") or "").strip(),
-            }
+            _ensure_direction_logic(
+                {
+                    "title": str(source.get("title") or fb.get("title") or "Style Direction").strip(),
+                    "strategy": str(source.get("strategy") or fb.get("strategy") or "").strip(),
+                    "description": str(source.get("description") or fb.get("description") or "").strip(),
+                    "palette": _string_list(source.get("palette") or fb.get("palette"), limit=5),
+                    "pieces": _string_list(source.get("pieces") or fb.get("pieces"), limit=6),
+                    "why_it_works": str(source.get("why_it_works") or fb.get("why_it_works") or "").strip(),
+                    "style_note": str(source.get("style_note") or source.get("styleNote") or fb.get("style_note") or "").strip(),
+                }
+            )
         )
     return normalized

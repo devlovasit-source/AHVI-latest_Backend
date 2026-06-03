@@ -182,6 +182,43 @@ def _fallback_atmosphere(category: str | None) -> str:
     }.get(category or "", "considered and context-aware")
 
 
+def _fallback_impression(category: str | None) -> str:
+    return {
+        "sensitive_occasion": "understated and considerate",
+        "hybrid_occasion": "competent but not stiff",
+        "work_occasion": "credible and composed",
+        "social_occasion": "intentional but relaxed",
+        "travel_occasion": "easy and prepared",
+    }.get(category or "", "considered and self-assured")
+
+
+def _fallback_missing_piece(query: str, category: str | None) -> str:
+    if category == "sensitive_occasion":
+        return (
+            "A pair of clean, closed leather shoes would anchor this and quietly "
+            "carry across other formal or respectful settings."
+        )
+    if category in {"work_occasion", "hybrid_occasion"}:
+        return (
+            "A well-cut neutral blazer would do the most work here — it sharpens "
+            "the look for the room and still relaxes for drinks afterward."
+        )
+    if category == "social_occasion":
+        return (
+            "A brown suede loafer would elevate this and earn its place across "
+            "coffee dates, weekend dinners, and smart-casual office days."
+        )
+    if category == "travel_occasion":
+        return (
+            "One light structured layer would lift the outfit from purely "
+            "practical to put-together without adding bulk."
+        )
+    return (
+        "One refined pair of shoes is the piece that would shift this from fine "
+        "to intentional, and it would carry across several other settings too."
+    )
+
+
 def _fallback_emotion(category: str | None) -> str:
     if category in {"work_occasion", "hybrid_occasion"}:
         return "professional"
@@ -404,21 +441,39 @@ def _build_reasoning_prompt(
 
 {OCCASION_INTERPRETER_PROMPT}
 
-You are AHVI's stylist reasoning engine. Return ONLY valid JSON matching this schema:
+You are AHVI's senior stylist — a real human stylist thinking out loud, not a
+fashion database listing templates.
+
+Before recommending any clothing, decide in this order:
+1. What impression should the user create in this exact moment?
+2. What social outcome actually matters here?
+3. What styling strategy best fits the moment?
+4. What styling risk should be avoided, and why?
+5. What atmosphere should the outfit communicate?
+6. What single missing piece would most improve this direction?
+
+Lead with the opinion and the reasoning. The outfit directions only support
+that reasoning — they never replace it.
+
+Return ONLY valid JSON matching this schema:
 {{
   "mode": "style_advice | visual_inspiration | color_body_advice | style_education | shopping_assist",
   "occasion": string|null,
   "goal": string,
+  "impression": string,
   "atmosphere": string,
   "emotion_state": "neutral | excited | frustrated | vulnerable | professional | social",
-  "stylist_advice": string,
+  "stylist_reasoning": string,
   "what_to_avoid": [string],
+  "missing_piece_reasoning": string,
   "visual_directions": [
     {{
       "title": string,
+      "strategy": string,
       "description": string,
       "palette": [string],
       "pieces": [string],
+      "why_it_works": string,
       "style_note": string
     }}
   ],
@@ -426,18 +481,38 @@ You are AHVI's stylist reasoning engine. Return ONLY valid JSON matching this sc
   "confidence": float
 }}
 
-Rules:
+Writing rules for stylist_reasoning:
+- Speak like a stylist explaining a decision. Use phrasing such as
+  "This works because...", "I would avoid...", "The priority here is...",
+  "The risk is...", "This creates...".
+- Explain the social strategy first, then the clothing logic.
+- 2-4 sentences. Specific to THIS occasion. Never reusable boilerplate.
+
+Each visual_direction.why_it_works must explain the STYLING LOGIC, not just
+restate the pieces. Bad: "Oxford shirt with denim." Good: "The shirt creates
+structure while the denim keeps it approachable."
+
+missing_piece_reasoning must justify ONE piece and where else it earns its
+place. Bad: "Brown loafers." Good: "A brown suede loafer would elevate this
+and carry across coffee dates, weekend dinners, and smart-casual office days."
+
+Ban this generic filler unless genuinely unavoidable:
+"balanced silhouette", "color harmony", "approachable and tidy",
+"elevated aesthetic", "perfect for". Replace with a real reason.
+
+Hard rules:
 - Do not generate image prompts or real images.
 - For style_advice and visual_inspiration, return exactly 3 visual_directions.
 - Each direction must differ by mood, silhouette, palette, or formality.
-- For "Show visual inspiration", make the cards the main response. Do not repeat a generic paragraph.
-- Do not open with "Here are styling principles".
-- Do not sound like a fashion textbook.
-- Translate keywords into atmosphere and real-world dressing choices.
-- Sensitive occasions: warm, respectful, understated.
-- Social occasions: approachable, confident, practical.
-- Work occasions: credible, polished, precise.
-- Hybrid contexts: mention the transition strategy.
+- For "Show visual inspiration", make the cards the main response.
+- Do not open with "Here are styling principles". Do not sound like a textbook.
+- Different occasions MUST produce clearly different goal/impression/avoid.
+  Christian funeral: respectful presence, understated, no bright/flashy.
+  Coffee date: approachable confidence, intentional not corporate.
+  Client presentation + drinks: credibility first then social ease,
+  avoid full formal that feels awkward later (transitional dressing).
+  Wedding guest: celebratory restraint, festive without competing, no bridal.
+  Beach dinner: relaxed evening polish, no swimwear/flip-flops after sunset.
 - Wardrobe styling is not allowed in this response.
 
 Known deterministic mode: {mode}
@@ -452,18 +527,46 @@ def _normalize_direction(value: Any, fallback: Dict[str, Any]) -> Dict[str, Any]
     item = dict(value) if isinstance(value, dict) else {}
     return {
         "title": str(item.get("title") or fallback.get("title") or "Style Direction").strip(),
+        "strategy": str(item.get("strategy") or fallback.get("strategy") or "").strip(),
         "description": str(item.get("description") or fallback.get("description") or "").strip(),
         "palette": _safe_list(item.get("palette") or fallback.get("palette"), limit=5),
         "pieces": _safe_list(item.get("pieces") or fallback.get("pieces"), limit=6),
+        "why_it_works": str(
+            item.get("why_it_works") or fallback.get("why_it_works") or ""
+        ).strip(),
         "style_note": str(item.get("style_note") or fallback.get("style_note") or "").strip(),
     }
+
+
+def _ensure_direction_logic(direction: Dict[str, Any]) -> Dict[str, Any]:
+    """Guarantee why_it_works + strategy so even fallback cards read like a
+    stylist explaining logic, not a database listing pieces."""
+    pieces = direction.get("pieces") or []
+    title = str(direction.get("title") or "this direction").strip()
+    if not direction.get("why_it_works"):
+        if len(pieces) >= 2:
+            direction["why_it_works"] = (
+                f"The {str(pieces[0]).lower()} sets the structure while the "
+                f"{str(pieces[1]).lower()} keeps it easy — so the look reads "
+                "intentional without trying too hard."
+            )
+        else:
+            direction["why_it_works"] = (
+                f"{title} keeps one clear focal point so the outfit feels "
+                "deliberate rather than busy."
+            )
+    if not direction.get("strategy"):
+        direction["strategy"] = str(direction.get("style_note") or "").strip()
+    return direction
 
 
 def _normalize_visual_directions(value: Any, mode: str, category: str | None) -> List[Dict[str, Any]]:
     fallbacks = _fallback_visual_directions(mode, category)
     rows = value if isinstance(value, list) else []
     return [
-        _normalize_direction(rows[idx] if idx < len(rows) else {}, fallbacks[idx])
+        _ensure_direction_logic(
+            _normalize_direction(rows[idx] if idx < len(rows) else {}, fallbacks[idx])
+        )
         for idx in range(3)
     ]
 
@@ -523,9 +626,19 @@ def _build_response(
     payload = ai_payload if isinstance(ai_payload, dict) else {}
     final_mode = _coerce_ai_mode(payload.get("mode"), mode)
     goal = str(payload.get("goal") or _fallback_goal(final_mode, category)).strip()
+    impression = str(payload.get("impression") or _fallback_impression(category)).strip()
     atmosphere = str(payload.get("atmosphere") or _fallback_atmosphere(category)).strip()
     emotion_state = _coerce_emotion(payload.get("emotion_state"), category)
-    raw_advice = str(payload.get("stylist_advice") or _fallback_advice(query, final_mode, category)).strip()
+    # stylist_reasoning leads. Accept legacy stylist_advice as alias so older
+    # Gemini responses and tests keep working.
+    raw_advice = str(
+        payload.get("stylist_reasoning")
+        or payload.get("stylist_advice")
+        or _fallback_advice(query, final_mode, category)
+    ).strip()
+    missing_piece_reasoning = str(
+        payload.get("missing_piece_reasoning") or _fallback_missing_piece(query, category)
+    ).strip()
     polished_advice = tone_engine.apply(
         raw_advice,
         user_profile=user_profile,
@@ -551,6 +664,11 @@ def _build_response(
         "should_use_wardrobe": False,
         "should_generate_board": False,
         "advice": polished_advice,
+        "stylist_reasoning": polished_advice,
+        "goal": goal,
+        "impression": impression,
+        "atmosphere": atmosphere,
+        "missing_piece_reasoning": missing_piece_reasoning,
         "follow_up_question": follow_up,
         "cta": _fallback_cta(query),
         "visual_directions": visual_directions,
@@ -559,7 +677,9 @@ def _build_response(
             "source": "style_reasoning_engine",
             "reason": _reason_for_mode(final_mode, category),
             "goal": goal,
+            "impression": impression,
             "atmosphere": atmosphere,
+            "missing_piece_reasoning": missing_piece_reasoning,
             "emotion_state": emotion_state,
             "confidence": final_confidence,
         },

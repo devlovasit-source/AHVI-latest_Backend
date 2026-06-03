@@ -366,9 +366,11 @@ def _style_reasoning_chat_response(reasoning: Dict[str, Any], query: str, module
         {
             "type": "visual_direction",
             "title": str(item.get("title") or "Style Direction"),
+            "strategy": str(item.get("strategy") or ""),
             "description": str(item.get("description") or ""),
             "palette": item.get("palette") if isinstance(item.get("palette"), list) else [],
             "pieces": item.get("pieces") if isinstance(item.get("pieces"), list) else [],
+            "why_it_works": str(item.get("why_it_works") or ""),
             "style_note": str(item.get("style_note") or ""),
         }
         for item in visual_directions
