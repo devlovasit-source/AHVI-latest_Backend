@@ -169,6 +169,22 @@ def _get_gemini_client():
         return None
 
 
+_THINKING_DISABLE_MODELS = ("2.5", "2-5")
+
+
+def _thinking_config_disabled():
+    """Return a ThinkingConfig with thinking disabled for models that support
+    it (gemini-2.5-*), else None. Guarded so older SDKs / 2.0 models that lack
+    the field never break generation."""
+    model = str(GEMINI_MODEL or "").lower()
+    if not any(tag in model for tag in _THINKING_DISABLE_MODELS):
+        return None
+    try:
+        return types.ThinkingConfig(thinking_budget=0)
+    except Exception:
+        return None
+
+
 def _call_gemini_text(
     prompt: str,
     *,
@@ -201,12 +217,20 @@ Task:
 """.strip()
 
     try:
-        config = types.GenerateContentConfig(
-            system_instruction=system_instruction
-            or AHVI_SYSTEM_PROMPT,
+        config_kwargs: Dict[str, Any] = dict(
+            system_instruction=system_instruction or AHVI_SYSTEM_PROMPT,
             temperature=temperature,
             max_output_tokens=max_output_tokens,
         )
+        # gemini-2.5-* models think by default, and those thinking tokens are
+        # billed against max_output_tokens. With our larger JSON schemas that
+        # starves the visible response (~100 chars), the JSON gets cut off and
+        # parsing falls back to deterministic copy. Disable thinking so the full
+        # token budget goes to the actual answer.
+        thinking_cfg = _thinking_config_disabled()
+        if thinking_cfg is not None:
+            config_kwargs["thinking_config"] = thinking_cfg
+        config = types.GenerateContentConfig(**config_kwargs)
 
         response = client.models.generate_content(
             model=GEMINI_MODEL,

@@ -626,7 +626,7 @@ User query: {query}
 """
     raw = generate_text(
         prompt,
-        options={"temperature": 0.55, "max_output_tokens": 900},
+        options={"temperature": 0.55, "max_output_tokens": 1600},
         signals={"context_mode": "stylist_knowledge", "style_mode": mode},
         usecase="stylist_knowledge",
     )

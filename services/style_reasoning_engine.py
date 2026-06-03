@@ -588,7 +588,7 @@ def _gemini_reasoning(
     )
     raw = generate_text(
         prompt,
-        options={"temperature": 0.45, "max_output_tokens": 900},
+        options={"temperature": 0.45, "max_output_tokens": 1600},
         user_profile=user_profile,
         signals={"context_mode": "style_reasoning", "style_mode": mode},
         usecase="style_reasoning",
