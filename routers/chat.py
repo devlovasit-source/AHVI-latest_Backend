@@ -31,6 +31,7 @@ from services.style_flow_service import (
     STYLE_ACTION_CHIPS,
     build_style_flow_response,
     card_signature as style_card_signature,
+    curate_wardrobe_boards,
     finalize_style_response_payload,
     interpret_occasion,
 )
@@ -1542,6 +1543,29 @@ def _wardrobe_action_prompt(prompt: str) -> str:
     return f"Use my wardrobe for {base}"
 
 
+def _style_curation_brief(query_text: str, occasion: str) -> Dict[str, Any]:
+    """Compact stylist brief (goal/impression/atmosphere/confidence_strategy)
+    derived deterministically from the occasion. Feeds board curation without
+    an extra Gemini reasoning round-trip."""
+    try:
+        from services import style_reasoning_engine as _sre
+
+        category, _tone, _formality, _occ = _sre._occasion_category(query_text)
+        return {
+            "goal": _sre._fallback_goal("style_advice", category),
+            "impression": _sre._fallback_impression(category),
+            "atmosphere": _sre._fallback_atmosphere(category),
+            "confidence_strategy": (
+                "Lean into what already fits well and keep one deliberate "
+                "detail — confidence reads as ease, not effort."
+            ),
+            "what_to_avoid": [],
+            "occasion": occasion,
+        }
+    except Exception:  # noqa: BLE001
+        return {"occasion": occasion}
+
+
 def _demo_style_board_payload(
     user_id,
     query_text,
@@ -1664,6 +1688,27 @@ def _demo_style_board_payload(
         pass
     if cards:
         logger.info("style.board.generated user_id=%s occasion=%s cards=%s", user_id, occasion, len(cards))
+
+    # Gemini-assisted curation: rank + re-title the deterministic candidate
+    # cards, enforce diversity, attach stylist metadata. Never invents items.
+    if cards and len(cards) >= 1:
+        try:
+            _brief = _style_curation_brief(query_text, occasion)
+            curated = curate_wardrobe_boards(
+                cards,
+                query=query_text,
+                occasion=occasion,
+                reasoning=_brief,
+                wardrobe_count=len(wardrobe),
+                target=4,
+            )
+            if curated:
+                response["cards"] = curated
+                if isinstance(response.get("style_boards"), list) and response.get("style_boards"):
+                    response["style_boards"] = curated
+                cards = curated
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ahvi.board_curation_failed user_id=%s err=%s", user_id, str(exc)[:160])
 
     response["meta"] = {
         **(response.get("meta") if isinstance(response.get("meta"), dict) else {}),

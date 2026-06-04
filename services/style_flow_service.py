@@ -3936,3 +3936,265 @@ def build_style_flow_response(
             },
         },
     }
+
+
+# ============================================================================
+# AHVI WARDROBE BOARD CURATION (Gemini-assisted, after deterministic candidates)
+# Deterministic generation stays source of truth. Gemini only RANKS and
+# RE-TITLES already-built candidate cards; it only ever sees / returns
+# candidate IDs, so it can never invent wardrobe items. On failure we fall back
+# to deterministic selection + diversity.
+# ============================================================================
+
+_LOOK_STRATEGY_ORDER = ("best_overall", "relaxed", "polished", "personality")
+_STRATEGY_LABELS = {
+    "best_overall": "Best Overall",
+    "relaxed": "Relaxed",
+    "polished": "Polished",
+    "personality": "Personality",
+}
+_FALLBACK_TITLES = (
+    "Quietly Intentional",
+    "Soft Polished Casual",
+    "Relaxed Evening Smart",
+    "Effortless Ease",
+)
+
+
+def _curation_item_summary(item: Dict[str, Any]) -> Dict[str, Any]:
+    tags = item.get("style_tags") or item.get("tags") or []
+    if not isinstance(tags, list):
+        tags = []
+    return {
+        "id": item_key(item),
+        "name": _safe_text(item.get("name") or item.get("label")),
+        "category": item_role(item),
+        "color": _safe_text(item.get("color") or item.get("colour")),
+        "style_tags": [_safe_text(t) for t in tags][:4],
+    }
+
+
+def _candidate_summary(card: Dict[str, Any], idx: int) -> Dict[str, Any]:
+    items = [_curation_item_summary(it) for it in _card_items(card, include_slots=True)]
+    palette = card.get("palette") if isinstance(card.get("palette"), list) else []
+    meta = card.get("meta") if isinstance(card.get("meta"), dict) else {}
+    return {
+        "candidate_id": "look_%02d" % (idx + 1),
+        "items": items,
+        "palette": [_safe_text(p) for p in palette][:5],
+        "occasion_score": float(meta.get("occasion_score") or card.get("score") or 0.0),
+        "comfort_score": float(meta.get("comfort_score") or 0.0),
+        "formality_score": float(meta.get("formality_score") or 0.0),
+        "notes": _safe_text(card.get("why_it_works") or card.get("explanation"))[:160],
+    }
+
+
+def _curation_prompt(summaries: List[Dict[str, Any]], reasoning: Dict[str, Any], occasion: str) -> str:
+    import json as _json
+
+    brief = {
+        "occasion": occasion,
+        "goal": _safe_text(reasoning.get("goal")),
+        "impression": _safe_text(reasoning.get("impression")),
+        "atmosphere": _safe_text(reasoning.get("atmosphere")),
+        "confidence_strategy": _safe_text(reasoning.get("confidence_strategy")),
+        "what_to_avoid": reasoning.get("what_to_avoid") or [],
+    }
+    schema = (
+        '{"selected_candidates":[{"candidate_id":"look_01","rank":1,'
+        '"title":"distinct evocative title, never \'Considered Look\'",'
+        '"look_strategy":"best_overall | relaxed | polished | personality",'
+        '"why_it_works":"stylist reasoning about the social/contextual strategy, not item matching",'
+        '"styling_tip":"one concrete wearable tip","what_to_avoid":["string"],'
+        '"missing_piece":{"name":"","category":"","reason":"","unlocks":[]}}]}'
+    )
+    return (
+        "You are AHVI's senior stylist curating a wardrobe board.\n\n"
+        "The candidate outfits below were already built from the user's REAL "
+        "wardrobe. You may ONLY choose from these candidate_id values. You may "
+        "NOT invent items.\n\n"
+        "Stylist brief:\n" + _json.dumps(brief, ensure_ascii=False) + "\n\n"
+        "Candidates:\n" + _json.dumps(summaries, ensure_ascii=False) + "\n\n"
+        "Select the best 3-4 candidates. Make them feel hand-picked, not "
+        "mechanical. Assign one distinct look_strategy each in this priority: "
+        "Look 1 = best_overall (safest, strongest), Look 2 = relaxed, "
+        "Look 3 = polished, Look 4 = personality/alternative.\n\n"
+        "Return ONLY valid JSON:\n" + schema + "\n\n"
+        "Rules:\n"
+        "- candidate_id must come from the list above; invalid ids are ignored.\n"
+        "- why_it_works explains the strategy, e.g. 'The embroidered shirt adds "
+        "personality without becoming loud; the loafers give enough polish for a "
+        "date while the relaxed shirt keeps it from feeling like office wear.'\n"
+        "- Ban filler: 'balanced silhouette', 'color harmony', 'elevated "
+        "aesthetic', 'perfect for'.\n"
+        "- missing_piece is OPTIONAL; include only if it meaningfully improves "
+        "the look, and it is a MISSING (not owned) item.\n"
+    )
+
+
+def _gemini_curate(summaries: List[Dict[str, Any]], reasoning: Dict[str, Any], occasion: str) -> List[Dict[str, Any]]:
+    try:
+        from services.llm_service import generate_text
+        from services.ai_gateway import parse_json_object
+    except Exception:  # noqa: BLE001
+        return []
+    try:
+        raw = generate_text(
+            _curation_prompt(summaries, reasoning, occasion),
+            options={"temperature": 0.5, "max_output_tokens": 1400},
+            signals={"context_mode": "board_curation"},
+            usecase="style_reasoning",
+        )
+        parsed = parse_json_object(raw)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ahvi.board_curation_gemini_failed err=%s", str(exc)[:140])
+        return []
+    rows = parsed.get("selected_candidates") if isinstance(parsed, dict) else None
+    return rows if isinstance(rows, list) else []
+
+
+def _signature_parts(card: Dict[str, Any]) -> Dict[str, str]:
+    by_role: Dict[str, str] = {}
+    for item in _card_items(card, include_slots=True):
+        role = item_role(item)
+        if role in {"top", "bottom", "dress", "footwear"} and role not in by_role:
+            by_role[role] = item_key(item)
+    return by_role
+
+
+def curate_wardrobe_boards(
+    cards: List[Dict[str, Any]],
+    *,
+    query: str,
+    occasion: str,
+    reasoning: Optional[Dict[str, Any]] = None,
+    wardrobe_count: int = 0,
+    target: int = 4,
+) -> List[Dict[str, Any]]:
+    """Rank + re-title deterministic candidate cards with Gemini, enforce
+    diversity, attach stylist curation metadata. Never invents items."""
+    valid = [c for c in cards if isinstance(c, dict)]
+    if not valid:
+        return cards
+    reasoning = reasoning if isinstance(reasoning, dict) else {}
+    target = max(3, min(target, len(valid)))
+    wardrobe_limited = bool(wardrobe_count) and wardrobe_count < 6
+
+    summaries = [_candidate_summary(c, i) for i, c in enumerate(valid)]
+    id_to_card = {"look_%02d" % (i + 1): valid[i] for i in range(len(valid))}
+    logger.info(
+        "AHVI_BOARD_CANDIDATES_GENERATED candidate_count=%d occasion=%s wardrobe_item_count=%d",
+        len(valid), occasion, wardrobe_count,
+    )
+
+    gemini_rows = _gemini_curate(summaries, reasoning, occasion)
+    ordered: List[Any] = []
+    seen_ids: set = set()
+    for row in sorted(gemini_rows, key=lambda r: int(r.get("rank") or 99)):
+        cid = _safe_text(row.get("candidate_id"))
+        if cid in id_to_card and cid not in seen_ids:
+            seen_ids.add(cid)
+            ordered.append((id_to_card[cid], row))
+    for cid, card in id_to_card.items():
+        if len(ordered) >= target:
+            break
+        if cid not in seen_ids:
+            seen_ids.add(cid)
+            ordered.append((card, {}))
+
+    logger.info(
+        "AHVI_BOARD_GEMINI_RANKED selected_ids=%s titles=%s strategies=%s",
+        [r.get("candidate_id") for _, r in ordered if r],
+        [_safe_text(r.get("title")) for _, r in ordered if r],
+        [_safe_text(r.get("look_strategy")) for _, r in ordered if r],
+    )
+
+    top_counts: Dict[str, int] = {}
+    foot_counts: Dict[str, int] = {}
+    seen_core: set = set()
+    rejected = 0
+    curated: List[Dict[str, Any]] = []
+    for card, row in ordered:
+        sig = core_card_signature(card)
+        parts = _signature_parts(card)
+        top_k, foot_k = parts.get("top", ""), parts.get("footwear", "")
+        dup_combo = bool(sig) and sig in seen_core
+        over_top = bool(top_k) and top_counts.get(top_k, 0) >= 2
+        over_foot = bool(foot_k) and foot_counts.get(foot_k, 0) >= 2
+        if (dup_combo or over_top or over_foot) and not wardrobe_limited:
+            rejected += 1
+            continue
+        seen_core.add(sig)
+        if top_k:
+            top_counts[top_k] = top_counts.get(top_k, 0) + 1
+        if foot_k:
+            foot_counts[foot_k] = foot_counts.get(foot_k, 0) + 1
+        curated.append(_apply_curation(card, row, len(curated)))
+        if len(curated) >= target:
+            break
+
+    if len(curated) < min(3, len(valid)):
+        for card, row in ordered:
+            if any(cc is card for cc in curated):
+                continue
+            curated.append(_apply_curation(card, row, len(curated)))
+            if len(curated) >= min(3, len(valid)):
+                break
+
+    repeated_tops = sum(1 for v in top_counts.values() if v > 1)
+    repeated_foot = sum(1 for v in foot_counts.values() if v > 1)
+    diversity_meta = {
+        "repeated_tops": repeated_tops,
+        "repeated_footwear": repeated_foot,
+        "wardrobe_limited": bool(wardrobe_limited),
+        "rejected_duplicates": rejected,
+    }
+    logger.info(
+        "AHVI_BOARD_DIVERSITY_APPLIED repeated_tops=%d repeated_footwear=%d wardrobe_limited=%s rejected_duplicates=%d",
+        repeated_tops, repeated_foot, bool(wardrobe_limited), rejected,
+    )
+    for c in curated:
+        c["diversity_meta"] = diversity_meta
+    logger.info(
+        "AHVI_BOARD_FINAL_LOOKS selected_count=%d titles=%s strategies=%s",
+        len(curated),
+        [_safe_text(c.get("title")) for c in curated],
+        [_safe_text(c.get("look_strategy")) for c in curated],
+    )
+    return curated
+
+
+def _apply_curation(card: Dict[str, Any], row: Dict[str, Any], index: int) -> Dict[str, Any]:
+    out = dict(card)
+    strategy = _safe_text(row.get("look_strategy")).lower()
+    if strategy not in _LOOK_STRATEGY_ORDER:
+        strategy = _LOOK_STRATEGY_ORDER[min(index, len(_LOOK_STRATEGY_ORDER) - 1)]
+    title = _clean_editorial_copy(row.get("title"), "")
+    if not title or title.lower() == "considered look":
+        title = _FALLBACK_TITLES[min(index, len(_FALLBACK_TITLES) - 1)]
+    why = _clean_editorial_copy(row.get("why_it_works"), _safe_text(out.get("why_it_works")))
+    tip = _clean_editorial_copy(row.get("styling_tip"), _safe_text(out.get("styling_tip")))
+
+    out["title"] = title
+    out["look_strategy"] = strategy
+    out["strategy_label"] = _STRATEGY_LABELS.get(strategy, strategy.title())
+    if why:
+        out["why_it_works"] = why
+    if tip:
+        out["styling_tip"] = tip
+    avoid = row.get("what_to_avoid")
+    if isinstance(avoid, list) and avoid:
+        out["what_to_avoid"] = [_safe_text(a) for a in avoid][:4]
+    mp = row.get("missing_piece")
+    if isinstance(mp, dict) and _safe_text(mp.get("name")):
+        out["missing_piece"] = {
+            "name": _safe_text(mp.get("name")),
+            "category": _safe_text(mp.get("category")),
+            "reason": _safe_text(mp.get("reason")),
+            "unlocks": [_safe_text(u) for u in (mp.get("unlocks") or []) if _safe_text(u)][:6],
+        }
+    out["novelty_score"] = round(1.0 - (index * 0.18), 2)
+    out["repeat_penalty"] = 0.0
+    if isinstance(out.get("story"), dict):
+        out["story"] = {**out["story"], "headline": title}
+    return out
