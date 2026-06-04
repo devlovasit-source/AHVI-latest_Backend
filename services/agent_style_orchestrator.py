@@ -19,9 +19,11 @@ This file intentionally does NOT replace any existing style logic.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("ahvi.agent.style_orchestrator")
@@ -43,6 +45,42 @@ DEFAULT_TIMEOUT = 12.0
 
 def is_enabled() -> bool:
     return str(os.getenv(ENV_ENABLE, "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+# --- agent result cache (kills the ~20-40s Vertex Agent Runtime call on repeat)
+_AGENT_CACHE: Dict[str, "tuple[float, Dict[str, Any]]"] = {}
+_AGENT_CACHE_TTL = 600.0  # 10 minutes
+_AGENT_CACHE_MAX = 256
+
+
+def _agent_cache_key(message: Any, wardrobe_items: Any, chips: Any) -> str:
+    ids = sorted(
+        str(it.get("$id") or it.get("id") or it.get("name") or "")
+        for it in (wardrobe_items or [])
+        if isinstance(it, dict)
+    )
+    chip_s = ",".join(sorted(str(c) for c in (chips or [])))
+    blob = f"{str(message or '').strip().lower()}|{'|'.join(ids)}|{chip_s}"
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _agent_cache_get(key: str) -> Optional[Dict[str, Any]]:
+    row = _AGENT_CACHE.get(key)
+    if not row:
+        return None
+    ts, payload = row
+    if time.time() - ts > _AGENT_CACHE_TTL:
+        _AGENT_CACHE.pop(key, None)
+        return None
+    return dict(payload)
+
+
+def _agent_cache_set(key: str, payload: Dict[str, Any]) -> None:
+    if len(_AGENT_CACHE) >= _AGENT_CACHE_MAX:
+        # drop oldest
+        oldest = min(_AGENT_CACHE.items(), key=lambda kv: kv[1][0])[0]
+        _AGENT_CACHE.pop(oldest, None)
+    _AGENT_CACHE[key] = (time.time(), dict(payload))
 
 
 def _model_name() -> str:
@@ -432,6 +470,16 @@ async def orchestrate_style_request(
     if not is_enabled():
         return default_agent_payload()
 
+    # Cache: the Vertex Agent Runtime call costs ~20-40s. The result depends on
+    # the occasion/message + wardrobe contents, so cache per (message, wardrobe
+    # id-set, chips). Repeated "coffee date" asks with an unchanged wardrobe
+    # then skip the agent entirely.
+    cache_key = _agent_cache_key(message, wardrobe_items, chips)
+    cached = _agent_cache_get(cache_key)
+    if cached is not None:
+        logger.info("ahvi.agent.cache_hit user_id=%s key=%s", user_id, cache_key[:16])
+        return cached
+
     model = _model_name()
     timeout = _timeout_seconds()
     prompt = _build_user_prompt(
@@ -496,6 +544,10 @@ async def orchestrate_style_request(
         validated.get("clarification_needed"),
         validated.get("confidence"),
     )
+    # Only cache real (non-default) agent results so a transient failure is not
+    # cached as the answer.
+    if validated.get("confidence", 0.0) > 0.0:
+        _agent_cache_set(cache_key, validated)
     return validated
 
 

@@ -3145,15 +3145,14 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         # broad pool and only slice after guard/diversity.
         n_heroes = max(1, len(groups))
         per_hero_cap = max(2, min(8, (stage_cap + n_heroes - 1) // n_heroes))
-        for _, group_combos in groups.items():
-            if not group_combos:
-                continue
+
+        group_list = [g for g in groups.values() if g]
+
+        def _filter_one_group(group_combos: List[Dict[str, Any]]) -> List[str]:
             hero_master = (
                 group_combos[0].get("top") or group_combos[0].get("dress") or {}
             )
-            hero_master_type = (
-                "dress" if group_combos[0].get("dress") else "top"
-            )
+            hero_master_type = "dress" if group_combos[0].get("dress") else "top"
             ids = _llm_filter_combo_ids(
                 occasion=occasion,
                 stage=stage_name,
@@ -3164,24 +3163,27 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             )
             if not ids:
                 if stage_name == "color_combo":
-                    ids = _rule_color_fallback(
-                        hero_master,
-                        group_combos,
-                        max_ids=filter_cap,
-                    )
+                    ids = _rule_color_fallback(hero_master, group_combos, max_ids=filter_cap)
                 else:
-                    ids = _rule_pattern_fallback(
-                        group_combos,
-                        max_ids=filter_cap,
-                    )
-            # If no fallback returned anything, keep top-N by combo order.
+                    ids = _rule_pattern_fallback(group_combos, max_ids=filter_cap)
             if not ids:
-                ids = [
-                    str(c.get("combo_id")) for c in group_combos[:per_hero_cap]
-                ]
+                ids = [str(c.get("combo_id")) for c in group_combos[:per_hero_cap]]
             else:
                 ids = ids[:per_hero_cap]
-            kept_ids.extend(ids)
+            return ids
+
+        # The per-hero LLM filter calls are independent and I/O-bound (Gemini).
+        # Running them sequentially was the dominant board-latency cost
+        # (~3s x hero_count x stage). Fan them out and preserve hero order.
+        if len(group_list) <= 1:
+            for group_combos in group_list:
+                kept_ids.extend(_filter_one_group(group_combos))
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=min(8, len(group_list))) as _ex:
+                for ids in _ex.map(_filter_one_group, group_list):
+                    kept_ids.extend(ids)
         return kept_ids
 
     color_source = combinations[:combo_stage_cap]
