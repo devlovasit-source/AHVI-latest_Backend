@@ -451,7 +451,9 @@ def _coerce_mode(query: str, intent: dict | str | None, context: dict | None) ->
     style_action = _norm(ctx.get("style_action"))
     next_action = _norm(ctx.get("next_action"))
     module_context = str(ctx.get("module_context") or ctx.get("module") or "")
-    intent_value = _intent_name(intent)
+    # _norm strips underscores ("style_advice" -> "style advice"); restore them
+    # so the intent name matches the mode constants.
+    intent_value = _intent_name(intent).replace(" ", "_")
     q = _norm(query)
     action_blob = f"{q} {style_action} {next_action}"
 
@@ -969,7 +971,10 @@ def reason(
             user_profile=safe_profile,
             context=safe_context,
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "ahvi.style_reasoning_gemini_failed mode=%s err=%s", mode, repr(exc)[:200]
+        )
         ai_payload = None
 
     built = _build_response(
