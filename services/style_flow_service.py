@@ -38,11 +38,47 @@ try:
         is_enabled as _agent_style_enabled,
         merge_agent_payload_into_context as _agent_merge_into_context,
         orchestrate_style_request_sync as _agent_orchestrate_sync,
+        start_style_orchestration as _agent_start_orchestration,
     )
 except Exception:  # pragma: no cover - safe if agent service is missing
     _agent_style_enabled = lambda: False  # noqa: E731
     _agent_merge_into_context = lambda ctx, _payload: ctx  # noqa: E731
     _agent_orchestrate_sync = None
+    _agent_start_orchestration = None
+
+# Wardrobe items that are not apparel must never appear in a styled board, even
+# when the agent (which normally filters them) is skipped for latency.
+_NON_APPAREL_KEYWORDS = (
+    "charger", "passport", "water bottle", "bottle", "swim cap", "goggles",
+    "umbrella", "wallet", "earphone", "headphone", "power bank", "powerbank",
+    "key", "phone", "laptop", "notebook", "book", "medicine", "toothbrush",
+)
+
+
+def _agent_overlap_wait_seconds() -> float:
+    try:
+        return max(0.0, min(float(os.getenv("AGENT_STYLE_OVERLAP_WAIT_SECONDS", "8")), 30.0))
+    except Exception:
+        return 8.0
+
+
+def _strip_non_apparel(wardrobe: Any) -> List[Dict[str, Any]]:
+    """Deterministically drop obvious non-apparel items so boards stay clean
+    regardless of whether the agent's avoid_items arrives in time."""
+    if not isinstance(wardrobe, list):
+        return wardrobe
+    kept = []
+    for it in wardrobe:
+        if not isinstance(it, dict):
+            continue
+        blob = " ".join(
+            str(it.get(k) or "").lower()
+            for k in ("name", "label", "category", "type", "sub_category")
+        )
+        if any(kw in blob for kw in _NON_APPAREL_KEYWORDS):
+            continue
+        kept.append(it)
+    return kept
 
 try:
     from services.r2_storage import R2Storage, R2StorageError
@@ -3554,6 +3590,31 @@ def build_style_flow_response(
     if user_profile is not None:
         ctx.setdefault("user_profile", user_profile)
     ctx.setdefault("style_identity", normalize_style_identity(_dict(ctx.get("user_profile"))))
+
+    # Deterministic non-apparel strip so boards never show chargers/passports/
+    # water bottles even when the (slow) agent's avoid_items is skipped.
+    wardrobe = _strip_non_apparel(wardrobe)
+
+    # Kick off the slow Vertex agent orchestration in the background NOW so its
+    # ~20-40s overlaps with occasion interpretation + combo generation instead
+    # of blocking in series. We wait only a short budget for it later; if it
+    # isn't ready we proceed without it (the background run still caches its
+    # result for the next request).
+    _agent_future = None
+    if _agent_start_orchestration is not None and _agent_style_enabled():
+        try:
+            _agent_future = _agent_start_orchestration(
+                message=query,
+                user_id=user_id,
+                wardrobe_items=wardrobe if isinstance(wardrobe, list) else None,
+                chips=list(_dict(context).get("chips") or []),
+                weather=_dict(_dict(context).get("weather")),
+                profile=_dict(_dict(context).get("user_profile") or user_profile),
+                context=ctx,
+            )
+        except Exception:  # noqa: BLE001
+            _agent_future = None
+
     occasion_interpretation = interpret_occasion(query, ctx)
     ctx["occasion_interpretation"] = occasion_interpretation
     normalized_occasion = _normalize_occasion_value(
@@ -3599,7 +3660,23 @@ def build_style_flow_response(
     # ENABLE_AGENT_STYLE_ORCHESTRATOR env flag; safe defaults are merged when
     # the flag is off so downstream engines can still read the keys uniformly.
     try:
-        if _agent_orchestrate_sync is not None and _agent_style_enabled():
+        agent_payload = None
+        if _agent_future is not None:
+            # The agent has been running in the background since the top of this
+            # function (overlapping occasion interpretation). Wait only a short
+            # budget; if it isn't ready we proceed without it (boards are still
+            # clean via the deterministic non-apparel strip + occasion
+            # guardrails) and the background run caches its result for next time.
+            wait_budget = _agent_overlap_wait_seconds()
+            try:
+                agent_payload = _agent_future.result(timeout=wait_budget)
+            except Exception:  # FuturesTimeoutError or run error
+                agent_payload = None
+                logger.info(
+                    "ahvi.agent.overlap_proceed_without_agent waited=%.1fs", wait_budget
+                )
+        elif _agent_orchestrate_sync is not None and _agent_style_enabled():
+            # Fallback: no background future (shouldn't normally happen).
             agent_payload = _agent_orchestrate_sync(
                 message=query,
                 user_id=user_id,
@@ -3609,6 +3686,8 @@ def build_style_flow_response(
                 profile=_dict(ctx.get("user_profile") or user_profile),
                 context=ctx,
             )
+
+        if agent_payload:
             _agent_merge_into_context(ctx, agent_payload)
             logger.info(
                 "ahvi.agent.style_orchestration occasion=%s sub_intent=%s "

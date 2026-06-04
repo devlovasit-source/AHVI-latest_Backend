@@ -551,6 +551,59 @@ async def orchestrate_style_request(
     return validated
 
 
+# Persistent background executor so a started orchestration keeps running (and
+# populates the cache) even when the foreground board flow stops waiting on it.
+_AGENT_EXECUTOR = None
+
+
+def _agent_executor():
+    global _AGENT_EXECUTOR
+    if _AGENT_EXECUTOR is None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        _AGENT_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ahvi-agent")
+    return _AGENT_EXECUTOR
+
+
+def start_style_orchestration(
+    message: str,
+    user_id: Optional[str] = None,
+    wardrobe_items: Optional[List[Dict[str, Any]]] = None,
+    chips: Optional[List[str]] = None,
+    weather: Optional[Dict[str, Any]] = None,
+    profile: Optional[Dict[str, Any]] = None,
+    context: Optional[Dict[str, Any]] = None,
+):
+    """Submit the (slow) agent orchestration to a background thread and return
+    a Future immediately. The caller can wait a short budget for it; if it
+    isn't ready the future keeps running and caches its result for next time.
+    Returns None when the agent is disabled."""
+    if not is_enabled():
+        return None
+
+    def _run() -> Dict[str, Any]:
+        try:
+            return asyncio.run(
+                orchestrate_style_request(
+                    message=message,
+                    user_id=user_id,
+                    wardrobe_items=wardrobe_items,
+                    chips=chips,
+                    weather=weather,
+                    profile=profile,
+                    context=context,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ahvi.agent.bg_orchestration_failed error=%s", str(exc)[:160])
+            return default_agent_payload()
+
+    try:
+        return _agent_executor().submit(_run)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def orchestrate_style_request_sync(
     message: str,
     user_id: Optional[str] = None,
