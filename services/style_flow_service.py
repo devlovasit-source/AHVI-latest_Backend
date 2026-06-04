@@ -3961,6 +3961,56 @@ _FALLBACK_TITLES = (
 )
 
 
+# Occasion guardrails: keyword patterns that disqualify an item for an
+# occasion. Applied BEFORE Gemini curation so bad candidates never surface.
+_OCCASION_REJECT_KEYWORDS = {
+    "date": (("shiny", "gold formal"), ("wedding shirt",), ("sequin", "loud party"), ("tuxedo",)),
+    "coffee": (("shiny", "gold formal"), ("wedding shirt",), ("sequin", "loud party"), ("tuxedo",)),
+    "casual outing": (("shiny", "gold formal"), ("tuxedo",), ("sequin",)),
+    "basketball_game": (("formal shirt",), ("button-down",), ("button down",), ("embroidered",), ("loafer",), ("blazer",), ("oxford",)),
+    "sports_game": (("formal shirt",), ("embroidered",), ("loafer",), ("blazer",)),
+    "workout": (("formal shirt",), ("loafer",), ("blazer",), ("jeans",)),
+    "client_presentation": (("athletic short",), ("gym short",), ("flip flop",), ("sequin", "loud party")),
+    "office_meeting": (("athletic short",), ("flip flop",), ("sequin",)),
+    "funeral": (("bright",), ("shiny",), ("sequin",), ("neon",), ("loud print",), ("floral print",)),
+    "sensitive": (("bright",), ("shiny",), ("sequin",), ("neon",)),
+    "beach_dinner": (("formal leather",), ("heavy blazer",), ("office trouser",), ("oxford shoe",)),
+    "beach": (("heavy blazer",), ("office trouser",), ("formal leather",)),
+}
+
+
+def _guard_norm(value: Any) -> str:
+    text = re.sub(r"[^a-z0-9\s]", " ", str(value or "").lower())
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _occasion_reject_keys(occasion: str) -> tuple:
+    occ = _guard_norm(occasion).replace(" ", "_")
+    if occ in _OCCASION_REJECT_KEYWORDS:
+        return _OCCASION_REJECT_KEYWORDS[occ]
+    # loose alias matching
+    for key, rules in _OCCASION_REJECT_KEYWORDS.items():
+        if key in occ or occ in key:
+            return rules
+    return tuple()
+
+
+def _occasion_guardrail_reject(card: Dict[str, Any], occasion: str) -> str:
+    """Return a reject reason if any item in the card violates the occasion
+    guardrail, else empty string."""
+    rules = _occasion_reject_keys(occasion)
+    if not rules:
+        return ""
+    blob = " ".join(
+        _guard_norm(it.get("name")) + " " + _guard_norm(it.get("category")) + " " + _guard_norm(it.get("color")) + " " + _guard_norm(it.get("material"))
+        for it in _card_items(card, include_slots=True)
+    )
+    for group in rules:
+        if all(token in blob for token in group):
+            return "rejected:" + "+".join(group)
+    return ""
+
+
 def _curation_item_summary(item: Dict[str, Any]) -> Dict[str, Any]:
     tags = item.get("style_tags") or item.get("tags") or []
     if not isinstance(tags, list):
@@ -4077,6 +4127,25 @@ def curate_wardrobe_boards(
     if not valid:
         return cards
     reasoning = reasoning if isinstance(reasoning, dict) else {}
+
+    # Occasion guardrails: drop bad candidates (shiny gold formal shirt for a
+    # coffee date, loafers for a basketball game, etc.) before curation. Keep at
+    # least one card so we never return an empty board.
+    guard_reasons: List[str] = []
+    kept_guard = []
+    for c in valid:
+        reason = _occasion_guardrail_reject(c, occasion)
+        if reason:
+            guard_reasons.append(reason)
+        else:
+            kept_guard.append(c)
+    if kept_guard:
+        valid = kept_guard
+    logger.info(
+        "AHVI_OCCASION_GUARDRAILS_APPLIED occasion=%s rejected_count=%d reasons=%s",
+        occasion, len(guard_reasons), guard_reasons[:6],
+    )
+
     target = max(3, min(target, len(valid)))
     wardrobe_limited = bool(wardrobe_count) and wardrobe_count < 6
 

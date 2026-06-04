@@ -370,9 +370,12 @@ def _style_reasoning_chat_response(
     if not isinstance(visual_directions, list):
         visual_directions = []
 
+    is_missing_pieces = mode in {"shopping_assist", "missing_pieces"}
+    is_visual_inspiration = mode == "visual_inspiration"
+
     # Phase 7: missing-piece intelligence block for shopping/missing-piece mode.
     missing_block: Dict[str, Any] = {}
-    if mode in {"shopping_assist", "missing_pieces"}:
+    if is_missing_pieces:
         try:
             from services.style_context_service import (
                 build_style_context,
@@ -382,19 +385,30 @@ def _style_reasoning_chat_response(
             _ctx = build_style_context(
                 query=query, mode="missing_pieces", wardrobe_items=wardrobe or []
             )
+            _mp = reasoning.get("missing_piece") if isinstance(reasoning.get("missing_piece"), dict) else None
             _reason = str(reasoning.get("missing_piece_reasoning") or "").strip()
             _missing = (
-                [{"name": "", "category": "", "reason": _reason, "unlocks": []}]
-                if _reason
-                else []
+                [_mp]
+                if _mp
+                else ([{"name": "", "category": "", "reason": _reason, "unlocks": []}] if _reason else [])
             )
             missing_block = build_missing_piece_intelligence(
                 wardrobe_summary=_ctx.get("wardrobe_summary", {}),
                 missing_items=_missing,
             )
+            logger.info(
+                "AHVI_MISSING_PIECES_ROUTE missing_items=%d", len(missing_block.get("missing_items") or [])
+            )
         except Exception:  # noqa: BLE001
             missing_block = {}
-    visual_cards = [
+
+    # P1: visual inspiration metadata block (no image generation).
+    visual_board = reasoning.get("visual_inspiration_board") if is_visual_inspiration else None
+    if is_visual_inspiration:
+        logger.info("AHVI_VISUAL_INSPIRATION_ROUTE title=%r", (visual_board or {}).get("title"))
+
+    # Missing-pieces must NOT also dump visual-direction cards.
+    visual_cards = [] if is_missing_pieces else [
         {
             "type": "visual_direction",
             "title": str(item.get("title") or "Style Direction"),
@@ -443,8 +457,12 @@ def _style_reasoning_chat_response(
             "impression": reasoning.get("impression"),
             "confidence_strategy": reasoning.get("confidence_strategy"),
             "missing_piece_intelligence": missing_block or None,
+            "visual_inspiration_board": visual_board or None,
         },
-        "blocks": ([missing_block] if missing_block.get("missing_items") else []),
+        "blocks": (
+            ([missing_block] if missing_block.get("missing_items") else [])
+            + ([visual_board] if isinstance(visual_board, dict) and visual_board else [])
+        ),
         "meta": {
             **(reasoning.get("meta") if isinstance(reasoning.get("meta"), dict) else {}),
             "mode": "style_reasoning",
@@ -3652,11 +3670,28 @@ def text_chat(request: TextChatRequest, http_request: Request):
     )
     profile_ms = round((time.perf_counter() - profile_started) * 1000, 2)
 
+    # ROUTE PRIORITY (P0): multi_event_style > wardrobe_style > missing_pieces
+    # > visual_inspiration > style_advice > plan_pack > birthday_workflow.
+    # A multi-event style prompt ("office meeting then birthday party") must
+    # never be hijacked by the plan_pack / birthday workflow below.
+    try:
+        from services.style_context_service import detect_multi_event as _detect_me
+
+        _multi_event_route = _detect_me(user_input)
+    except Exception:  # noqa: BLE001
+        _multi_event_route = None
+    if _multi_event_route:
+        logger.info(
+            "AHVI_ROUTE_PRIORITY_APPLIED winner=multi_event_style sub_occasions=%s style_strategy=%s",
+            _multi_event_route.get("sub_occasions"),
+            _multi_event_route.get("style_strategy"),
+        )
+
     early_intent_row = detect_intent(user_input)
     early_intent = str(early_intent_row.get("intent") or "general").strip().lower()
     early_slots = early_intent_row.get("slots") if isinstance(early_intent_row.get("slots"), dict) else {}
     early_module = str(early_slots.get("module") or "").strip().lower()
-    if early_intent == "organize_hub":
+    if early_intent == "organize_hub" and not _multi_event_route:
         domain = _organize_domain_for_module(early_module)
         logger.info(
             "organize_hub routed module=%s query=%s",
@@ -3697,7 +3732,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             )
             return _ms_card
 
-    if _is_plan_pack_request(user_input):
+    if _is_plan_pack_request(user_input) and not _multi_event_route:
         logger.info(
             "chat.plan_pack_text_route user_id=%s prompt=%r", user_id, user_input
         )
@@ -3707,6 +3742,33 @@ def text_chat(request: TextChatRequest, http_request: Request):
             context_data={},
             user_profile=effective_user_profile,
             user_id=user_id,
+        )
+
+    # Multi-event style: force the stylist reasoning path even when the prompt
+    # has no explicit "outfit" word ("office meeting then birthday party").
+    if _multi_event_route:
+        _me_reasoning = style_reasoning_engine.reason(
+            query=user_input,
+            intent={"intent": "style_advice", "confidence": 0.9},
+            user_profile=effective_user_profile,
+            context={
+                "module_context": request.module_context or "",
+                "occasion": "multi_event",
+                "wardrobe": request.wardrobe if isinstance(request.wardrobe, list) else [],
+                "multi_event": _multi_event_route,
+                "sub_occasions": _multi_event_route.get("sub_occasions"),
+                "style_strategy": _multi_event_route.get("style_strategy"),
+            },
+        )
+        logger.info(
+            "chat.intent.route intent=multi_event_style module= path=style_reasoning text=%r",
+            user_input[:80],
+        )
+        return _style_reasoning_chat_response(
+            _me_reasoning,
+            user_input,
+            request.module_context or "chat",
+            wardrobe=request.wardrobe if isinstance(request.wardrobe, list) else [],
         )
 
     # -------------------------

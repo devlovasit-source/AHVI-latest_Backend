@@ -540,6 +540,8 @@ Return ONLY valid JSON matching this schema:
       "style_note": string
     }}
   ],
+  "missing_piece": {{"name": string, "category": string, "reason": string, "unlocks": [string]}},
+  "visual_inspiration_board": {{"title": string, "aesthetic": string, "mood": string, "palette": [string], "hero_piece": string, "silhouette": string, "styling_notes": string}},
   "follow_up_question": string|null,
   "confidence": float
 }}
@@ -551,10 +553,19 @@ the hero, what supports it, the footwear, and the one accent.
 
 Writing rules for stylist_reasoning:
 - Speak like a stylist explaining a decision. Use phrasing such as
-  "This works because...", "I would avoid...", "The priority here is...",
-  "The risk is...", "This creates...".
+  "This works because...", "I would avoid...", "The priority here is...".
 - Explain the social strategy first, then the clothing logic.
-- 2-4 sentences. Specific to THIS occasion. Never reusable boilerplate.
+- KEEP IT SHORT: 35-60 words for a normal occasion, max 70 for multi-event.
+  No markdown, no headings, no "**Core:**" / "**Presentation Layer:**" labels,
+  no bullet lists. One tight paragraph.
+
+Wardrobe grounding: if the style context shows wardrobe_available with items,
+do NOT describe a garment as owned ("wear your suit") unless that garment
+appears in the wardrobe list. Any garment the user does not own goes ONLY in
+missing_piece, clearly marked as a suggestion to acquire — never implied owned.
+
+For visual_inspiration mode also fill visual_inspiration_board:
+{{"title","aesthetic","mood","palette":[],"hero_piece","silhouette","styling_notes"}}.
 
 Each visual_direction.why_it_works must explain the STYLING LOGIC, not just
 restate the pieces. Bad: "Oxford shirt with denim." Good: "The shirt creates
@@ -713,6 +724,74 @@ def _gemini_reasoning(
     return parsed
 
 
+def _build_missing_piece(payload: Dict[str, Any], reasoning_text: str) -> Dict[str, Any] | None:
+    mp = payload.get("missing_piece")
+    if isinstance(mp, dict) and str(mp.get("name") or "").strip():
+        return {
+            "name": str(mp.get("name") or "").strip(),
+            "category": str(mp.get("category") or "").strip(),
+            "reason": str(mp.get("reason") or reasoning_text or "").strip(),
+            "unlocks": [str(u).strip() for u in (mp.get("unlocks") or []) if str(u).strip()][:6],
+        }
+    return None
+
+
+def _build_visual_inspiration_board(
+    payload: Dict[str, Any],
+    visual_directions: List[Dict[str, Any]],
+    goal: str,
+    impression: str,
+    missing_piece: Dict[str, Any] | None,
+    query: str,
+) -> Dict[str, Any]:
+    """Premium visual-inspiration metadata block (no image generation)."""
+    direct = payload.get("visual_inspiration_board")
+    direct = direct if isinstance(direct, dict) else {}
+    first = visual_directions[0] if visual_directions else {}
+    palette = first.get("palette") if isinstance(first.get("palette"), list) else []
+    pieces = first.get("pieces") if isinstance(first.get("pieces"), list) else []
+    return {
+        "type": "visual_inspiration_board",
+        "title": str(direct.get("title") or first.get("title") or "Style Inspiration").strip(),
+        "aesthetic": str(direct.get("aesthetic") or first.get("strategy") or "").strip(),
+        "mood": str(direct.get("mood") or impression or "").strip(),
+        "palette": [str(p).strip() for p in (direct.get("palette") or palette) if str(p).strip()][:6],
+        "hero_piece": str(direct.get("hero_piece") or (pieces[0] if pieces else "")).strip(),
+        "silhouette": str(direct.get("silhouette") or "").strip(),
+        "styling_notes": str(
+            direct.get("styling_notes") or first.get("why_it_works") or first.get("style_note") or goal
+        ).strip(),
+        "missing_piece": missing_piece,
+    }
+
+
+def _compact_reasoning(text: str, *, multi_event: bool = False) -> str:
+    """Trim stylist_reasoning for the UI: strip markdown headings/bold, collapse
+    whitespace, cap at ~60 words (70 for multi-event) on a sentence boundary."""
+    raw = str(text or "").strip()
+    if not raw:
+        return raw
+    # Strip markdown headings, bold labels like "**Core:**", bullets.
+    raw = re.sub(r"\*\*[^*]+\*\*:?", "", raw)
+    raw = re.sub(r"(?m)^#{1,6}\s*", "", raw)
+    raw = re.sub(r"(?m)^\s*[-*•]\s*", "", raw)
+    raw = re.sub(r"\s+", " ", raw).strip(" :-•")
+    cap = 70 if multi_event else 60
+    words = raw.split()
+    if len(words) <= cap:
+        compacted = raw
+    else:
+        clipped = " ".join(words[:cap])
+        # End on the last sentence boundary if one exists in range.
+        m = list(re.finditer(r"[.!?]", clipped))
+        compacted = clipped[: m[-1].end()] if m else clipped.rstrip(",;: ") + "."
+    logger.info(
+        "AHVI_REASONING_COMPACTED words_in=%d words_out=%d multi_event=%s",
+        len(words), len(compacted.split()), multi_event,
+    )
+    return compacted
+
+
 def _coerce_emotion(value: Any, category: str | None) -> str:
     emotion = _norm(value)
     if emotion in {"neutral", "excited", "frustrated", "vulnerable", "professional", "social"}:
@@ -767,6 +846,8 @@ def _build_response(
         signals={"mode": final_mode, "emotion_state": emotion_state},
         context=context,
     )
+    is_multi_event = bool((context or {}).get("multi_event")) or (context or {}).get("occasion") == "multi_event"
+    polished_advice = _compact_reasoning(polished_advice, multi_event=is_multi_event)
     follow_up = str(payload.get("follow_up_question") or "").strip() or None
     visual_directions = _normalize_visual_directions(
         payload.get("visual_directions"),
@@ -777,6 +858,14 @@ def _build_response(
         final_confidence = max(0.0, min(1.0, float(payload.get("confidence", confidence))))
     except Exception:
         final_confidence = confidence
+
+    what_to_avoid = _safe_list(payload.get("what_to_avoid"), limit=6)
+    missing_piece = _build_missing_piece(payload, missing_piece_reasoning)
+    visual_inspiration_board = None
+    if final_mode == VISUAL_INSPIRATION:
+        visual_inspiration_board = _build_visual_inspiration_board(
+            payload, visual_directions, goal, impression, missing_piece, query
+        )
 
     return {
         "mode": final_mode,
@@ -792,10 +881,12 @@ def _build_response(
         "atmosphere": atmosphere,
         "confidence_strategy": confidence_strategy,
         "missing_piece_reasoning": missing_piece_reasoning,
+        "missing_piece": missing_piece,
+        "visual_inspiration_board": visual_inspiration_board,
         "follow_up_question": follow_up,
         "cta": _fallback_cta(query),
         "visual_directions": visual_directions,
-        "what_to_avoid": _safe_list(payload.get("what_to_avoid"), limit=6),
+        "what_to_avoid": what_to_avoid,
         "meta": {
             "source": "style_reasoning_engine",
             "reason": _reason_for_mode(final_mode, category),
@@ -881,7 +972,7 @@ def reason(
     except Exception:
         ai_payload = None
 
-    return _build_response(
+    built = _build_response(
         query=safe_query,
         mode=mode,
         category=category,
@@ -893,6 +984,17 @@ def reason(
         user_profile=safe_profile,
         context=safe_context,
     )
+    # Wardrobe grounding: when a wardrobe is available, any suggested garment
+    # that is not owned must live in missing_piece (the prompt enforces this);
+    # log that grounding was active so we can audit owned-vs-suggested.
+    _wardrobe = safe_context.get("wardrobe") or safe_context.get("wardrobe_items")
+    if isinstance(_wardrobe, list) and _wardrobe:
+        logger.info(
+            "AHVI_WARDROBE_GROUNDING_APPLIED wardrobe_items=%d has_missing_piece=%s",
+            len(_wardrobe),
+            bool(built.get("missing_piece")),
+        )
+    return built
 
 
 class _StyleReasoningEngine:
