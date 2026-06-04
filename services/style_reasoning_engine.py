@@ -566,6 +566,22 @@ do NOT describe a garment as owned ("wear your suit") unless that garment
 appears in the wardrobe list. Any garment the user does not own goes ONLY in
 missing_piece, clearly marked as a suggestion to acquire — never implied owned.
 
+Obey the policy.outfit_validation_principles: if the occasion and an item
+clash (shiny/formal for coffee, office polish forced into date night, formal
+shirt for a game), do NOT overconfidently recommend it — name the mismatch
+softly in what_to_avoid and stylist_reasoning, then offer one correction.
+
+Obey the policy.wardrobe_management_principles for weak/empty wardrobes: say
+what the wardrobe leans toward first (e.g. office/casual), acknowledge what CAN
+be built, then frame gaps as one or two occasion-specific anchors to ADD
+(e.g. "a relaxed evening shirt and a softer shoe") — never a long missing list,
+never a blunt "I don't see options".
+
+When visual_inspiration: shape visual_inspiration_board from
+policy.mood_board_contract (pick aesthetic from its aesthetic_taxonomy, mood +
+keywords from its emotion_mapping) and end with a clear next action +
+missing_piece per policy.inspiration_board_contract.
+
 For visual_inspiration mode also fill visual_inspiration_board:
 {{"title","aesthetic","mood","palette":[],"hero_piece","silhouette","styling_notes"}}.
 
@@ -699,6 +715,28 @@ def _gemini_reasoning(
         style_ctx = compact_context_for_prompt(full_ctx)
     except Exception as exc:  # noqa: BLE001
         logger.warning("ahvi.style.context_failed err=%s", str(exc)[:140])
+
+    # Wire the 4 intelligence configs as compact principle slices into the
+    # policy block (outfit_validation + wardrobe_management always; mood +
+    # inspiration contracts only for visual_inspiration).
+    try:
+        from brain import config_loader as _cfg
+
+        policy["outfit_validation_principles"] = _cfg.get_outfit_validation_principles()
+        policy["wardrobe_management_principles"] = _cfg.get_wardrobe_management_principles()
+        if mode == VISUAL_INSPIRATION:
+            policy["mood_board_contract"] = _cfg.get_mood_board_contract()
+            policy["inspiration_board_contract"] = _cfg.get_inspiration_board_contract()
+        logger.info(
+            "AHVI_CONFIG_USAGE_AUDIT mode=%s slices=%s",
+            mode,
+            [k for k in (
+                "outfit_validation_principles", "wardrobe_management_principles",
+                "mood_board_contract", "inspiration_board_contract",
+            ) if k in policy],
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ahvi.style.config_slices_failed err=%s", str(exc)[:140])
 
     prompt = _build_reasoning_prompt(
         query=_clean_recursive_prompt(query),

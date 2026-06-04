@@ -1,0 +1,396 @@
+{
+"version": "1.0",
+
+"experience": "mood_board",
+
+"description": "A visual inspiration experience that helps users explore, visualize, align, and decide on a desired aesthetic, lifestyle, event, destination, or personal transformation.",
+
+"experience_objective": {
+
+```
+"primary_goal":
+  "Help users visualize a desired outcome before making decisions.",
+
+"secondary_goals": [
+
+  "inspire_action",
+
+  "clarify_preferences",
+
+  "reduce_decision_uncertainty",
+
+  "align_recommendations",
+
+  "increase_confidence"
+]
+```
+
+},
+
+"activation_conditions": [
+
+```
+"inspiration_requested",
+
+"style_exploration",
+
+"event_planning",
+
+"travel_planning",
+
+"beauty_exploration",
+
+"lifestyle_planning",
+
+"goal_visualization",
+
+"identity_exploration"
+```
+
+],
+
+"mood_board_types": {
+
+```
+"fashion": {
+
+  "purpose":
+    "Explore personal style directions."
+},
+
+"beauty": {
+
+  "purpose":
+    "Explore beauty looks and aesthetics."
+},
+
+"travel": {
+
+  "purpose":
+    "Visualize destinations and experiences."
+},
+
+"event": {
+
+  "purpose":
+    "Visualize weddings, parties, celebrations and occasions."
+},
+
+"lifestyle": {
+
+  "purpose":
+    "Visualize habits, routines and lifestyle aspirations."
+},
+
+"home": {
+
+  "purpose":
+    "Visualize spaces, decor and organization."
+},
+
+"personal_growth": {
+
+  "purpose":
+    "Visualize future identity and goals."
+}
+```
+
+},
+
+"required_context": {
+
+```
+"critical": [
+
+  "intent",
+
+  "goal"
+],
+
+"important": [
+
+  "preferences",
+
+  "calendar",
+
+  "style_profile",
+
+  "life_domain"
+]
+```
+
+},
+
+"board_structure": {
+
+```
+"hero_card": {
+
+  "required": true,
+
+  "elements": [
+
+    "theme",
+
+    "objective",
+
+    "mood_direction"
+  ]
+},
+
+"visual_grid": {
+
+  "required": true,
+
+  "minimum_assets": 6,
+
+  "maximum_assets": 20
+},
+
+"theme_analysis": {
+
+  "required": true,
+
+  "elements": [
+
+    "colors",
+
+    "textures",
+
+    "aesthetic_keywords",
+
+    "emotional_tone"
+  ]
+},
+
+"inspiration_insights": {
+
+  "required": true
+},
+
+"recommended_direction": {
+
+  "required": true
+},
+
+"next_best_action": {
+
+  "required": true
+}
+```
+
+},
+
+"aesthetic_taxonomy": [
+
+```
+"minimalist",
+
+"quiet_luxury",
+
+"old_money",
+
+"romantic",
+
+"bohemian",
+
+"coastal",
+
+"resort",
+
+"modern",
+
+"classic",
+
+"editorial",
+
+"vintage",
+
+"contemporary",
+
+"traditional",
+
+"fusion",
+
+"streetwear",
+
+"creative",
+
+"wellness",
+
+"luxury_travel"
+```
+
+],
+
+"visual_asset_priority": [
+
+```
+"user_uploaded_assets",
+
+"user_wardrobe_assets",
+
+"saved_looks",
+
+"editorial_references",
+
+"brand_assets",
+
+"destination_assets",
+
+"lifestyle_references"
+```
+
+],
+
+"emotion_mapping": {
+
+```
+"confident": [
+
+  "structured",
+
+  "polished",
+
+  "elevated"
+],
+
+"relaxed": [
+
+  "soft",
+
+  "natural",
+
+  "comfortable"
+],
+
+"luxurious": [
+
+  "premium",
+
+  "refined",
+
+  "timeless"
+],
+
+"creative": [
+
+  "bold",
+
+  "experimental",
+
+  "expressive"
+],
+
+"romantic": [
+
+  "soft",
+
+  "feminine",
+
+  "dreamy"
+]
+```
+
+},
+
+"recommendation_generation": {
+
+```
+"derive_from": [
+
+  "visual_patterns",
+
+  "user_preferences",
+
+  "goal_alignment"
+]
+```
+
+},
+
+"proactive_extensions": {
+
+```
+"fashion_mood_board": [
+
+  "generate_style_board",
+
+  "identify_wardrobe_gaps"
+],
+
+"travel_mood_board": [
+
+  "generate_travel_board",
+
+  "generate_packing_board"
+],
+
+"event_mood_board": [
+
+  "generate_event_board",
+
+  "generate_shopping_board"
+]
+```
+
+},
+
+"response_layout": {
+
+```
+"order": [
+
+  "hero_card",
+
+  "visual_grid",
+
+  "theme_analysis",
+
+  "inspiration_insights",
+
+  "recommended_direction",
+
+  "next_best_action"
+]
+```
+
+},
+
+"success_metrics": [
+
+```
+"board_saved",
+
+"board_shared",
+
+"recommendation_accepted",
+
+"follow_up_experience_generated"
+```
+
+],
+
+"response_schema": {
+
+```
+"required_output": [
+
+  "theme",
+
+  "mood_type",
+
+  "visual_assets",
+
+  "aesthetic_keywords",
+
+  "inspiration_insights",
+
+  "recommended_direction",
+
+  "next_best_action"
+]
+```
+
+}
+}

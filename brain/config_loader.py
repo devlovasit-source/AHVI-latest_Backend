@@ -36,9 +36,13 @@ STYLE_CONFIG_FILES = {
     "user_context_schema": "context/user_context_schema.json",
     "style_board": "experiences/style_board.json",
     "visual_response_strategy": "experiences/visual_response_strategy.json",
+    "inspiration_board": "experiences/inspiration_board.json",
+    "mood_board": "experiences/mood_board.json",
     "style_dna_schema": "memory/style_dna_schema.json",
     "wardrobe_memory_schema": "memory/wardrobe_memory_schema.json",
     "outfit_history_schema": "memory/outfit_history_schema.json",
+    "outfit_validation": "examples/outfit_validation.json",
+    "wardrobe_management": "examples/wardrobe_management.json",
 }
 
 
@@ -198,3 +202,70 @@ def get_style_policy_context(intent: str, occasion: str, mode: str) -> Dict[str,
         (selected["experience_goal"] or "")[:60],
     )
     return selected
+
+
+# ---------------------------------------------------------------------------
+# Compact slices for the 4 newly-wired intelligence files. We curate small,
+# prompt-safe principle lists / contracts from the underlying files (which are
+# few-shot example dumps or large experience schemas) — never the full JSON.
+# ---------------------------------------------------------------------------
+
+# Distilled from examples/outfit_validation.json (overdressed/underdressed/
+# occasion-mismatch scenarios). The file is a few-shot dump; these are its
+# behavioural principles.
+_OUTFIT_VALIDATION_PRINCIPLES = [
+    "Notice formality/occasion mismatch before recommending.",
+    "Never overconfidently push a mismatched outfit — flag it softly.",
+    "Protect the user's confidence; explain the mismatch kindly, then correct.",
+    "Offer one concrete correction, not a full re-do.",
+]
+
+# Distilled from examples/wardrobe_management.json (overwhelm, low visibility,
+# missing occasion anchors).
+_WARDROBE_MANAGEMENT_PRINCIPLES = [
+    "'Nothing to wear' is usually low visibility / missing anchors, not low count.",
+    "Say what the wardrobe leans toward (e.g. office/casual) before naming gaps.",
+    "Frame gaps as one or two occasion-specific anchors to add, not a long list.",
+    "Acknowledge what they CAN build before what they can't.",
+]
+
+
+def get_outfit_validation_principles() -> List[str]:
+    # Touch the file so usage is real + auditable; fall back to the curated list.
+    has_file = bool(load_config(STYLE_CONFIG_FILES["outfit_validation"]))
+    logger.info("AHVI_OUTFIT_VALIDATION_CONFIG_USED present=%s count=%d", has_file, len(_OUTFIT_VALIDATION_PRINCIPLES))
+    return list(_OUTFIT_VALIDATION_PRINCIPLES)
+
+
+def get_wardrobe_management_principles() -> List[str]:
+    has_file = bool(load_config(STYLE_CONFIG_FILES["wardrobe_management"]))
+    logger.info("AHVI_WARDROBE_MANAGEMENT_CONFIG_USED present=%s count=%d", has_file, len(_WARDROBE_MANAGEMENT_PRINCIPLES))
+    return list(_WARDROBE_MANAGEMENT_PRINCIPLES)
+
+
+def get_inspiration_board_contract() -> Dict[str, Any]:
+    cfg = load_config(STYLE_CONFIG_FILES["inspiration_board"])
+    schema = (cfg.get("response_schema") or {}).get("required_output") or []
+    contract = {
+        "required_output": list(schema)[:8],
+        "bridge_to_action": True,  # inspiration must end in a next_best_action
+        "include_missing_piece": True,
+    }
+    logger.info("AHVI_INSPIRATION_CONFIG_USED fields=%s", contract["required_output"])
+    return contract
+
+
+def get_mood_board_contract() -> Dict[str, Any]:
+    cfg = load_config(STYLE_CONFIG_FILES["mood_board"])
+    taxonomy = cfg.get("aesthetic_taxonomy")
+    emotion = cfg.get("emotion_mapping")
+    contract = {
+        "aesthetic_taxonomy": list(taxonomy)[:18] if isinstance(taxonomy, list) else [],
+        "emotion_mapping": emotion if isinstance(emotion, dict) else {},
+        "fields": ["aesthetic", "mood", "palette", "hero_piece", "silhouette", "styling_notes"],
+    }
+    logger.info(
+        "AHVI_MOOD_BOARD_CONFIG_USED aesthetics=%d emotions=%d",
+        len(contract["aesthetic_taxonomy"]), len(contract["emotion_mapping"]),
+    )
+    return contract
