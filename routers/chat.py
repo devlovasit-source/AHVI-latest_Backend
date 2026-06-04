@@ -44,6 +44,7 @@ from services.stylist_knowledge_service import (
     STYLE_MODES,
     WARDROBE_STYLE,
     classify_style_mode,
+    is_wardrobe_style_request,
 )
 
 try:
@@ -355,13 +356,43 @@ def _style_clarification_response(query: str, interpretation: Dict[str, Any]) ->
     }
 
 
-def _style_reasoning_chat_response(reasoning: Dict[str, Any], query: str, module_context: str = "") -> Dict[str, Any]:
+def _style_reasoning_chat_response(
+    reasoning: Dict[str, Any],
+    query: str,
+    module_context: str = "",
+    wardrobe: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     message = str(reasoning.get("advice") or "").strip()
     chips = reasoning.get("cta") if isinstance(reasoning.get("cta"), list) else []
     mode = str(reasoning.get("mode") or "style_advice")
     visual_directions = reasoning.get("visual_directions")
     if not isinstance(visual_directions, list):
         visual_directions = []
+
+    # Phase 7: missing-piece intelligence block for shopping/missing-piece mode.
+    missing_block: Dict[str, Any] = {}
+    if mode in {"shopping_assist", "missing_pieces"}:
+        try:
+            from services.style_context_service import (
+                build_style_context,
+                build_missing_piece_intelligence,
+            )
+
+            _ctx = build_style_context(
+                query=query, mode="missing_pieces", wardrobe_items=wardrobe or []
+            )
+            _reason = str(reasoning.get("missing_piece_reasoning") or "").strip()
+            _missing = (
+                [{"name": "", "category": "", "reason": _reason, "unlocks": []}]
+                if _reason
+                else []
+            )
+            missing_block = build_missing_piece_intelligence(
+                wardrobe_summary=_ctx.get("wardrobe_summary", {}),
+                missing_items=_missing,
+            )
+        except Exception:  # noqa: BLE001
+            missing_block = {}
     visual_cards = [
         {
             "type": "visual_direction",
@@ -407,7 +438,12 @@ def _style_reasoning_chat_response(reasoning: Dict[str, Any], query: str, module
             "stylist_mode": True,
             "cta_actions": chips,
             "visual_directions": visual_directions,
+            "goal": reasoning.get("goal"),
+            "impression": reasoning.get("impression"),
+            "confidence_strategy": reasoning.get("confidence_strategy"),
+            "missing_piece_intelligence": missing_block or None,
         },
+        "blocks": ([missing_block] if missing_block.get("missing_items") else []),
         "meta": {
             **(reasoning.get("meta") if isinstance(reasoning.get("meta"), dict) else {}),
             "mode": "style_reasoning",
@@ -3829,6 +3865,8 @@ def text_chat(request: TextChatRequest, http_request: Request):
         module_context=request.module_context or "",
         style_action=style_action,
     )
+    _mem = request.current_memory if isinstance(request.current_memory, dict) else {}
+    _last_style_context = _mem.get("last_style_context") if isinstance(_mem.get("last_style_context"), dict) else {}
     reasoning = style_reasoning_engine.reason(
         query=english_input,
         intent=intent_row,
@@ -3837,15 +3875,18 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "module_context": request.module_context or "",
             "style_action": style_action,
             "show_closest_option": closest_requested,
+            # Real situational data for the Stylist Brain V2 context builder.
+            "occasion": _ahvi_style_occasion(english_input),
+            "wardrobe": request.wardrobe if isinstance(request.wardrobe, list) else [],
+            "weather": weather_data if "weather_data" in locals() else {},
+            "last_style_context": _last_style_context,
         },
         wardrobe_summary={
             "provided_count": len(request.wardrobe or [])
             if isinstance(request.wardrobe, list)
             else 0
         },
-        history=request.current_memory.get("history", [])
-        if isinstance(request.current_memory, dict)
-        else [],
+        history=_mem.get("history", []),
     )
     style_mode = str(reasoning.get("mode") or style_mode or "").strip().lower()
 
@@ -3867,6 +3908,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             reasoning,
             english_input,
             request.module_context or "chat",
+            wardrobe=request.wardrobe if isinstance(request.wardrobe, list) else [],
         )
         if not cache_visual_boards:
             _CHAT_CACHE.set(cache_key, response)
@@ -4045,6 +4087,49 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 "fast_style_route": True,
                 "interpreted_occasion": interpreted_occasion,
             }
+            # Phase 6: editorial wardrobe board, built from the user's ACTUAL
+            # wardrobe items (real images), when this is a wardrobe-style ask.
+            try:
+                _is_wardrobe_ask = (
+                    (request.module_context or "").lower() in {"wardrobe", "closet", "daily_wear"}
+                    or is_wardrobe_style_request(
+                        english_input,
+                        module_context=request.module_context or "",
+                        style_action=style_action,
+                    )
+                )
+                _items = request.wardrobe if isinstance(request.wardrobe, list) else []
+                if _is_wardrobe_ask and _items:
+                    from services.style_context_service import (
+                        build_style_context,
+                        build_editorial_wardrobe_board,
+                    )
+
+                    _ctx = build_style_context(
+                        query=english_input,
+                        occasion=interpreted_occasion,
+                        mode="wardrobe_style",
+                        wardrobe_items=_items,
+                        user_profile=effective_user_profile,
+                    )
+                    _occ_label = str(interpreted_occasion or "Your Look").replace("_", " ").title()
+                    _board = build_editorial_wardrobe_board(
+                        title=f"{_occ_label} — From Your Wardrobe",
+                        goal=str((style_payload.get("meta") or {}).get("goal") or ""),
+                        impression="",
+                        stylist_reasoning=str(style_payload.get("message_text") or "").strip(),
+                        wardrobe_items=_ctx.get("wardrobe_items", []),
+                        palette=[],
+                        why_it_works="",
+                    )
+                    if _board:
+                        existing = style_payload.get("blocks")
+                        style_payload["blocks"] = (
+                            existing if isinstance(existing, list) else []
+                        ) + [_board]
+                        style_payload["data"]["editorial_wardrobe_board"] = _board
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ahvi.editorial_board_failed err=%s", str(exc)[:140])
             return style_payload
 
     # -------------------------

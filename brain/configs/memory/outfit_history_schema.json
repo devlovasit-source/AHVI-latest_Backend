@@ -1,0 +1,192 @@
+{
+  "schema_version": "1.0",
+
+  "description": "Long-term outfit intelligence memory. Tracks outfit usage, confidence outcomes, event performance, repeat patterns, style evolution, and recommendation effectiveness.",
+
+  "memory_metadata": {
+    "created_at": "",
+    "last_updated_at": "",
+    "total_outfits_recorded": 0,
+    "confidence_score": 0.0
+  },
+
+  "outfit_summary": {
+    "total_outfits": 0,
+    "saved_outfits": 0,
+    "generated_outfits": 0,
+    "user_created_outfits": 0,
+    "average_outfit_confidence": null
+  },
+
+  "outfit_schema": {
+    "outfit_id": "",
+    "outfit_name": "",
+    "outfit_source": "",
+    "created_at": "",
+    "last_worn": "",
+
+    "items": [],
+
+    "style_archetypes": [],
+    "occasion_types": [],
+    "season": [],
+
+    "primary_colors": [],
+    "secondary_colors": [],
+
+    "confidence_score": null,
+    "comfort_score": null,
+    "versatility_score": null,
+
+    "image_assets": [],
+    "tags": []
+  },
+
+  "wear_history": [
+    {
+      "outfit_id": "",
+      "event_id": "",
+      "date_worn": "",
+      "occasion": "",
+      "location": "",
+
+      "weather_context": "",
+
+      "confidence_rating": null,
+      "comfort_rating": null,
+      "compliment_score": null,
+
+      "would_repeat": null,
+
+      "notes": []
+    }
+  ],
+
+  "outfit_performance": {
+    "highest_confidence_outfits": [],
+    "highest_comfort_outfits": [],
+    "highest_versatility_outfits": [],
+    "best_event_outfits": [],
+    "best_travel_outfits": [],
+    "best_workwear_outfits": []
+  },
+
+  "occasion_intelligence": {
+    "workwear": {
+      "top_outfits": [],
+      "average_confidence": null
+    },
+
+    "casual": {
+      "top_outfits": [],
+      "average_confidence": null
+    },
+
+    "events": {
+      "top_outfits": [],
+      "average_confidence": null
+    },
+
+    "weddings": {
+      "top_outfits": [],
+      "average_confidence": null
+    },
+
+    "travel": {
+      "top_outfits": [],
+      "average_confidence": null
+    }
+  },
+
+  "weather_intelligence": {
+    "hot_weather_winners": [],
+    "cold_weather_winners": [],
+    "rain_friendly_outfits": [],
+    "weather_failures": []
+  },
+
+  "color_intelligence": {
+    "highest_confidence_color_combinations": [],
+    "most_worn_colors": [],
+    "least_worn_colors": [],
+    "emerging_color_preferences": []
+  },
+
+  "confidence_intelligence": {
+    "confidence_drivers": [],
+    "confidence_patterns": [],
+    "confidence_failures": [],
+    "event_confidence_predictors": []
+  },
+
+  "repeat_wear_intelligence": {
+    "repeat_frequency": {},
+    "outfits_at_risk_of_overuse": [],
+    "rotation_recommendations": [],
+    "outfit_fatigue_score": null
+  },
+
+  "packing_intelligence": {
+    "most_packed_outfits": [],
+    "travel_success_outfits": [],
+    "multi_destination_outfits": [],
+    "packing_efficiency_patterns": []
+  },
+
+  "event_intelligence": {
+    "event_success_patterns": [],
+    "event_failure_patterns": [],
+    "high_confidence_event_combinations": [],
+    "event_readiness_predictors": []
+  },
+
+  "style_evolution": {
+    "retired_outfits": [],
+    "current_favorites": [],
+    "emerging_style_patterns": [],
+    "declining_style_patterns": []
+  },
+
+  "recommendation_effectiveness": {
+    "ahvi_recommended_outfits": [],
+    "accepted_recommendations": [],
+    "rejected_recommendations": [],
+    "recommendation_success_rate": null
+  },
+
+  "behavioral_patterns": {
+    "frequently_repeated_outfits": [],
+    "occasion_based_preferences": [],
+    "seasonal_preferences": [],
+    "decision_shortcuts": []
+  },
+
+  "cross_domain_alignment": {
+    "style_dna_alignment": [],
+    "travel_alignment": [],
+    "beauty_alignment": [],
+    "shopping_alignment": [],
+    "event_alignment": []
+  },
+
+  "predictive_intelligence": {
+    "likely_next_favorite_outfits": [],
+    "future_repeat_risks": [],
+    "high_confidence_future_recommendations": [],
+    "outfit_gap_predictions": []
+  },
+
+  "recommendation_engine": {
+    "always_recommend": [],
+    "recommend_with_caution": [],
+    "avoid_recommending": [],
+    "high_confidence_recommendations": []
+  },
+
+  "ahvi_learning": {
+    "new_outfit_patterns_detected": [],
+    "successful_combinations_discovered": [],
+    "confidence_model_updates": [],
+    "learning_confidence_score": 0.0
+  }
+}

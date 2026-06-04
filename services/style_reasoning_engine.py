@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Dict, List
+
+logger = logging.getLogger("ahvi.style_reasoning")
 
 from brain.tone.tone_engine import tone_engine
 from prompts.core_prompts import AHVI_SYSTEM_PROMPT
@@ -41,6 +44,43 @@ _GEMINI_MODES = {
 def _norm(value: Any) -> str:
     text = re.sub(r"[^a-z0-9\s]", " ", str(value or "").lower())
     return re.sub(r"\s+", " ", text).strip()
+
+
+_RECURSIVE_PREFIXES = (
+    "show visual inspiration for:",
+    "show visual inspiration for",
+    "use my wardrobe for:",
+    "use my wardrobe for",
+    "find missing pieces for:",
+    "find missing pieces for",
+    "show shopping ideas for:",
+    "show shopping ideas for",
+)
+
+
+def _clean_recursive_prompt(query: str) -> str:
+    """Strip stacked action prefixes so the base occasion survives instead of
+    polluting the prompt as "show visual inspiration for: show visual
+    inspiration for: coffee date". Keeps only the trailing real intent."""
+    text = str(query or "").strip()
+    changed = True
+    guard = 0
+    while changed and guard < 6:
+        changed = False
+        guard += 1
+        low = text.lower()
+        for pref in _RECURSIVE_PREFIXES:
+            if low.startswith(pref):
+                text = text[len(pref):].strip(" :·-")
+                changed = True
+                break
+        # Collapse an internal " · " chain to its last meaningful segment.
+        if " · " in text:
+            tail = text.split(" · ")[-1].strip()
+            if tail:
+                text = tail
+                changed = True
+    return text or str(query or "").strip()
 
 
 def _intent_name(intent: dict | str | None) -> str:
@@ -400,29 +440,46 @@ def _fallback_visual_directions(mode: str, category: str | None) -> List[Dict[st
 
 
 def _coerce_mode(query: str, intent: dict | str | None, context: dict | None) -> str:
+    """Resolve the style mode with a HARD precedence so a wardrobe action
+    never loses to a visual-inspiration phrase that happens to sit in the
+    same string (e.g. chip value
+    "Use my wardrobe for: show visual inspiration for coffee date").
+
+        use_wardrobe > find_missing_pieces > visual_inspiration > style_advice
+    """
     ctx = context if isinstance(context, dict) else {}
-    style_action = str(ctx.get("style_action") or "")
+    style_action = _norm(ctx.get("style_action"))
+    next_action = _norm(ctx.get("next_action"))
     module_context = str(ctx.get("module_context") or ctx.get("module") or "")
     intent_value = _intent_name(intent)
     q = _norm(query)
-    if _has_any(
-        q,
-        (
-            "show visual inspiration",
-            "visual inspiration",
-            "generate moodboard",
-            "show moodboard",
-            "moodboard for",
-        ),
+    action_blob = f"{q} {style_action} {next_action}"
+
+    # 1) use_wardrobe — highest precedence.
+    if (
+        module_context.lower() in {"wardrobe", "closet"}
+        or _has_any(action_blob, ("use_wardrobe", "use my wardrobe", "use wardrobe", "from my wardrobe", "with my wardrobe"))
     ):
+        logger.info("AHVI_STYLE_ROUTE_FORCED mode=wardrobe_style reason=use_wardrobe")
+        return WARDROBE_STYLE
+
+    # 2) find_missing_pieces.
+    if _has_any(action_blob, ("find_missing_pieces", "find missing pieces", "missing piece", "missing pieces", "what should i buy", "shopping ideas", "complete the look", "complete this look")):
+        logger.info("AHVI_STYLE_ROUTE_FORCED mode=missing_pieces reason=find_missing_pieces")
+        return SHOPPING_ASSIST
+
+    # 3) visual_inspiration.
+    if _has_any(action_blob, ("show visual inspiration", "visual inspiration", "generate moodboard", "show moodboard", "moodboard for")):
         return VISUAL_INSPIRATION
+
+    # 4) explicit intent, else classify (style_advice default).
     if intent_value in _STYLE_REASONING_MODES:
         return intent_value
     return (
         classify_style_mode(
             query,
             module_context=module_context,
-            style_action=style_action,
+            style_action=str(ctx.get("style_action") or ""),
         )
         or GENERAL
     )
@@ -435,7 +492,11 @@ def _build_reasoning_prompt(
     category: str | None,
     user_profile: dict,
     context: dict,
+    policy: dict | None = None,
+    style_ctx: dict | None = None,
 ) -> str:
+    policy = policy or {}
+    style_ctx = style_ctx or {}
     return f"""
 {AHVI_SYSTEM_PROMPT}
 
@@ -462,6 +523,7 @@ Return ONLY valid JSON matching this schema:
   "goal": string,
   "impression": string,
   "atmosphere": string,
+  "confidence_strategy": string,
   "emotion_state": "neutral | excited | frustrated | vulnerable | professional | social",
   "stylist_reasoning": string,
   "what_to_avoid": [string],
@@ -474,12 +536,18 @@ Return ONLY valid JSON matching this schema:
       "palette": [string],
       "pieces": [string],
       "why_it_works": string,
+      "board_brief": {{"hero": string, "support": string, "footwear": string, "accent": string}},
       "style_note": string
     }}
   ],
   "follow_up_question": string|null,
   "confidence": float
 }}
+
+confidence_strategy = one line on how to make the user feel confident in this
+specific moment (what to lean into, what to reassure).
+board_brief = a compact brief the board renderer can visualize: which piece is
+the hero, what supports it, the footwear, and the one accent.
 
 Writing rules for stylist_reasoning:
 - Speak like a stylist explaining a decision. Use phrasing such as
@@ -515,11 +583,15 @@ Hard rules:
   Beach dinner: relaxed evening polish, no swimwear/flip-flops after sunset.
 - Wardrobe styling is not allowed in this response.
 
+Style policy (compact — obey, do not echo verbatim):
+{policy}
+
+Style context (compact — the user's real situation):
+{style_ctx}
+
 Known deterministic mode: {mode}
 Detected category: {category or "unknown"}
 User query: {query}
-User profile: {user_profile}
-Context: {context}
 """
 
 
@@ -534,6 +606,7 @@ def _normalize_direction(value: Any, fallback: Dict[str, Any]) -> Dict[str, Any]
         "why_it_works": str(
             item.get("why_it_works") or fallback.get("why_it_works") or ""
         ).strip(),
+        "board_brief": item.get("board_brief") if isinstance(item.get("board_brief"), dict) else {},
         "style_note": str(item.get("style_note") or fallback.get("style_note") or "").strip(),
     }
 
@@ -579,12 +652,42 @@ def _gemini_reasoning(
     user_profile: dict,
     context: dict,
 ) -> Dict[str, Any]:
+    # Compact policy + style context (never the full rule libraries).
+    policy: Dict[str, Any] = {}
+    style_ctx: Dict[str, Any] = {}
+    try:
+        from brain.config_loader import get_style_policy_context
+
+        policy = get_style_policy_context(
+            intent=mode, occasion=str(context.get("occasion") or category or ""), mode=mode
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ahvi.style.policy_failed err=%s", str(exc)[:140])
+    try:
+        from services.style_context_service import build_style_context, compact_context_for_prompt
+
+        full_ctx = build_style_context(
+            query=query,
+            occasion=str(context.get("occasion") or category or "") or None,
+            mode=mode if mode in {"style_advice", "visual_inspiration", "wardrobe_style", "missing_pieces"} else "style_advice",
+            wardrobe_items=context.get("wardrobe") or context.get("wardrobe_items"),
+            weather=context.get("weather") or context.get("weather_context"),
+            event_context=context.get("event_context"),
+            user_profile=user_profile,
+            last_style_context=context.get("last_style_context"),
+        )
+        style_ctx = compact_context_for_prompt(full_ctx)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ahvi.style.context_failed err=%s", str(exc)[:140])
+
     prompt = _build_reasoning_prompt(
-        query=query,
+        query=_clean_recursive_prompt(query),
         mode=mode,
         category=category,
         user_profile=user_profile,
         context=context,
+        policy=policy,
+        style_ctx=style_ctx,
     )
     raw = generate_text(
         prompt,
@@ -593,7 +696,14 @@ def _gemini_reasoning(
         signals={"context_mode": "style_reasoning", "style_mode": mode},
         usecase="style_reasoning",
     )
-    return parse_json_object(raw)
+    logger.info("AHVI_STYLE_GEMINI_RAW_LEN usecase=style_reasoning len=%d", len(str(raw or "")))
+    parsed = parse_json_object(raw)
+    if isinstance(parsed, dict):
+        logger.info(
+            "AHVI_STYLE_GEMINI_PARSED_KEYS keys=%s",
+            ",".join(sorted(parsed.keys()))[:240],
+        )
+    return parsed
 
 
 def _coerce_emotion(value: Any, category: str | None) -> str:
@@ -639,6 +749,11 @@ def _build_response(
     missing_piece_reasoning = str(
         payload.get("missing_piece_reasoning") or _fallback_missing_piece(query, category)
     ).strip()
+    confidence_strategy = str(
+        payload.get("confidence_strategy")
+        or "Lean into what already fits well and keep one deliberate detail — "
+        "confidence reads as ease, not effort."
+    ).strip()
     polished_advice = tone_engine.apply(
         raw_advice,
         user_profile=user_profile,
@@ -668,6 +783,7 @@ def _build_response(
         "goal": goal,
         "impression": impression,
         "atmosphere": atmosphere,
+        "confidence_strategy": confidence_strategy,
         "missing_piece_reasoning": missing_piece_reasoning,
         "follow_up_question": follow_up,
         "cta": _fallback_cta(query),

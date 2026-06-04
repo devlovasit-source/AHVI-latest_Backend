@@ -1,0 +1,191 @@
+{
+  "schema_version": "1.0",
+
+  "description": "Master visual identity memory system. Defines the user's style DNA, visual personality, confidence drivers, aesthetic preferences, lifestyle alignment, and style evolution over time.",
+
+  "memory_metadata": {
+    "created_at": "",
+    "last_updated_at": "",
+    "confidence_score": 0.0,
+    "style_profile_version": "1.0"
+  },
+
+  "style_identity": {
+    "primary_style_archetype": "",
+    "secondary_style_archetypes": [],
+    "style_confidence_score": null,
+    "style_maturity_score": null,
+    "style_consistency_score": null
+  },
+
+  "visual_identity": {
+    "visual_personality": "",
+    "signature_look": "",
+    "personal_brand_keywords": [],
+    "desired_impression": [],
+    "style_mission_statement": ""
+  },
+
+  "style_archetypes": {
+    "quiet_luxury": 0,
+    "minimalist": 0,
+    "classic": 0,
+    "modern": 0,
+    "romantic": 0,
+    "creative": 0,
+    "bohemian": 0,
+    "edgy": 0,
+    "sporty": 0,
+    "feminine": 0,
+    "founder_chic": 0,
+    "power_dressing": 0,
+    "modern_ethnic": 0,
+    "resort_luxury": 0
+  },
+
+  "color_dna": {
+    "core_colors": [],
+    "accent_colors": [],
+    "power_colors": [],
+    "avoided_colors": [],
+    "seasonal_color_preferences": {},
+    "color_confidence_scores": {}
+  },
+
+  "silhouette_dna": {
+    "preferred_fits": [],
+    "preferred_shapes": [],
+    "preferred_lengths": [],
+    "preferred_proportions": [],
+    "avoided_silhouettes": []
+  },
+
+  "fabric_dna": {
+    "favorite_fabrics": [],
+    "luxury_fabrics": [],
+    "comfort_fabrics": [],
+    "avoided_fabrics": []
+  },
+
+  "category_preferences": {
+    "tops": [],
+    "bottoms": [],
+    "dresses": [],
+    "ethnicwear": [],
+    "outerwear": [],
+    "footwear": [],
+    "bags": [],
+    "jewelry": [],
+    "accessories": []
+  },
+
+  "occasion_profiles": {
+    "workwear": {
+      "style_identity": "",
+      "confidence_score": null,
+      "preferred_elements": []
+    },
+
+    "casual": {
+      "style_identity": "",
+      "confidence_score": null,
+      "preferred_elements": []
+    },
+
+    "travel": {
+      "style_identity": "",
+      "confidence_score": null,
+      "preferred_elements": []
+    },
+
+    "events": {
+      "style_identity": "",
+      "confidence_score": null,
+      "preferred_elements": []
+    },
+
+    "weddings": {
+      "style_identity": "",
+      "confidence_score": null,
+      "preferred_elements": []
+    }
+  },
+
+  "confidence_drivers": {
+    "highest_confidence_outfits": [],
+    "highest_confidence_colors": [],
+    "highest_confidence_brands": [],
+    "highest_confidence_combinations": [],
+    "confidence_boosters": [],
+    "confidence_killers": []
+  },
+
+  "shopping_dna": {
+    "favorite_brands": [],
+    "aspirational_brands": [],
+    "price_sensitivity": "",
+    "quality_preference_score": null,
+    "investment_piece_preference": "",
+    "shopping_personality": ""
+  },
+
+  "wardrobe_strategy": {
+    "wardrobe_philosophy": "",
+    "capsule_wardrobe_score": null,
+    "versatility_preference": null,
+    "statement_piece_preference": null,
+    "wardrobe_gap_tolerance": null
+  },
+
+  "style_evolution": {
+    "past_style_phases": [],
+    "current_style_phase": "",
+    "desired_future_style": "",
+    "style_transformation_goals": []
+  },
+
+  "lifestyle_alignment": {
+    "career_alignment_score": null,
+    "travel_alignment_score": null,
+    "wellness_alignment_score": null,
+    "social_alignment_score": null,
+    "life_stage_alignment_score": null
+  },
+
+  "visual_inspirations": {
+    "inspiration_sources": [],
+    "admired_public_figures": [],
+    "admired_brands": [],
+    "saved_aesthetic_themes": []
+  },
+
+  "behavioral_style_patterns": {
+    "most_worn_items": [],
+    "least_worn_items": [],
+    "repeat_purchase_patterns": [],
+    "style_risk_tolerance": null,
+    "experimentation_score": null
+  },
+
+  "cross_domain_alignment": {
+    "beauty_alignment": [],
+    "travel_alignment": [],
+    "shopping_alignment": [],
+    "goal_alignment": [],
+    "personal_brand_alignment": []
+  },
+
+  "recommendation_engine": {
+    "always_recommend": [],
+    "recommend_with_caution": [],
+    "never_recommend": [],
+    "high_confidence_recommendations": []
+  },
+
+  "ahvi_learning": {
+    "new_style_patterns_detected": [],
+    "style_preferences_under_validation": [],
+    "style_profile_updates": [],
+    "learning_confidence_score": 0.0
+  }
+}

@@ -1,0 +1,150 @@
+{
+  "schema_version": "1.0",
+
+  "description": "Live wardrobe context used by styling, shopping, packing, travel, event, and recommendation systems. Represents the user's currently usable wardrobe state.",
+
+  "context_metadata": {
+    "generated_at": "",
+    "last_updated": "",
+    "context_confidence": 0.0
+  },
+
+  "wardrobe_summary": {
+    "total_items": 0,
+    "active_items": 0,
+    "inactive_items": 0,
+    "seasonally_available_items": 0,
+    "recently_added_items": 0
+  },
+
+  "available_inventory": {
+    "tops": [],
+    "bottoms": [],
+    "dresses": [],
+    "outerwear": [],
+    "footwear": [],
+    "bags": [],
+    "jewelry": [],
+    "accessories": [],
+    "ethnic_wear": [],
+    "occasion_wear": [],
+    "activewear": [],
+    "sleepwear": []
+  },
+
+  "current_season": {
+    "season": "",
+    "recommended_items": [],
+    "restricted_items": []
+  },
+
+  "weather_compatible_items": {
+    "today": [],
+    "next_7_days": [],
+    "rain_ready": [],
+    "heat_ready": [],
+    "cold_ready": []
+  },
+
+  "outfit_readiness": {
+    "casual": {
+      "available_outfits": 0,
+      "confidence": 0.0
+    },
+
+    "workwear": {
+      "available_outfits": 0,
+      "confidence": 0.0
+    },
+
+    "vacation": {
+      "available_outfits": 0,
+      "confidence": 0.0
+    },
+
+    "formal": {
+      "available_outfits": 0,
+      "confidence": 0.0
+    },
+
+    "ethnic": {
+      "available_outfits": 0,
+      "confidence": 0.0
+    }
+  },
+
+  "upcoming_event_coverage": {
+    "fully_prepared": [],
+    "partially_prepared": [],
+    "not_prepared": []
+  },
+
+  "packing_readiness": {
+    "upcoming_trip_coverage": [],
+    "missing_travel_items": [],
+    "travel_readiness_score": null
+  },
+
+  "style_gap_analysis": {
+    "missing_basics": [],
+    "missing_statement_pieces": [],
+    "missing_occasion_wear": [],
+    "missing_footwear": [],
+    "missing_accessories": [],
+    "seasonal_gaps": []
+  },
+
+  "shopping_opportunities": {
+    "highest_priority_purchases": [],
+    "recommended_additions": [],
+    "wishlist_matches": []
+  },
+
+  "utilization_analysis": {
+    "most_worn_items": [],
+    "least_worn_items": [],
+    "never_worn_items": [],
+    "wardrobe_efficiency_score": null
+  },
+
+  "active_outfit_pool": {
+    "recommended_today": [],
+    "recommended_this_week": [],
+    "saved_outfits": [],
+    "event_outfits": []
+  },
+
+  "cross_domain_dependencies": {
+    "travel": {
+      "required_items": [],
+      "coverage_score": null
+    },
+
+    "events": {
+      "required_items": [],
+      "coverage_score": null
+    },
+
+    "shopping": {
+      "replacement_candidates": [],
+      "wishlist_opportunities": []
+    },
+
+    "beauty": {
+      "beauty_style_alignment_score": null
+    }
+  },
+
+  "proactive_signals": {
+    "repeat_outfit_risk": false,
+    "season_change_required": false,
+    "event_preparation_required": false,
+    "shopping_gap_detected": false,
+    "travel_preparation_required": false
+  },
+
+  "recommended_experiences": {
+    "primary": "",
+    "secondary": []
+  }
+}

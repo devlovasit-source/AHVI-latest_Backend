@@ -1,0 +1,357 @@
+{
+"version": "1.0",
+
+"experience": "style_board",
+
+"description": "AHVI's primary visual styling experience. Generates personalized outfit recommendations, styling guidance, wardrobe utilization insights, shopping opportunities, and confidence-building looks.",
+
+"experience_objective": {
+
+```
+"primary_goal":
+  "Help users feel confident, appropriate, authentic, and prepared.",
+
+"secondary_goals": [
+
+  "maximize_wardrobe_utilization",
+
+  "reduce_decision_fatigue",
+
+  "identify_shopping_gaps",
+
+  "increase_style_confidence",
+
+  "save_time"
+]
+```
+
+},
+
+"activation_conditions": [
+
+```
+"styling_intent_detected",
+
+"outfit_request",
+
+"calendar_event_detected",
+
+"weather_change",
+
+"wardrobe_gap_detected",
+
+"proactive_style_trigger"
+```
+
+],
+
+"required_context": {
+
+```
+"critical": [
+
+  "weather",
+
+  "calendar",
+
+  "wardrobe",
+
+  "style_profile"
+],
+
+"important": [
+
+  "location",
+
+  "season",
+
+  "body_profile",
+
+  "shopping_history"
+]
+```
+
+},
+
+"board_structure": {
+
+```
+"hero_card": {
+
+  "required": true,
+
+  "elements": [
+
+    "occasion",
+
+    "weather",
+
+    "style_direction",
+
+    "confidence_score"
+  ]
+},
+
+"primary_outfit": {
+
+  "required": true,
+
+  "elements": [
+
+    "top",
+
+    "bottom",
+
+    "footwear",
+
+    "accessories",
+
+    "layering"
+  ]
+},
+
+"alternate_outfits": {
+
+  "minimum": 2,
+
+  "maximum": 4
+},
+
+"visual_style_board": {
+
+  "required": true,
+
+  "elements": [
+
+    "outfit_assets",
+
+    "color_story",
+
+    "silhouette",
+
+    "styling_reference"
+  ]
+},
+
+"shopping_gap_analysis": {
+
+  "required": false,
+
+  "elements": [
+
+    "missing_items",
+
+    "recommended_purchases"
+  ]
+},
+
+"next_best_action": {
+
+  "required": true
+}
+```
+
+},
+
+"outfit_generation_framework": {
+
+```
+"selection_order": [
+
+  "calendar_event",
+
+  "weather",
+
+  "dress_code",
+
+  "user_style",
+
+  "wardrobe_availability",
+
+  "comfort",
+
+  "confidence"
+]
+```
+
+},
+
+"style_archetypes": [
+
+```
+"minimalist",
+
+"classic",
+
+"elevated_basics",
+
+"bohemian",
+
+"romantic",
+
+"edgy",
+
+"streetwear",
+
+"luxury",
+
+"traditional",
+
+"fusion",
+
+"creative",
+
+"corporate"
+```
+
+],
+
+"recommendation_strategy": {
+
+```
+"always_generate": [
+
+  "safe_option",
+
+  "recommended_option",
+
+  "aspirational_option"
+]
+```
+
+},
+
+"shopping_gap_detection": {
+
+```
+"enabled": true,
+
+"identify": [
+
+  "missing_basics",
+
+  "missing_event_pieces",
+
+  "missing_accessories",
+
+  "seasonal_gaps"
+]
+```
+
+},
+
+"visual_asset_priority": [
+
+```
+"user_wardrobe",
+
+"user_uploaded_images",
+
+"owned_products",
+
+"brand_assets",
+
+"editorial_references",
+
+"catalog_references"
+```
+
+],
+
+"confidence_engine": {
+
+```
+"evaluate": [
+
+  "occasion_match",
+
+  "weather_match",
+
+  "style_alignment",
+
+  "comfort",
+
+  "wardrobe_fit"
+]
+```
+
+},
+
+"proactive_checks": [
+
+```
+"upcoming_events",
+
+"weather_changes",
+
+"repeat_outfit_risk",
+
+"shopping_opportunities",
+
+"seasonal_updates"
+```
+
+],
+
+"response_layout": {
+
+```
+"order": [
+
+  "hero_card",
+
+  "primary_outfit",
+
+  "visual_style_board",
+
+  "alternate_outfits",
+
+  "shopping_gap_analysis",
+
+  "next_best_action"
+]
+```
+
+},
+
+"success_metrics": [
+
+```
+"outfit_saved",
+
+"outfit_worn",
+
+"recommendation_accepted",
+
+"shopping_conversion",
+
+"confidence_increase"
+```
+
+],
+
+"response_schema": {
+
+```
+"required_output": [
+
+  "occasion",
+
+  "weather",
+
+  "style_direction",
+
+  "primary_outfit",
+
+  "alternate_outfits",
+
+  "shopping_gaps",
+
+  "visual_assets",
+
+  "next_best_action"
+]
+```
+
+}
+}

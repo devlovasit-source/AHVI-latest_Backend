@@ -1,0 +1,244 @@
+{
+  "schema_version": "1.0",
+
+  "description": "Master event intelligence context. Aggregates preparation, readiness, dependencies, risks, and opportunities across all domains for upcoming events.",
+
+  "context_metadata": {
+    "generated_at": "",
+    "last_updated": "",
+    "context_confidence": 0.0
+  },
+
+  "event_summary": {
+    "active_event_count": 0,
+    "critical_event_count": 0,
+    "next_event": "",
+    "overall_event_readiness_score": null
+  },
+
+  "active_events": [
+    {
+      "event_id": "",
+      "event_name": "",
+      "event_type": "",
+      "event_category": "",
+      "event_date": "",
+      "days_remaining": 0,
+      "importance_score": 0,
+      "readiness_score": null,
+      "status": ""
+    }
+  ],
+
+  "event_categories": {
+    "social": [],
+    "professional": [],
+    "travel": [],
+    "celebration": [],
+    "wellness": [],
+    "personal": [],
+    "business": []
+  },
+
+  "event_timeline": {
+    "within_90_days": [],
+    "within_30_days": [],
+    "within_14_days": [],
+    "within_7_days": [],
+    "within_3_days": [],
+    "today": []
+  },
+
+  "event_readiness": {
+    "fully_prepared": [],
+    "partially_prepared": [],
+    "not_prepared": [],
+    "at_risk": []
+  },
+
+  "preparation_requirements": {
+    "style": [],
+    "beauty": [],
+    "shopping": [],
+    "travel": [],
+    "packing": [],
+    "wellness": [],
+    "planning": []
+  },
+
+  "style_readiness": {
+    "outfit_selected": false,
+    "alternate_outfits_available": false,
+    "accessories_ready": false,
+    "style_readiness_score": null,
+    "style_gaps": []
+  },
+
+  "beauty_readiness": {
+    "beauty_plan_ready": false,
+    "appointments_scheduled": false,
+    "products_available": false,
+    "beauty_readiness_score": null,
+    "beauty_gaps": []
+  },
+
+  "shopping_readiness": {
+    "required_purchases_completed": false,
+    "pending_purchases": [],
+    "shopping_deadlines": [],
+    "shopping_readiness_score": null
+  },
+
+  "travel_readiness": {
+    "travel_required": false,
+    "travel_booked": false,
+    "documents_ready": false,
+    "travel_readiness_score": null
+  },
+
+  "packing_readiness": {
+    "packing_required": false,
+    "packing_complete": false,
+    "missing_items": [],
+    "packing_readiness_score": null
+  },
+
+  "wellness_readiness": {
+    "energy_ready": false,
+    "recovery_ready": false,
+    "stress_under_control": false,
+    "wellness_readiness_score": null
+  },
+
+  "planning_readiness": {
+    "milestones_complete": false,
+    "dependencies_resolved": false,
+    "planning_readiness_score": null
+  },
+
+  "cross_domain_dependencies": {
+    "calendar_dependencies": [],
+    "travel_dependencies": [],
+    "style_dependencies": [],
+    "beauty_dependencies": [],
+    "shopping_dependencies": [],
+    "wellness_dependencies": []
+  },
+
+  "critical_deadlines": {
+    "within_30_days": [],
+    "within_14_days": [],
+    "within_7_days": [],
+    "within_3_days": []
+  },
+
+  "event_risks": {
+    "style_risk": [],
+    "beauty_risk": [],
+    "shopping_risk": [],
+    "travel_risk": [],
+    "wellness_risk": [],
+    "timeline_risk": []
+  },
+
+  "event_opportunities": {
+    "preparation_opportunities": [],
+    "shopping_opportunities": [],
+    "confidence_boosters": [],
+    "optimization_opportunities": []
+  },
+
+  "event_confidence_engine": {
+    "event_confidence_score": null,
+    "confidence_drivers": [],
+    "confidence_gaps": []
+  },
+
+  "future_projection": {
+    "30_day_readiness": null,
+    "14_day_readiness": null,
+    "7_day_readiness": null,
+    "event_day_readiness": null
+  },
+
+  "detected_risks": {
+    "critical": [],
+    "high": [],
+    "medium": [],
+    "low": []
+  },
+
+  "proactive_signals": {
+    "event_preparation_required": false,
+    "shopping_required": false,
+    "outfit_selection_required": false,
+    "beauty_preparation_required": false,
+    "travel_preparation_required": false,
+    "packing_required": false,
+    "timeline_intervention_required": false
+  },
+
+  "recommended_actions": {
+    "today": [],
+    "this_week": [],
+    "before_event": []
+  },
+
+  "recommended_experiences": {
+    "primary": "",
+    "secondary": []
+  },
+
+  "recommended_boards": [
+    {
+      "board_type": "",
+      "reason": "",
+      "priority": 0
+    }
+  ],
+
+  "experience_triggers": {
+    "event_board": {
+      "enabled": true,
+      "trigger_conditions": [
+        "event_detected",
+        "event_within_90_days"
+      ]
+    },
+
+    "style_board": {
+      "enabled": true,
+      "trigger_conditions": [
+        "outfit_selection_required"
+      ]
+    },
+
+    "beauty_board": {
+      "enabled": true,
+      "trigger_conditions": [
+        "beauty_preparation_required"
+      ]
+    },
+
+    "shopping_board": {
+      "enabled": true,
+      "trigger_conditions": [
+        "shopping_required"
+      ]
+    },
+
+    "travel_board": {
+      "enabled": true,
+      "trigger_conditions": [
+        "travel_preparation_required"
+      ]
+    },
+
+    "timeline_board": {
+      "enabled": true,
+      "trigger_conditions": [
+        "timeline_intervention_required"
+      ]
+    }
+  }
+}

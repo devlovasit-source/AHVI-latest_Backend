@@ -1,0 +1,402 @@
+{
+"version": "1.0",
+
+"description": "Defines how AHVI transforms recommendations, insights, and plans into visual-first experiences using boards, cards, timelines, dashboards, assets, and actionable layouts.",
+
+"core_principle": {
+
+```
+"rule":
+  "If visual communication improves understanding, use visuals before text.",
+
+"goal":
+  "Help users see, understand, and act faster."
+```
+
+},
+
+"visual_first_hierarchy": [
+
+```
+"avatar_demonstration",
+
+"board",
+
+"dashboard",
+
+"timeline",
+
+"comparison",
+
+"cards",
+
+"text"
+```
+
+],
+
+"experience_visual_mapping": {
+
+```
+"style_board": {
+
+  "primary_visual":
+    "outfit_board",
+
+  "supporting_visuals": [
+
+    "color_story",
+
+    "occasion_reference",
+
+    "wardrobe_assets"
+  ]
+},
+
+"shopping_board": {
+
+  "primary_visual":
+    "product_board",
+
+  "supporting_visuals": [
+
+    "comparison_grid",
+
+    "wishlist_matches",
+
+    "owned_item_references"
+  ]
+},
+
+"travel_board": {
+
+  "primary_visual":
+    "destination_board",
+
+  "supporting_visuals": [
+
+    "weather",
+
+    "activities",
+
+    "packing_references",
+
+    "outfit_references"
+  ]
+},
+
+"packing_board": {
+
+  "primary_visual":
+    "packing_layout",
+
+  "supporting_visuals": [
+
+    "checklist",
+
+    "destination_context",
+
+    "weather_context"
+  ]
+},
+
+"beauty_board": {
+
+  "primary_visual":
+    "routine_board",
+
+  "supporting_visuals": [
+
+    "product_assets",
+
+    "look_references",
+
+    "step_flow"
+  ]
+},
+
+"timeline_board": {
+
+  "primary_visual":
+    "timeline",
+
+  "supporting_visuals": [
+
+    "milestones",
+
+    "deadlines",
+
+    "priority_markers"
+  ]
+},
+
+"wellness_dashboard": {
+
+  "primary_visual":
+    "wellness_dashboard",
+
+  "supporting_visuals": [
+
+    "energy_trends",
+
+    "habit_tracking",
+
+    "goal_progress"
+  ]
+},
+
+"decision_board": {
+
+  "primary_visual":
+    "decision_matrix",
+
+  "supporting_visuals": [
+
+    "tradeoff_grid",
+
+    "recommendation_cards"
+  ]
+}
+```
+
+},
+
+"board_selection_framework": {
+
+```
+"styling":
+  "style_board",
+
+"shopping":
+  "shopping_board",
+
+"travel":
+  "travel_board",
+
+"packing":
+  "packing_board",
+
+"beauty":
+  "beauty_board",
+
+"planning":
+  "timeline_board",
+
+"wellness":
+  "wellness_dashboard",
+
+"advice":
+  "decision_board"
+```
+
+},
+
+"asset_selection_strategy": {
+
+```
+"always_prioritize": [
+
+  "user_assets",
+
+  "wardrobe_assets",
+
+  "owned_products",
+
+  "user_uploaded_images"
+],
+
+"fallback_to": [
+
+  "reference_assets",
+
+  "inspiration_assets",
+
+  "editorial_assets",
+
+  "catalog_assets"
+]
+```
+
+},
+
+"visual_context_rules": {
+
+```
+"travel": [
+
+  "destination_imagery",
+
+  "weather_imagery",
+
+  "activity_imagery"
+],
+
+"styling": [
+
+  "wardrobe_items",
+
+  "outfit_references",
+
+  "occasion_references"
+],
+
+"beauty": [
+
+  "beauty_references",
+
+  "routine_visuals"
+],
+
+"shopping": [
+
+  "product_images",
+
+  "comparison_images"
+]
+```
+
+},
+
+"card_framework": {
+
+```
+"default_structure": [
+
+  "hero_card",
+
+  "primary_recommendation_card",
+
+  "visual_board",
+
+  "supporting_cards",
+
+  "insight_card",
+
+  "next_action_card"
+]
+```
+
+},
+
+"hero_card_generation": {
+
+```
+"required_elements": [
+
+  "primary_goal",
+
+  "main_recommendation",
+
+  "confidence_score",
+
+  "quick_action"
+]
+```
+
+},
+
+"supporting_card_types": [
+
+```
+"shopping_gap_card",
+
+"packing_gap_card",
+
+"outfit_card",
+
+"beauty_card",
+
+"wellness_card",
+
+"timeline_card",
+
+"insight_card",
+
+"comparison_card",
+
+"next_action_card"
+```
+
+],
+
+"multi_experience_layout": {
+
+```
+"max_primary_boards": 1,
+
+"max_secondary_boards": 2,
+
+"max_cards": 8
+```
+
+},
+
+"visual_density_rules": {
+
+```
+"simple_request":
+  "cards_only",
+
+"moderate_request":
+  "cards_plus_board",
+
+"complex_request":
+  "hero_card_plus_board_plus_supporting_cards"
+```
+
+},
+
+"proactive_visual_generation": {
+
+```
+"travel_detected":
+  "travel_board",
+
+"wedding_detected":
+  "event_board",
+
+"wardrobe_gap_detected":
+  "style_board",
+
+"shopping_gap_detected":
+  "shopping_board",
+
+"wellness_risk_detected":
+  "wellness_dashboard"
+```
+
+},
+
+"output_objective": {
+
+```
+"target":
+  "generated_experience",
+
+"not":
+  "generated_text"
+```
+
+},
+
+"response_schema": {
+
+```
+"required_output": [
+
+  "selected_board",
+
+  "selected_assets",
+
+  "card_structure",
+
+  "hero_card",
+
+  "supporting_cards",
+
+  "next_action"
+]
+```
+
+}
+}

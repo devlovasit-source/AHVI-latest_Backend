@@ -1,0 +1,174 @@
+{
+  "schema_version": "1.0",
+
+  "description": "Master live context object used across all AHVI systems. Represents the user's current state, active situations, and real-time environment.",
+
+  "context_metadata": {
+    "generated_at": "",
+    "last_updated": "",
+    "context_confidence": 0.0,
+    "source_systems": []
+  },
+
+  "identity": {
+    "user_id": "",
+    "display_name": "",
+    "timezone": "",
+    "locale": "",
+    "language": ""
+  },
+
+  "current_state": {
+    "location": {
+      "city": "",
+      "state": "",
+      "country": "",
+      "coordinates": {
+        "latitude": null,
+        "longitude": null
+      }
+    },
+
+    "time_context": {
+      "date": "",
+      "day_of_week": "",
+      "time_of_day": "",
+      "season": ""
+    },
+
+    "weather_summary": {
+      "condition": "",
+      "temperature": null,
+      "humidity": null,
+      "rain_probability": null
+    }
+  },
+
+  "active_calendar": {
+    "today_events": [],
+    "upcoming_events": [],
+    "critical_events": [],
+    "travel_events": [],
+    "deadlines": []
+  },
+
+  "active_goals": {
+    "current_goals": [],
+    "high_priority_goals": [],
+    "goal_deadlines": []
+  },
+
+  "active_travel": {
+    "upcoming_trips": [],
+    "current_trip": null,
+    "travel_readiness_score": null
+  },
+
+  "active_shopping": {
+    "wishlist_items": [],
+    "shopping_gaps": [],
+    "pending_purchases": []
+  },
+
+  "active_style": {
+    "upcoming_outfit_requirements": [],
+    "style_gaps": [],
+    "outfit_readiness_score": null
+  },
+
+  "active_beauty": {
+    "beauty_preparation_items": [],
+    "beauty_gaps": [],
+    "beauty_readiness_score": null
+  },
+
+  "active_wellness": {
+    "energy_score": null,
+    "sleep_score": null,
+    "recovery_score": null,
+    "stress_score": null,
+    "wellness_risks": []
+  },
+
+  "active_decisions": {
+    "open_decisions": [],
+    "decision_deadlines": [],
+    "high_impact_decisions": []
+  },
+
+  "life_domains": {
+    "style": {
+      "status": "inactive",
+      "priority": 0
+    },
+
+    "beauty": {
+      "status": "inactive",
+      "priority": 0
+    },
+
+    "shopping": {
+      "status": "inactive",
+      "priority": 0
+    },
+
+    "travel": {
+      "status": "inactive",
+      "priority": 0
+    },
+
+    "wellness": {
+      "status": "inactive",
+      "priority": 0
+    },
+
+    "planning": {
+      "status": "inactive",
+      "priority": 0
+    },
+
+    "events": {
+      "status": "inactive",
+      "priority": 0
+    },
+
+    "goals": {
+      "status": "inactive",
+      "priority": 0
+    }
+  },
+
+  "readiness_scores": {
+    "life_score": null,
+    "event_readiness": null,
+    "travel_readiness": null,
+    "shopping_readiness": null,
+    "wellness_readiness": null,
+    "goal_readiness": null
+  },
+
+  "detected_risks": {
+    "critical": [],
+    "high": [],
+    "medium": [],
+    "low": []
+  },
+
+  "detected_opportunities": {
+    "immediate": [],
+    "upcoming": [],
+    "aspirational": []
+  },
+
+  "proactive_candidates": {
+    "recommended_actions": [],
+    "recommended_boards": [],
+    "recommended_notifications": []
+  },
+
+  "experience_context": {
+    "recommended_primary_experience": "",
+    "recommended_secondary_experiences": [],
+    "recommended_cards": []
+  }
+}

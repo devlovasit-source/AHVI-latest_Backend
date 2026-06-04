@@ -1,0 +1,226 @@
+{
+  "schema_version": "1.0",
+
+  "description": "Long-term wardrobe intelligence memory. Stores wardrobe inventory, usage patterns, confidence signals, lifecycle tracking, outfit relationships, and wardrobe evolution over time.",
+
+  "memory_metadata": {
+    "created_at": "",
+    "last_updated_at": "",
+    "total_items": 0,
+    "active_items": 0,
+    "confidence_score": 0.0
+  },
+
+  "wardrobe_summary": {
+    "total_items": 0,
+    "total_outfits": 0,
+    "wardrobe_value": null,
+    "wardrobe_health_score": null,
+    "wardrobe_utilization_score": null,
+    "wardrobe_completeness_score": null
+  },
+
+  "inventory": {
+    "tops": [],
+    "bottoms": [],
+    "dresses": [],
+    "ethnicwear": [],
+    "outerwear": [],
+    "footwear": [],
+    "bags": [],
+    "jewelry": [],
+    "accessories": [],
+    "activewear": [],
+    "sleepwear": []
+  },
+
+  "item_schema": {
+    "item_id": "",
+    "name": "",
+    "category": "",
+    "subcategory": "",
+    "brand": "",
+    "color": [],
+    "fabric": [],
+    "fit": "",
+    "season": [],
+    "occasion": [],
+    "purchase_date": "",
+    "purchase_price": null,
+    "current_status": "",
+    "image_assets": [],
+    "tags": []
+  },
+
+  "wardrobe_utilization": {
+    "most_worn_items": [],
+    "least_worn_items": [],
+    "never_worn_items": [],
+    "seasonal_favorites": [],
+    "high_rotation_items": []
+  },
+
+  "confidence_intelligence": {
+    "highest_confidence_items": [],
+    "highest_confidence_outfits": [],
+    "confidence_boosters": [],
+    "confidence_risks": []
+  },
+
+  "outfit_relationships": {
+    "frequent_combinations": [],
+    "successful_combinations": [],
+    "saved_outfits": [],
+    "event_outfits": [],
+    "travel_outfits": []
+  },
+
+  "occasion_coverage": {
+    "workwear": {
+      "coverage_score": null,
+      "key_items": [],
+      "gaps": []
+    },
+
+    "casual": {
+      "coverage_score": null,
+      "key_items": [],
+      "gaps": []
+    },
+
+    "events": {
+      "coverage_score": null,
+      "key_items": [],
+      "gaps": []
+    },
+
+    "weddings": {
+      "coverage_score": null,
+      "key_items": [],
+      "gaps": []
+    },
+
+    "travel": {
+      "coverage_score": null,
+      "key_items": [],
+      "gaps": []
+    }
+  },
+
+  "seasonal_coverage": {
+    "spring": {
+      "coverage_score": null,
+      "gaps": []
+    },
+
+    "summer": {
+      "coverage_score": null,
+      "gaps": []
+    },
+
+    "monsoon": {
+      "coverage_score": null,
+      "gaps": []
+    },
+
+    "winter": {
+      "coverage_score": null,
+      "gaps": []
+    }
+  },
+
+  "shopping_intelligence": {
+    "replacement_candidates": [],
+    "wishlist_candidates": [],
+    "high_priority_gaps": [],
+    "investment_piece_opportunities": [],
+    "duplicate_items": []
+  },
+
+  "lifecycle_tracking": {
+    "new_arrivals": [],
+    "aging_items": [],
+    "retirement_candidates": [],
+    "repair_candidates": [],
+    "donation_candidates": []
+  },
+
+  "travel_intelligence": {
+    "travel_favorites": [],
+    "packing_efficiency_score": null,
+    "multi_use_items": [],
+    "destination_specific_items": []
+  },
+
+  "event_intelligence": {
+    "event_ready_items": [],
+    "formalwear_inventory": [],
+    "occasion_gaps": [],
+    "event_confidence_score": null
+  },
+
+  "style_alignment": {
+    "style_dna_alignment_score": null,
+    "aligned_items": [],
+    "misaligned_items": [],
+    "aspirational_items": []
+  },
+
+  "financial_intelligence": {
+    "cost_per_wear_leaders": [],
+    "low_value_purchases": [],
+    "high_value_purchases": [],
+    "wardrobe_roi_score": null
+  },
+
+  "behavioral_patterns": {
+    "repeat_wear_patterns": [],
+    "purchase_patterns": [],
+    "neglected_categories": [],
+    "favorite_categories": [],
+    "wardrobe_decision_patterns": []
+  },
+
+  "wardrobe_evolution": {
+    "style_shift_indicators": [],
+    "emerging_preferences": [],
+    "declining_preferences": [],
+    "wardrobe_growth_areas": []
+  },
+
+  "recommendation_engine": {
+    "always_recommend_items": [],
+    "underutilized_opportunities": [],
+    "high_versatility_items": [],
+    "high_confidence_combinations": []
+  },
+
+  "cross_domain_alignment": {
+    "travel": {
+      "alignment_score": null,
+      "recommended_improvements": []
+    },
+
+    "shopping": {
+      "alignment_score": null,
+      "recommended_improvements": []
+    },
+
+    "events": {
+      "alignment_score": null,
+      "recommended_improvements": []
+    },
+
+    "beauty": {
+      "alignment_score": null,
+      "recommended_improvements": []
+    }
+  },
+
+  "ahvi_learning": {
+    "new_item_patterns_detected": [],
+    "wardrobe_behavior_updates": [],
+    "style_evolution_signals": [],
+    "learning_confidence_score": 0.0
+  }
+}
