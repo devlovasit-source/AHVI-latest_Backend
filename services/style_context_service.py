@@ -37,6 +37,157 @@ def _norm(value: Any) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+# --------------------------------------------------------------------------
+# Multi-event / transition-outfit detection. Runs BEFORE generic occasion
+# mapping so "basketball game at 6pm then team dinner at 10pm" is not flattened
+# to "date night".
+# --------------------------------------------------------------------------
+_MULTI_EVENT_CONNECTORS = (
+    " then ",
+    " and then ",
+    " followed by ",
+    " after ",
+    " before ",
+    " later ",
+    " into ",
+    " and ",
+)
+
+# generic_canon -> specific canons that suppress it (so "basketball game" is one
+# event, not basketball_game + sports_game).
+_EVENT_SUPPRESSORS = {
+    "sports_game": {"basketball_game", "football_game", "soccer_game", "cricket_match", "tennis_match", "sports_practice"},
+    "dinner": {"team_dinner"},
+    "party": {"birthday_party", "house_party"},
+    "office": {"office_meeting", "client_meeting", "conference"},
+    "office_meeting": {"client_meeting", "client_presentation"},
+    "work": {"office", "office_meeting", "client_meeting", "client_presentation", "interview", "conference"},
+}
+
+# keyword -> (canonical_sub_occasion, category)
+_EVENT_LEXICON = (
+    ("basketball", ("basketball_game", "active")),
+    ("football", ("football_game", "active")),
+    ("soccer", ("soccer_game", "active")),
+    ("cricket", ("cricket_match", "active")),
+    ("tennis", ("tennis_match", "active")),
+    ("match", ("sports_game", "active")),
+    ("game", ("sports_game", "active")),
+    ("practice", ("sports_practice", "active")),
+    ("gym", ("workout", "active")),
+    ("workout", ("workout", "active")),
+    ("training", ("workout", "active")),
+    ("yoga", ("yoga", "active")),
+    ("run", ("run", "active")),
+    ("client presentation", ("client_presentation", "work")),
+    ("presentation", ("client_presentation", "work")),
+    ("client meeting", ("client_meeting", "work")),
+    ("interview", ("interview", "work")),
+    ("office meeting", ("office_meeting", "work")),
+    ("meeting", ("office_meeting", "work")),
+    ("office", ("office", "work")),
+    ("conference", ("conference", "work")),
+    ("work", ("work", "work")),
+    ("drinks", ("drinks", "drinks")),
+    ("cocktails", ("drinks", "drinks")),
+    ("happy hour", ("drinks", "drinks")),
+    ("team dinner", ("team_dinner", "social")),
+    ("dinner", ("dinner", "social")),
+    ("lunch", ("lunch", "social")),
+    ("brunch", ("brunch", "social")),
+    ("birthday party", ("birthday_party", "social")),
+    ("birthday", ("birthday_party", "social")),
+    ("house party", ("house_party", "social")),
+    ("party", ("party", "social")),
+    ("reception", ("reception", "social")),
+    ("wedding", ("wedding", "social")),
+    ("ceremony", ("ceremony", "ceremony")),
+    ("date", ("date", "date")),
+    ("movie", ("movie", "social")),
+    ("concert", ("concert", "social")),
+    ("travel", ("travel", "travel")),
+    ("flight", ("travel", "travel")),
+    ("airport", ("travel", "travel")),
+)
+
+_TIME_RE = re.compile(r"\b(\d{1,2})\s*(?::\s*(\d{2}))?\s*([ap])\.?m\.?\b", re.IGNORECASE)
+
+
+def _extract_times(text: str) -> List[str]:
+    out: List[str] = []
+    for m in _TIME_RE.finditer(text):
+        hour = int(m.group(1)) % 12
+        minute = int(m.group(2) or 0)
+        if m.group(3).lower() == "p":
+            hour += 12
+        out.append(f"{hour:02d}:{minute:02d}")
+    return out
+
+
+def _strategy_for(categories: List[str]) -> str:
+    cats = set(categories)
+    if "work" in cats and "drinks" in cats:
+        return "day_to_night_transition"
+    if "work" in cats and ("social" in cats or "date" in cats):
+        return "work_to_social_transition"
+    if "active" in cats and ("social" in cats or "drinks" in cats):
+        return "transition_outfit"
+    if "travel" in cats and "social" in cats:
+        return "travel_to_dinner_transition"
+    if "ceremony" in cats and "social" in cats:
+        return "ceremony_to_reception_transition"
+    return "transition_outfit"
+
+
+def detect_multi_event(query: Any) -> Optional[Dict[str, Any]]:
+    """Detect a multi-event / transition-outfit prompt. Returns structured
+    context or None. Requires a sequencing connector AND >=2 distinct events
+    so single-occasion prompts are never misclassified."""
+    raw = str(query or "")
+    q = " " + _norm(raw) + " "
+    if not any(conn in q for conn in _MULTI_EVENT_CONNECTORS):
+        return None
+
+    # Collect events in order of appearance, de-duplicated by canonical name.
+    found: List[tuple] = []
+    seen: set = set()
+    for kw, (canon, cat) in _EVENT_LEXICON:
+        pos = q.find(" " + kw)
+        if pos >= 0 and canon not in seen:
+            seen.add(canon)
+            found.append((pos, canon, cat))
+    found.sort(key=lambda t: t[0])
+    canon_set = {c for _, c, _ in found}
+    # Drop generic events when a more specific sibling was also matched.
+    kept = [
+        (pos, canon, cat)
+        for (pos, canon, cat) in found
+        if not (_EVENT_SUPPRESSORS.get(canon) and _EVENT_SUPPRESSORS[canon] & canon_set)
+    ]
+    sub_occasions = [c for _, c, _ in kept]
+    categories = [cat for _, _, cat in kept]
+    if len(sub_occasions) < 2:
+        return None
+    # Explicit "date" wins only if the user actually said date.
+    times = _extract_times(raw)
+    time_sequence = [
+        {"event": sub_occasions[i], "time": times[i] if i < len(times) else None}
+        for i in range(len(sub_occasions))
+    ]
+    result = {
+        "occasion": "multi_event",
+        "sub_occasions": sub_occasions,
+        "style_strategy": _strategy_for(categories),
+        "time_sequence": time_sequence,
+    }
+    logger.info(
+        "AHVI_MULTI_EVENT_DETECTED sub_occasions=%s style_strategy=%s",
+        sub_occasions,
+        result["style_strategy"],
+    )
+    return result
+
+
 def _safe_dict(value: Any) -> Dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
@@ -118,6 +269,9 @@ def build_style_context(
 
     items = _normalize_wardrobe_items(wardrobe_items)
     profile = _safe_dict(user_profile)
+
+    # Multi-event / transition-outfit detection BEFORE generic occasion use.
+    multi_event = detect_multi_event(query)
     # Style DNA / preferences are read from the profile if present; we do not
     # fabricate them.
     style_dna = _safe_dict(profile.get("style_dna") or profile.get("styleDNA"))
@@ -127,9 +281,12 @@ def build_style_context(
         or profile.get("style")
     )
 
+    resolved_occasion = (str(occasion or "").strip().lower() or None)
+    if multi_event:
+        resolved_occasion = "multi_event"
     context = {
         "query": str(query or "").strip(),
-        "occasion": (str(occasion or "").strip().lower() or None),
+        "occasion": resolved_occasion,
         "mode": safe_mode,
         "wardrobe_available": len(items) > 0,
         "wardrobe_summary": _wardrobe_summary(items),
@@ -139,6 +296,11 @@ def build_style_context(
         "style_dna": style_dna,
         "preferences": preferences,
         "last_style_context": _safe_dict(last_style_context),
+        # Multi-event / transition context (None for single-occasion prompts).
+        "multi_event": multi_event,
+        "sub_occasions": multi_event["sub_occasions"] if multi_event else [],
+        "style_strategy": multi_event["style_strategy"] if multi_event else None,
+        "time_sequence": multi_event["time_sequence"] if multi_event else [],
     }
 
     logger.info(
@@ -283,4 +445,7 @@ def compact_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "last_style_mode": _safe_dict(ctx.get("last_style_context")).get("last_style_mode"),
         "base_occasion": _safe_dict(ctx.get("last_style_context")).get("base_occasion"),
+        "sub_occasions": ctx.get("sub_occasions") or [],
+        "style_strategy": ctx.get("style_strategy"),
+        "time_sequence": ctx.get("time_sequence") or [],
     }

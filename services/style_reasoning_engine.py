@@ -582,6 +582,13 @@ Hard rules:
   Wedding guest: celebratory restraint, festive without competing, no bridal.
   Beach dinner: relaxed evening polish, no swimwear/flip-flops after sunset.
 - Wardrobe styling is not allowed in this response.
+- MULTI-EVENT / TRANSITION: if style context has sub_occasions or a
+  style_strategy, the user is dressing for MORE THAN ONE event in sequence.
+  Do NOT collapse it to a single occasion (never "date night" for a game +
+  dinner). Reason about the transition: dress for the first event's needs
+  (e.g. comfort + movement for a game), then make the later event feel
+  intentional without a full outfit change. goal/impression must reflect the
+  transition, and what_to_avoid should flag anything that fails either event.
 
 Style policy (compact — obey, do not echo verbatim):
 {policy}

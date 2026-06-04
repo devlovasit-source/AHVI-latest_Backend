@@ -1166,6 +1166,15 @@ def _fetch_wardrobe_for_style(
 
 def _ahvi_style_occasion(query_text):
     q = str(query_text or "").lower()
+    # Multi-event / transition prompts must win before generic mapping so
+    # "basketball game ... then team dinner" is not flattened to date night.
+    try:
+        from services.style_context_service import detect_multi_event
+
+        if detect_multi_event(query_text):
+            return "multi_event"
+    except Exception:  # noqa: BLE001
+        pass
     if any(k in q for k in ["swim", "swimming", "swimwear", "swimsuit", "pool"]):
         return "swimming"
     if any(k in q for k in ["beach", "seaside", "coastal", "resort"]):
