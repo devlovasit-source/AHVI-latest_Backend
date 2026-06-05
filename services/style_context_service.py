@@ -260,6 +260,8 @@ def build_style_context(
     event_context: Any = None,
     user_profile: Any = None,
     last_style_context: Any = None,
+    user_id: str = "",
+    memory: Any = None,
 ) -> Dict[str, Any]:
     """Assemble the unified style context. All inputs optional; absent
     sources become empty structures so the prompt stays well-formed."""
@@ -284,6 +286,19 @@ def build_style_context(
     resolved_occasion = (str(occasion or "").strip().lower() or None)
     if multi_event:
         resolved_occasion = "multi_event"
+
+    # Style memory (wear + saved-board). Use caller-provided memory if given,
+    # else load from producers. Always present (neutral when no data).
+    if isinstance(memory, dict):
+        style_memory = memory
+    else:
+        try:
+            from services.style_memory_service import build_style_memory_context
+
+            style_memory = build_style_memory_context(user_id, items)
+        except Exception:  # noqa: BLE001
+            style_memory = {}
+
     context = {
         "query": str(query or "").strip(),
         "occasion": resolved_occasion,
@@ -301,6 +316,14 @@ def build_style_context(
         "sub_occasions": multi_event["sub_occasions"] if multi_event else [],
         "style_strategy": multi_event["style_strategy"] if multi_event else None,
         "time_sequence": multi_event["time_sequence"] if multi_event else [],
+        # Style memory signals (neutral when no data).
+        "recently_worn_ids": (style_memory or {}).get("recently_worn_ids", []),
+        "underworn_ids": (style_memory or {}).get("underworn_ids", []),
+        "saved_item_ids": (style_memory or {}).get("saved_item_ids", []),
+        "disliked_item_ids": (style_memory or {}).get("disliked_item_ids", []),
+        "favorite_colors": (style_memory or {}).get("favorite_colors", []),
+        "favorite_categories": (style_memory or {}).get("favorite_categories", []),
+        "saved_board_patterns": (style_memory or {}).get("saved_board_patterns", []),
     }
 
     logger.info(

@@ -791,13 +791,14 @@ def _build_visual_inspiration_board(
     missing_piece: Dict[str, Any] | None,
     query: str,
 ) -> Dict[str, Any]:
-    """Premium visual-inspiration metadata block (no image generation)."""
+    """Premium visual-inspiration metadata block. Builds an image_prompt for a
+    future generation step, but does NOT generate images yet."""
     direct = payload.get("visual_inspiration_board")
     direct = direct if isinstance(direct, dict) else {}
     first = visual_directions[0] if visual_directions else {}
     palette = first.get("palette") if isinstance(first.get("palette"), list) else []
     pieces = first.get("pieces") if isinstance(first.get("pieces"), list) else []
-    return {
+    board = {
         "type": "visual_inspiration_board",
         "title": str(direct.get("title") or first.get("title") or "Style Inspiration").strip(),
         "aesthetic": str(direct.get("aesthetic") or first.get("strategy") or "").strip(),
@@ -810,6 +811,29 @@ def _build_visual_inspiration_board(
         ).strip(),
         "missing_piece": missing_piece,
     }
+    board["image_prompt"] = _build_inspiration_image_prompt(board, query)
+    board["inspiration_image_url"] = ""
+    board["image_status"] = "not_generated"
+    return board
+
+
+def _build_inspiration_image_prompt(board: Dict[str, Any], query: str) -> str:
+    """Editorial moodboard image prompt from the inspiration metadata.
+    Generation is wired later (Imagen/Flux) — this only builds the prompt."""
+    occ = _clean_recursive_prompt(query).strip() or "this occasion"
+    parts = [f"Editorial fashion moodboard for {occ}."]
+    if board.get("aesthetic"):
+        parts.append(f"Aesthetic: {board['aesthetic']}.")
+    if board.get("mood"):
+        parts.append(f"Mood: {board['mood']}.")
+    if board.get("palette"):
+        parts.append(f"Palette: {', '.join(board['palette'])}.")
+    if board.get("hero_piece"):
+        parts.append(f"Hero piece: {board['hero_piece']}.")
+    if board.get("silhouette"):
+        parts.append(f"Silhouette: {board['silhouette']}.")
+    parts.append("No faces. No text. Pinterest-style board.")
+    return " ".join(parts)
 
 
 def _compact_reasoning(text: str, *, multi_event: bool = False) -> str:

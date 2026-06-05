@@ -3595,6 +3595,20 @@ def build_style_flow_response(
     # water bottles even when the (slow) agent's avoid_items is skipped.
     wardrobe = _strip_non_apparel(wardrobe)
 
+    # Style memory (wear + saved boards) -> scorer context. Neutral when no
+    # data; never blocks styling.
+    try:
+        from services.style_memory_service import build_style_memory_context
+
+        _mem = build_style_memory_context(user_id, wardrobe)
+        for _k in (
+            "recently_worn_ids", "underworn_ids", "saved_item_ids",
+            "disliked_item_ids", "wear_counts",
+        ):
+            ctx.setdefault(_k, _mem.get(_k, []))
+    except Exception:  # noqa: BLE001
+        logger.debug("ahvi.style_memory_load_failed", exc_info=True)
+
     # Kick off the slow Vertex agent orchestration in the background NOW so its
     # ~20-40s overlaps with occasion interpretation + combo generation instead
     # of blocking in series. We wait only a short budget for it later; if it

@@ -178,6 +178,7 @@ class AppwriteProxy:
 
         self.user_field_map = {
             "outfits": "userId",
+            "outfit_history": "userId",
             "wardrobe_style_metadata": "userId",
             "users": None,
             "plans": "userId",

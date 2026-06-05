@@ -126,6 +126,7 @@ chat_router = _load_optional_router("routers.chat")
 data_router = _load_optional_router("routers.data")
 utilities_router = _load_optional_router("routers.utilities")
 boards_router = _load_optional_router("routers.boards")
+style_memory_router = _load_optional_router("routers.style_memory")
 feedback_router = _load_optional_router("routers.feedback")
 ops_router = _load_optional_router("routers.ops")
 calendar_router = _load_optional_router("routers.calendar")
@@ -681,6 +682,9 @@ if utilities_router:
 
 if boards_router:
     app.include_router(boards_router)
+
+if style_memory_router:
+    app.include_router(style_memory_router)
 
 if ai_router:
     app.include_router(ai_router, prefix="/api", tags=["AI"])
