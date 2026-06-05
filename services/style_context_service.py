@@ -487,6 +487,71 @@ def compact_style_dna(style_dna: Any, preferences: Any) -> Dict[str, Any]:
     return contract
 
 
+_MALE_GENDER_TOKENS = {"male", "man", "men", "mens", "masculine", "m"}
+_FEMALE_GENDER_TOKENS = {"female", "woman", "women", "womens", "feminine", "f"}
+
+
+def _resolve_gender(profile: Dict[str, Any]) -> str:
+    p = _safe_dict(profile)
+    candidates = [
+        p.get("style_gender"), p.get("gender"), p.get("preferred_gender"),
+        p.get("target_gender"),
+    ]
+    for key in ("preferences", "style_preferences", "stylePreference"):
+        nested = _safe_dict(p.get(key))
+        candidates += [nested.get("style_gender"), nested.get("gender")]
+    for c in candidates:
+        t = _norm(c)
+        if t in _MALE_GENDER_TOKENS:
+            return "male"
+        if t in _FEMALE_GENDER_TOKENS:
+            return "female"
+    return "unknown"
+
+
+def build_pairing_persona(
+    *,
+    user_profile: Any = None,
+    style_dna: Any = None,
+    wardrobe_summary: Any = None,
+) -> Dict[str, Any]:
+    """Compact persona context for persona-aware pairing. Neutral when the
+    profile is empty — never assume gender beyond available signals."""
+    profile = _safe_dict(user_profile)
+    gender = _resolve_gender(profile)
+    dna = compact_style_dna(style_dna, profile.get("style_preferences") or profile.get("preferences"))
+    summary = _safe_dict(wardrobe_summary)
+    by_cat = _safe_dict(summary.get("by_category"))
+
+    avoid_cats: List[str] = []
+    if gender == "male":
+        avoid_cats = ["skirt", "dress", "camisole", "heels"]
+
+    confidence = 0.0
+    if gender != "unknown":
+        confidence += 0.6
+    if dna:
+        confidence += 0.25
+    if by_cat:
+        confidence += 0.15
+
+    persona = {
+        "gender_profile": gender,
+        "preferred_fit": str(profile.get("preferred_fit") or profile.get("fit") or "").strip(),
+        "style_dna": dna.get("style_archetypes", []) if isinstance(dna, dict) else [],
+        "preferred_categories": [k for k, v in by_cat.items() if v] if by_cat else [],
+        "avoid_categories": avoid_cats,
+        "wardrobe_gender_signal": gender if by_cat else "unknown",
+        "persona_confidence": round(min(confidence, 1.0), 2),
+    }
+    logger.info(
+        "AHVI_PAIRING_PERSONA_CONTEXT gender=%s dna=%d cats=%d confidence=%.2f",
+        gender, len(persona["style_dna"]), len(persona["preferred_categories"]),
+        persona["persona_confidence"],
+    )
+    return persona
+
+
 def compact_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
     """Trim the style context to a small, prompt-safe slice. Avoids shipping
     every wardrobe item / raw payloads into the Gemini prompt."""

@@ -14,6 +14,7 @@ SHOPPING_ASSIST = "shopping_assist"
 STYLE_EDUCATION = "style_education"
 COLOR_BODY_ADVICE = "color_body_advice"
 VISUAL_INSPIRATION = "visual_inspiration"
+STYLE_PAIRING = "style_pairing"
 
 STYLE_MODES = {
     STYLE_ADVICE,
@@ -21,6 +22,7 @@ STYLE_MODES = {
     SHOPPING_ASSIST,
     STYLE_EDUCATION,
     COLOR_BODY_ADVICE,
+    STYLE_PAIRING,
 }
 
 
@@ -124,6 +126,28 @@ def is_shopping_assist_request(text: Any) -> bool:
             "shopping suggestions",
             "show shopping",
             "buy for this outfit",
+        ),
+    )
+
+
+def is_style_pairing_request(text: Any) -> bool:
+    q = _norm(text)
+    if not q:
+        return False
+    return _has_any(
+        q,
+        (
+            "what to pair with",
+            "what goes with",
+            "how to style",
+            "how do i style",
+            "ways to wear",
+            "ways to style",
+            "how can i wear",
+            "what matches",
+            "style this",
+            "pair this with",
+            "pair with",
         ),
     )
 
@@ -277,6 +301,8 @@ def classify_style_mode(
         style_action=style_action,
     ):
         return WARDROBE_STYLE
+    if is_style_pairing_request(text):
+        return STYLE_PAIRING
     if is_shopping_assist_request(text):
         return SHOPPING_ASSIST
     if is_color_body_advice_request(text):
@@ -517,6 +543,7 @@ def _coerce_advice_mode(mode: Any) -> str:
         STYLE_EDUCATION,
         SHOPPING_ASSIST,
         VISUAL_INSPIRATION,
+        STYLE_PAIRING,
     }:
         return value
     return STYLE_ADVICE
@@ -572,7 +599,7 @@ only support it.
 
 Return ONLY valid JSON matching this schema:
 {{
-  "mode": "style_advice | color_body_advice | style_education | shopping_assist | visual_inspiration",
+  "mode": "style_advice | color_body_advice | style_education | shopping_assist | visual_inspiration | style_pairing",
   "occasion": string|null,
   "goal": string,
   "impression": string,
@@ -846,3 +873,167 @@ def _normalize_visual_directions(value: Any, mode: str, query: str) -> List[Dict
             )
         )
     return normalized
+
+
+# ============================================================================
+# AHVI ARCHETYPE LIBRARY (compact in-code registry for persona-aware pairing).
+# Gemini selects routes from these — it does not invent random archetypes
+# (fallback only). gender_fit: male | female | neutral.
+# ============================================================================
+import logging as _logging
+
+_archetype_logger = _logging.getLogger("ahvi.archetypes")
+
+ARCHETYPE_LIBRARY = [
+    {"name": "Quiet Luxury", "impression": ["refined", "understated"], "formality": 7,
+     "best_for": ["dinner", "office", "evening"], "preferred_items": ["fine knit", "tailored trousers", "loafers", "cashmere", "overcoat"],
+     "avoid_items": ["loud logos", "athleisure"], "palette": ["camel", "cream", "charcoal", "navy"],
+     "gender_fit": "neutral", "style_keywords": ["timeless", "premium", "minimal"]},
+    {"name": "Creative Executive", "impression": ["confident", "expressive"], "formality": 6,
+     "best_for": ["work", "gallery", "meeting"], "preferred_items": ["unstructured blazer", "knit polo", "pleated trousers", "leather sneakers"],
+     "avoid_items": ["stiff suiting"], "palette": ["ink", "rust", "stone"], "gender_fit": "neutral",
+     "style_keywords": ["editorial", "modern", "directional"]},
+    {"name": "Modern Professional", "impression": ["credible", "polished"], "formality": 8,
+     "best_for": ["office", "client", "presentation"], "preferred_items": ["crisp shirt", "tailored trousers", "blazer", "leather loafers", "derbies"],
+     "avoid_items": ["shorts", "flip flops"], "palette": ["navy", "white", "grey"], "gender_fit": "neutral",
+     "style_keywords": ["sharp", "clean", "boardroom"]},
+    {"name": "Power Casual", "impression": ["assured", "relaxed"], "formality": 5,
+     "best_for": ["weekend", "smart casual", "drinks"], "preferred_items": ["blazer", "tee", "dark denim", "clean sneakers", "knitwear"],
+     "avoid_items": ["full suit"], "palette": ["black", "indigo", "white"], "gender_fit": "neutral",
+     "style_keywords": ["effortless", "elevated"]},
+    {"name": "Refined Weekend", "impression": ["easy", "intentional"], "formality": 4,
+     "best_for": ["weekend", "coffee", "casual"], "preferred_items": ["overshirt", "chinos", "polo", "white sneakers", "knit"],
+     "avoid_items": ["formal suiting"], "palette": ["olive", "cream", "tan"], "gender_fit": "neutral",
+     "style_keywords": ["soft", "approachable"]},
+    {"name": "Off-Duty Tailoring", "impression": ["sharp", "relaxed"], "formality": 6,
+     "best_for": ["weekend", "creative office"], "preferred_items": ["blazer", "tee", "denim", "chinos", "loafers", "sneakers", "knitwear"],
+     "avoid_items": ["track pants"], "palette": ["navy", "grey", "white"], "gender_fit": "neutral",
+     "style_keywords": ["tailored-casual", "modern"]},
+    {"name": "Urban Minimalist", "impression": ["clean", "modern"], "formality": 5,
+     "best_for": ["city", "weekend", "travel"], "preferred_items": ["monochrome tee", "straight trousers", "sneakers", "overshirt", "bomber"],
+     "avoid_items": ["busy prints"], "palette": ["black", "grey", "white"], "gender_fit": "neutral",
+     "style_keywords": ["monochrome", "structured"]},
+    {"name": "Modern Utility", "impression": ["functional", "rugged"], "formality": 4,
+     "best_for": ["weekend", "travel", "casual"], "preferred_items": ["field jacket", "cargo trousers", "tee", "boots", "sneakers"],
+     "avoid_items": ["delicate fabrics"], "palette": ["olive", "khaki", "black"], "gender_fit": "neutral",
+     "style_keywords": ["workwear", "practical"]},
+    {"name": "Relaxed Executive", "impression": ["calm", "senior"], "formality": 6,
+     "best_for": ["office", "dinner"], "preferred_items": ["soft blazer", "fine knit", "trousers", "loafers"],
+     "avoid_items": ["athleisure"], "palette": ["stone", "navy", "brown"], "gender_fit": "neutral",
+     "style_keywords": ["assured", "soft-tailoring"]},
+    {"name": "Smart Casual Edge", "impression": ["current", "confident"], "formality": 5,
+     "best_for": ["drinks", "weekend", "date"], "preferred_items": ["overshirt", "dark denim", "knit", "leather sneakers", "chelsea boots"],
+     "avoid_items": ["formal suiting"], "palette": ["charcoal", "indigo", "black"], "gender_fit": "neutral",
+     "style_keywords": ["edge", "modern"]},
+    {"name": "Modern Romantic", "impression": ["warm", "considered"], "formality": 6,
+     "best_for": ["date", "dinner", "evening"], "preferred_items": ["textured shirt", "trousers", "loafers", "fine knit"],
+     "avoid_items": ["harsh utility"], "palette": ["burgundy", "cream", "brown"], "gender_fit": "neutral",
+     "style_keywords": ["soft", "intentional"]},
+    {"name": "Gallery Night", "impression": ["artful", "sharp"], "formality": 7,
+     "best_for": ["evening", "gallery", "event"], "preferred_items": ["black knit", "tailored trousers", "minimal boots", "overcoat"],
+     "avoid_items": ["bright logos"], "palette": ["black", "charcoal", "white"], "gender_fit": "neutral",
+     "style_keywords": ["monochrome", "editorial"]},
+    {"name": "Textural Depth", "impression": ["rich", "tactile"], "formality": 6,
+     "best_for": ["autumn", "dinner", "weekend"], "preferred_items": ["corduroy", "wool knit", "suede loafers", "flannel trousers"],
+     "avoid_items": ["flat synthetics"], "palette": ["tobacco", "olive", "cream"], "gender_fit": "neutral",
+     "style_keywords": ["texture", "layered"]},
+    {"name": "Italian Summer", "impression": ["breezy", "polished"], "formality": 5,
+     "best_for": ["summer", "resort", "lunch"], "preferred_items": ["linen shirt", "pleated shorts", "loafers", "polo", "linen trousers"],
+     "avoid_items": ["heavy wool"], "palette": ["white", "sky", "tan"], "gender_fit": "neutral",
+     "style_keywords": ["linen", "vacation"]},
+    {"name": "Resort Sophisticate", "impression": ["elegant", "relaxed"], "formality": 5,
+     "best_for": ["resort", "beach dinner", "summer"], "preferred_items": ["camp collar shirt", "tailored shorts", "linen trousers", "espadrilles", "loafers"],
+     "avoid_items": ["office trousers"], "palette": ["cream", "sand", "teal"], "gender_fit": "neutral",
+     "style_keywords": ["resort", "refined"]},
+    {"name": "Scandinavian Minimalist", "impression": ["clean", "quiet"], "formality": 5,
+     "best_for": ["weekend", "city", "office"], "preferred_items": ["crew knit", "straight trousers", "white sneakers", "wool coat"],
+     "avoid_items": ["loud prints"], "palette": ["grey", "ecru", "black"], "gender_fit": "neutral",
+     "style_keywords": ["minimal", "functional"]},
+    {"name": "Contemporary Classic", "impression": ["timeless", "neat"], "formality": 7,
+     "best_for": ["office", "dinner", "event"], "preferred_items": ["oxford shirt", "chinos", "loafers", "navy blazer"],
+     "avoid_items": ["trend-chasing pieces"], "palette": ["navy", "white", "tan"], "gender_fit": "neutral",
+     "style_keywords": ["classic", "versatile"]},
+    {"name": "Elevated Essentials", "impression": ["clean", "intentional"], "formality": 5,
+     "best_for": ["everyday", "weekend", "smart casual"], "preferred_items": ["premium tee", "straight trousers", "overshirt", "clean sneakers"],
+     "avoid_items": ["fast-fashion logos"], "palette": ["white", "grey", "navy"], "gender_fit": "neutral",
+     "style_keywords": ["basics", "quality"]},
+    {"name": "Polished Casual", "impression": ["tidy", "approachable"], "formality": 5,
+     "best_for": ["coffee", "weekend", "casual office"], "preferred_items": ["polo", "chinos", "loafers", "knit", "clean sneakers"],
+     "avoid_items": ["sloppy fits"], "palette": ["cream", "olive", "navy"], "gender_fit": "neutral",
+     "style_keywords": ["neat", "easy"]},
+    {"name": "Approachable Executive", "impression": ["credible", "warm"], "formality": 7,
+     "best_for": ["office", "client", "meeting"], "preferred_items": ["soft blazer", "shirt", "trousers", "loafers", "fine knit"],
+     "avoid_items": ["stiff formality"], "palette": ["navy", "grey", "brown"], "gender_fit": "neutral",
+     "style_keywords": ["professional", "human"]},
+]
+
+# Feminine-only items to strip for a male persona (unless explicitly asked).
+FEMININE_ONLY_ITEMS = (
+    "skirt", "midi skirt", "maxi skirt", "dress", "midi dress", "gown",
+    "camisole", "cami", "blouse", "heels", "stiletto", "pumps", "saree",
+    "lehenga", "crop top", "bodycon", "peplum", "bralette",
+)
+
+
+def get_archetype_library() -> List[Dict[str, Any]]:
+    _archetype_logger.info("AHVI_ARCHETYPE_LIBRARY_LOADED count=%d", len(ARCHETYPE_LIBRARY))
+    return list(ARCHETYPE_LIBRARY)
+
+
+def _archetype_score(arch, *, anchor_blob, occasion, style_keywords, formality_hint):
+    text = " ".join(
+        str(x) for x in (arch.get("best_for") or []) + (arch.get("style_keywords") or [])
+        + (arch.get("preferred_items") or [])
+    ).lower()
+    score = 0.0
+    if occasion and occasion in text:
+        score += 3.0
+    for kw in style_keywords:
+        if kw and kw.lower() in text:
+            score += 1.5
+    for w in anchor_blob.split():
+        if w and len(w) > 3 and w in text:
+            score += 1.0
+    if formality_hint:
+        score -= abs(int(arch.get("formality") or 5) - formality_hint) * 0.4
+    return score
+
+
+def select_archetypes(*, anchor=None, occasion="", style_keywords=None,
+                      formality_hint=0, limit=5):
+    """Select 4-5 best archetypes for a pairing request. Library is gender-
+    neutral; persona filtering happens at the item level."""
+    anchor = anchor or {}
+    anchor_blob = " ".join(
+        str(anchor.get(k) or "") for k in ("name", "category", "color")
+    ).lower()
+    occ = _norm(occasion)
+    kws = [k for k in (style_keywords or []) if k]
+    ranked = sorted(
+        ARCHETYPE_LIBRARY,
+        key=lambda a: _archetype_score(
+            a, anchor_blob=anchor_blob, occasion=occ, style_keywords=kws,
+            formality_hint=formality_hint,
+        ),
+        reverse=True,
+    )
+    chosen = ranked[: max(4, min(int(limit), 5))]
+    _archetype_logger.info(
+        "AHVI_ARCHETYPE_SELECTED anchor=%r occasion=%s names=%s",
+        anchor_blob[:40], occ, [a["name"] for a in chosen],
+    )
+    return chosen
+
+
+def filter_items_for_persona(items, gender):
+    """Drop feminine-only items for a male persona. Returns (kept, removed)."""
+    if _norm(gender) != "male":
+        return list(items or []), []
+    kept, removed = [], []
+    for it in items or []:
+        blob = _norm(it)
+        if any(f in blob for f in FEMININE_ONLY_ITEMS):
+            removed.append(it)
+        else:
+            kept.append(it)
+    return kept, removed

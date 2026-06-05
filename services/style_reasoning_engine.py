@@ -15,6 +15,7 @@ from services.stylist_knowledge_service import (
     SHOPPING_ASSIST,
     STYLE_ADVICE,
     STYLE_EDUCATION,
+    STYLE_PAIRING,
     WARDROBE_STYLE,
     classify_style_mode,
 )
@@ -30,6 +31,7 @@ _STYLE_REASONING_MODES = {
     SHOPPING_ASSIST,
     STYLE_EDUCATION,
     COLOR_BODY_ADVICE,
+    STYLE_PAIRING,
 }
 
 _GEMINI_MODES = {
@@ -38,6 +40,7 @@ _GEMINI_MODES = {
     SHOPPING_ASSIST,
     STYLE_EDUCATION,
     COLOR_BODY_ADVICE,
+    STYLE_PAIRING,
 }
 
 
@@ -100,6 +103,69 @@ def _confidence(intent: dict | str | None, fallback: float) -> float:
 
 def _has_any(text: str, phrases: tuple[str, ...]) -> bool:
     return any(phrase in text for phrase in phrases)
+
+
+_PAIRING_TRIGGERS = (
+    "what to pair with",
+    "what goes with",
+    "how do i style",
+    "how to style",
+    "ways to wear",
+    "ways to style",
+    "how can i wear",
+    "what matches",
+    "style this",
+    "pair this with",
+    "pair with",
+)
+
+_ANCHOR_COLORS = (
+    "white", "black", "grey", "gray", "navy", "blue", "brown", "tan",
+    "beige", "cream", "olive", "green", "red", "burgundy", "pink",
+    "yellow", "gold", "silver", "charcoal",
+)
+
+_ANCHOR_CATEGORIES = {
+    "shirt": ("shirt", "shirts", "button down", "button-down", "oxford"),
+    "footwear": ("loafers", "loafer", "sneakers", "sneaker", "shoes", "boots", "boot", "sandals", "sandal"),
+    "bottom": ("trousers", "trouser", "pants", "pant", "jeans", "denim", "chinos", "chino", "shorts"),
+    "outerwear": ("blazer", "jacket", "coat", "overshirt"),
+    "top": ("tee", "t shirt", "tshirt", "polo", "knit", "sweater", "hoodie", "top"),
+    "dress": ("dress", "gown", "jumpsuit"),
+    "ethnic": ("kurta", "saree", "sherwani", "lehenga"),
+}
+
+
+def _extract_pairing_anchor(query: str) -> Dict[str, str]:
+    q = _norm(_clean_recursive_prompt(query))
+    anchor = q
+    for trigger in _PAIRING_TRIGGERS:
+        if trigger in q:
+            tail = q.split(trigger, 1)[1].strip()
+            if tail:
+                anchor = tail
+                break
+    anchor = re.sub(r"^(a|an|the|my|this|these|those)\s+", "", anchor).strip()
+    anchor = re.sub(r"\b(casually|formally|well|better|today|outfit|look)\b", " ", anchor)
+    anchor = re.sub(r"\s+", " ", anchor).strip()
+    color = next((c for c in _ANCHOR_COLORS if re.search(rf"\b{re.escape(c)}\b", anchor)), "")
+    if color == "gray":
+        color = "grey"
+    category = ""
+    for cat, terms in _ANCHOR_CATEGORIES.items():
+        if any(re.search(rf"\b{re.escape(term)}\b", anchor) for term in terms):
+            category = cat
+            break
+    name = anchor or "the item"
+    if color and category and category not in name:
+        pass
+    logger.info(
+        "AHVI_STYLE_PAIRING_ANCHOR name=%r category=%s color=%s",
+        name,
+        category,
+        color,
+    )
+    return {"name": name, "category": category, "color": color}
 
 
 def _safe_list(value: Any, *, limit: int = 8) -> List[str]:
@@ -496,9 +562,90 @@ def _build_reasoning_prompt(
     context: dict,
     policy: dict | None = None,
     style_ctx: dict | None = None,
+    persona: dict | None = None,
+    archetypes: list | None = None,
 ) -> str:
     policy = policy or {}
     style_ctx = style_ctx or {}
+    persona = persona or {}
+    archetypes = archetypes or []
+    anchor = _extract_pairing_anchor(query) if mode == STYLE_PAIRING else {}
+    if mode == STYLE_PAIRING:
+        import json as _json
+
+        gender = str(persona.get("gender_profile") or "unknown")
+        archetype_names = [a.get("name") for a in archetypes if isinstance(a, dict)]
+        _arch_compact = [
+            {
+                "name": a.get("name"),
+                "impression": a.get("impression"),
+                "preferred_items": a.get("preferred_items"),
+                "avoid_items": a.get("avoid_items"),
+                "palette": a.get("palette"),
+            }
+            for a in archetypes
+            if isinstance(a, dict)
+        ]
+        _arch_json = _json.dumps(_arch_compact, ensure_ascii=False)
+        _persona_json = _json.dumps(persona, ensure_ascii=False)
+        return f"""
+{AHVI_SYSTEM_PROMPT}
+
+You are AHVI's PERSONAL stylist (not a generic fashion encyclopedia). The user
+is asking an open-ended pairing question. Ground every route in their persona +
+the selected archetypes below.
+
+Persona context (obey — never assume beyond it):
+{_persona_json}
+
+Selected archetypes (build routes ONLY from these — do not invent others):
+{_arch_json}
+
+Return ONLY valid JSON matching this schema:
+{{
+  "mode": "style_pairing",
+  "anchor_item": {{"name": string, "category": string, "color": string}},
+  "stylist_reasoning": string,
+  "pairing_routes": [
+    {{
+      "title": string,
+      "archetype": string,
+      "impression_created": string,
+      "use_case": string,
+      "strategy": string,
+      "items": [string],
+      "palette": [string],
+      "why_it_works": string,
+      "avoid": [string],
+      "styling_tip": string,
+      "persona_fit_reason": string
+    }}
+  ],
+  "what_to_avoid": [string],
+  "next_actions": ["Use my wardrobe", "Show visual inspiration", "Find missing pieces"],
+  "follow_up_question": string|null,
+  "confidence": float
+}}
+
+Rules:
+- Return 4-5 pairing_routes, each mapped to a DIFFERENT selected archetype
+  (set route.archetype to that archetype's exact name). Use evocative titles,
+  never "Option 1" / "Casual Look".
+- Persona gender = {gender}. If male: NEVER suggest skirts, dresses, camisoles,
+  heels, or feminine-only silhouettes (unless the user explicitly asked). If
+  female: feminine routes allowed, still respect style DNA. If unknown: keep
+  items gender-neutral (trousers, denim, chinos, shirts, polos, knitwear,
+  overshirts, jackets, sneakers, loafers, boots).
+- Do not mention gender unless relevant. Never assume beyond persona context.
+- persona_fit_reason: one line on why this route suits THIS user.
+- Include avoid guidance per route. Do not generate wardrobe boards, images, or
+  shopping links. Do not sound like a textbook.
+- Allowed archetype names: {archetype_names}
+
+Known deterministic mode: style_pairing
+Detected anchor_item: {anchor}
+User query: {_clean_recursive_prompt(query)}
+"""
     return f"""
 {AHVI_SYSTEM_PROMPT}
 
@@ -690,6 +837,209 @@ def _normalize_visual_directions(value: Any, mode: str, category: str | None) ->
     ]
 
 
+def _fallback_pairing_routes(anchor: Dict[str, str]) -> List[Dict[str, Any]]:
+    name = str(anchor.get("name") or "the item").strip()
+    category = str(anchor.get("category") or "").strip()
+    color = str(anchor.get("color") or "").strip()
+    base = name if name != "the item" else "this piece"
+    if category == "footwear" or any(x in name for x in ("loafer", "sneaker", "shoe", "boot")):
+        return [
+            {
+                "title": "Smart Casual",
+                "use_case": "office-adjacent days",
+                "strategy": "Use the shoes to sharpen relaxed separates.",
+                "items": [base, "button-down shirt", "chinos", "simple watch"],
+                "palette": [color or "black", "white", "navy", "tan"],
+                "why_it_works": "The footwear adds polish, while chinos keep it from becoming fully formal.",
+                "avoid": ["Overly shiny belts", "matching everything in the same dark tone"],
+                "styling_tip": "Let the trouser hem sit cleanly on the shoe.",
+            },
+            {
+                "title": "Office Clean",
+                "use_case": "meetings and workdays",
+                "strategy": "Lean into structure without going stiff.",
+                "items": [base, "crisp shirt", "tailored trousers", "belt"],
+                "palette": [color or "black", "blue", "grey"],
+                "why_it_works": "A structured base makes the footwear feel intentional and credible.",
+                "avoid": ["Shorts", "athletic socks", "loud patterned trousers"],
+                "styling_tip": "Match the belt mood, not necessarily the exact color.",
+            },
+            {
+                "title": "Evening Minimal",
+                "use_case": "dinner or drinks",
+                "strategy": "Keep the outfit tonal and let texture do the work.",
+                "items": [base, "dark shirt", "straight trousers"],
+                "palette": [color or "black", "charcoal", "cream"],
+                "why_it_works": "The darker palette gives evening polish without needing a statement piece.",
+                "avoid": ["Corporate blazer unless the setting is formal"],
+                "styling_tip": "Open the collar slightly to soften the polish.",
+            },
+            {
+                "title": "Weekend Neat",
+                "use_case": "casual plans",
+                "strategy": "Use one clean top so the shoes do not feel overdressed.",
+                "items": [base, "plain tee or polo", "denim", "light overshirt"],
+                "palette": [color or "black", "stone", "blue"],
+                "why_it_works": "Casual layers make polished footwear feel relaxed and wearable.",
+                "avoid": ["Gym shorts", "wrinkled oversized tees"],
+                "styling_tip": "Choose denim with a clean wash rather than heavy distressing.",
+            },
+        ]
+    if "blazer" in name or category == "outerwear":
+        return [
+            {
+                "title": "T-Shirt Tailoring",
+                "use_case": "casual dinner",
+                "strategy": "Break the blazer's corporate signal with a clean tee.",
+                "items": [base, "plain tee", "straight denim", "minimal sneakers"],
+                "palette": [color or "navy", "white", "blue"],
+                "why_it_works": "The tee and sneakers relax the blazer while the jacket keeps shape.",
+                "avoid": ["Dress shirt plus formal trousers if you want casual"],
+                "styling_tip": "Keep the tee neckline clean and the blazer unbuttoned.",
+            },
+            {
+                "title": "Knit Softness",
+                "use_case": "smart casual weekends",
+                "strategy": "Swap office shirting for soft texture.",
+                "items": [base, "fine knit", "chinos", "suede loafers"],
+                "palette": [color or "navy", "cream", "brown"],
+                "why_it_works": "Knitwear makes the blazer feel warm and easy instead of corporate.",
+                "avoid": ["Tie", "stiff dress shoes"],
+                "styling_tip": "Use a thinner knit so the shoulder line stays smooth.",
+            },
+            {
+                "title": "Denim Contrast",
+                "use_case": "creative casual",
+                "strategy": "Let denim pull the blazer down a notch.",
+                "items": [base, "casual shirt", "dark denim", "clean sneakers"],
+                "palette": [color or "charcoal", "blue", "white"],
+                "why_it_works": "Denim adds ease while the blazer keeps the outfit intentional.",
+                "avoid": ["Ripped denim with a formal blazer"],
+                "styling_tip": "Keep the denim straight or slim, not baggy.",
+            },
+            {
+                "title": "Summer Relaxed",
+                "use_case": "warm evenings",
+                "strategy": "Pair the blazer with breathable pieces.",
+                "items": [base, "linen shirt", "light chinos", "loafers"],
+                "palette": [color or "navy", "ecru", "tan"],
+                "why_it_works": "Light fabrics stop the blazer from feeling too serious.",
+                "avoid": ["Heavy wool trousers"],
+                "styling_tip": "Roll sleeves only if the blazer fabric is relaxed enough.",
+            },
+        ]
+    return [
+        {
+            "title": "Smart Casual",
+            "use_case": "office-adjacent or polished daily",
+            "strategy": "Use clean structure around the anchor.",
+            "items": [base, "chinos or tailored trousers", "loafers or minimal sneakers", "simple watch"],
+            "palette": [color or "white", "navy", "tan"],
+            "why_it_works": "The base feels intentional without pushing the outfit into full formal.",
+            "avoid": ["Too many statement accessories", "overly shiny shoes"],
+            "styling_tip": "Keep one piece relaxed so the outfit stays modern.",
+        },
+        {
+            "title": "Business Casual",
+            "use_case": "meetings and workdays",
+            "strategy": "Add sharper bottoms and restrained footwear.",
+            "items": [base, "structured trousers", "belt", "loafers"],
+            "palette": [color or "white", "grey", "brown"],
+            "why_it_works": "The structured pieces make the anchor read professional rather than plain.",
+            "avoid": ["Loud prints near the anchor"],
+            "styling_tip": "Tuck only if the trouser waistband looks clean.",
+        },
+        {
+            "title": "Weekend Clean",
+            "use_case": "coffee, errands, casual lunch",
+            "strategy": "Relax the anchor with denim and easy footwear.",
+            "items": [base, "straight denim", "clean sneakers", "light overshirt"],
+            "palette": [color or "white", "blue", "stone"],
+            "why_it_works": "Denim makes the anchor feel approachable while the clean shoe keeps polish.",
+            "avoid": ["Distressed denim if the anchor is already crisp"],
+            "styling_tip": "Leave a little ease in the fit.",
+        },
+        {
+            "title": "Evening Minimal",
+            "use_case": "dinner or drinks",
+            "strategy": "Use contrast and a darker base.",
+            "items": [base, "dark trousers", "sleek shoes", "minimal accessory"],
+            "palette": [color or "white", "black", "charcoal"],
+            "why_it_works": "The darker pieces make the anchor feel deliberate and evening-ready.",
+            "avoid": ["Office-heavy layering"],
+            "styling_tip": "Keep accessories quiet so the contrast does the work.",
+        },
+        {
+            "title": "Summer Relaxed",
+            "use_case": "warm days or vacations",
+            "strategy": "Pair the anchor with breathable textures.",
+            "items": [base, "linen or cotton bottom", "sandals or canvas sneakers"],
+            "palette": [color or "white", "ecru", "olive"],
+            "why_it_works": "Lighter texture keeps the anchor fresh and relaxed.",
+            "avoid": ["Heavy formal trousers in heat"],
+            "styling_tip": "Use softer colors if the fabric is crisp.",
+        },
+    ]
+
+
+def _normalize_pairing_routes(value: Any, anchor: Dict[str, str], gender: str = "unknown") -> List[Dict[str, Any]]:
+    rows = value if isinstance(value, list) else []
+    fallbacks = _fallback_pairing_routes(anchor)
+    normalized: List[Dict[str, Any]] = []
+    total_removed = 0
+    for idx in range(min(5, max(4, len(rows), len(fallbacks)))):
+        source = rows[idx] if idx < len(rows) and isinstance(rows[idx], dict) else {}
+        fb = fallbacks[idx % len(fallbacks)]
+        items = _safe_list(source.get("items") or fb.get("items"), limit=8)
+        avoid = _safe_list(source.get("avoid") or fb.get("avoid"), limit=5)
+        # Deterministic persona safety net: strip feminine-only items for a male
+        # persona even if Gemini slipped one in.
+        try:
+            from services.stylist_knowledge_service import filter_items_for_persona
+
+            items, removed = filter_items_for_persona(items, gender)
+            if removed:
+                total_removed += len(removed)
+                avoid = (avoid + removed)[:6]
+        except Exception:  # noqa: BLE001
+            pass
+        route = {
+            "title": str(source.get("title") or fb.get("title") or "Pairing Route").strip(),
+            "archetype": str(source.get("archetype") or "").strip(),
+            "impression_created": str(source.get("impression_created") or "").strip(),
+            "use_case": str(source.get("use_case") or source.get("useCase") or fb.get("use_case") or "").strip(),
+            "strategy": str(source.get("strategy") or fb.get("strategy") or "").strip(),
+            "items": items,
+            "palette": _safe_list(source.get("palette") or fb.get("palette"), limit=6),
+            "why_it_works": str(source.get("why_it_works") or source.get("whyItWorks") or fb.get("why_it_works") or "").strip(),
+            "avoid": avoid,
+            "styling_tip": str(source.get("styling_tip") or source.get("style_note") or source.get("styleNote") or fb.get("styling_tip") or "").strip(),
+            "persona_fit_reason": str(source.get("persona_fit_reason") or "").strip(),
+        }
+        normalized.append(route)
+    if total_removed:
+        logger.info("AHVI_PAIRING_PERSONA_FILTER_APPLIED gender=%s removed=%d", gender, total_removed)
+    logger.info("AHVI_PAIRING_ROUTES_BUILT count=%d titles=%s", len(normalized), [r["title"] for r in normalized])
+    return normalized[:5]
+
+
+def _pairing_routes_as_visual_directions(routes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "title": route.get("title"),
+            "strategy": route.get("strategy"),
+            "description": route.get("use_case"),
+            "palette": route.get("palette") if isinstance(route.get("palette"), list) else [],
+            "pieces": route.get("items") if isinstance(route.get("items"), list) else [],
+            "why_it_works": route.get("why_it_works"),
+            "style_note": route.get("styling_tip"),
+            "use_case": route.get("use_case"),
+            "avoid": route.get("avoid") if isinstance(route.get("avoid"), list) else [],
+        }
+        for route in routes
+    ]
+
+
 def _gemini_reasoning(
     *,
     query: str,
@@ -751,6 +1101,33 @@ def _gemini_reasoning(
     except Exception as exc:  # noqa: BLE001
         logger.warning("ahvi.style.config_slices_failed err=%s", str(exc)[:140])
 
+    # Persona + archetype selection for the pairing path (personal stylist).
+    persona = {}
+    selected_archetypes = []
+    if mode == STYLE_PAIRING:
+        try:
+            from services.style_context_service import build_pairing_persona
+            from services.stylist_knowledge_service import select_archetypes
+
+            _uprof = user_profile if isinstance(user_profile, dict) else {}
+            persona = build_pairing_persona(
+                user_profile=_uprof,
+                style_dna=_uprof.get("style_dna") or _uprof.get("styleDNA"),
+                wardrobe_summary=(style_ctx or {}).get("wardrobe_summary"),
+            )
+            _anchor = _extract_pairing_anchor(query)
+            selected_archetypes = select_archetypes(
+                anchor=_anchor,
+                occasion=str(context.get("occasion") or category or ""),
+                style_keywords=persona.get("style_dna") or [],
+            )
+            logger.info(
+                "AHVI_PERSONAL_STYLIST_CONTEXT_BUILT gender=%s archetypes=%s",
+                persona.get("gender_profile"), [a.get("name") for a in selected_archetypes],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ahvi.pairing_persona_failed err=%s", str(exc)[:140])
+
     prompt = _build_reasoning_prompt(
         query=_clean_recursive_prompt(query),
         mode=mode,
@@ -759,6 +1136,8 @@ def _gemini_reasoning(
         context=context,
         policy=policy,
         style_ctx=style_ctx,
+        persona=persona,
+        archetypes=selected_archetypes,
     )
     raw = generate_text(
         prompt,
@@ -877,7 +1256,7 @@ def _coerce_emotion(value: Any, category: str | None) -> str:
 
 
 def _coerce_ai_mode(value: Any, fallback: str) -> str:
-    mode = _norm(value)
+    mode = _norm(value).replace(" ", "_")
     if mode in _GEMINI_MODES:
         return mode
     return fallback if fallback in _GEMINI_MODES else STYLE_ADVICE
@@ -897,7 +1276,22 @@ def _build_response(
     context: dict,
 ) -> Dict[str, Any]:
     payload = ai_payload if isinstance(ai_payload, dict) else {}
-    final_mode = _coerce_ai_mode(payload.get("mode"), mode)
+    final_mode = mode if mode in _GEMINI_MODES else _coerce_ai_mode(payload.get("mode"), mode)
+    pairing_anchor = _extract_pairing_anchor(query) if final_mode == STYLE_PAIRING else {}
+    pairing_gender = "unknown"
+    if final_mode == STYLE_PAIRING:
+        raw_anchor = payload.get("anchor_item") if isinstance(payload.get("anchor_item"), dict) else {}
+        pairing_anchor = {
+            "name": str(raw_anchor.get("name") or pairing_anchor.get("name") or "").strip(),
+            "category": str(raw_anchor.get("category") or pairing_anchor.get("category") or "").strip(),
+            "color": str(raw_anchor.get("color") or pairing_anchor.get("color") or "").strip(),
+        }
+        try:
+            from services.style_context_service import _resolve_gender
+
+            pairing_gender = _resolve_gender(user_profile if isinstance(user_profile, dict) else {})
+        except Exception:  # noqa: BLE001
+            pairing_gender = "unknown"
     goal = str(payload.get("goal") or _fallback_goal(final_mode, category)).strip()
     impression = str(payload.get("impression") or _fallback_impression(category)).strip()
     atmosphere = str(payload.get("atmosphere") or _fallback_atmosphere(category)).strip()
@@ -926,11 +1320,16 @@ def _build_response(
     is_multi_event = bool((context or {}).get("multi_event")) or (context or {}).get("occasion") == "multi_event"
     polished_advice = _compact_reasoning(polished_advice, multi_event=is_multi_event)
     follow_up = str(payload.get("follow_up_question") or "").strip() or None
-    visual_directions = _normalize_visual_directions(
-        payload.get("visual_directions"),
-        final_mode,
-        category,
-    )
+    pairing_routes: List[Dict[str, Any]] = []
+    if final_mode == STYLE_PAIRING:
+        pairing_routes = _normalize_pairing_routes(payload.get("pairing_routes"), pairing_anchor, pairing_gender)
+        visual_directions = _pairing_routes_as_visual_directions(pairing_routes)
+    else:
+        visual_directions = _normalize_visual_directions(
+            payload.get("visual_directions"),
+            final_mode,
+            category,
+        )
     try:
         final_confidence = max(0.0, min(1.0, float(payload.get("confidence", confidence))))
     except Exception:
@@ -960,8 +1359,18 @@ def _build_response(
         "missing_piece_reasoning": missing_piece_reasoning,
         "missing_piece": missing_piece,
         "visual_inspiration_board": visual_inspiration_board,
+        "anchor_item": pairing_anchor or None,
+        "pairing_routes": pairing_routes,
         "follow_up_question": follow_up,
-        "cta": _fallback_cta(query),
+        "cta": (
+            [
+                {"label": "Use my wardrobe", "value": f"Use my wardrobe for: {query}"},
+                {"label": "Show visual inspiration", "value": f"Show visual inspiration for: {query}"},
+                {"label": "Find missing pieces", "value": f"Show shopping ideas for: {query}"},
+            ]
+            if final_mode == STYLE_PAIRING
+            else _fallback_cta(query)
+        ),
         "visual_directions": visual_directions,
         "what_to_avoid": what_to_avoid,
         "meta": {
@@ -973,6 +1382,7 @@ def _build_response(
             "missing_piece_reasoning": missing_piece_reasoning,
             "emotion_state": emotion_state,
             "confidence": final_confidence,
+            "anchor_item": pairing_anchor or None,
         },
     }
 
@@ -992,6 +1402,12 @@ def reason(
     mode = _coerce_mode(safe_query, intent, safe_context)
     category, tone, formality, occasion = _occasion_category(safe_query)
     confidence = _confidence(intent, 0.9 if mode != GENERAL else 0.55)
+    if mode == STYLE_PAIRING:
+        logger.info("AHVI_STYLE_PAIRING_ROUTE query=%r", safe_query[:120])
+        logger.info(
+            "AHVI_PAIRING_FLOW_ORDER step=general_suggestions auto_wardrobe=False auto_visual=False ctas=%s",
+            ["Show visual inspiration", "Use my wardrobe", "Find missing pieces"],
+        )
 
     if mode == WARDROBE_STYLE:
         return {
