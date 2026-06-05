@@ -571,6 +571,11 @@ clash (shiny/formal for coffee, office polish forced into date night, formal
 shirt for a game), do NOT overconfidently recommend it — name the mismatch
 softly in what_to_avoid and stylist_reasoning, then offer one correction.
 
+Personalization: if style_ctx.style_dna is present, ground the reasoning in it
+naturally ("your wardrobe leans relaxed-modern", lean into preferred_colors /
+preferred_silhouettes, respect avoided_colors + avoid_style_keywords). If
+style_dna is absent or empty, do NOT invent personal taste — stay occasion-led.
+
 Obey the policy.wardrobe_management_principles for weak/empty wardrobes: say
 what the wardrobe leans toward first (e.g. office/casual), acknowledge what CAN
 be built, then frame gaps as one or two occasion-specific anchors to ADD
@@ -724,17 +729,19 @@ def _gemini_reasoning(
 
         policy["outfit_validation_principles"] = _cfg.get_outfit_validation_principles()
         policy["wardrobe_management_principles"] = _cfg.get_wardrobe_management_principles()
+        policy["personalization_principles"] = _cfg.get_personalization_principles()
+        policy["visual_response_principles"] = _cfg.get_visual_response_principles()
+        policy["decision_principles"] = _cfg.get_decision_principles()
         if mode == VISUAL_INSPIRATION:
             policy["mood_board_contract"] = _cfg.get_mood_board_contract()
             policy["inspiration_board_contract"] = _cfg.get_inspiration_board_contract()
-        logger.info(
-            "AHVI_CONFIG_USAGE_AUDIT mode=%s slices=%s",
-            mode,
-            [k for k in (
-                "outfit_validation_principles", "wardrobe_management_principles",
-                "mood_board_contract", "inspiration_board_contract",
-            ) if k in policy],
-        )
+        _slices = [k for k in (
+            "outfit_validation_principles", "wardrobe_management_principles",
+            "personalization_principles", "visual_response_principles",
+            "decision_principles", "mood_board_contract", "inspiration_board_contract",
+        ) if k in policy]
+        logger.info("AHVI_CONFIG_USAGE_AUDIT mode=%s slices=%s", mode, _slices)
+        logger.info("AHVI_CONFIG_SLICES_USED count=%d slices=%s", len(_slices), _slices)
     except Exception as exc:  # noqa: BLE001
         logger.warning("ahvi.style.config_slices_failed err=%s", str(exc)[:140])
 

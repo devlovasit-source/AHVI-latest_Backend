@@ -267,6 +267,27 @@ def _build_headline(occasion_key: str, style_direction: str, fallback_title: str
     return _headline_words(text, max_words=4)
 
 
+def fallback_title_and_why(occasion: str, rank_index: int = 0) -> "tuple[str, str]":
+    """Public helper for the curation layer: occasion-aware title + why copy,
+    used when Gemini curation returns missing/weak/generic text. Never returns
+    'Considered Look' or a generic item-list line."""
+    occ_key = _occ_key(occasion)
+    headline = (
+        _HEADLINES_BY_OCCASION.get(occ_key)
+        or _build_summary(occ_key, {}).split(",")[0].strip().title()
+        or "Quietly Intentional"
+    )
+    if headline.lower() == "considered look":
+        headline = "Quietly Intentional"
+    why = ""
+    templates = _OCCASION_WHY_TEMPLATES.get(occ_key)
+    if templates:
+        why = templates[rank_index % len(templates)]
+    if not why:
+        why = _build_summary(occ_key, {})
+    return _headline_words(headline, max_words=4), why
+
+
 def _build_summary(occasion_key: str, style_meta: Dict[str, Any]) -> str:
     formality = str(style_meta.get("formality") or "").lower()
     if occasion_key in {"client_meeting", "office"} or formality in {"high", "business_casual", "smart_casual"}:

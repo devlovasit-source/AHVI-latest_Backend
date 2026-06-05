@@ -415,11 +415,61 @@ def build_missing_piece_intelligence(
     }
 
 
+def compact_style_dna(style_dna: Any, preferences: Any) -> Dict[str, Any]:
+    """Build a compact, prompt-safe Style DNA contract from the user's stored
+    DNA + preferences. Returns {} when nothing meaningful exists, so Gemini
+    never hallucinates personalization for a blank profile."""
+    dna = _safe_dict(style_dna)
+    prefs = _safe_dict(preferences)
+
+    def _top_archetypes(value: Any, limit: int = 3) -> List[str]:
+        d = _safe_dict(value)
+        ranked = sorted(
+            ((k, v) for k, v in d.items() if isinstance(v, (int, float)) and v > 0),
+            key=lambda kv: kv[1],
+            reverse=True,
+        )
+        out = [k for k, _ in ranked][:limit]
+        if out:
+            return out
+        # plain list form
+        return [str(x) for x in _safe_list(value)][:limit]
+
+    color = _safe_dict(dna.get("color_dna"))
+    sil = _safe_dict(dna.get("silhouette_dna"))
+
+    contract = {
+        "style_archetypes": _top_archetypes(dna.get("style_archetypes"))
+        or [str(x) for x in _safe_list(prefs.get("archetypes"))][:3],
+        "preferred_colors": [str(x) for x in (color.get("core_colors") or color.get("power_colors") or prefs.get("colors") or [])][:6],
+        "avoided_colors": [str(x) for x in (color.get("avoided_colors") or prefs.get("avoided_colors") or [])][:6],
+        "preferred_silhouettes": [str(x) for x in (sil.get("preferred_fits") or sil.get("preferred_shapes") or prefs.get("silhouettes") or [])][:5],
+        "preferred_formality": str(
+            dna.get("preferred_formality")
+            or _safe_dict(dna.get("style_identity")).get("formality")
+            or prefs.get("formality")
+            or ""
+        ).strip(),
+        "preferred_style_keywords": [str(x) for x in (prefs.get("style_keywords") or _safe_list(dna.get("style_keywords")))][:6],
+        "avoid_style_keywords": [str(x) for x in (prefs.get("avoid_keywords") or _safe_list(dna.get("avoid_style_keywords")))][:6],
+    }
+    # Drop empty fields; if nothing populated, return {}.
+    contract = {k: v for k, v in contract.items() if v}
+    if contract:
+        logger.info(
+            "AHVI_STYLE_DNA_CONTEXT_USED keys=%s archetypes=%s",
+            sorted(contract.keys()),
+            contract.get("style_archetypes"),
+        )
+    return contract
+
+
 def compact_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
     """Trim the style context to a small, prompt-safe slice. Avoids shipping
     every wardrobe item / raw payloads into the Gemini prompt."""
     ctx = _safe_dict(context)
     items = _safe_list(ctx.get("wardrobe_items"))[:18]
+    style_dna_compact = compact_style_dna(ctx.get("style_dna"), ctx.get("preferences"))
     return {
         "query": ctx.get("query", ""),
         "occasion": ctx.get("occasion"),
@@ -438,11 +488,8 @@ def compact_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
             and ctx.get("weather_context", {}).get(k) is not None
         },
         "preferences": ctx.get("preferences", {}),
-        "style_dna_archetypes": (
-            _safe_dict(ctx.get("style_dna")).get("style_archetypes")
-            if isinstance(ctx.get("style_dna"), dict)
-            else None
-        ),
+        "style_dna": style_dna_compact or None,
+        "style_dna_archetypes": style_dna_compact.get("style_archetypes"),
         "last_style_mode": _safe_dict(ctx.get("last_style_context")).get("last_style_mode"),
         "base_occasion": _safe_dict(ctx.get("last_style_context")).get("base_occasion"),
         "sub_occasions": ctx.get("sub_occasions") or [],

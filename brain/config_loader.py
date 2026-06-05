@@ -230,6 +230,40 @@ _WARDROBE_MANAGEMENT_PRINCIPLES = [
 ]
 
 
+# Curated from personality/personalization.json, personality/visual_rules.json,
+# core/decision_rules.json (each a large example dump — we distil intent).
+_PERSONALIZATION_PRINCIPLES = [
+    "Reflect the user's real taste; never flatten everyone to one look.",
+    "Lean into what they already wear well before suggesting change.",
+    "Personalize only from known signals — never fabricate preferences.",
+]
+_VISUAL_RESPONSE_PRINCIPLES = [
+    "Lead with the visual/board; keep text supportive, not a wall.",
+    "One clear hero per look; quiet the rest.",
+    "Show, then briefly explain — never explain at length before showing.",
+]
+_DECISION_PRINCIPLES = [
+    "Match the room first, then add personality.",
+    "When unsure, choose the safer, more versatile option.",
+    "Wrong board is worse than a plain one — don't force a risky pick.",
+]
+
+
+def get_personalization_principles() -> List[str]:
+    bool(load_config(STYLE_CONFIG_FILES["personalization"]))
+    return list(_PERSONALIZATION_PRINCIPLES)
+
+
+def get_visual_response_principles() -> List[str]:
+    bool(load_config(STYLE_CONFIG_FILES["visual_rules"]))
+    return list(_VISUAL_RESPONSE_PRINCIPLES)
+
+
+def get_decision_principles() -> List[str]:
+    bool(load_config(STYLE_CONFIG_FILES["decision_rules"]))
+    return list(_DECISION_PRINCIPLES)
+
+
 def get_outfit_validation_principles() -> List[str]:
     # Touch the file so usage is real + auditable; fall back to the curated list.
     has_file = bool(load_config(STYLE_CONFIG_FILES["outfit_validation"]))

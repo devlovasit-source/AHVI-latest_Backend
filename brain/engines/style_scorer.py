@@ -394,6 +394,61 @@ def resolve_occasion_profile(occasion: Any, context: Optional[Dict[str, Any]] = 
     }
 
 
+def _item_ids(items: List[Dict[str, Any]]) -> set:
+    out = set()
+    for it in items or []:
+        if isinstance(it, dict):
+            v = str(it.get("$id") or it.get("id") or it.get("item_id") or it.get("name") or "").strip().lower()
+            if v:
+                out.add(v)
+    return out
+
+
+def _memory_breakdown(
+    items: List[Dict[str, Any]], context: Dict[str, Any]
+) -> "Tuple[Dict[str, float], List[str]]":
+    """Explicit wear-history ranking signals. Reads optional context keys
+    (recently_worn_ids, underworn_ids, saved_item_ids, wear_counts); returns
+    neutral 0.0 fields + reasons. Never errors on missing data."""
+    ctx = context if isinstance(context, dict) else {}
+    ids = _item_ids(items)
+    # These 3 sum into the total score (line ~1094 sums breakdown.values()).
+    fields: Dict[str, float] = {
+        "saved_board_affinity": 0.0,
+        "recent_repeat_penalty": 0.0,
+        "underworn_boost": 0.0,
+    }
+    reasons: List[str] = []
+    if not ids:
+        return fields, reasons
+
+    def _idset(key: str) -> set:
+        return {str(x).strip().lower() for x in (ctx.get(key) or []) if str(x).strip()}
+
+    recent = _idset("recently_worn_ids")
+    underworn = _idset("underworn_ids")
+    saved = _idset("saved_item_ids")
+
+    if recent and ids & recent:
+        fields["recent_repeat_penalty"] = -1.5 * len(ids & recent)
+        reasons.append("recently worn — offering a fresher option")
+    if underworn and ids & underworn:
+        fields["underworn_boost"] = 1.2 * len(ids & underworn)
+        reasons.append("brings an under-worn piece back into rotation")
+    if saved and ids & saved:
+        fields["saved_board_affinity"] = 1.0 * len(ids & saved)
+        reasons.append("echoes a look you saved")
+    # memory_freshness is a display-only composite — NOT summed into the score.
+    freshness = round(fields["underworn_boost"] + fields["recent_repeat_penalty"], 3)
+    if any(v for v in fields.values()):
+        logger.info(
+            "AHVI_MEMORY_SCORER_APPLIED repeat=%.1f underworn=%.1f saved=%.1f freshness=%.1f",
+            fields["recent_repeat_penalty"], fields["underworn_boost"],
+            fields["saved_board_affinity"], freshness,
+        )
+    return fields, reasons
+
+
 def _outfit_blob(outfit: Dict[str, Any]) -> str:
     """Flatten outfit + every item into a single lower-case blob."""
     parts: List[str] = []
@@ -923,6 +978,17 @@ class UnifiedStyleScorer:
             breakdown["memory"] = memory_score
             if memory_score > 0:
                 reasons.append("aligned with your past choices")
+
+        # Explicit wear-history signals (P1). Derived from context when the
+        # caller supplies wear data; neutral (0.0) otherwise so a missing
+        # history never distorts ranking.
+        try:
+            mem_fields, mem_reasons = _memory_breakdown(items, context)
+        except Exception:
+            mem_fields, mem_reasons = {}, []
+        if mem_fields:
+            breakdown.update(mem_fields)
+            reasons.extend(mem_reasons)
 
         dominant = session.get("dominant_refinement")
         if dominant:

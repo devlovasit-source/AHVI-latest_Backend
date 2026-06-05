@@ -4076,7 +4076,27 @@ def _occasion_reject_keys(occasion: str) -> tuple:
 
 def _occasion_guardrail_reject(card: Dict[str, Any], occasion: str) -> str:
     """Return a reject reason if any item in the card violates the occasion
-    guardrail, else empty string."""
+    guardrail, else empty string. Single source of truth: the existing
+    occasion_style_rules engine; the keyword map is a fallback only when the
+    engine has no rule for the occasion."""
+    # Primary: occasion_style_rules engine.
+    try:
+        from brain.engines.occasion_style_rules import (
+            get_occasion_rule,
+            reject_board_for_occasion,
+        )
+
+        occ_norm = _guard_norm(occasion).replace(" ", "_")
+        rule = get_occasion_rule(occ_norm)
+        if rule:
+            reason = reject_board_for_occasion(card, occ_norm, rule)
+            if reason:
+                return f"rules:{reason}"
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Safety net: keyword map. Runs when the engine has no specific rule for the
+    # occasion (e.g. coffee) or didn't catch a known-bad pairing.
     rules = _occasion_reject_keys(occasion)
     if not rules:
         return ""
@@ -4086,7 +4106,7 @@ def _occasion_guardrail_reject(card: Dict[str, Any], occasion: str) -> str:
     )
     for group in rules:
         if all(token in blob for token in group):
-            return "rejected:" + "+".join(group)
+            return "keyword:" + "+".join(group)
     return ""
 
 
@@ -4220,10 +4240,15 @@ def curate_wardrobe_boards(
             kept_guard.append(c)
     if kept_guard:
         valid = kept_guard
+    _rule_source = (
+        "occasion_style_rules" if any(r.startswith("rules:") for r in guard_reasons)
+        else ("keyword_fallback" if guard_reasons else "none")
+    )
     logger.info(
         "AHVI_OCCASION_GUARDRAILS_APPLIED occasion=%s rejected_count=%d reasons=%s",
         occasion, len(guard_reasons), guard_reasons[:6],
     )
+    logger.info("AHVI_OCCASION_RULES_SOURCE occasion=%s source=%s", occasion, _rule_source)
 
     target = max(3, min(target, len(valid)))
     wardrobe_limited = bool(wardrobe_count) and wardrobe_count < 6
@@ -4277,7 +4302,7 @@ def curate_wardrobe_boards(
             top_counts[top_k] = top_counts.get(top_k, 0) + 1
         if foot_k:
             foot_counts[foot_k] = foot_counts.get(foot_k, 0) + 1
-        curated.append(_apply_curation(card, row, len(curated)))
+        curated.append(_apply_curation(card, row, len(curated), occasion=occasion))
         if len(curated) >= target:
             break
 
@@ -4285,7 +4310,7 @@ def curate_wardrobe_boards(
         for card, row in ordered:
             if any(cc is card for cc in curated):
                 continue
-            curated.append(_apply_curation(card, row, len(curated)))
+            curated.append(_apply_curation(card, row, len(curated), occasion=occasion))
             if len(curated) >= min(3, len(valid)):
                 break
 
@@ -4312,15 +4337,52 @@ def curate_wardrobe_boards(
     return curated
 
 
-def _apply_curation(card: Dict[str, Any], row: Dict[str, Any], index: int) -> Dict[str, Any]:
+def _is_weak_why(text: str) -> bool:
+    """Generic / templated curation copy we want to replace with the
+    storyteller's occasion-aware editorial line."""
+    t = _guard_norm(text)
+    if not t or len(t.split()) < 5:
+        return True
+    weak_markers = (
+        "sets the structure while",
+        "keeps it easy",
+        "finishes the line",
+        "sets the proportion",
+        "carries the personality",
+        "clean and intentional",
+        "keeps one clear focal point",
+    )
+    return any(m in t for m in weak_markers)
+
+
+def _apply_curation(
+    card: Dict[str, Any], row: Dict[str, Any], index: int, occasion: str = ""
+) -> Dict[str, Any]:
     out = dict(card)
     strategy = _safe_text(row.get("look_strategy")).lower()
     if strategy not in _LOOK_STRATEGY_ORDER:
         strategy = _LOOK_STRATEGY_ORDER[min(index, len(_LOOK_STRATEGY_ORDER) - 1)]
     title = _clean_editorial_copy(row.get("title"), "")
+    why = _clean_editorial_copy(row.get("why_it_works"), _safe_text(out.get("why_it_works")))
+
+    # P3: board_storyteller fallback when Gemini title/why is missing or weak.
+    if (not title or title.lower() == "considered look") or _is_weak_why(why):
+        try:
+            from brain.response.board_storyteller import fallback_title_and_why
+
+            st_title, st_why = fallback_title_and_why(occasion, index)
+            if (not title or title.lower() == "considered look") and st_title:
+                title = st_title
+            if _is_weak_why(why) and st_why:
+                why = st_why
+            logger.info(
+                "AHVI_BOARD_STORYTELLER_FALLBACK_USED occasion=%s index=%d title=%r",
+                occasion, index, title,
+            )
+        except Exception:  # noqa: BLE001
+            pass
     if not title or title.lower() == "considered look":
         title = _FALLBACK_TITLES[min(index, len(_FALLBACK_TITLES) - 1)]
-    why = _clean_editorial_copy(row.get("why_it_works"), _safe_text(out.get("why_it_works")))
     tip = _clean_editorial_copy(row.get("styling_tip"), _safe_text(out.get("styling_tip")))
 
     out["title"] = title
