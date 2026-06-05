@@ -3066,6 +3066,16 @@ def render_style_boards(
                 image_url = uploaded.get("image_url")
             except (R2StorageError, Exception) as exc:
                 upload_error = str(exc)
+        _bp = board.get("board_payload") if isinstance(board.get("board_payload"), dict) else board
+        logger.info(
+            "AHVI_BOARD_RENDER_IMAGE_URL has_url=%s upload_error=%s",
+            bool(image_url), bool(upload_error),
+        )
+        logger.info(
+            "AHVI_BOARD_RENDER_LAYOUT_USED layout_preset=%s composition_mode=%s",
+            _safe_text((_bp or {}).get("layout_preset")) or "default",
+            _safe_text((_bp or {}).get("composition_mode")) or "default",
+        )
 
         rendered.append(
             {

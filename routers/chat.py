@@ -1257,7 +1257,20 @@ def _ahvi_style_occasion(query_text):
         return "wedding"
     if any(k in q for k in ["date", "dinner", "night"]):
         return "date night"
-    if any(k in q for k in ["office", "meeting", "work", "client"]):
+    # Office ONLY on explicit work signals — never as a generic-daily fallback.
+    if any(
+        k in q
+        for k in [
+            "office",
+            "meeting",
+            "work",
+            "client",
+            "presentation",
+            "corporate",
+            "business",
+            "interview",
+        ]
+    ):
         return "office"
     if any(k in q for k in ["party", "club", "night out", "rave"]):
         return "party"
@@ -1269,32 +1282,9 @@ def _ahvi_style_occasion(query_text):
     ):
         return "casual outing"
 
-    generic_daily_style = any(
-        k in q
-        for k in [
-            "suggest an outfit",
-            "outfit for today",
-            "today outfit",
-            "wear today",
-            "what should i wear",
-        ]
-    )
-    relaxed_daily_context = any(
-        k in q
-        for k in [
-            "home",
-            "wfh",
-            "sunday",
-            "lazy",
-            "errand",
-            "grocery",
-            "beach",
-            "resort",
-            "vacation",
-        ]
-    )
-    if generic_daily_style and not relaxed_daily_context:
-        return "office"
+    # Generic daily style ("what should I wear today", "suggest an outfit")
+    # routes to daily_style/today — NOT office.
+    logger.info("AHVI_DAILY_STYLE_ROUTE occasion=today prompt=%r", str(query_text)[:60])
     return "today"
 
 
@@ -1706,6 +1696,11 @@ def _demo_style_board_payload(
                 },
             },
             include_base64=False,
+            # Editorial board PNG render + R2 upload is gated by an env flag so
+            # it never silently adds latency. AHVI_STYLE_BOARD_RENDER=1 turns on
+            # image_url generation for wardrobe boards.
+            upload_to_r2=str(os.getenv("AHVI_STYLE_BOARD_RENDER", "")).strip().lower()
+            in {"1", "true", "yes", "on"},
             style_action=style_action,
             show_closest_option=show_closest_option,
             allow_closest_option=allow_closest_option,
