@@ -3941,6 +3941,34 @@ def text_chat(request: TextChatRequest, http_request: Request):
         english_input = user_input
         target_lang = "en"
 
+    # Restore style-pairing session: a bare typed follow-up ("use my wardrobe",
+    # "show visual inspiration", "find missing pieces") after a pairing turn
+    # carries no anchor. If the echoed last_style_context says we were pairing,
+    # rewrite the prompt to include the selected route + anchor so the follow-up
+    # builds the right thing instead of a generic outfit. CTA chips already
+    # self-describe; this covers the typed path.
+    _mem_early = request.current_memory if isinstance(request.current_memory, dict) else {}
+    _lsc_early = _mem_early.get("last_style_context") if isinstance(_mem_early.get("last_style_context"), dict) else {}
+    if _lsc_early.get("last_style_mode") == "style_pairing":
+        _anchor_name = str((_lsc_early.get("anchor_item") or {}).get("name") or "").strip()
+        _route = str(_lsc_early.get("selected_route") or "").strip()
+        _ql = re.sub(r"\s+", " ", english_input.lower()).strip()
+        _bare = _ql in {
+            "use my wardrobe", "show visual inspiration", "find missing pieces",
+            "visual inspiration", "missing pieces",
+        }
+        if _bare and _anchor_name and _anchor_name.lower() not in _ql:
+            _suffix = f"{_route} with {_anchor_name}".strip() if _route else _anchor_name
+            english_input = f"{english_input.strip()} to build {_suffix}"
+            logger.info(
+                "AHVI_PAIRING_CONTEXT_RESTORED anchor=%r route=%s rewritten=%r",
+                _anchor_name, _route, english_input[:80],
+            )
+            if "wardrobe" in _ql:
+                logger.info("AHVI_PAIRING_TO_WARDROBE_ROUTE anchor=%r route=%s", _anchor_name, _route)
+            elif "visual" in _ql:
+                logger.info("AHVI_PAIRING_VISUAL_FOLLOWUP anchor=%r route=%s", _anchor_name, _route)
+
     if _is_greeting(english_input):
         logger.info(
             "chat.intent.route intent=%s module=%s path=%s text=%r",
