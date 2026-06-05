@@ -982,11 +982,46 @@ def _fallback_pairing_routes(anchor: Dict[str, str]) -> List[Dict[str, Any]]:
     ]
 
 
-def _normalize_pairing_routes(value: Any, anchor: Dict[str, str], gender: str = "unknown") -> List[Dict[str, Any]]:
+def _pairing_ctas(anchor: Dict[str, Any], routes: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """CTAs that carry the selected route + anchor INTO the follow-up query, so
+    a stateless follow-up still builds the right thing without server session."""
+    name = str((anchor or {}).get("name") or "this piece").strip()
+    top = str((routes[0].get("title") if routes else "") or "").strip()
+    suffix = f"{top} with {name}".strip() if top else name
+    return [
+        {"label": "Use my wardrobe", "value": f"Use my wardrobe to build {suffix}"},
+        {"label": "Show visual inspiration", "value": f"Show visual inspiration for {suffix}"},
+        {"label": "Find missing pieces", "value": f"Find missing pieces for {suffix}"},
+    ]
+
+
+def _pairing_last_style_context(anchor: Dict[str, Any], routes: List[Dict[str, Any]], context: dict) -> Dict[str, Any]:
+    import time as _t
+
+    ctx = {
+        "last_style_mode": "style_pairing",
+        "anchor_item": {
+            "name": str((anchor or {}).get("name") or "").strip(),
+            "category": str((anchor or {}).get("category") or "").strip(),
+        },
+        "selected_route": str(routes[0].get("title") if routes else "").strip(),
+        "selected_archetypes": [str(r.get("archetype") or r.get("title") or "").strip() for r in routes][:5],
+        "persona_context": (context or {}).get("persona") or {},
+        "timestamp": int(_t.time()),
+    }
+    logger.info(
+        "AHVI_PAIRING_CONTEXT_SAVED anchor=%r route=%s archetypes=%s",
+        ctx["anchor_item"]["name"], ctx["selected_route"], ctx["selected_archetypes"],
+    )
+    return ctx
+
+
+def _normalize_pairing_routes(value: Any, anchor: Dict[str, str], gender: str = "unknown", wardrobe: Any = None) -> List[Dict[str, Any]]:
     rows = value if isinstance(value, list) else []
     fallbacks = _fallback_pairing_routes(anchor)
     normalized: List[Dict[str, Any]] = []
     total_removed = 0
+    _wardrobe = wardrobe if isinstance(wardrobe, list) else []
     for idx in range(min(5, max(4, len(rows), len(fallbacks)))):
         source = rows[idx] if idx < len(rows) and isinstance(rows[idx], dict) else {}
         fb = fallbacks[idx % len(fallbacks)]
@@ -1016,6 +1051,14 @@ def _normalize_pairing_routes(value: Any, anchor: Dict[str, str], gender: str = 
             "styling_tip": str(source.get("styling_tip") or source.get("style_note") or source.get("styleNote") or fb.get("styling_tip") or "").strip(),
             "persona_fit_reason": str(source.get("persona_fit_reason") or "").strip(),
         }
+        # Wardrobe reality scoring — how buildable is this route from what they own.
+        if _wardrobe:
+            try:
+                from services.stylist_knowledge_service import score_route_against_wardrobe
+
+                route["wardrobe_reality"] = score_route_against_wardrobe(route, _wardrobe)
+            except Exception:  # noqa: BLE001
+                pass
         normalized.append(route)
     if total_removed:
         logger.info("AHVI_PAIRING_PERSONA_FILTER_APPLIED gender=%s removed=%d", gender, total_removed)
@@ -1116,10 +1159,12 @@ def _gemini_reasoning(
                 wardrobe_summary=(style_ctx or {}).get("wardrobe_summary"),
             )
             _anchor = _extract_pairing_anchor(query)
+            _dna_raw = _uprof.get("style_dna") or _uprof.get("styleDNA") or {}
             selected_archetypes = select_archetypes(
                 anchor=_anchor,
                 occasion=str(context.get("occasion") or category or ""),
                 style_keywords=persona.get("style_dna") or [],
+                style_dna=_dna_raw if isinstance(_dna_raw, dict) else {},
             )
             logger.info(
                 "AHVI_PERSONAL_STYLIST_CONTEXT_BUILT gender=%s archetypes=%s",
@@ -1322,7 +1367,16 @@ def _build_response(
     follow_up = str(payload.get("follow_up_question") or "").strip() or None
     pairing_routes: List[Dict[str, Any]] = []
     if final_mode == STYLE_PAIRING:
-        pairing_routes = _normalize_pairing_routes(payload.get("pairing_routes"), pairing_anchor, pairing_gender)
+        pairing_routes = _normalize_pairing_routes(
+            payload.get("pairing_routes"), pairing_anchor, pairing_gender,
+            wardrobe=context.get("wardrobe") or context.get("wardrobe_items"),
+        )
+        if pairing_routes and any(r.get("wardrobe_reality") for r in pairing_routes):
+            logger.info(
+                "AHVI_WARDROBE_REALITY_BUILT routes=%d scores=%s",
+                len(pairing_routes),
+                [r.get("wardrobe_reality", {}).get("match_score") for r in pairing_routes],
+            )
         visual_directions = _pairing_routes_as_visual_directions(pairing_routes)
     else:
         visual_directions = _normalize_visual_directions(
@@ -1361,13 +1415,10 @@ def _build_response(
         "visual_inspiration_board": visual_inspiration_board,
         "anchor_item": pairing_anchor or None,
         "pairing_routes": pairing_routes,
+        "last_style_context": (_pairing_last_style_context(pairing_anchor, pairing_routes, context) if final_mode == STYLE_PAIRING else None),
         "follow_up_question": follow_up,
         "cta": (
-            [
-                {"label": "Use my wardrobe", "value": f"Use my wardrobe for: {query}"},
-                {"label": "Show visual inspiration", "value": f"Show visual inspiration for: {query}"},
-                {"label": "Find missing pieces", "value": f"Show shopping ideas for: {query}"},
-            ]
+            _pairing_ctas(pairing_anchor, pairing_routes)
             if final_mode == STYLE_PAIRING
             else _fallback_cta(query)
         ),

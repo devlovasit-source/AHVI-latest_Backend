@@ -965,6 +965,46 @@ ARCHETYPE_LIBRARY = [
      "best_for": ["office", "client", "meeting"], "preferred_items": ["soft blazer", "shirt", "trousers", "loafers", "fine knit"],
      "avoid_items": ["stiff formality"], "palette": ["navy", "grey", "brown"], "gender_fit": "neutral",
      "style_keywords": ["professional", "human"]},
+    {"name": "Coastal Minimalist", "impression": ["calm", "clean"], "formality": 4,
+     "best_for": ["resort", "summer", "weekend"], "preferred_items": ["linen shirt", "white trousers", "espadrilles", "tee", "loafers"],
+     "avoid_items": ["heavy layers"], "palette": ["white", "sky", "sand"], "gender_fit": "neutral",
+     "style_keywords": ["minimal", "coastal", "breezy"]},
+    {"name": "Modern Prep", "impression": ["neat", "youthful"], "formality": 6,
+     "best_for": ["weekend", "smart casual", "campus"], "preferred_items": ["oxford shirt", "chinos", "knit polo", "loafers", "blazer"],
+     "avoid_items": ["distressed pieces"], "palette": ["navy", "white", "green"], "gender_fit": "neutral",
+     "style_keywords": ["preppy", "classic", "clean"]},
+    {"name": "Monochrome Dressing", "impression": ["sharp", "intentional"], "formality": 6,
+     "best_for": ["city", "evening", "event"], "preferred_items": ["black knit", "black trousers", "minimal sneakers", "overcoat"],
+     "avoid_items": ["busy prints", "clashing colors"], "palette": ["black", "white", "grey"], "gender_fit": "neutral",
+     "style_keywords": ["monochrome", "tonal", "minimal"]},
+    {"name": "Weekend Explorer", "impression": ["easy", "ready"], "formality": 3,
+     "best_for": ["weekend", "outdoor", "travel"], "preferred_items": ["overshirt", "tee", "cargo trousers", "trainers", "denim"],
+     "avoid_items": ["formal shoes"], "palette": ["olive", "stone", "rust"], "gender_fit": "neutral",
+     "style_keywords": ["casual", "rugged", "practical"]},
+    {"name": "Soft Power", "impression": ["assured", "approachable"], "formality": 7,
+     "best_for": ["office", "client", "dinner"], "preferred_items": ["soft tailoring", "fine knit", "trousers", "loafers"],
+     "avoid_items": ["harsh structure"], "palette": ["taupe", "navy", "cream"], "gender_fit": "neutral",
+     "style_keywords": ["refined", "calm", "tailored"]},
+    {"name": "Creative Casual", "impression": ["expressive", "relaxed"], "formality": 4,
+     "best_for": ["weekend", "creative", "gallery"], "preferred_items": ["printed shirt", "denim", "overshirt", "sneakers", "tee"],
+     "avoid_items": ["corporate suiting"], "palette": ["rust", "teal", "ecru"], "gender_fit": "neutral",
+     "style_keywords": ["creative", "expressive", "colorful"]},
+    {"name": "Travel Uniform", "impression": ["effortless", "composed"], "formality": 4,
+     "best_for": ["travel", "airport", "weekend"], "preferred_items": ["knit", "straight trousers", "clean sneakers", "overshirt", "tee"],
+     "avoid_items": ["fussy layers"], "palette": ["grey", "navy", "black"], "gender_fit": "neutral",
+     "style_keywords": ["comfortable", "minimal", "versatile"]},
+    {"name": "Minimal Luxe", "impression": ["premium", "quiet"], "formality": 7,
+     "best_for": ["dinner", "evening", "office"], "preferred_items": ["cashmere knit", "tailored trousers", "leather loafers", "overcoat"],
+     "avoid_items": ["logos", "loud color"], "palette": ["camel", "charcoal", "cream"], "gender_fit": "neutral",
+     "style_keywords": ["luxury", "minimal", "timeless"]},
+    {"name": "Contemporary Workwear", "impression": ["modern", "functional"], "formality": 5,
+     "best_for": ["creative office", "weekend"], "preferred_items": ["chore jacket", "straight trousers", "tee", "boots", "sneakers"],
+     "avoid_items": ["formal suiting"], "palette": ["indigo", "olive", "ecru"], "gender_fit": "neutral",
+     "style_keywords": ["workwear", "utility", "modern"]},
+    {"name": "Effortless Sophistication", "impression": ["polished", "easy"], "formality": 6,
+     "best_for": ["dinner", "smart casual", "evening"], "preferred_items": ["fine knit", "tailored trousers", "loafers", "overshirt"],
+     "avoid_items": ["overdone layering"], "palette": ["stone", "navy", "brown"], "gender_fit": "neutral",
+     "style_keywords": ["effortless", "refined", "minimal"]},
 ]
 
 # Feminine-only items to strip for a male persona (unless explicitly asked).
@@ -980,12 +1020,14 @@ def get_archetype_library() -> List[Dict[str, Any]]:
     return list(ARCHETYPE_LIBRARY)
 
 
-def _archetype_score(arch, *, anchor_blob, occasion, style_keywords, formality_hint):
+def _archetype_score(arch, *, anchor_blob, occasion, style_keywords, formality_hint, style_dna):
     text = " ".join(
         str(x) for x in (arch.get("best_for") or []) + (arch.get("style_keywords") or [])
-        + (arch.get("preferred_items") or [])
+        + (arch.get("preferred_items") or []) + (arch.get("impression") or [])
     ).lower()
+    arch_palette = " ".join(str(x) for x in (arch.get("palette") or [])).lower()
     score = 0.0
+    # occasion + anchor + keyword base score
     if occasion and occasion in text:
         score += 3.0
     for kw in style_keywords:
@@ -996,31 +1038,54 @@ def _archetype_score(arch, *, anchor_blob, occasion, style_keywords, formality_h
             score += 1.0
     if formality_hint:
         score -= abs(int(arch.get("formality") or 5) - formality_hint) * 0.4
+
+    # Style DNA weighting — this is what personalizes the same anchor for
+    # different users (minimalist vs creative).
+    dna = style_dna if isinstance(style_dna, dict) else {}
+    for aesthetic in dna.get("aesthetics") or dna.get("style_archetypes") or []:
+        a = _norm(aesthetic)
+        if a and (a in text or a in _norm(arch.get("name"))):
+            score += 2.5
+    for color in dna.get("preferred_palette") or dna.get("preferred_colors") or dna.get("colors") or []:
+        if _norm(color) and _norm(color) in arch_palette:
+            score += 1.0
+    for sil in dna.get("silhouettes") or dna.get("preferred_silhouettes") or []:
+        if _norm(sil) and _norm(sil) in text:
+            score += 1.0
+    fp = dna.get("formality_preference")
+    if isinstance(fp, (int, float)) and fp:
+        score -= abs(int(arch.get("formality") or 5) - int(fp)) * 0.5
     return score
 
 
 def select_archetypes(*, anchor=None, occasion="", style_keywords=None,
-                      formality_hint=0, limit=5):
-    """Select 4-5 best archetypes for a pairing request. Library is gender-
-    neutral; persona filtering happens at the item level."""
+                      formality_hint=0, style_dna=None, limit=5):
+    """Select 4-5 best archetypes. Library is gender-neutral; persona filtering
+    happens at the item level. style_dna re-ranks so the same anchor produces
+    different routes for minimalist vs creative users."""
     anchor = anchor or {}
     anchor_blob = " ".join(
         str(anchor.get(k) or "") for k in ("name", "category", "color")
     ).lower()
     occ = _norm(occasion)
     kws = [k for k in (style_keywords or []) if k]
+    dna = style_dna if isinstance(style_dna, dict) else {}
+    has_dna = bool(dna.get("aesthetics") or dna.get("style_archetypes") or dna.get("preferred_palette") or dna.get("silhouettes"))
     ranked = sorted(
         ARCHETYPE_LIBRARY,
         key=lambda a: _archetype_score(
             a, anchor_blob=anchor_blob, occasion=occ, style_keywords=kws,
-            formality_hint=formality_hint,
+            formality_hint=formality_hint, style_dna=dna,
         ),
         reverse=True,
     )
     chosen = ranked[: max(4, min(int(limit), 5))]
+    if has_dna:
+        _archetype_logger.info("AHVI_STYLE_DNA_APPLIED aesthetics=%s palette=%s", dna.get("aesthetics") or dna.get("style_archetypes"), dna.get("preferred_palette") or dna.get("preferred_colors"))
+        _archetype_logger.info("AHVI_ARCHETYPE_RERANKED names=%s", [a["name"] for a in chosen])
     _archetype_logger.info(
-        "AHVI_ARCHETYPE_SELECTED anchor=%r occasion=%s names=%s",
-        anchor_blob[:40], occ, [a["name"] for a in chosen],
+        "AHVI_ARCHETYPE_SELECTED anchor=%r occasion=%s dna=%s names=%s",
+        anchor_blob[:40], occ, has_dna, [a["name"] for a in chosen],
     )
     return chosen
 
@@ -1037,3 +1102,77 @@ def filter_items_for_persona(items, gender):
         else:
             kept.append(it)
     return kept, removed
+
+
+# Loose category synonyms so a route's "cream trousers" matches an owned
+# "beige chinos" as a substitution.
+_REALITY_CATEGORY = {
+    "top": ("shirt", "tee", "t shirt", "polo", "knit", "sweater", "blouse", "overshirt", "kurta", "top"),
+    "bottom": ("trouser", "trousers", "chino", "chinos", "jean", "jeans", "pant", "pants", "short", "shorts", "skirt"),
+    "footwear": ("shoe", "shoes", "sneaker", "sneakers", "loafer", "loafers", "boot", "boots", "heel", "sandal", "espadrille", "derby", "brogue"),
+    "outerwear": ("blazer", "jacket", "coat", "overcoat", "cardigan", "chore"),
+}
+
+
+def _reality_category(blob: str) -> str:
+    b = _norm(blob)
+    for cat, words in _REALITY_CATEGORY.items():
+        if any(w in b for w in words):
+            return cat
+    return "other"
+
+
+def score_route_against_wardrobe(route, wardrobe):
+    """How realistic is a route for the user's actual wardrobe.
+    Returns {match_score, owned_items, missing_items, substitutions, confidence}.
+    Matches by exact-ish name first, else same-category substitution."""
+    items = route.get("items") if isinstance(route, dict) else route
+    items = [str(x).strip() for x in (items or []) if str(x).strip()]
+    owned_blobs = []
+    for w in wardrobe or []:
+        if isinstance(w, dict):
+            owned_blobs.append((_norm(w.get("name") or w.get("label")), w))
+        elif w:
+            owned_blobs.append((_norm(w), {"name": str(w)}))
+
+    owned_items, missing_items, substitutions = [], [], []
+    for need in items:
+        n = _norm(need)
+        need_cat = _reality_category(need)
+        # 1) direct keyword overlap
+        direct = next(
+            (w for blob, w in owned_blobs if blob and (n in blob or any(tok in blob for tok in n.split() if len(tok) > 3))),
+            None,
+        )
+        if direct:
+            owned_items.append(need)
+            continue
+        # 2) same-category substitution
+        sub = next(
+            (w for blob, w in owned_blobs if blob and _reality_category(blob) == need_cat and need_cat != "other"),
+            None,
+        )
+        if sub:
+            sub_name = str(sub.get("name") or sub.get("label") or "owned piece").strip()
+            substitutions.append(f"{sub_name} instead of {need}")
+            owned_items.append(need)
+        else:
+            missing_items.append(need)
+
+    total = max(1, len(items))
+    covered = len(owned_items)
+    match_score = int(round((covered / total) * 100))
+    confidence = round(min(1.0, 0.4 + 0.6 * (len(owned_blobs) >= 3)), 2) if owned_blobs else 0.0
+    result = {
+        "match_score": match_score,
+        "owned_items": owned_items,
+        "missing_items": missing_items,
+        "substitutions": substitutions[:4],
+        "confidence": confidence,
+    }
+    _archetype_logger.info(
+        "AHVI_ROUTE_MATCH_SCORED route=%r match=%d owned=%d missing=%d subs=%d",
+        _norm(route.get("title") if isinstance(route, dict) else "")[:30],
+        match_score, covered, len(missing_items), len(substitutions),
+    )
+    return result

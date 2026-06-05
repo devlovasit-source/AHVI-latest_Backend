@@ -42,6 +42,7 @@ from services.stylist_knowledge_service import (
     SHOPPING_ASSIST,
     STYLE_ADVICE,
     STYLE_EDUCATION,
+    STYLE_PAIRING,
     STYLE_MODES,
     WARDROBE_STYLE,
     classify_style_mode,
@@ -418,6 +419,8 @@ def _style_reasoning_chat_response(
             "pieces": item.get("pieces") if isinstance(item.get("pieces"), list) else [],
             "why_it_works": str(item.get("why_it_works") or ""),
             "style_note": str(item.get("style_note") or ""),
+            "use_case": str(item.get("use_case") or ""),
+            "avoid": item.get("avoid") if isinstance(item.get("avoid"), list) else [],
         }
         for item in visual_directions
         if isinstance(item, dict)
@@ -453,6 +456,11 @@ def _style_reasoning_chat_response(
             "stylist_mode": True,
             "cta_actions": chips,
             "visual_directions": visual_directions,
+            "pairing_routes": reasoning.get("pairing_routes") if isinstance(reasoning.get("pairing_routes"), list) else [],
+            "anchor_item": reasoning.get("anchor_item") if isinstance(reasoning.get("anchor_item"), dict) else None,
+            # Persisted style session — FE echoes this back in current_memory so
+            # follow-ups (use wardrobe / find missing / visual) keep the anchor.
+            "last_style_context": reasoning.get("last_style_context") or None,
             "goal": reasoning.get("goal"),
             "impression": reasoning.get("impression"),
             "confidence_strategy": reasoning.get("confidence_strategy"),
@@ -4041,6 +4049,13 @@ def text_chat(request: TextChatRequest, http_request: Request):
     )
     _mem = request.current_memory if isinstance(request.current_memory, dict) else {}
     _last_style_context = _mem.get("last_style_context") if isinstance(_mem.get("last_style_context"), dict) else {}
+    if _last_style_context.get("last_style_mode") == "style_pairing":
+        logger.info(
+            "AHVI_PAIRING_CONTEXT_RESTORED anchor=%r route=%s archetypes=%s",
+            (_last_style_context.get("anchor_item") or {}).get("name"),
+            _last_style_context.get("selected_route"),
+            _last_style_context.get("selected_archetypes"),
+        )
     reasoning = style_reasoning_engine.reason(
         query=english_input,
         intent=intent_row,
@@ -4071,6 +4086,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
         STYLE_EDUCATION,
         SHOPPING_ASSIST,
         VISUAL_INSPIRATION,
+        STYLE_PAIRING,
     } and not reasoning.get("should_generate_board"):
         logger.info(
             "chat.intent.route intent=%s module=%s path=%s text=%r",
