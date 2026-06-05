@@ -466,7 +466,7 @@ def _coerce_mode(query: str, intent: dict | str | None, context: dict | None) ->
         return WARDROBE_STYLE
 
     # 2) find_missing_pieces.
-    if _has_any(action_blob, ("find_missing_pieces", "find missing pieces", "missing piece", "missing pieces", "what should i buy", "shopping ideas", "complete the look", "complete this look")):
+    if _has_any(action_blob, ("find_missing_pieces", "find missing pieces", "missing piece", "missing pieces", "what should i buy", "shopping ideas", "complete the look", "complete this look", "find this", "find similar", "shop this", "buy similar")):
         logger.info("AHVI_STYLE_ROUTE_FORCED mode=missing_pieces reason=find_missing_pieces")
         return SHOPPING_ASSIST
 
@@ -570,6 +570,11 @@ Obey the policy.outfit_validation_principles: if the occasion and an item
 clash (shiny/formal for coffee, office polish forced into date night, formal
 shirt for a game), do NOT overconfidently recommend it — name the mismatch
 softly in what_to_avoid and stylist_reasoning, then offer one correction.
+
+Memory: if style_ctx.memory.recently_worn is non-empty, you MAY add ONE short
+clause about rotating in a fresher option (e.g. "since you wore the navy shirt
+recently, I'm rotating in something fresher"). Do NOT over-explain. If
+style_ctx.memory is null/absent, NEVER invent or mention wear history.
 
 Personalization: if style_ctx.style_dna is present, ground the reasoning in it
 naturally ("your wardrobe leans relaxed-modern", lean into preferred_colors /
@@ -716,6 +721,7 @@ def _gemini_reasoning(
             event_context=context.get("event_context"),
             user_profile=user_profile,
             last_style_context=context.get("last_style_context"),
+            user_id=str(context.get("user_id") or ""),
         )
         style_ctx = compact_context_for_prompt(full_ctx)
     except Exception as exc:  # noqa: BLE001

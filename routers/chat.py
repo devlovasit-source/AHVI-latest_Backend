@@ -523,6 +523,60 @@ def _is_help_identity_request(text: str) -> bool:
     }
 
 
+def _is_find_this_request(text: str) -> bool:
+    q = re.sub(r"\s+", " ", str(text or "").lower()).strip()
+    return (
+        q.startswith("find this")
+        or q.startswith("find similar")
+        or q.startswith("shop this")
+        or q.startswith("buy similar")
+        or "find this:" in q
+    )
+
+
+def _shopping_intent_response(query: str) -> Dict[str, Any]:
+    """Safe placeholder for the Find This CTA until product search ships.
+    Routes the intent (shopping_assist) without falling back to generic
+    style advice."""
+    raw = str(query or "").strip()
+    # Extract the item after "find this:" / "find similar to" etc.
+    item = raw
+    for pref in ("find this:", "find this", "find similar to", "find similar",
+                 "shop this", "buy similar to", "buy similar"):
+        if item.lower().startswith(pref):
+            item = item[len(pref):].strip(" :-")
+            break
+    if "find this:" in item.lower():
+        item = item.lower().split("find this:", 1)[1].strip()
+    item = item or "this piece"
+    block = {
+        "type": "shopping_intent",
+        "query": item,
+        "message": f"I'll help you find similar options for {item}.",
+        "status": "pending_catalog",
+    }
+    logger.info("AHVI_FIND_THIS_ROUTE item=%r status=pending_catalog", item)
+    msg = block["message"]
+    return {
+        "success": True,
+        "ok": True,
+        "type": "shopping_intent",
+        "intent": "shopping_assist",
+        "message": {"role": "assistant", "content": msg},
+        "message_text": msg,
+        "response": msg,
+        "text": msg,
+        "cards": [],
+        "style_boards": [],
+        "blocks": [block],
+        "chips": [],
+        "board_ids": "",
+        "data": {"shopping_intent": block, "intent": "shopping_assist"},
+        "meta": {"mode": "shopping_intent", "status": "pending_catalog"},
+        "audio_job_id": "offline",
+    }
+
+
 def _is_small_talk(text: str) -> bool:
     q = re.sub(r"[^a-z0-9\s]", " ", str(text or "").lower())
     q = re.sub(r"\s+", " ", q).strip()
@@ -3753,6 +3807,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             user_profile=effective_user_profile,
             context={
                 "module_context": request.module_context or "",
+                "user_id": user_id,
                 "occasion": "multi_event",
                 "wardrobe": request.wardrobe if isinstance(request.wardrobe, list) else [],
                 "multi_event": _multi_event_route,
@@ -3913,6 +3968,14 @@ def text_chat(request: TextChatRequest, http_request: Request):
         )
         return _ahvi_small_talk_response(request.module_context)
 
+    # Find This CTA (from missing-piece / inspiration cards). Route to a
+    # shopping_intent placeholder — never generic style advice.
+    if _is_find_this_request(english_input):
+        response = _shopping_intent_response(english_input)
+        if not cache_visual_boards:
+            _CHAT_CACHE.set(cache_key, response)
+        return response
+
     if _is_use_wardrobe_action(action=request.action or request.style_action, prompt=english_input):
         forced_prompt = _wardrobe_action_prompt(english_input)
         forced_occasion = _ahvi_style_occasion(forced_prompt)
@@ -3992,6 +4055,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "style_action": style_action,
             "show_closest_option": closest_requested,
             # Real situational data for the Stylist Brain V2 context builder.
+            "user_id": user_id,
             "occasion": _ahvi_style_occasion(english_input),
             "wardrobe": request.wardrobe if isinstance(request.wardrobe, list) else [],
             "weather": weather_data if "weather_data" in locals() else {},

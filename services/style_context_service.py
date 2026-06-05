@@ -493,6 +493,28 @@ def compact_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
     ctx = _safe_dict(context)
     items = _safe_list(ctx.get("wardrobe_items"))[:18]
     style_dna_compact = compact_style_dna(ctx.get("style_dna"), ctx.get("preferences"))
+
+    # Compact memory slice for the prompt — map worn IDs to names so Gemini can
+    # reference real pieces. Present only when memory exists (else None).
+    _recent_ids = {str(x) for x in (ctx.get("recently_worn_ids") or [])}
+    _id_to_name = {}
+    for it in _safe_list(ctx.get("wardrobe_items")):
+        if isinstance(it, dict):
+            _id_to_name[str(it.get("id") or "")] = it.get("name") or ""
+    recently_worn_names = [
+        _id_to_name[i] for i in _recent_ids if _id_to_name.get(i)
+    ][:5]
+    memory_slice = None
+    if recently_worn_names or ctx.get("favorite_colors"):
+        memory_slice = {
+            "recently_worn": recently_worn_names,
+            "favorite_colors": (ctx.get("favorite_colors") or [])[:5],
+        }
+        logger.info(
+            "AHVI_STYLE_MEMORY_CONTEXT_USED recent_named=%d fav_colors=%d",
+            len(recently_worn_names), len(ctx.get("favorite_colors") or []),
+        )
+
     return {
         "query": ctx.get("query", ""),
         "occasion": ctx.get("occasion"),
@@ -518,4 +540,5 @@ def compact_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
         "sub_occasions": ctx.get("sub_occasions") or [],
         "style_strategy": ctx.get("style_strategy"),
         "time_sequence": ctx.get("time_sequence") or [],
+        "memory": memory_slice,
     }
