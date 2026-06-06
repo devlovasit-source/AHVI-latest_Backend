@@ -358,6 +358,40 @@ def _style_clarification_response(query: str, interpretation: Dict[str, Any]) ->
     }
 
 
+def _wardrobe_reality_explanation(
+    missing_block: Dict[str, Any], wardrobe: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Phase 5: 'you already own X / adding Y unlocks archetypes Z'. Uses the
+    archetype library to compute what the missing piece unlocks. No shopping."""
+    try:
+        from services.stylist_knowledge_service import ARCHETYPE_LIBRARY
+    except Exception:  # noqa: BLE001
+        ARCHETYPE_LIBRARY = []
+    owned = [
+        str((it.get("name") if isinstance(it, dict) else it) or "").strip()
+        for it in (wardrobe or [])
+    ]
+    owned = [o for o in owned if o][:8]
+    missing_names = [
+        str(m.get("name") or "").strip()
+        for m in missing_block.get("missing_items", [])
+        if str(m.get("name") or "").strip()
+    ]
+    # Archetypes whose preferred_items include the missing piece -> "unlocks".
+    unlocks: List[str] = []
+    miss_blob = " ".join(missing_names).lower()
+    for arch in ARCHETYPE_LIBRARY:
+        pref = " ".join(str(x) for x in (arch.get("preferred_items") or [])).lower()
+        if any(tok in pref for m in missing_names for tok in m.lower().split() if len(tok) > 3):
+            unlocks.append(arch.get("name"))
+    unlocks = list(dict.fromkeys([u for u in unlocks if u]))[:4]
+    return {
+        "owned_items": owned,
+        "adding_items": missing_names[:3],
+        "unlocks_archetypes": unlocks,
+    }
+
+
 def _style_reasoning_chat_response(
     reasoning: Dict[str, Any],
     query: str,
@@ -442,6 +476,38 @@ def _style_reasoning_chat_response(
             "formality": reasoning.get("formality"),
         }
     ] if message else []
+
+    # Phase 4: a visible "why this fits YOU" stylist-reasoning block, built from
+    # the top route's archetype + alignment fields.
+    stylist_reasoning_block: Dict[str, Any] = {}
+    _top = visual_directions[0] if visual_directions else {}
+    if isinstance(_top, dict) and (_top.get("archetype") or _top.get("archetype_reasoning")):
+        stylist_reasoning_block = {
+            "type": "stylist_reasoning",
+            "archetype": str(_top.get("archetype") or _top.get("title") or "").strip(),
+            "why_this_fits_you": str(
+                _top.get("archetype_reasoning")
+                or _top.get("why_this_works")
+                or _top.get("why_it_works") or ""
+            ).strip(),
+            "dna_alignment": str(_top.get("dna_alignment") or "").strip(),
+            "wardrobe_alignment": str(_top.get("wardrobe_alignment") or "").strip(),
+        }
+        if stylist_reasoning_block.get("archetype"):
+            logger.info(
+                "AHVI_STYLIST_REASONING_RENDERED archetype=%r",
+                stylist_reasoning_block["archetype"],
+            )
+
+    # Phase 5: wardrobe-reality explanation — turn the missing-piece block into
+    # "you own X / adding Y unlocks Z" using the archetype library.
+    if missing_block.get("missing_items"):
+        try:
+            _wr = _wardrobe_reality_explanation(missing_block, wardrobe or [])
+            if _wr:
+                missing_block = {**missing_block, **_wr}
+        except Exception:  # noqa: BLE001
+            pass
     return {
         "success": True,
         "ok": True,
@@ -479,13 +545,11 @@ def _style_reasoning_chat_response(
             "visual_inspiration_board": visual_board or None,
         },
         "blocks": (
-            ([missing_block] if missing_block.get("missing_items") else [])
+            ([{"type": "transition_plan", **reasoning["transition_plan"]}]
+                if isinstance(reasoning.get("transition_plan"), dict) else [])
+            + ([stylist_reasoning_block] if stylist_reasoning_block else [])
+            + ([missing_block] if missing_block.get("missing_items") else [])
             + ([visual_board] if isinstance(visual_board, dict) and visual_board else [])
-            + (
-                [{"type": "transition_plan", **reasoning["transition_plan"]}]
-                if isinstance(reasoning.get("transition_plan"), dict)
-                else []
-            )
         ),
         "meta": {
             **(reasoning.get("meta") if isinstance(reasoning.get("meta"), dict) else {}),
