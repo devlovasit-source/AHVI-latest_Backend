@@ -690,12 +690,24 @@ def _ahvi_missing_occasion_response(
         "chips": chips,
     }
     if closest_board:
+        board_metadata = _board_metadata_summary([closest_board])
         payload["message"] = (
             "I don't see strong occasion-ready pieces yet, but I found one safe direction."
         )
         payload["cards"] = [closest_board]
         payload["style_boards"] = [closest_board]
+        payload["data"]["outfits"] = [closest_board]
+        payload["data"]["rendered_boards"] = [closest_board]
+        payload["data"]["board_metadata"] = board_metadata
         payload["data"]["closest_board"] = closest_board
+        payload["meta"] = {
+            "board_count": 1,
+            "board_metadata": board_metadata,
+            "style_signature": closest_board.get("_style_signature"),
+            "core_style_signatures": [closest_board.get("_style_core_signature")],
+            "weak_occasion_match": True,
+            "closest_option": True,
+        }
     return payload
 
 
@@ -2813,6 +2825,93 @@ def _item_id(item: Dict[str, Any]) -> str:
     )
 
 
+def _display_item_name(item: Dict[str, Any]) -> str:
+    return _safe_text(
+        item.get("name")
+        or item.get("title")
+        or item.get("label")
+        or item.get("subcategory")
+        or item.get("sub_category")
+        or item.get("category")
+    )
+
+
+def _item_color(item: Dict[str, Any]) -> str:
+    raw = _safe_text(
+        item.get("color")
+        or item.get("color_name")
+        or item.get("colorName")
+        or item.get("primary_color")
+        or item.get("primaryColor")
+        or item.get("color_code")
+        or item.get("colorCode")
+    )
+    if not raw:
+        return ""
+    text = raw.strip().lstrip("#")
+    named = {
+        "000000": "Black",
+        "ffffff": "White",
+        "808080": "Grey",
+        "000080": "Navy",
+        "8b4513": "Brown",
+        "d2b48c": "Tan",
+    }
+    return named.get(text.lower(), raw.replace("_", " ").title())
+
+
+def _hero_item(card: Dict[str, Any]) -> Dict[str, Any]:
+    hero = (
+        _item_by_role(card, "dress")
+        or _item_by_role(card, "outerwear")
+        or _item_by_role(card, "top")
+    )
+    if hero:
+        return hero
+    items = card.get("items")
+    if isinstance(items, list) and items and isinstance(items[0], dict):
+        return items[0]
+    return {}
+
+
+def _card_component_names(card: Dict[str, Any], *, limit: int = 6) -> List[str]:
+    names: List[str] = []
+    for item in card.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        name = _display_item_name(item)
+        if name and name not in names:
+            names.append(name)
+        if len(names) >= limit:
+            break
+    return names
+
+
+def _card_colors(card: Dict[str, Any], *, limit: int = 5) -> List[str]:
+    colors: List[str] = []
+    for item in card.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        color = _item_color(item)
+        if color and color.lower() not in {c.lower() for c in colors}:
+            colors.append(color)
+        if len(colors) >= limit:
+            break
+    return colors
+
+
+def _hero_piece_reasoning(card: Dict[str, Any], query: str) -> str:
+    hero = _hero_item(card)
+    hero_name = _display_item_name(hero)
+    if not hero_name:
+        return ""
+    style_direction = _style_direction(query).replace("_", " ")
+    kind = _occasion_kind(query).replace("_", " ")
+    return (
+        f"{hero_name} anchors the {kind} brief with {style_direction} energy."
+    )[:180]
+
+
 def _composition_metadata(card: Dict[str, Any]) -> Dict[str, Any]:
     items = [item for item in card.get("items", []) if isinstance(item, dict)]
     hero = _item_by_role(card, "dress") or _item_by_role(card, "top") or (items[0] if items else {})
@@ -3239,11 +3338,20 @@ def finalize_style_cards(
         layout = _layout_metadata(card, board_role)
         composition = _composition_metadata(card)
         controlled_archetype = _controlled_style_archetype_for_card(card, query)
+        hero_piece = _display_item_name(_hero_item(card))
+        colors = _card_colors(card)
+        components = _card_component_names(card)
         card["title"] = title
         card["name"] = title
+        card["subtitle"] = _STRATEGY_LABELS.get(card.get("look_strategy"), "") or board_role
         card["board_role"] = board_role
         card["style_archetype"] = controlled_archetype
         card["style_direction"] = _style_direction(query)
+        card["hero_piece"] = hero_piece
+        card["hero_piece_reasoning"] = _hero_piece_reasoning(card, query)
+        card["colors"] = colors
+        card["color_story"] = " \u2022 ".join(colors)
+        card["outfit_components"] = components
         card["style_energy"] = profile.get("style_energy")
         card["silhouette_category"] = profile.get("silhouette_category")
         card["palette_direction"] = profile.get("palette")
@@ -3269,7 +3377,7 @@ def finalize_style_cards(
         card["explanation"] = explanation["why_it_works"]
         card["reason"] = explanation["why_it_works"]
         card["style_reason"] = explanation["why_it_works"]
-        card["styling_tip"] = explanation["styling_tip"]
+        card["styling_tip"] = _safe_text(explanation["styling_tip"])[:80]
         logger.info(
             "AHVI_EDITORIAL_REASONING_MODE archetype=%s mode=%s title=%r",
             _occasion_kind(query),
@@ -3294,6 +3402,9 @@ def finalize_style_cards(
             "style_archetype": controlled_archetype,
             "board_role": board_role,
             "style_direction": card["style_direction"],
+            "hero_piece": hero_piece,
+            "colors": colors,
+            "outfit_components": components,
             "style_energy": card["style_energy"],
             "silhouette_category": card["silhouette_category"],
             "palette_direction": card["palette_direction"],

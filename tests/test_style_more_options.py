@@ -275,8 +275,15 @@ def test_final_boards_have_archetype_explanation_and_visual_metadata():
     assert all(card.get("style_direction") == "smart_casual_office" for card in filtered)
     assert all(card.get("diversity_profile") for card in filtered)
     assert all(card.get("styling_tip") for card in filtered)
+    assert all(card.get("hero_piece") for card in filtered)
+    assert all(card.get("hero_piece_reasoning") for card in filtered)
+    assert all(card.get("outfit_components") for card in filtered)
+    assert all(card.get("why_it_works") == card.get("explanation") for card in filtered)
+    assert all(len(card.get("styling_tip", "")) <= 80 for card in filtered)
     assert all(card.get("layout_preset") for card in filtered)
     assert all(card.get("style_metadata") for card in filtered)
+    assert all(card["style_metadata"].get("hero_piece") for card in filtered)
+    assert all(card["style_metadata"].get("outfit_components") for card in filtered)
     assert len(modes) == len(set(modes))
 
 

@@ -923,16 +923,32 @@ def _normalize_visual_directions(value: Any, mode: str, query: str) -> List[Dict
     for idx in range(3):
         source = rows[idx] if idx < len(rows) and isinstance(rows[idx], dict) else {}
         fb = fallback[idx] if idx < len(fallback) and isinstance(fallback[idx], dict) else {}
+        pieces = _string_list(source.get("pieces") or source.get("items") or fb.get("pieces"), limit=6)
+        palette = _string_list(source.get("palette") or source.get("colors") or fb.get("palette"), limit=5)
+        style_note = str(
+            source.get("styling_tip")
+            or source.get("style_note")
+            or source.get("styleNote")
+            or fb.get("styling_tip")
+            or fb.get("style_note")
+            or ""
+        ).strip()
         normalized.append(
             _ensure_direction_logic(
                 {
                     "title": str(source.get("title") or fb.get("title") or "Style Direction").strip(),
+                    "subtitle": str(source.get("subtitle") or source.get("style_direction") or source.get("styleDirection") or "").strip(),
                     "strategy": str(source.get("strategy") or fb.get("strategy") or "").strip(),
                     "description": str(source.get("description") or fb.get("description") or "").strip(),
-                    "palette": _string_list(source.get("palette") or fb.get("palette"), limit=5),
-                    "pieces": _string_list(source.get("pieces") or fb.get("pieces"), limit=6),
+                    "hero_piece": str(source.get("hero_piece") or source.get("heroPiece") or (pieces[0] if pieces else "")).strip(),
+                    "hero_piece_reasoning": str(source.get("hero_piece_reasoning") or source.get("heroPieceReasoning") or "").strip(),
+                    "palette": palette,
+                    "colors": palette,
+                    "pieces": pieces,
+                    "items": pieces,
                     "why_it_works": str(source.get("why_it_works") or fb.get("why_it_works") or "").strip(),
-                    "style_note": str(source.get("style_note") or source.get("styleNote") or fb.get("style_note") or "").strip(),
+                    "style_note": style_note,
+                    "styling_tip": style_note[:80],
                 }
             )
         )

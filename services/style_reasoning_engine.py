@@ -864,14 +864,37 @@ User query: {query}
 
 def _normalize_direction(value: Any, fallback: Dict[str, Any]) -> Dict[str, Any]:
     item = dict(value) if isinstance(value, dict) else {}
+    pieces = _safe_list(item.get("pieces") or item.get("items") or fallback.get("pieces"), limit=6)
+    palette = _safe_list(item.get("palette") or item.get("colors") or fallback.get("palette"), limit=5)
+    style_note = str(
+        item.get("styling_tip")
+        or item.get("style_note")
+        or fallback.get("styling_tip")
+        or fallback.get("style_note")
+        or ""
+    ).strip()
+    hero_piece = str(
+        item.get("hero_piece")
+        or item.get("heroPiece")
+        or (pieces[0] if pieces else "")
+    ).strip()
     return {
         "title": str(item.get("title") or fallback.get("title") or "Style Direction").strip(),
+        "subtitle": str(item.get("subtitle") or item.get("style_direction") or item.get("styleDirection") or "").strip(),
         "archetype": str(item.get("archetype") or fallback.get("archetype") or "").strip(),
         "impression": str(item.get("impression") or fallback.get("impression") or "").strip(),
         "strategy": str(item.get("strategy") or fallback.get("strategy") or "").strip(),
         "description": str(item.get("description") or fallback.get("description") or "").strip(),
-        "palette": _safe_list(item.get("palette") or fallback.get("palette"), limit=5),
-        "pieces": _safe_list(item.get("pieces") or fallback.get("pieces"), limit=6),
+        "hero_piece": hero_piece,
+        "hero_piece_reasoning": str(
+            item.get("hero_piece_reasoning")
+            or item.get("heroPieceReasoning")
+            or ""
+        ).strip(),
+        "palette": palette,
+        "colors": palette,
+        "pieces": pieces,
+        "items": pieces,
         "why_it_works": str(
             item.get("why_it_works") or fallback.get("why_it_works") or ""
         ).strip(),
@@ -879,7 +902,8 @@ def _normalize_direction(value: Any, fallback: Dict[str, Any]) -> Dict[str, Any]
             item.get("why_this_works") or item.get("whyThisWorks") or item.get("why_it_works") or fallback.get("why_this_works") or ""
         ).strip(),
         "board_brief": item.get("board_brief") if isinstance(item.get("board_brief"), dict) else {},
-        "style_note": str(item.get("style_note") or fallback.get("style_note") or "").strip(),
+        "style_note": style_note,
+        "styling_tip": style_note[:80],
         "archetype_reasoning": str(item.get("archetype_reasoning") or "").strip(),
         "dna_alignment": str(item.get("dna_alignment") or "").strip(),
         "wardrobe_alignment": str(item.get("wardrobe_alignment") or "").strip(),
@@ -1203,14 +1227,20 @@ def _pairing_routes_as_visual_directions(routes: List[Dict[str, Any]]) -> List[D
         {
             "archetype": route.get("archetype"),
             "title": route.get("title"),
+            "subtitle": route.get("strategy"),
             "impression": route.get("impression_created"),
             "strategy": route.get("strategy"),
             "description": route.get("use_case"),
+            "hero_piece": (route.get("items") or [""])[0] if isinstance(route.get("items"), list) else "",
+            "hero_piece_reasoning": route.get("strategy"),
             "palette": route.get("palette") if isinstance(route.get("palette"), list) else [],
+            "colors": route.get("palette") if isinstance(route.get("palette"), list) else [],
             "pieces": route.get("items") if isinstance(route.get("items"), list) else [],
+            "items": route.get("items") if isinstance(route.get("items"), list) else [],
             "why_it_works": route.get("why_it_works"),
             "why_this_works": route.get("why_it_works"),
             "style_note": route.get("styling_tip"),
+            "styling_tip": str(route.get("styling_tip") or "")[:80],
             "use_case": route.get("use_case"),
             "avoid": route.get("avoid") if isinstance(route.get("avoid"), list) else [],
             "archetype_reasoning": route.get("archetype_reasoning"),
