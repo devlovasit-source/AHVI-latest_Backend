@@ -618,7 +618,10 @@ Return ONLY valid JSON matching this schema:
       "why_it_works": string,
       "avoid": [string],
       "styling_tip": string,
-      "persona_fit_reason": string
+      "persona_fit_reason": string,
+      "archetype_reasoning": string,
+      "dna_alignment": string,
+      "wardrobe_alignment": string
     }}
   ],
   "what_to_avoid": [string],
@@ -638,6 +641,10 @@ Rules:
   overshirts, jackets, sneakers, loafers, boots).
 - Do not mention gender unless relevant. Never assume beyond persona context.
 - persona_fit_reason: one line on why this route suits THIS user.
+- archetype is the controlled source of truth; title is only a secondary
+  generated label. Never invent archetypes outside Allowed archetype names.
+- archetype_reasoning, dna_alignment, and wardrobe_alignment should explain
+  why the selected archetype fits the anchor, persona, and wardrobe reality.
 - Include avoid guidance per route. Do not generate wardrobe boards, images, or
   shopping links. Do not sound like a textbook.
 - Allowed archetype names: {archetype_names}
@@ -680,6 +687,8 @@ Return ONLY valid JSON matching this schema:
   "visual_directions": [
     {{
       "title": string,
+      "archetype": string,
+      "impression": string,
       "strategy": string,
       "description": string,
       "palette": [string],
@@ -742,6 +751,10 @@ missing_piece per policy.inspiration_board_contract.
 For visual_inspiration mode also fill visual_inspiration_board:
 {{"title","aesthetic","mood","palette":[],"hero_piece","silhouette","styling_notes"}}.
 
+If Selected visual archetypes are provided, every visual_direction.archetype
+must be one of those exact names. The archetype is the visible source of truth;
+title is only a secondary edition label.
+
 Each visual_direction.why_it_works must explain the STYLING LOGIC, not just
 restate the pieces. Bad: "Oxford shirt with denim." Good: "The shirt creates
 structure while the denim keeps it approachable."
@@ -775,12 +788,19 @@ Hard rules:
   (e.g. comfort + movement for a game), then make the later event feel
   intentional without a full outfit change. goal/impression must reflect the
   transition, and what_to_avoid should flag anything that fails either event.
+  ALSO include a "transition_plan" object: {{"keep": [items that carry across],
+  "swap": [items to change], "add": [pieces that upgrade for the 2nd event],
+  "avoid": [what fails either event], "dinner_ready": "one line on the upgraded
+  look"}}. Do NOT force one rigid outfit — give a keep/swap/add path.
 
 Style policy (compact — obey, do not echo verbatim):
 {policy}
 
 Style context (compact — the user's real situation):
 {style_ctx}
+
+Selected visual archetypes:
+{[a.get("name") for a in archetypes if isinstance(a, dict)]}
 
 Known deterministic mode: {mode}
 Detected category: {category or "unknown"}
@@ -792,6 +812,8 @@ def _normalize_direction(value: Any, fallback: Dict[str, Any]) -> Dict[str, Any]
     item = dict(value) if isinstance(value, dict) else {}
     return {
         "title": str(item.get("title") or fallback.get("title") or "Style Direction").strip(),
+        "archetype": str(item.get("archetype") or fallback.get("archetype") or "").strip(),
+        "impression": str(item.get("impression") or fallback.get("impression") or "").strip(),
         "strategy": str(item.get("strategy") or fallback.get("strategy") or "").strip(),
         "description": str(item.get("description") or fallback.get("description") or "").strip(),
         "palette": _safe_list(item.get("palette") or fallback.get("palette"), limit=5),
@@ -799,8 +821,14 @@ def _normalize_direction(value: Any, fallback: Dict[str, Any]) -> Dict[str, Any]
         "why_it_works": str(
             item.get("why_it_works") or fallback.get("why_it_works") or ""
         ).strip(),
+        "why_this_works": str(
+            item.get("why_this_works") or item.get("whyThisWorks") or item.get("why_it_works") or fallback.get("why_this_works") or ""
+        ).strip(),
         "board_brief": item.get("board_brief") if isinstance(item.get("board_brief"), dict) else {},
         "style_note": str(item.get("style_note") or fallback.get("style_note") or "").strip(),
+        "archetype_reasoning": str(item.get("archetype_reasoning") or "").strip(),
+        "dna_alignment": str(item.get("dna_alignment") or "").strip(),
+        "wardrobe_alignment": str(item.get("wardrobe_alignment") or "").strip(),
     }
 
 
@@ -826,15 +854,39 @@ def _ensure_direction_logic(direction: Dict[str, Any]) -> Dict[str, Any]:
     return direction
 
 
-def _normalize_visual_directions(value: Any, mode: str, category: str | None) -> List[Dict[str, Any]]:
+def _normalize_visual_directions(
+    value: Any,
+    mode: str,
+    category: str | None,
+    archetypes: List[Dict[str, Any]] | None = None,
+) -> List[Dict[str, Any]]:
     fallbacks = _fallback_visual_directions(mode, category)
     rows = value if isinstance(value, list) else []
-    return [
-        _ensure_direction_logic(
-            _normalize_direction(rows[idx] if idx < len(rows) else {}, fallbacks[idx])
-        )
-        for idx in range(3)
-    ]
+    selected = [a for a in (archetypes or []) if isinstance(a, dict)]
+    out: List[Dict[str, Any]] = []
+    for idx in range(3):
+        source = rows[idx] if idx < len(rows) else {}
+        direction = _ensure_direction_logic(_normalize_direction(source, fallbacks[idx]))
+        if selected:
+            arch = selected[idx % len(selected)]
+            arch_name = str(arch.get("name") or "").strip()
+            if arch_name:
+                raw_archetype = str((source or {}).get("archetype") or "").strip() if isinstance(source, dict) else ""
+                direction["archetype"] = arch_name
+                direction["impression"] = ", ".join(str(x) for x in (arch.get("impression") or []) if str(x).strip())
+                direction["style_keywords"] = [str(x) for x in (arch.get("style_keywords") or []) if str(x).strip()][:5]
+                if not direction.get("palette"):
+                    direction["palette"] = [str(x) for x in (arch.get("palette") or []) if str(x).strip()][:5]
+                direction["why_this_works"] = direction.get("why_it_works") or direction.get("style_note") or ""
+                logger.info(
+                    "AHVI_VISUAL_ARCHETYPE_APPLIED index=%d requested=%r applied=%r title=%r",
+                    idx,
+                    raw_archetype,
+                    arch_name,
+                    direction.get("title"),
+                )
+        out.append(direction)
+    return out
 
 
 def _fallback_pairing_routes(anchor: Dict[str, str]) -> List[Dict[str, Any]]:
@@ -1016,15 +1068,37 @@ def _pairing_last_style_context(anchor: Dict[str, Any], routes: List[Dict[str, A
     return ctx
 
 
-def _normalize_pairing_routes(value: Any, anchor: Dict[str, str], gender: str = "unknown", wardrobe: Any = None) -> List[Dict[str, Any]]:
+def _normalize_pairing_routes(
+    value: Any,
+    anchor: Dict[str, str],
+    gender: str = "unknown",
+    wardrobe: Any = None,
+    selected_archetypes: List[Dict[str, Any]] | None = None,
+) -> List[Dict[str, Any]]:
     rows = value if isinstance(value, list) else []
     fallbacks = _fallback_pairing_routes(anchor)
+    selected = [a for a in (selected_archetypes or []) if isinstance(a, dict) and str(a.get("name") or "").strip()]
+    allowed_names = [str(a.get("name") or "").strip() for a in selected]
+    allowed_lookup = {name.lower(): a for name, a in zip(allowed_names, selected)}
     normalized: List[Dict[str, Any]] = []
     total_removed = 0
     _wardrobe = wardrobe if isinstance(wardrobe, list) else []
     for idx in range(min(5, max(4, len(rows), len(fallbacks)))):
         source = rows[idx] if idx < len(rows) and isinstance(rows[idx], dict) else {}
         fb = fallbacks[idx % len(fallbacks)]
+        requested_archetype = str(source.get("archetype") or "").strip()
+        applied_arch = selected[idx % len(selected)] if selected else {}
+        if requested_archetype and requested_archetype.lower() in allowed_lookup:
+            applied_arch = allowed_lookup[requested_archetype.lower()]
+        applied_archetype = str(applied_arch.get("name") or requested_archetype or "").strip()
+        if allowed_names:
+            logger.info(
+                "AHVI_ARCHETYPE_ENFORCED index=%d requested=%r applied=%r allowed=%s",
+                idx,
+                requested_archetype,
+                applied_archetype,
+                allowed_names,
+            )
         items = _safe_list(source.get("items") or fb.get("items"), limit=8)
         avoid = _safe_list(source.get("avoid") or fb.get("avoid"), limit=5)
         # Deterministic persona safety net: strip feminine-only items for a male
@@ -1040,16 +1114,20 @@ def _normalize_pairing_routes(value: Any, anchor: Dict[str, str], gender: str = 
             pass
         route = {
             "title": str(source.get("title") or fb.get("title") or "Pairing Route").strip(),
-            "archetype": str(source.get("archetype") or "").strip(),
-            "impression_created": str(source.get("impression_created") or "").strip(),
+            "archetype": applied_archetype,
+            "impression_created": str(
+                source.get("impression_created")
+                or ", ".join(str(x) for x in (applied_arch.get("impression") or []) if str(x).strip())
+            ).strip(),
             "use_case": str(source.get("use_case") or source.get("useCase") or fb.get("use_case") or "").strip(),
             "strategy": str(source.get("strategy") or fb.get("strategy") or "").strip(),
             "items": items,
-            "palette": _safe_list(source.get("palette") or fb.get("palette"), limit=6),
+            "palette": _safe_list(source.get("palette") or applied_arch.get("palette") or fb.get("palette"), limit=6),
             "why_it_works": str(source.get("why_it_works") or source.get("whyItWorks") or fb.get("why_it_works") or "").strip(),
             "avoid": avoid,
             "styling_tip": str(source.get("styling_tip") or source.get("style_note") or source.get("styleNote") or fb.get("styling_tip") or "").strip(),
             "persona_fit_reason": str(source.get("persona_fit_reason") or "").strip(),
+            "archetype_reasoning": str(source.get("archetype_reasoning") or source.get("persona_fit_reason") or "").strip(),
         }
         # Wardrobe reality scoring — how buildable is this route from what they own.
         if _wardrobe:
@@ -1069,15 +1147,21 @@ def _normalize_pairing_routes(value: Any, anchor: Dict[str, str], gender: str = 
 def _pairing_routes_as_visual_directions(routes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [
         {
+            "archetype": route.get("archetype"),
             "title": route.get("title"),
+            "impression": route.get("impression_created"),
             "strategy": route.get("strategy"),
             "description": route.get("use_case"),
             "palette": route.get("palette") if isinstance(route.get("palette"), list) else [],
             "pieces": route.get("items") if isinstance(route.get("items"), list) else [],
             "why_it_works": route.get("why_it_works"),
+            "why_this_works": route.get("why_it_works"),
             "style_note": route.get("styling_tip"),
             "use_case": route.get("use_case"),
             "avoid": route.get("avoid") if isinstance(route.get("avoid"), list) else [],
+            "archetype_reasoning": route.get("archetype_reasoning"),
+            "dna_alignment": route.get("persona_fit_reason"),
+            "wardrobe_alignment": route.get("wardrobe_reality") if isinstance(route.get("wardrobe_reality"), dict) else None,
         }
         for route in routes
     ]
@@ -1144,10 +1228,10 @@ def _gemini_reasoning(
     except Exception as exc:  # noqa: BLE001
         logger.warning("ahvi.style.config_slices_failed err=%s", str(exc)[:140])
 
-    # Persona + archetype selection for the pairing path (personal stylist).
+    # Persona + archetype selection for visual style paths.
     persona = {}
     selected_archetypes = []
-    if mode == STYLE_PAIRING:
+    if mode in {STYLE_PAIRING, VISUAL_INSPIRATION}:
         try:
             from services.style_context_service import build_pairing_persona
             from services.stylist_knowledge_service import select_archetypes
@@ -1194,6 +1278,8 @@ def _gemini_reasoning(
     logger.info("AHVI_STYLE_GEMINI_RAW_LEN usecase=style_reasoning len=%d", len(str(raw or "")))
     parsed = parse_json_object(raw)
     if isinstance(parsed, dict):
+        parsed["_selected_archetypes"] = selected_archetypes
+        parsed["_persona_context"] = persona
         logger.info(
             "AHVI_STYLE_GEMINI_PARSED_KEYS keys=%s",
             ",".join(sorted(parsed.keys()))[:240],
@@ -1230,6 +1316,7 @@ def _build_visual_inspiration_board(
     pieces = first.get("pieces") if isinstance(first.get("pieces"), list) else []
     board = {
         "type": "visual_inspiration_board",
+        "archetype": str(first.get("archetype") or direct.get("archetype") or "").strip(),
         "title": str(direct.get("title") or first.get("title") or "Style Inspiration").strip(),
         "aesthetic": str(direct.get("aesthetic") or first.get("strategy") or "").strip(),
         "mood": str(direct.get("mood") or impression or "").strip(),
@@ -1322,6 +1409,8 @@ def _build_response(
 ) -> Dict[str, Any]:
     payload = ai_payload if isinstance(ai_payload, dict) else {}
     final_mode = mode if mode in _GEMINI_MODES else _coerce_ai_mode(payload.get("mode"), mode)
+    selected_archetypes = payload.get("_selected_archetypes") if isinstance(payload.get("_selected_archetypes"), list) else []
+    persona_context = payload.get("_persona_context") if isinstance(payload.get("_persona_context"), dict) else {}
     pairing_anchor = _extract_pairing_anchor(query) if final_mode == STYLE_PAIRING else {}
     pairing_gender = "unknown"
     if final_mode == STYLE_PAIRING:
@@ -1364,12 +1453,24 @@ def _build_response(
     )
     is_multi_event = bool((context or {}).get("multi_event")) or (context or {}).get("occasion") == "multi_event"
     polished_advice = _compact_reasoning(polished_advice, multi_event=is_multi_event)
+    transition_plan = None
+    if is_multi_event:
+        _tp = payload.get("transition_plan")
+        if isinstance(_tp, dict):
+            transition_plan = {
+                "keep": _safe_list(_tp.get("keep"), limit=6),
+                "swap": _safe_list(_tp.get("swap"), limit=6),
+                "add": _safe_list(_tp.get("add"), limit=6),
+                "avoid": _safe_list(_tp.get("avoid"), limit=6),
+                "dinner_ready": str(_tp.get("dinner_ready") or "").strip(),
+            }
     follow_up = str(payload.get("follow_up_question") or "").strip() or None
     pairing_routes: List[Dict[str, Any]] = []
     if final_mode == STYLE_PAIRING:
         pairing_routes = _normalize_pairing_routes(
             payload.get("pairing_routes"), pairing_anchor, pairing_gender,
             wardrobe=context.get("wardrobe") or context.get("wardrobe_items"),
+            selected_archetypes=selected_archetypes,
         )
         if pairing_routes and any(r.get("wardrobe_reality") for r in pairing_routes):
             logger.info(
@@ -1383,6 +1484,7 @@ def _build_response(
             payload.get("visual_directions"),
             final_mode,
             category,
+            selected_archetypes if final_mode == VISUAL_INSPIRATION else None,
         )
     try:
         final_confidence = max(0.0, min(1.0, float(payload.get("confidence", confidence))))
@@ -1395,6 +1497,14 @@ def _build_response(
     if final_mode == VISUAL_INSPIRATION:
         visual_inspiration_board = _build_visual_inspiration_board(
             payload, visual_directions, goal, impression, missing_piece, query
+        )
+    if final_mode in {STYLE_PAIRING, VISUAL_INSPIRATION}:
+        logger.info(
+            "AHVI_ARCHETYPE_REASONING_APPLIED mode=%s archetypes=%s dna=%s wardrobe=%s",
+            final_mode,
+            [str(a.get("name") or "").strip() for a in selected_archetypes if isinstance(a, dict)],
+            bool(persona_context.get("style_dna")),
+            bool(context.get("wardrobe") or context.get("wardrobe_items")),
         )
 
     return {
@@ -1413,9 +1523,14 @@ def _build_response(
         "missing_piece_reasoning": missing_piece_reasoning,
         "missing_piece": missing_piece,
         "visual_inspiration_board": visual_inspiration_board,
+        "transition_plan": transition_plan,
+        "is_transition": bool(is_multi_event),
         "anchor_item": pairing_anchor or None,
         "pairing_routes": pairing_routes,
         "last_style_context": (_pairing_last_style_context(pairing_anchor, pairing_routes, context) if final_mode == STYLE_PAIRING else None),
+        "archetype_reasoning": str(payload.get("archetype_reasoning") or "").strip(),
+        "dna_alignment": str(payload.get("dna_alignment") or persona_context.get("style_dna") or "").strip(),
+        "wardrobe_alignment": str(payload.get("wardrobe_alignment") or "").strip(),
         "follow_up_question": follow_up,
         "cta": (
             _pairing_ctas(pairing_anchor, pairing_routes)
@@ -1434,6 +1549,10 @@ def _build_response(
             "emotion_state": emotion_state,
             "confidence": final_confidence,
             "anchor_item": pairing_anchor or None,
+            "selected_archetypes": [str(a.get("name") or "").strip() for a in selected_archetypes if isinstance(a, dict)],
+            "archetype_reasoning": str(payload.get("archetype_reasoning") or "").strip(),
+            "dna_alignment": str(payload.get("dna_alignment") or persona_context.get("style_dna") or "").strip(),
+            "wardrobe_alignment": str(payload.get("wardrobe_alignment") or "").strip(),
         },
     }
 

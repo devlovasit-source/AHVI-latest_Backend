@@ -51,6 +51,8 @@ _MULTI_EVENT_CONNECTORS = (
     " later ",
     " into ",
     " and ",
+    " to ",          # "basketball game to dinner", "office to drinks"
+    " transition ",  # "transition from a game to dinner"
 )
 
 # generic_canon -> specific canons that suppress it (so "basketball game" is one

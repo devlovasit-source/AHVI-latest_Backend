@@ -59,6 +59,72 @@ def _fake_style_reasoning_json(prompt, **kwargs):
     )
 
 
+def _fake_style_pairing_json(prompt, **kwargs):
+    return json.dumps(
+        {
+            "mode": "style_pairing",
+            "anchor_item": {"name": "white shirt", "category": "shirt", "color": "white"},
+            "stylist_reasoning": "A white shirt is strongest when you decide the mood first: crisp, relaxed, evening, or summer. Keep the shirt as the clean anchor and change the base, shoe, and texture around it.",
+            "pairing_routes": [
+                {
+                    "title": "Smart Casual",
+                    "use_case": "office-adjacent days",
+                    "strategy": "Relax the shirt with chinos and clean shoes.",
+                    "items": ["white shirt", "tan chinos", "brown loafers"],
+                    "palette": ["white", "tan", "brown"],
+                    "why_it_works": "The chinos soften the shirt while loafers keep it intentional.",
+                    "avoid": ["shiny ties"],
+                    "styling_tip": "Leave the collar open.",
+                },
+                {
+                    "title": "Business Casual",
+                    "use_case": "meetings",
+                    "strategy": "Add structure around the shirt.",
+                    "items": ["white shirt", "grey trousers", "black loafers"],
+                    "palette": ["white", "grey", "black"],
+                    "why_it_works": "The tailored base makes the shirt credible.",
+                    "avoid": ["distressed denim"],
+                    "styling_tip": "Tuck it cleanly.",
+                },
+                {
+                    "title": "Weekend Clean",
+                    "use_case": "coffee or errands",
+                    "strategy": "Use denim and sneakers.",
+                    "items": ["white shirt", "dark denim", "clean sneakers"],
+                    "palette": ["white", "blue", "stone"],
+                    "why_it_works": "Denim keeps the shirt approachable.",
+                    "avoid": ["overly formal shoes"],
+                    "styling_tip": "Roll sleeves once.",
+                },
+                {
+                    "title": "Evening Minimal",
+                    "use_case": "dinner",
+                    "strategy": "Use contrast and quiet accessories.",
+                    "items": ["white shirt", "black trousers", "sleek shoes"],
+                    "palette": ["white", "black", "charcoal"],
+                    "why_it_works": "The contrast makes the shirt look deliberate.",
+                    "avoid": ["loud belts"],
+                    "styling_tip": "Keep accessories minimal.",
+                },
+                {
+                    "title": "Summer Relaxed",
+                    "use_case": "warm days",
+                    "strategy": "Use breathable textures.",
+                    "items": ["white shirt", "linen trousers", "canvas sneakers"],
+                    "palette": ["white", "ecru", "olive"],
+                    "why_it_works": "Light fabric makes the shirt feel easy.",
+                    "avoid": ["heavy formal trousers"],
+                    "styling_tip": "Wear it slightly open over a tee.",
+                },
+            ],
+            "what_to_avoid": ["five tiny color variations", "over-formal styling only"],
+            "next_actions": ["Use my wardrobe", "Show visual inspiration", "Find missing pieces"],
+            "follow_up_question": None,
+            "confidence": 0.92,
+        }
+    )
+
+
 def test_interpreted_occasion_does_not_reclarify():
     assert chat._needs_style_clarification("Office", "office") is False
     assert chat._needs_style_clarification("Casual office wear", "office") is False
@@ -246,6 +312,31 @@ def test_text_chat_style_prompts_route_to_advice_first(monkeypatch):
         assert body["meta"]["style_mode"] == "style_advice"
 
 
+def test_text_chat_style_pairing_returns_pairing_routes(monkeypatch):
+    def fail_style(*args, **kwargs):
+        raise AssertionError("style pairing should not hit wardrobe board service")
+
+    monkeypatch.setattr("services.style_reasoning_engine.generate_text", _fake_style_pairing_json)
+    monkeypatch.setattr(chat, "_demo_style_board_payload", fail_style)
+    client = _text_chat_client_with_user()
+
+    response = client.post(
+        "/api/text",
+        json={"module_context": "style", "messages": [{"role": "user", "content": "What to pair with a white shirt?"}]},
+    )
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["type"] == "stylist_advice"
+    assert body["intent"] == "style_pairing"
+    assert body["style_boards"] == []
+    assert body["data"]["anchor_item"]["name"] == "white shirt"
+    assert len(body["data"]["pairing_routes"]) >= 4
+    assert len(body["data"]["visual_directions"]) == len(body["data"]["pairing_routes"])
+    assert all(card["type"] == "visual_direction" for card in body["cards"][1:])
+    assert body["meta"]["style_mode"] == "style_pairing"
+
+
 def test_text_chat_general_style_advice_bypasses_wardrobe_style(monkeypatch):
     def fail_style(*args, **kwargs):
         raise AssertionError("general style advice should not hit style service")
@@ -308,7 +399,9 @@ def test_text_chat_visual_inspiration_returns_direction_cards(monkeypatch):
     assert body["style_boards"] == []
     assert body["meta"]["style_mode"] == "visual_inspiration"
     assert len(body["data"]["visual_directions"]) == 3
+    assert all(direction.get("archetype") for direction in body["data"]["visual_directions"])
     assert len([card for card in body["cards"] if card["type"] == "visual_direction"]) == 3
+    assert all(card.get("archetype") for card in body["cards"] if card["type"] == "visual_direction")
 
 
 def test_text_chat_explicit_wardrobe_style_still_hits_style_service(monkeypatch):
@@ -829,8 +922,11 @@ def test_stylist_first_intent_engine_routes_advice_before_wardrobe():
         "I have a pear body type.": "color_body_advice",
         "Use my wardrobe for a coffee date.": "wardrobe_style",
         "Build a look from my wardrobe.": "wardrobe_style",
+        "Use my wardrobe for Smart Casual with white shirt.": "wardrobe_style",
         "Recommend shoes for this outfit.": "shopping_assist",
         "What is smart casual?": "style_education",
+        "What to pair with a white shirt?": "style_pairing",
+        "How do I style black loafers?": "style_pairing",
     }
 
     for prompt, intent in expected.items():
@@ -890,6 +986,51 @@ def test_style_reasoning_engine_schema_and_decisions(monkeypatch):
     assert color["mode"] == "color_body_advice"
     assert color["should_generate_board"] is False
     assert len(color["visual_directions"]) == 3
+
+
+def test_style_pairing_reasoning_returns_anchor_and_distinct_routes(monkeypatch):
+    from services.style_reasoning_engine import style_reasoning_engine
+
+    monkeypatch.setattr("services.style_reasoning_engine.generate_text", _fake_style_pairing_json)
+
+    response = style_reasoning_engine.reason(
+        query="What to pair with a white shirt?",
+        intent="style_pairing",
+    )
+
+    assert response["mode"] == "style_pairing"
+    assert response["should_generate_board"] is False
+    assert response["should_use_wardrobe"] is False
+    assert response["anchor_item"]["name"] == "white shirt"
+    assert response["anchor_item"]["category"] == "shirt"
+    assert response["anchor_item"]["color"] == "white"
+    assert len(response["pairing_routes"]) >= 4
+    assert len({route["title"] for route in response["pairing_routes"]}) >= 4
+    assert len(response["visual_directions"]) == len(response["pairing_routes"])
+    assert all(route.get("use_case") for route in response["pairing_routes"])
+    assert all(route.get("archetype") for route in response["pairing_routes"])
+    assert all(direction.get("archetype") for direction in response["visual_directions"])
+    assert response["pairing_routes"][0]["archetype"] != response["pairing_routes"][0]["title"]
+
+
+def test_style_pairing_fallback_for_black_loafers_has_mixed_use_cases(monkeypatch):
+    from services.style_reasoning_engine import style_reasoning_engine
+
+    def fail_generate(*args, **kwargs):
+        raise RuntimeError("gemini offline")
+
+    monkeypatch.setattr("services.style_reasoning_engine.generate_text", fail_generate)
+
+    response = style_reasoning_engine.reason(
+        query="How do I style black loafers?",
+        intent="style_pairing",
+    )
+
+    assert response["mode"] == "style_pairing"
+    assert response["anchor_item"]["category"] == "footwear"
+    assert response["anchor_item"]["color"] == "black"
+    titles = {route["title"] for route in response["pairing_routes"]}
+    assert {"Smart Casual", "Office Clean", "Evening Minimal", "Weekend Neat"}.issubset(titles)
 
 
 def test_stylist_advice_response_uses_gemini_visual_envelope(monkeypatch):
@@ -1178,3 +1319,39 @@ def test_chat_birthday_creates_calendar_event(monkeypatch):
     assert created["payload"]["type"] == "birthday"
     assert "07-23T09:00:00+05:30" in created["payload"]["start_time"]
     assert body["quick_actions"] == ["View events", "Add reminder", "Plan outfit"]
+
+
+def test_adaptive_style_router_and_diet_guard():
+    """Open-ended style questions must not misroute to diet when they mention a
+    meal-time word; transition prompts route to multi-event style."""
+    from services.style_context_service import detect_multi_event
+    from routers import chat
+
+    def _route(q):
+        if detect_multi_event(q):
+            return "transition_style"
+        vb = chat._detect_visual_board_type(q, "")
+        if vb == "diet_plan" and chat._is_style_priority_query(q):
+            return "style"
+        if vb == "diet_plan":
+            return "diet"
+        return "style"
+
+    assert _route("How do I transition from a basketball game at 9pm to dinner at 11pm?") == "transition_style"
+    assert _route("I have a basketball match then dinner, suggest outfit") == "transition_style"
+    assert _route("Office meeting then drinks outfit") == "transition_style"
+    assert _route("What should I eat for dinner?") == "diet"
+    assert _route("Light dinner ideas") == "diet"
+    assert _route("What should I wear for dinner?") == "style"
+
+
+def test_style_priority_guard_helpers():
+    from routers import chat
+
+    assert chat._is_style_priority_query("what should I wear for dinner") is True
+    assert chat._is_style_priority_query("how do I style black loafers") is True
+    assert chat._is_style_priority_query("what should I avoid for a coffee date") is True
+    assert chat._is_style_priority_query("how can I look taller") is True
+    # explicit food beats style words
+    assert chat._is_style_priority_query("light dinner ideas") is False
+    assert chat._is_style_priority_query("what to eat for dinner") is False

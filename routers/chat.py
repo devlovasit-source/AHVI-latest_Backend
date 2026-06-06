@@ -412,15 +412,21 @@ def _style_reasoning_chat_response(
     visual_cards = [] if is_missing_pieces else [
         {
             "type": "visual_direction",
+            "archetype": str(item.get("archetype") or ""),
             "title": str(item.get("title") or "Style Direction"),
+            "impression": str(item.get("impression") or ""),
             "strategy": str(item.get("strategy") or ""),
             "description": str(item.get("description") or ""),
             "palette": item.get("palette") if isinstance(item.get("palette"), list) else [],
             "pieces": item.get("pieces") if isinstance(item.get("pieces"), list) else [],
             "why_it_works": str(item.get("why_it_works") or ""),
+            "why_this_works": str(item.get("why_this_works") or item.get("why_it_works") or ""),
             "style_note": str(item.get("style_note") or ""),
             "use_case": str(item.get("use_case") or ""),
             "avoid": item.get("avoid") if isinstance(item.get("avoid"), list) else [],
+            "archetype_reasoning": str(item.get("archetype_reasoning") or ""),
+            "dna_alignment": item.get("dna_alignment"),
+            "wardrobe_alignment": item.get("wardrobe_alignment"),
         }
         for item in visual_directions
         if isinstance(item, dict)
@@ -457,7 +463,12 @@ def _style_reasoning_chat_response(
             "cta_actions": chips,
             "visual_directions": visual_directions,
             "pairing_routes": reasoning.get("pairing_routes") if isinstance(reasoning.get("pairing_routes"), list) else [],
+            "transition_plan": reasoning.get("transition_plan") if isinstance(reasoning.get("transition_plan"), dict) else None,
+            "is_transition": bool(reasoning.get("is_transition")),
             "anchor_item": reasoning.get("anchor_item") if isinstance(reasoning.get("anchor_item"), dict) else None,
+            "archetype_reasoning": reasoning.get("archetype_reasoning"),
+            "dna_alignment": reasoning.get("dna_alignment"),
+            "wardrobe_alignment": reasoning.get("wardrobe_alignment"),
             # Persisted style session — FE echoes this back in current_memory so
             # follow-ups (use wardrobe / find missing / visual) keep the anchor.
             "last_style_context": reasoning.get("last_style_context") or None,
@@ -470,6 +481,11 @@ def _style_reasoning_chat_response(
         "blocks": (
             ([missing_block] if missing_block.get("missing_items") else [])
             + ([visual_board] if isinstance(visual_board, dict) and visual_board else [])
+            + (
+                [{"type": "transition_plan", **reasoning["transition_plan"]}]
+                if isinstance(reasoning.get("transition_plan"), dict)
+                else []
+            )
         ),
         "meta": {
             **(reasoning.get("meta") if isinstance(reasoning.get("meta"), dict) else {}),
@@ -529,6 +545,33 @@ def _is_help_identity_request(text: str) -> bool:
         "what are your features",
         "what can ahvi do",
     }
+
+
+_STYLE_PRIORITY_WORDS = (
+    "wear", "outfit", "outfits", "style", "dress", "dressed", "look", "looks",
+    "pair", "pairing", "transition", "avoid", "improve", "make it look",
+    "how do i wear", "how do i style", "what to wear", "what should i wear",
+    "what goes with", "ways to style", "how can i wear", "how do i dress",
+)
+_EXPLICIT_FOOD_WORDS = (
+    "meal plan", "meal-plan", "what to eat", "what should i eat", "calories",
+    "calorie", "recipe", "protein", "nutrition", "food", "meal idea", "meal ideas",
+    "diet plan", "eat", "snack", "carb", "macros", "grocery",
+)
+
+
+def _is_explicit_food_intent(text: str) -> bool:
+    q = re.sub(r"\s+", " ", str(text or "").lower())
+    return any(w in q for w in _EXPLICIT_FOOD_WORDS)
+
+
+def _is_style_priority_query(text: str) -> bool:
+    """Style wins over diet/calendar when the user clearly asks about clothing,
+    unless they explicitly ask about food/eating."""
+    q = re.sub(r"\s+", " ", str(text or "").lower())
+    if _is_explicit_food_intent(q):
+        return False
+    return any(w in q for w in _STYLE_PRIORITY_WORDS)
 
 
 def _is_find_this_request(text: str) -> bool:
@@ -3268,6 +3311,10 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
         )
 
     _vb_type = _detect_visual_board_type(user_message, module)
+    if _vb_type == "diet_plan" and _is_style_priority_query(user_message):
+        logger.info("AHVI_STYLE_PRIORITY_GUARD_APPLIED prompt=%r", str(user_message)[:80])
+        logger.info("AHVI_DIET_FALSE_POSITIVE_BLOCKED prompt=%r", str(user_message)[:80])
+        _vb_type = ""
     if _vb_type:
         _vb_context = dict(merged_context or {})
         if profile:
@@ -3743,6 +3790,13 @@ def text_chat(request: TextChatRequest, http_request: Request):
             _multi_event_route.get("sub_occasions"),
             _multi_event_route.get("style_strategy"),
         )
+        logger.info(
+            "AHVI_STYLE_TRANSITION_DETECTED events=%s strategy=%s",
+            _multi_event_route.get("sub_occasions"),
+            _multi_event_route.get("style_strategy"),
+        )
+    elif _is_style_priority_query(user_input):
+        logger.info("AHVI_ADAPTIVE_STYLE_ROUTER winner=style prompt=%r", user_input[:80])
 
     early_intent_row = detect_intent(user_input)
     early_intent = str(early_intent_row.get("intent") or "general").strip().lower()
@@ -3836,6 +3890,12 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # instead of plain text. Runs before the style orchestrator; style and
     # wardrobe module contexts are excluded inside _detect_visual_board_type.
     _vb_type = _detect_visual_board_type(user_input, request.module_context)
+    # Adaptive style router: a style question that merely mentions a meal-time
+    # word ("what should I wear for dinner") must not fall to the diet board.
+    if _vb_type == "diet_plan" and _is_style_priority_query(user_input):
+        logger.info("AHVI_STYLE_PRIORITY_GUARD_APPLIED prompt=%r", user_input[:80])
+        logger.info("AHVI_DIET_FALSE_POSITIVE_BLOCKED prompt=%r", user_input[:80])
+        _vb_type = ""
     if _vb_type:
         logger.info(
             "chat.visual_board_route user_id=%s board_type=%s prompt=%r",
