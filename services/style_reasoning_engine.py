@@ -184,6 +184,175 @@ def _safe_list(value: Any, *, limit: int = 8) -> List[str]:
     return out[:limit]
 
 
+def _asset_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _asset_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [_asset_text(v).lower() for v in value if _asset_text(v)]
+    text = _asset_text(value)
+    if not text:
+        return []
+    try:
+        import json
+
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return [_asset_text(v).lower() for v in parsed if _asset_text(v)]
+    except Exception:
+        pass
+    return [part.strip().lower() for part in re.split(r"[,|]", text) if part.strip()]
+
+
+def _style_asset_rows(limit: int = 120) -> List[Dict[str, Any]]:
+    try:
+        from services.appwrite_proxy import AppwriteProxy
+
+        rows = AppwriteProxy().list_documents("style_assets", limit=limit)
+        return [row for row in rows if isinstance(row, dict)]
+    except Exception as exc:  # noqa: BLE001
+        logger.info("AHVI_STYLE_ASSETS_UNAVAILABLE err=%s", str(exc)[:120])
+        return []
+
+
+def _asset_score(asset: Dict[str, Any], *, direction: Dict[str, Any], occasion: str) -> int:
+    blob = " ".join(
+        [
+            _asset_text(asset.get("name")),
+            _asset_text(asset.get("category")),
+            _asset_text(asset.get("subcategory")),
+            " ".join(_asset_list(asset.get("tags"))),
+        ]
+    ).lower()
+    direction_terms = " ".join(
+        [
+            _asset_text(direction.get("hero_piece")),
+            " ".join(_safe_list(direction.get("items") or direction.get("pieces"), limit=8)),
+            " ".join(_safe_list(direction.get("colors") or direction.get("palette"), limit=6)),
+        ]
+    ).lower()
+    score = 0
+    if _asset_text(asset.get("status")).lower() not in {"", "active", "published"}:
+        score -= 8
+    if _asset_text(asset.get("image_url")):
+        score += 3
+    archetype = _asset_text(direction.get("archetype")).lower()
+    if archetype and archetype in _asset_list(asset.get("archetypes")):
+        score += 5
+    if occasion and occasion.lower() in _asset_list(asset.get("occasions")):
+        score += 4
+    for color in _safe_list(direction.get("colors") or direction.get("palette"), limit=6):
+        if color.lower() in _asset_list(asset.get("colors")):
+            score += 2
+    for token in re.findall(r"[a-z0-9]+", direction_terms):
+        if len(token) > 3 and token in blob:
+            score += 1
+    return score
+
+
+def _best_style_asset(
+    assets: List[Dict[str, Any]],
+    *,
+    direction: Dict[str, Any],
+    occasion: str,
+    accessory_only: bool = False,
+) -> Dict[str, Any] | None:
+    candidates: List[tuple[int, Dict[str, Any]]] = []
+    for asset in assets:
+        image_url = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
+        if not image_url:
+            continue
+        category_blob = f"{asset.get('category', '')} {asset.get('subcategory', '')}".lower()
+        is_accessory = any(
+            term in category_blob
+            for term in ("accessory", "earring", "necklace", "bracelet", "bag", "sling", "pouch", "bottle", "jewelry", "jewellery")
+        )
+        if accessory_only != is_accessory:
+            continue
+        score = _asset_score(asset, direction=direction, occasion=occasion)
+        if score > 0:
+            candidates.append((score, asset))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda pair: pair[0], reverse=True)
+    return candidates[0][1]
+
+
+def _default_complete_the_look(direction: Dict[str, Any], occasion: str) -> List[Dict[str, Any]]:
+    archetype = _asset_text(direction.get("archetype")) or "this direction"
+    q = _norm(occasion)
+    if "office" in q or "client" in q or "presentation" in q:
+        names = ["structured tote", "minimal watch", "quiet belt"]
+    elif "beach" in q or "travel" in q:
+        names = ["woven tote", "phone sling", "water bottle"]
+    elif "wedding" in q or "party" in q or "date" in q:
+        names = ["small bag", "minimal jewelry", "soft metal accent"]
+    else:
+        names = ["clean watch", "simple bag", "restrained accessory"]
+    return [
+        {
+            "name": name.title(),
+            "category": "accessory",
+            "image_url": "",
+            "reason": f"Finishes {archetype} without crowding the look.",
+            "unlocks": [archetype],
+        }
+        for name in names[:3]
+    ]
+
+
+def _enrich_visual_directions_with_assets(
+    visual_directions: List[Dict[str, Any]],
+    *,
+    occasion: str | None,
+) -> List[Dict[str, Any]]:
+    if not visual_directions:
+        return visual_directions
+    assets = _style_asset_rows()
+    occasion_text = _asset_text(occasion)
+    enriched: List[Dict[str, Any]] = []
+    for direction in visual_directions:
+        out = dict(direction)
+        image_url = _asset_text(out.get("image_url") or out.get("imageUrl"))
+        if not image_url and assets:
+            asset = _best_style_asset(assets, direction=out, occasion=occasion_text)
+            if asset:
+                out["image_url"] = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
+                out["asset_id"] = _asset_text(asset.get("asset_id") or asset.get("$id"))
+        complete = out.get("complete_the_look")
+        if not isinstance(complete, list) or not complete:
+            complete = _default_complete_the_look(out, occasion_text)
+        if assets:
+            accessory_asset = _best_style_asset(
+                assets,
+                direction=out,
+                occasion=occasion_text,
+                accessory_only=True,
+            )
+            if accessory_asset:
+                complete = [
+                    {
+                        "name": _asset_text(accessory_asset.get("name")) or "Accessory",
+                        "category": _asset_text(accessory_asset.get("category")) or "accessory",
+                        "image_url": _asset_text(accessory_asset.get("image_url") or accessory_asset.get("imageUrl")),
+                        "reason": "Completes the look with the right level of finish.",
+                        "unlocks": _safe_list(accessory_asset.get("archetypes"), limit=4)
+                            or [_asset_text(out.get("archetype"))],
+                    },
+                    *complete,
+                ][:4]
+        out["complete_the_look"] = complete[:4]
+        enriched.append(out)
+    logger.info(
+        "AHVI_VISUAL_ASSETS_ENRICHED directions=%d assets=%d with_images=%d",
+        len(enriched),
+        len(assets),
+        sum(1 for item in enriched if item.get("image_url")),
+    )
+    return enriched
+
+
 def _occasion_category(query: str) -> tuple[str | None, str | None, str | None, str | None]:
     q = _norm(query)
 
@@ -1409,6 +1578,33 @@ def _build_missing_piece(payload: Dict[str, Any], reasoning_text: str) -> Dict[s
     return None
 
 
+def _enrich_missing_piece_with_asset(
+    missing_piece: Dict[str, Any] | None,
+    *,
+    assets: List[Dict[str, Any]] | None = None,
+    occasion: str | None = None,
+) -> Dict[str, Any] | None:
+    if not missing_piece:
+        return missing_piece
+    out = dict(missing_piece)
+    if _asset_text(out.get("image_url") or out.get("imageUrl")):
+        return out
+    rows = assets if isinstance(assets, list) else _style_asset_rows()
+    if not rows:
+        return out
+    direction = {
+        "hero_piece": out.get("name"),
+        "items": [out.get("name"), out.get("category")],
+        "colors": [],
+        "archetype": "",
+    }
+    asset = _best_style_asset(rows, direction=direction, occasion=_asset_text(occasion))
+    if asset:
+        out["image_url"] = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
+        out["asset_id"] = _asset_text(asset.get("asset_id") or asset.get("$id"))
+    return out
+
+
 def _build_visual_inspiration_board(
     payload: Dict[str, Any],
     visual_directions: List[Dict[str, Any]],
@@ -1596,13 +1792,20 @@ def _build_response(
             category,
             selected_archetypes if final_mode == VISUAL_INSPIRATION else None,
         )
+    visual_directions = _enrich_visual_directions_with_assets(
+        visual_directions,
+        occasion=str(payload.get("occasion") or occasion or category or query),
+    )
     try:
         final_confidence = max(0.0, min(1.0, float(payload.get("confidence", confidence))))
     except Exception:
         final_confidence = confidence
 
     what_to_avoid = _safe_list(payload.get("what_to_avoid"), limit=6)
-    missing_piece = _build_missing_piece(payload, missing_piece_reasoning)
+    missing_piece = _enrich_missing_piece_with_asset(
+        _build_missing_piece(payload, missing_piece_reasoning),
+        occasion=str(payload.get("occasion") or occasion or category or query),
+    )
     visual_inspiration_board = None
     if final_mode == VISUAL_INSPIRATION:
         visual_inspiration_board = _build_visual_inspiration_board(

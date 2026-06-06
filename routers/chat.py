@@ -467,6 +467,11 @@ def _style_reasoning_chat_response(
             "archetype_reasoning": str(item.get("archetype_reasoning") or ""),
             "dna_alignment": item.get("dna_alignment"),
             "wardrobe_alignment": item.get("wardrobe_alignment"),
+            "style_dna_alignment": item.get("style_dna_alignment") or item.get("dna_alignment"),
+            "persona_fit_reason": item.get("persona_fit_reason"),
+            "image_url": str(item.get("image_url") or item.get("imageUrl") or ""),
+            "asset_id": str(item.get("asset_id") or ""),
+            "complete_the_look": item.get("complete_the_look") if isinstance(item.get("complete_the_look"), list) else [],
         }
         for item in visual_directions
         if isinstance(item, dict)

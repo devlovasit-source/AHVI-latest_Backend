@@ -430,6 +430,8 @@ def build_missing_piece_intelligence(
                 "name": str(m.get("name") or "").strip(),
                 "category": str(m.get("category") or "").strip(),
                 "reason": str(m.get("reason") or "").strip(),
+                "image_url": str(m.get("image_url") or m.get("imageUrl") or "").strip(),
+                "asset_id": str(m.get("asset_id") or "").strip(),
                 "unlocks": [str(u).strip() for u in _safe_list(m.get("unlocks")) if str(u).strip()][:6],
             }
         )

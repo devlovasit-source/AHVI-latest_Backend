@@ -990,14 +990,31 @@ def item_role(item: Dict[str, Any]) -> str:
         return "accessory"
     if tokens.intersection(
         {
+            "outerwear",
+            "overshirt",
+            "overshirts",
+            "jacket",
+            "jackets",
+            "blazer",
+            "blazers",
+            "cardigan",
+            "cardigans",
+            "coat",
+            "coats",
+            "shacket",
+            "layer",
+            "layers",
+        }
+    ):
+        return "outerwear"
+    if tokens.intersection(
+        {
             "top",
             "shirt",
             "shirts",
             "tee",
             "tshirt",
             "polo",
-            "jacket",
-            "blazer",
             "sweater",
             "hoodie",
             "kurta",
@@ -1030,7 +1047,7 @@ def item_role(item: Dict[str, Any]) -> str:
 def normalize_item(item: Dict[str, Any], role: Optional[str] = None) -> Dict[str, Any]:
     row = dict(item or {})
     resolved = role or item_role(row)
-    if resolved in {"top", "bottom", "dress", "footwear", "accessory"}:
+    if resolved in {"top", "bottom", "dress", "footwear", "outerwear", "accessory"}:
         row["role"] = resolved
         row["slot"] = resolved
     if resolved == "top":
@@ -1041,6 +1058,8 @@ def normalize_item(item: Dict[str, Any], role: Optional[str] = None) -> Dict[str
         row.setdefault("category", "Dresses")
     elif resolved == "footwear":
         row.setdefault("category", "Footwear")
+    elif resolved == "outerwear":
+        row.setdefault("category", "Outerwear")
     elif resolved == "accessory":
         row.setdefault("category", "Accessories")
 
@@ -1310,7 +1329,7 @@ def _canonicalize_card(card: Dict[str, Any], index: int) -> Optional[Dict[str, A
 
     for item in raw_items:
         role = item_role(item)
-        if role not in {"top", "bottom", "dress", "footwear", "accessory"}:
+        if role not in {"top", "bottom", "dress", "footwear", "outerwear", "accessory"}:
             continue
         if not item_image(item):
             continue
@@ -1336,7 +1355,7 @@ def _canonicalize_card(card: Dict[str, Any], index: int) -> Optional[Dict[str, A
         chosen.pop("bottom", None)
 
     final_items: List[Dict[str, Any]] = []
-    for role in ("dress", "top", "bottom", "footwear"):
+    for role in ("dress", "outerwear", "top", "bottom", "footwear"):
         if role in chosen:
             final_items.append(chosen[role])
     final_items.extend(accessories[:4])
@@ -2132,6 +2151,59 @@ def _card_blob(card: Dict[str, Any]) -> str:
     ).lower()
 
 
+def _daily_composition_score(card: Dict[str, Any], query: str) -> float:
+    kind = _occasion_kind(query)
+    direction = _style_direction(query)
+    if kind not in {"daily", "casual"} and direction not in {"daily", "clean_daily", "smart_casual_office"}:
+        return 0.0
+    text = _card_blob(card)
+    score = 0.0
+    if _item_by_role(card, "outerwear"):
+        score += 1.4
+    if any(k in text for k in ("overshirt", "jacket", "blazer", "cardigan", "layer", "shacket")):
+        score += 1.0
+    if any(k in text for k in ("linen", "knit", "textured", "ribbed", "cotton", "suede", "denim", "canvas")):
+        score += 0.9
+    if any(k in text for k in ("watch", "belt", "bag", "sling", "bracelet", "ring", "necklace")):
+        score += 0.45
+    if any(k in text for k in ("graphic tee", "plain tee", "t-shirt", "tee")) and not any(k in text for k in ("layer", "jacket", "overshirt", "blazer")):
+        score -= 0.5
+    return score
+
+
+def _daily_composition_notes(card: Dict[str, Any], query: str) -> List[str]:
+    if _daily_composition_score(card, query) <= 0:
+        return []
+    text = _card_blob(card)
+    notes: List[str] = []
+    if _item_by_role(card, "outerwear") or any(k in text for k in ("overshirt", "jacket", "blazer", "cardigan", "layer")):
+        notes.append("layering")
+    if any(k in text for k in ("linen", "knit", "textured", "ribbed", "cotton", "suede", "denim", "canvas")):
+        notes.append("texture")
+    if _hero_item(card):
+        notes.append("hero_piece")
+    if any(k in text for k in ("watch", "belt", "bag", "sling", "bracelet", "ring", "necklace")):
+        notes.append("accessory_balance")
+    return list(dict.fromkeys(notes))[:4]
+
+
+def _style_dna_alignment_text(style_identity: Dict[str, Any], controlled_archetype: str) -> str:
+    prefs = style_identity if isinstance(style_identity, dict) else {}
+    style_values: List[str] = []
+    for key in ("stylePreferences", "style_preferences", "preferred_styles", "preferredStyle"):
+        value = prefs.get(key)
+        if isinstance(value, list):
+            style_values.extend(str(v).strip() for v in value if str(v).strip())
+        elif str(value or "").strip():
+            style_values.append(str(value).strip())
+    if not style_values and controlled_archetype:
+        style_values.append(controlled_archetype)
+    style_values = list(dict.fromkeys(style_values))[:3]
+    if not style_values:
+        return ""
+    return f"Your Style DNA leans {', '.join(style_values)}, so this direction should feel natural rather than forced."
+
+
 def _quality_score(card: Dict[str, Any], query: str) -> float:
     text = _card_blob(card)
     kind = _occasion_kind(query)
@@ -2188,6 +2260,14 @@ def _quality_score(card: Dict[str, Any], query: str) -> float:
     if flags["casual"] and not any(flags[k] for k in ("office", "date", "party", "travel", "wedding")):
         if any(k in text for k in ("sneaker", "denim", "shirt", "tee", "polo", "chino")):
             score += 1.0
+    daily_boost = _daily_composition_score(card, query)
+    if daily_boost:
+        score += daily_boost
+        logger.info(
+            "AHVI_DAILY_COMPOSITION_SCORE_APPLIED boost=%.2f notes=%s",
+            daily_boost,
+            _daily_composition_notes(card, query),
+        )
     return score
 
 
@@ -3341,6 +3421,8 @@ def finalize_style_cards(
         hero_piece = _display_item_name(_hero_item(card))
         colors = _card_colors(card)
         components = _card_component_names(card)
+        daily_notes = _daily_composition_notes(card, query)
+        style_dna_alignment = _style_dna_alignment_text(style_identity or {}, controlled_archetype)
         card["title"] = title
         card["name"] = title
         card["subtitle"] = _STRATEGY_LABELS.get(card.get("look_strategy"), "") or board_role
@@ -3352,6 +3434,9 @@ def finalize_style_cards(
         card["colors"] = colors
         card["color_story"] = " \u2022 ".join(colors)
         card["outfit_components"] = components
+        card["daily_composition_notes"] = daily_notes
+        card["style_dna_alignment"] = style_dna_alignment
+        card["persona_fit_reason"] = style_dna_alignment
         card["style_energy"] = profile.get("style_energy")
         card["silhouette_category"] = profile.get("silhouette_category")
         card["palette_direction"] = profile.get("palette")
@@ -3405,6 +3490,8 @@ def finalize_style_cards(
             "hero_piece": hero_piece,
             "colors": colors,
             "outfit_components": components,
+            "daily_composition_notes": daily_notes,
+            "style_dna_alignment": style_dna_alignment,
             "style_energy": card["style_energy"],
             "silhouette_category": card["silhouette_category"],
             "palette_direction": card["palette_direction"],
@@ -4521,6 +4608,28 @@ def build_style_flow_response(
         len(wardrobe) if isinstance(wardrobe, list) else 0,
         len(cards),
     )
+    occasion_label = str(query or normalized_occasion or "this").replace(" Â· ", " ").strip()
+    kind = _occasion_kind(query or normalized_occasion)
+    if kind == "coffee_date":
+        style_intro = (
+            "I’d keep this relaxed first and polished second. Here are three directions "
+            "that feel intentional without getting too formal."
+        )
+    elif kind in {"office_meeting", "client_presentation", "client_dinner"}:
+        style_intro = (
+            "I’d lead with credibility, then keep the finish wearable. These options stay "
+            "polished without turning stiff."
+        )
+    elif kind in {"beach_dinner", "travel"}:
+        style_intro = (
+            "I’d keep the base breathable and the finish evening-aware. These options avoid "
+            "forcing formal pieces into a relaxed setting."
+        )
+    else:
+        style_intro = (
+            f"I built these around {occasion_label}. Each option has a clear hero piece, "
+            "color story, and styling reason."
+        )
     raw_response_message = (
         "This is the closest wardrobe-based option I found, but it still needs "
         f"refinement for {str(query or normalized_occasion).replace(' · ', ' ').strip()}. "
@@ -4528,15 +4637,11 @@ def build_style_flow_response(
         if cards and closest_requested
         else result.get("context")
         or (
-            "I pulled together wardrobe-based looks that match your request, occasion, and style profile."
-            if cards
-            else "I couldn't build a reliable style board from your wardrobe yet."
+            style_intro if cards else "I couldn't build a reliable style board from your wardrobe yet."
         )
     )
     fallback_message = (
-        "I pulled together wardrobe-based looks that match your request, occasion, and style profile."
-        if cards
-        else "I couldn't build a reliable style board from your wardrobe yet."
+        style_intro if cards else "I couldn't build a reliable style board from your wardrobe yet."
     )
     response_message = _clean_editorial_copy(raw_response_message, fallback_message)
     return {

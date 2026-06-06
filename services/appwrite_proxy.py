@@ -73,6 +73,11 @@ class AppwriteProxy:
                 or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_WARDROBE_STYLE_METADATA", "")
                 or "wardrobe_style_metadata"
             ),
+            "style_assets": (
+                os.getenv("APPWRITE_COLLECTION_STYLE_ASSETS", "")
+                or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_STYLE_ASSETS", "")
+                or "style_assets"
+            ),
             "users": os.getenv("APPWRITE_COLLECTION_USERS", "")
             or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_USERS", ""),
             "plans": os.getenv("APPWRITE_COLLECTION_PLANS", "")
@@ -180,6 +185,7 @@ class AppwriteProxy:
             "outfits": "userId",
             "outfit_history": "userId",
             "wardrobe_style_metadata": "userId",
+            "style_assets": None,
             "users": None,
             "plans": "userId",
             "calendar_events": "user_id",
@@ -207,6 +213,7 @@ class AppwriteProxy:
         self.order_query_map = {
             "outfits": {"method": "orderDesc", "attribute": "$createdAt"},
             "wardrobe_style_metadata": {"method": "orderDesc", "attribute": "$updatedAt"},
+            "style_assets": {"method": "orderDesc", "attribute": "$updatedAt"},
             "plans": None,
             "calendar_events": None,
             "saved_boards": {"method": "orderDesc", "attribute": "$createdAt"},
