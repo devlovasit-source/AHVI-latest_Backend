@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Tuple
+
+logger = logging.getLogger("ahvi.occasion_style_rules")
+
+try:
+    from services.agent_metadata_validator import item_metadata_v2_reject_reason
+except Exception:  # pragma: no cover
+    item_metadata_v2_reject_reason = None  # type: ignore
 
 
 def _text(value: Any) -> str:
@@ -391,12 +399,132 @@ OCCASION_STYLE_RULES: Dict[str, Dict[str, Any]] = {
     },
 }
 
+OCCASION_STYLE_RULES.update(
+    {
+        "coffee_date": {
+            "mood": "relaxed, conversational, approachable, intentional",
+            "resolved_brief": "coffee date, relaxed first and polished second",
+            "style_direction": "relaxed_social_coffee",
+            "formality_target": 2.1,
+            "footwear_energy": "clean casual",
+            "prefer_keywords": [
+                "oxford", "linen", "overshirt", "polo", "relaxed",
+                "button down", "button-down", "chino", "chinos", "denim",
+                "jeans", "clean sneaker", "sneakers", "suede loafer",
+                "watch", "cotton",
+            ],
+            "avoid_keywords": [
+                "formal trouser", "formal trousers", "wedding shirt",
+                "tuxedo", "shiny", "satin", "sequin", "sequins",
+                "embroidered", "embroidery", "festive", "corporate",
+                "boardroom", "office", "client", "statement gold",
+            ],
+            "preferred_colors": ["white", "blue", "navy", "cream", "olive", "tan", "brown"],
+            "avoid_colors": ["gold"],
+            "preferred_materials": ["cotton", "linen", "suede", "denim"],
+            "required_slots": ["top_or_dress", "bottom_or_dress", "footwear"],
+            "forbidden_pairings": [
+                ["wedding shirt", "formal trouser"],
+                ["embroidered", "black trousers"],
+                ["shiny", "gold"],
+                ["corporate", "loafer"],
+                ["boardroom", "trouser"],
+            ],
+            "fallback_message": "I don't see enough relaxed coffee-date pieces yet.",
+            "missing_recommendations": [
+                {"label": "Relaxed oxford shirt", "reason": "Feels intentional without going formal", "cta": "Find this"},
+                {"label": "Clean sneakers", "reason": "Keeps the mood conversational and easy", "cta": "Find this"},
+                {"label": "Soft chinos", "reason": "Breaks up formal trouser repetition", "cta": "Find this"},
+            ],
+        },
+        "first_date": {
+            **OCCASION_STYLE_RULES["date"],
+            "resolved_brief": "first date, warm and easy polish",
+            "style_direction": "approachable_first_date",
+            "formality_target": 2.6,
+        },
+        "casual_dinner": {
+            **OCCASION_STYLE_RULES["date"],
+            "resolved_brief": "casual dinner, evening-aware without date-night intensity",
+            "style_direction": "casual_evening",
+            "formality_target": 2.5,
+        },
+        "client_dinner": {
+            **OCCASION_STYLE_RULES["office"],
+            "mood": "professional-first, social-second, composed",
+            "resolved_brief": "client dinner, credible then relaxed",
+            "style_direction": "professional_social_transition",
+            "formality_target": 3.4,
+            "avoid_keywords": OCCASION_STYLE_RULES["office"]["avoid_keywords"] + ["loud print", "party shirt", "neon"],
+        },
+        "beach_dinner": {
+            **OCCASION_STYLE_RULES["beach"],
+            "mood": "breathable, relaxed, sunset-polished",
+            "resolved_brief": "beach dinner, coastal evening polish",
+            "style_direction": "coastal_evening",
+            "formality_target": 2.3,
+            "avoid_keywords": OCCASION_STYLE_RULES["beach"]["avoid_keywords"] + ["office trouser", "black trousers", "black pants"],
+        },
+        "wedding_guest": {
+            **OCCASION_STYLE_RULES["wedding"],
+            "resolved_brief": "wedding guest, celebratory restraint",
+            "style_direction": "wedding_guest",
+        },
+        "funeral": {
+            "mood": "respectful, quiet, understated",
+            "resolved_brief": "funeral, respectful and non-flashy",
+            "style_direction": "respectful_understated",
+            "formality_target": 3.8,
+            "footwear_energy": "closed polish",
+            "prefer_keywords": ["black", "navy", "charcoal", "plain", "shirt", "trouser", "closed", "loafer"],
+            "avoid_keywords": ["bright", "neon", "shiny", "satin", "sequin", "sequins", "loud print", "floral print", "party", "shorts", "slides"],
+            "preferred_colors": ["black", "navy", "charcoal", "grey"],
+            "avoid_colors": ["neon", "gold", "bright"],
+            "preferred_materials": ["cotton", "wool", "leather"],
+            "required_slots": ["top_or_dress", "bottom_or_dress", "footwear"],
+            "forbidden_pairings": [["shiny", "gold"], ["loud print", "funeral"], ["shorts", "funeral"]],
+            "fallback_message": "I don't see enough respectful formal pieces yet.",
+            "missing_recommendations": [
+                {"label": "Dark plain shirt", "reason": "Keeps the outfit quiet and respectful", "cta": "Find this"},
+                {"label": "Closed dark shoes", "reason": "Anchors the look without shine", "cta": "Find this"},
+            ],
+        },
+        "office_meeting": OCCASION_STYLE_RULES["office"],
+        "client_presentation": OCCASION_STYLE_RULES["office"],
+        "basketball_game": {
+            **OCCASION_STYLE_RULES["casual"],
+            "resolved_brief": "basketball game, active-casual and team-friendly",
+            "style_direction": "sports_casual",
+            "avoid_keywords": ["formal shirt", "button down", "button-down", "embroidered", "loafer", "blazer", "oxford", "tuxedo"],
+        },
+        "team_dinner": {
+            **OCCASION_STYLE_RULES["date"],
+            "resolved_brief": "team dinner, relaxed social polish",
+            "style_direction": "team_social",
+            "formality_target": 2.4,
+        },
+    }
+)
+
 
 ALIASES = {
     "casual_outing": "casual",
     "daily": "casual",
     "date_night": "date",
     "date night": "date",
+    "coffee": "coffee_date",
+    "coffee date": "coffee_date",
+    "first date": "first_date",
+    "casual dinner": "casual_dinner",
+    "client dinner": "client_dinner",
+    "beach dinner": "beach_dinner",
+    "wedding guest": "wedding_guest",
+    "christian funeral": "funeral",
+    "memorial": "funeral",
+    "office meeting": "office_meeting",
+    "client presentation": "client_presentation",
+    "basketball game": "basketball_game",
+    "team dinner": "team_dinner",
     "everyday": "casual",
     "event": "wedding",
     "formal_event": "wedding",
@@ -413,13 +541,30 @@ ALIASES = {
 
 def get_occasion_rule(occasion: str) -> Dict[str, Any]:
     key = ALIASES.get(_text(occasion), _text(occasion))
-    return dict(OCCASION_STYLE_RULES.get(key) or OCCASION_STYLE_RULES["casual"])
+    rule = dict(OCCASION_STYLE_RULES.get(key) or OCCASION_STYLE_RULES["casual"])
+    rule["_occasion_key"] = key or "casual"
+    return rule
 
 
 def score_item_for_occasion(item: Dict[str, Any], occasion_rule: Dict[str, Any]) -> float:
     blob = _item_blob(item)
     score = 0.0
     direction = _text(occasion_rule.get("style_direction") or occasion_rule.get("resolved_brief"))
+    if item_metadata_v2_reject_reason is not None:
+        reason = item_metadata_v2_reject_reason(
+            item,
+            occasion=occasion_rule.get("_occasion_key")
+            or occasion_rule.get("style_direction")
+            or occasion_rule.get("resolved_brief"),
+        )
+        if reason:
+            logger.info(
+                "AHVI_ITEM_OCCASION_REJECTED occasion=%s item=%s reason=%s source=occasion_style_rules_score",
+                occasion_rule.get("style_direction") or occasion_rule.get("resolved_brief"),
+                item.get("id") or item.get("$id") or item.get("name"),
+                reason,
+            )
+            return -25.0
     for keyword in occasion_rule.get("prefer_keywords") or []:
         if _text(keyword) in blob:
             score += 2.0
@@ -466,6 +611,19 @@ def forbidden_pairing_reason(card: Dict[str, Any], occasion_rule: Dict[str, Any]
 
 def reject_board_for_occasion(card: Dict[str, Any], occasion: str, occasion_rule: Dict[str, Any] | None = None) -> str:
     rule = occasion_rule or get_occasion_rule(occasion)
+    if item_metadata_v2_reject_reason is not None:
+        for item in card.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            reason = item_metadata_v2_reject_reason(item, occasion=occasion)
+            if reason:
+                logger.info(
+                    "AHVI_ITEM_OCCASION_REJECTED occasion=%s item=%s reason=%s source=occasion_style_rules_board",
+                    occasion,
+                    item.get("id") or item.get("$id") or item.get("name"),
+                    reason,
+                )
+                return reason
     reason = forbidden_pairing_reason(card, rule)
     if reason:
         return reason

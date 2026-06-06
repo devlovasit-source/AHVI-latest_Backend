@@ -202,6 +202,31 @@ def test_high_date_night_score_boosts_date_outfit():
     assert any("date-night" in r.lower() for r in reasons)
 
 
+def test_shiny_gold_formal_shirt_hard_rejects_coffee_date_without_existing_metadata():
+    outfit = {
+        "top": {
+            "id": "gold-shirt",
+            "name": "Shiny Gold Formal Shirt",
+            "category": "Tops",
+            "sub_category": "Shirt",
+            "color": "gold",
+        },
+        "bottom": {"name": "Soft Chinos", "category": "Bottoms"},
+        "footwear": {"name": "Clean Sneakers", "category": "Footwear"},
+    }
+
+    allowed, penalty, reasons, _ = guard_outfit(
+        outfit,
+        user_profile={"gender": "male"},
+        intent="coffee_date",
+        query="Use my wardrobe for coffee date",
+    )
+
+    assert allowed is False
+    assert penalty == -100
+    assert any("metadata_v2" in r for r in reasons)
+
+
 # ---------------------------------------------------------------------------
 # Resilience — missing fields must not crash
 # ---------------------------------------------------------------------------

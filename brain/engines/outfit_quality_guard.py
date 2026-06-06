@@ -14,6 +14,11 @@ from services.wardrobe_suitability import outfit_contains_private_wear
 
 logger = logging.getLogger("ahvi.outfit_quality_guard")
 
+try:
+    from services.agent_metadata_validator import item_metadata_v2_reject_reason
+except Exception:  # pragma: no cover
+    item_metadata_v2_reject_reason = None  # type: ignore
+
 LOUD_COLORS = {"yellow", "orange", "neon", "fluorescent", "bright yellow", "bright orange", "lime"}
 
 SMART_OCCASIONS = {
@@ -783,6 +788,30 @@ def guard_outfit(
         for slot_item in [top, bottom, footwear, *accessories]:
             if not isinstance(slot_item, dict):
                 continue
+            if item_metadata_v2_reject_reason is not None:
+                archetype = (
+                    outfit.get("style_archetype")
+                    or _style_meta(slot_item).get("style_archetype")
+                    or ""
+                )
+                v2_reason = item_metadata_v2_reject_reason(
+                    slot_item,
+                    occasion=occasion_for_meta,
+                    archetype=archetype,
+                )
+                if v2_reason:
+                    logger.info(
+                        "AHVI_ITEM_OCCASION_REJECTED occasion=%s item=%s reason=%s source=outfit_quality_guard",
+                        occasion_for_meta,
+                        slot_item.get("id") or slot_item.get("$id") or slot_item.get("name"),
+                        v2_reason,
+                    )
+                    return False, -100, [v2_reason], fixed
+                logger.info(
+                    "AHVI_METADATA_V2_USED occasion=%s item=%s",
+                    occasion_for_meta,
+                    slot_item.get("id") or slot_item.get("$id") or slot_item.get("name"),
+                )
             meta = slot_item.get("style_metadata")
             if not isinstance(meta, dict):
                 continue

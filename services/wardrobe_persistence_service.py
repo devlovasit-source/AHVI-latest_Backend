@@ -269,6 +269,21 @@ def _style_metadata_payload(
             exc_info=True,
         )
 
+    try:
+        from services.agent_metadata_validator import normalize_metadata_v2
+
+        style_meta = normalize_metadata_v2(
+            style_meta if isinstance(style_meta, dict) else {},
+            base_item=item_payload if isinstance(item_payload, dict) else {},
+        )
+    except Exception:
+        logging.getLogger("ahvi.wardrobe_persistence").warning(
+            "ahvi.metadata.v2_normalize_failed item=%s user=%s",
+            item_id,
+            user_id,
+            exc_info=True,
+        )
+
     return {
         "item_id": _safe_text(item_id),
         "userId": _safe_text(user_id),

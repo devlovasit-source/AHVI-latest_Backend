@@ -10,6 +10,16 @@ from services.wardrobe_intelligence_service import (
     score_item_for_occasion,
 )
 
+try:
+    from brain.engines.style_brief import resolve_occasion_archetype
+except Exception:  # pragma: no cover
+    resolve_occasion_archetype = None
+
+try:
+    from services.agent_metadata_validator import item_metadata_v2_reject_reason
+except Exception:  # pragma: no cover
+    item_metadata_v2_reject_reason = None  # type: ignore
+
 
 # ============================================================
 # FINAL STYLE SAFETY GATE — PER-OCCASION CONFIDENCE THRESHOLDS
@@ -40,6 +50,17 @@ OCCASION_CONFIDENCE_THRESHOLDS: Dict[str, float] = {
     "gym": 0.65,
     "workout": 0.65,
     "dinner": 0.65,
+    "coffee_date": 0.70,
+    "first_date": 0.70,
+    "casual_dinner": 0.68,
+    "client_dinner": 0.72,
+    "beach_dinner": 0.68,
+    "wedding_guest": 0.72,
+    "funeral": 0.75,
+    "office_meeting": 0.72,
+    "client_presentation": 0.74,
+    "basketball_game": 0.65,
+    "team_dinner": 0.65,
 }
 
 _DEFAULT_CONFIDENCE_THRESHOLD = 0.68
@@ -123,6 +144,166 @@ OCCASION_COMPATIBILITY_RULES: Dict[str, Dict[str, Any]] = {
             "gym shorts", "sliders", "slides", "slippers", "flip-flop",
         ],
         "reject_if_terms": [],
+        "preferred_formality": "smart_casual",
+        "min_required_score": 0.45,
+    },
+    "coffee_date": {
+        "boost_terms": [
+            "oxford", "linen", "overshirt", "clean polo", "polo",
+            "relaxed button", "button down", "button-down", "chino",
+            "chinos", "denim", "jeans", "clean sneaker", "minimal sneaker",
+            "suede loafer", "watch", "cotton", "cream", "olive", "tan",
+        ],
+        "hard_penalty_terms": [
+            "formal trouser", "formal trousers", "wedding shirt", "tuxedo",
+            "shiny", "satin", "glossy", "sequin", "sequins", "festive",
+            "embroidered", "embroidery", "corporate", "boardroom",
+            "office", "client", "statement gold", "gold ring",
+            "black formal",
+        ],
+        "reject_if_terms": [
+            "tuxedo", "wedding shirt", "shiny gold", "sequin",
+        ],
+        "preferred_formality": "casual",
+        "min_required_score": 0.52,
+    },
+    "first_date": {
+        "boost_terms": [
+            "shirt", "polo", "knit", "chino", "denim", "clean sneaker",
+            "loafer", "watch", "cotton", "cream", "navy",
+        ],
+        "hard_penalty_terms": [
+            "gym", "track", "athletic", "running", "flip flop", "slides",
+            "slippers", "tuxedo", "corporate", "boardroom",
+        ],
+        "reject_if_terms": ["tuxedo", "flip flop"],
+        "preferred_formality": "smart_casual",
+        "min_required_score": 0.48,
+    },
+    "casual_dinner": {
+        "boost_terms": [
+            "shirt", "knit", "polo", "chino", "denim", "dark jeans",
+            "loafer", "clean sneaker", "watch",
+        ],
+        "hard_penalty_terms": [
+            "gym", "track", "athletic", "flip flop", "slides", "slippers",
+            "tuxedo", "corporate", "boardroom",
+        ],
+        "reject_if_terms": ["tuxedo", "flip flop"],
+        "preferred_formality": "smart_casual",
+        "min_required_score": 0.48,
+    },
+    "client_dinner": {
+        "boost_terms": [
+            "button", "shirt", "trouser", "chino", "loafer", "derby",
+            "watch", "belt", "blazer", "navy", "white", "grey",
+        ],
+        "hard_penalty_terms": [
+            "shorts", "slides", "slippers", "flip flop", "gym", "track",
+            "running", "loud print", "sequin", "neon", "beach", "rave",
+            "party shirt",
+        ],
+        "reject_if_terms": ["flip flop", "gym shorts", "swimwear"],
+        "preferred_formality": "business",
+        "min_required_score": 0.52,
+    },
+    "beach_dinner": {
+        "boost_terms": [
+            "linen", "cotton", "camp collar", "resort", "lightweight",
+            "chino", "sandals", "sandal", "espadrille", "espadrilles",
+            "slides", "open collar", "cream", "white", "tan",
+        ],
+        "hard_penalty_terms": [
+            "office trouser", "black trousers", "black pants", "formal leather",
+            "oxford", "derby", "heavy blazer", "corporate", "wool",
+            "tuxedo",
+        ],
+        "reject_if_terms": ["tuxedo", "oxford", "office trouser"],
+        "preferred_formality": "casual",
+        "min_required_score": 0.5,
+    },
+    "wedding_guest": {
+        "boost_terms": [
+            "kurta", "sherwani", "suit", "blazer", "dress shoes",
+            "oxford", "loafer", "silk", "satin", "embroidered",
+            "festive", "elevated",
+        ],
+        "hard_penalty_terms": [
+            "basic tee", "running shoes", "gym", "shorts", "beach",
+            "tank", "flip flop", "flip-flop", "bridal", "white gown",
+        ],
+        "reject_if_terms": ["flip flop", "gym shorts"],
+        "preferred_formality": "formal",
+        "min_required_score": 0.55,
+    },
+    "funeral": {
+        "boost_terms": [
+            "black", "navy", "charcoal", "dark", "plain", "shirt",
+            "trouser", "closed shoe", "loafer", "minimal",
+        ],
+        "hard_penalty_terms": [
+            "bright", "neon", "shiny", "satin", "glossy", "sequin",
+            "sequins", "loud print", "floral print", "party", "shorts",
+            "slides", "slippers", "gold",
+        ],
+        "reject_if_terms": ["neon", "sequin", "loud print", "shorts"],
+        "preferred_formality": "formal",
+        "min_required_score": 0.58,
+    },
+    "office_meeting": {
+        "boost_terms": [
+            "plain shirt", "muted", "button", "trouser", "chino", "loafer",
+            "leather sneaker", "minimal sneaker", "blazer", "structured",
+            "smart casual", "navy", "grey", "white", "black", "watch",
+            "belt", "minimal", "clean",
+        ],
+        "hard_penalty_terms": [
+            "flip flop", "swimwear", "gym shorts", "running shorts",
+            "shiny", "satin", "glossy", "sequin", "loud print",
+            "festive", "embroidered", "party shoes", "neon", "tropical",
+            "beachwear", "tank", "shorts", "open shirt",
+        ],
+        "reject_if_terms": ["swimwear", "flip flop"],
+        "preferred_formality": "smart_casual",
+        "min_required_score": 0.5,
+    },
+    "client_presentation": {
+        "boost_terms": [
+            "blazer", "button", "shirt", "trouser", "loafer", "oxford",
+            "derby", "watch", "belt", "structured", "navy", "white",
+            "charcoal",
+        ],
+        "hard_penalty_terms": [
+            "shorts", "slides", "slippers", "flip flop", "gym", "track",
+            "running", "short sleeve", "tropical", "loud print", "sequin",
+            "neon", "beach",
+        ],
+        "reject_if_terms": ["flip flop", "gym shorts", "swimwear"],
+        "preferred_formality": "business",
+        "min_required_score": 0.55,
+    },
+    "basketball_game": {
+        "boost_terms": [
+            "tee", "jersey", "polo", "denim", "chino", "sneaker",
+            "jacket", "cap", "casual", "cotton",
+        ],
+        "hard_penalty_terms": [
+            "formal shirt", "button down", "button-down", "embroidered",
+            "loafer", "blazer", "oxford", "tuxedo", "dress shoes",
+        ],
+        "reject_if_terms": ["tuxedo", "oxford"],
+        "preferred_formality": "casual",
+        "min_required_score": 0.45,
+    },
+    "team_dinner": {
+        "boost_terms": [
+            "shirt", "polo", "chino", "denim", "clean sneaker", "loafer",
+            "jacket", "watch",
+        ],
+        "hard_penalty_terms": [
+            "tuxedo", "wedding", "shiny", "sequin", "slides", "slippers",
+        ],
+        "reject_if_terms": ["tuxedo", "sequin"],
         "preferred_formality": "smart_casual",
         "min_required_score": 0.45,
     },
@@ -315,7 +496,20 @@ _OCCASION_ALIASES: Dict[str, str] = {
     "business meeting": "business",
     "date night": "date",
     "dinner date": "date",
-    "coffee date": "date",
+    "coffee date": "coffee_date",
+    "first date": "first_date",
+    "casual dinner": "casual_dinner",
+    "client dinner": "client_dinner",
+    "business dinner": "client_dinner",
+    "beach dinner": "beach_dinner",
+    "wedding guest": "wedding_guest",
+    "christian funeral": "funeral",
+    "memorial": "funeral",
+    "office meeting": "office_meeting",
+    "client presentation": "client_presentation",
+    "client pitch": "client_presentation",
+    "basketball game": "basketball_game",
+    "team dinner": "team_dinner",
     "movie date": "date",
     "date_night": "date",
     "date night": "date",
@@ -477,6 +671,18 @@ def _outfit_blob(outfit: Dict[str, Any]) -> str:
     return " ".join(parts).lower()
 
 
+def _outfit_items(outfit: Dict[str, Any]) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    for slot in ("master_piece", "top", "bottom", "dress", "shoes", "footwear", "outerwear"):
+        item = outfit.get(slot)
+        if isinstance(item, dict):
+            items.append(item)
+    for item in outfit.get("items") or []:
+        if isinstance(item, dict):
+            items.append(item)
+    return items
+
+
 def score_occasion_compatibility(
     outfit: Dict[str, Any], context: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -515,6 +721,28 @@ def score_occasion_compatibility(
     boosts: List[str] = []
     penalties: List[str] = []
     raw = 0.0
+
+    if item_metadata_v2_reject_reason is not None:
+        for item in _outfit_items(outfit):
+            reason = item_metadata_v2_reject_reason(item, occasion=occasion)
+            if reason:
+                logger.info(
+                    "AHVI_ITEM_OCCASION_REJECTED occasion=%s item=%s reason=%s source=style_scorer",
+                    occasion,
+                    item.get("id") or item.get("$id") or item.get("name"),
+                    reason,
+                )
+                return {
+                    "score": 0.0,
+                    "raw_score": -10.0,
+                    "boosts": boosts,
+                    "penalties": [reason],
+                    "reject": True,
+                    "reason": f"hard_reject:{reason}",
+                    "occasion": occasion,
+                    "profile": profile,
+                    "min_required_score": float(profile.get("min_required_score") or 0.45),
+                }
 
     for term in rules.get("boost_terms", []):
         if term and term in blob:
@@ -632,6 +860,13 @@ def normalize_occasion(occasion: Any) -> str:
     text = str(occasion or "").strip().lower().replace("-", "_")
     readable = text.replace("_", " ")
     tokens = set(re.sub(r"[^a-z0-9]+", " ", readable).split())
+    if resolve_occasion_archetype is not None:
+        try:
+            archetype = resolve_occasion_archetype(text, readable)
+            if archetype in OCCASION_COMPATIBILITY_RULES:
+                return archetype
+        except Exception:
+            pass
     if any(w in readable for w in ["capsule wardrobe", "wardrobe essentials", "core wardrobe", "minimalist wardrobe"]):
         return "capsule"
     if (
@@ -679,6 +914,24 @@ def occasion_item_score(item: dict, occasion: str) -> float:
             score += 0.18
         if any(w in blob for w in ["slipper", "gym", "running", "shorts"]):
             score -= 0.55
+
+    elif occasion == "coffee_date":
+        if any(w in blob for w in ["oxford", "linen", "polo", "button down", "button-down", "chino", "denim", "clean sneaker", "suede loafer", "cotton"]):
+            score += 0.35
+        if any(w in blob for w in ["formal trouser", "formal trousers", "wedding", "embroidered", "festive", "shiny", "satin", "sequin", "corporate", "boardroom", "gold ring"]):
+            score -= 0.75
+
+    elif occasion in {"client_dinner", "client_presentation", "office_meeting"}:
+        if any(w in blob for w in ["shirt", "trousers", "trouser", "chino", "loafers", "loafer", "belt", "watch", "blazer"]):
+            score += 0.25
+        if any(w in blob for w in ["slipper", "slides", "beach", "gym shorts", "running shorts", "loud print", "neon", "festive", "party shirt"]):
+            score -= 0.7
+
+    elif occasion == "beach_dinner":
+        if any(w in blob for w in ["linen", "cotton", "camp collar", "resort", "lightweight", "chino", "espadrille", "sandal"]):
+            score += 0.35
+        if any(w in blob for w in ["black trousers", "black pants", "office trouser", "loafers", "dress shoes", "blazer", "formal", "office"]):
+            score -= 0.75
 
     elif occasion == "beach":
         if any(
@@ -987,6 +1240,27 @@ class UnifiedStyleScorer:
         except Exception:
             mem_fields, mem_reasons = {}, []
         if mem_fields:
+            occasion_score = float(occasion_result.get("score") or 0.5)
+            min_required = float(occasion_result.get("min_required_score") or 0.45)
+            original_positive = sum(
+                max(0.0, float(mem_fields.get(key) or 0.0))
+                for key in ("underworn_boost", "saved_board_affinity")
+            )
+            if occasion_result.get("reject") or occasion_score < min_required:
+                mem_fields["underworn_boost"] = 0.0
+                mem_fields["saved_board_affinity"] = 0.0
+                mem_reasons = [r for r in mem_reasons if "under-worn" not in r and "saved" not in r]
+            logger.info(
+                "AHVI_MEMORY_WEIGHT_APPLIED occasion=%s occasion_score=%.3f min_required=%.3f original_positive=%.3f final_positive=%.3f",
+                occasion_result.get("occasion"),
+                occasion_score,
+                min_required,
+                original_positive,
+                sum(
+                    max(0.0, float(mem_fields.get(key) or 0.0))
+                    for key in ("underworn_boost", "saved_board_affinity")
+                ),
+            )
             breakdown.update(mem_fields)
             reasons.extend(mem_reasons)
 

@@ -43,6 +43,47 @@ _SCORE_KEYS = (
     "date_night_score",
 )
 
+LOW_RISK_OCCASIONS = {
+    "coffee_date",
+    "casual_day",
+    "general_today",
+    "today",
+    "daily",
+    "casual",
+    "casual_outing",
+    "polished_casual",
+}
+
+FESTIVE_OK_OCCASIONS = {
+    "party",
+    "wedding",
+    "wedding_guest",
+    "festive",
+    "festive_dinner",
+    "reception",
+    "ceremony",
+}
+
+UNDERSTATED_ARCHETYPES = {
+    "quiet luxury",
+    "refined weekend",
+    "elevated essentials",
+    "contemporary classic",
+    "polished casual",
+    "understated polish",
+}
+
+_RISKY_STYLE_FLAGS = {
+    "shiny",
+    "metallic",
+    "sequined",
+    "sequin",
+    "festive",
+    "wedding",
+    "party_statement",
+    "statement",
+}
+
 
 def is_enabled() -> bool:
     return str(os.getenv(ENV_ENABLE, "")).strip().lower() in {"1", "true", "yes", "on"}
@@ -149,6 +190,100 @@ def _tokens_from(*values: Any) -> set[str]:
     )
 
 
+def _norm_key(value: Any) -> str:
+    import re
+
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").lower()).strip("_")
+
+
+def _as_v2_float(value: Any, default: float = 0.0) -> float:
+    if isinstance(value, (int, float)):
+        return max(0.0, min(1.0, float(value)))
+    text = str(value or "").strip().lower()
+    mapped = {
+        "none": 0.0,
+        "low": 0.2,
+        "subtle": 0.3,
+        "medium": 0.55,
+        "moderate": 0.65,
+        "accent": 0.45,
+        "core": 0.2,
+        "high": 0.85,
+        "loud": 0.85,
+        "statement": 0.82,
+        "risky": 0.92,
+    }
+    if text in mapped:
+        return mapped[text]
+    try:
+        return max(0.0, min(1.0, float(text)))
+    except Exception:
+        return default
+
+
+def _formality_score(value: Any) -> float:
+    text = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    mapped = {
+        "homewear": 0.05,
+        "loungewear": 0.10,
+        "athletic": 0.18,
+        "casual": 0.25,
+        "smart_casual": 0.55,
+        "business_casual": 0.72,
+        "formal": 0.86,
+        "ethnic_formal": 0.82,
+        "black_tie": 0.95,
+    }
+    return mapped.get(text, _as_v2_float(value, 0.25))
+
+
+def _style_blob_for_v2(
+    metadata: Dict[str, Any], base_item: Optional[Dict[str, Any]] = None
+) -> str:
+    base = base_item if isinstance(base_item, dict) else {}
+    parts: List[str] = []
+    for source in (base, metadata):
+        for key in (
+            "name",
+            "title",
+            "label",
+            "category",
+            "subcategory",
+            "sub_category",
+            "color",
+            "color_name",
+            "color_code",
+            "pattern",
+            "material",
+            "fabric",
+            "description",
+            "formality",
+            "style_role",
+            "visual_noise",
+            "pattern_intensity",
+            "statement_level",
+        ):
+            parts.append(str(source.get(key) or ""))
+        for key in (
+            "risk_flags",
+            "style_keywords",
+            "fabric_feel",
+            "material_characteristics",
+            "allowed_occasions",
+            "blocked_occasions",
+            "occasions",
+            "tags",
+            "vision_labels",
+            "labels",
+        ):
+            value = source.get(key)
+            if isinstance(value, list):
+                parts.extend(str(v) for v in value)
+            else:
+                parts.append(str(value or ""))
+    return " ".join(parts).lower()
+
+
 def _blob_from(base: Dict[str, Any], raw: Dict[str, Any]) -> str:
     parts: List[str] = []
     for source in (base, raw):
@@ -184,6 +319,271 @@ def _add_unique(values: List[str], additions: List[str]) -> List[str]:
             out.append(text)
             seen.add(text.lower())
     return out
+
+
+def normalize_metadata_v2(
+    metadata: Any,
+    *,
+    base_item: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Attach AHVI Metadata V2 fields without breaking legacy metadata.
+
+    Existing string fields such as `visual_noise` and `statement_level` are
+    preserved for compatibility. Numeric V2 equivalents live in
+    `visual_noise_score` and `statement_level_score`.
+    """
+    meta = dict(metadata) if isinstance(metadata, dict) else {}
+    base = base_item if isinstance(base_item, dict) else {}
+    blob = _style_blob_for_v2(meta, base)
+    tokens = _tokens_from(blob)
+
+    def has_any(words: List[str]) -> bool:
+        return any(word in tokens or word in blob for word in words)
+
+    risk_flags = _coerce_list(meta.get("risk_flags"))
+    best_for = _coerce_list(meta.get("best_for"))
+    avoid_for = _coerce_list(meta.get("avoid_for"))
+    style_keywords = _coerce_list(meta.get("style_keywords"))
+    fabric_feel = _coerce_list(meta.get("fabric_feel"))
+    silhouette = _coerce_list(meta.get("silhouette"))
+
+    shine_level = _as_v2_float(meta.get("shine_level"), 0.0)
+    statement_score = _as_v2_float(
+        meta.get("statement_level_score", meta.get("statement_level")), 0.2
+    )
+    visual_noise_score = _as_v2_float(
+        meta.get("visual_noise_score", meta.get("visual_noise")), 0.2
+    )
+    formality_score = _as_v2_float(
+        meta.get("formality_score"), _formality_score(meta.get("formality"))
+    )
+
+    shiny = has_any(
+        ["gold", "metallic", "shiny", "sequin", "sequins", "satin", "shimmer", "glossy"]
+    )
+    formal_festive = has_any(
+        [
+            "formal shirt",
+            "party shirt",
+            "wedding shirt",
+            "festive",
+            "embroidered",
+            "embroidery",
+            "ornate",
+        ]
+    )
+
+    if shiny:
+        shine_level = max(shine_level, 0.78)
+        statement_score = max(statement_score, 0.76)
+        visual_noise_score = max(visual_noise_score, 0.70)
+        risk_flags = _add_unique(risk_flags, ["shiny", "statement", "festive"])
+        style_keywords = _add_unique(style_keywords, ["shine", "statement"])
+        if has_any(["gold", "metallic"]):
+            risk_flags = _add_unique(risk_flags, ["metallic"])
+            style_keywords = _add_unique(style_keywords, ["metallic"])
+        if has_any(["sequin", "sequins"]):
+            risk_flags = _add_unique(risk_flags, ["sequined"])
+        if has_any(["satin", "shimmer", "glossy"]):
+            fabric_feel = _add_unique(fabric_feel, ["shiny_finish"])
+
+    if formal_festive:
+        formality_score = max(formality_score, 0.76)
+        statement_score = max(statement_score, 0.68)
+        visual_noise_score = max(visual_noise_score, 0.62)
+        risk_flags = _add_unique(risk_flags, ["festive", "party_statement"])
+        best_for = _add_unique(best_for, ["party", "wedding_guest", "festive_dinner"])
+        avoid_for = _add_unique(avoid_for, ["coffee_date", "casual_day", "general_today"])
+        style_keywords = _add_unique(style_keywords, ["formal", "festive"])
+
+    if shine_level >= 0.70 or statement_score >= 0.80:
+        avoid_for = _add_unique(avoid_for, ["coffee_date", "casual_day", "general_today"])
+
+    blocked = _coerce_list(meta.get("blocked_occasions"))
+    if avoid_for:
+        blocked = _add_unique(blocked, avoid_for)
+
+    meta.update(
+        {
+            "metadata_version": "v2",
+            "formality_score": round(formality_score, 3),
+            "shine_level": round(shine_level, 3),
+            "statement_level_score": round(statement_score, 3),
+            "visual_noise_score": round(visual_noise_score, 3),
+            "best_for": best_for,
+            "avoid_for": avoid_for,
+            "blocked_occasions": blocked,
+            "risk_flags": risk_flags,
+            "style_keywords": style_keywords,
+            "fabric_feel": fabric_feel,
+            "silhouette": silhouette,
+        }
+    )
+    return meta
+
+
+def item_metadata_v2_reject_reason(
+    item: Any,
+    *,
+    occasion: Any = "",
+    archetype: Any = "",
+) -> str:
+    """Return a deterministic hard-reject reason from metadata V2 signals."""
+    if not isinstance(item, dict):
+        return ""
+    raw_meta = item.get("style_metadata")
+    if isinstance(raw_meta, str):
+        try:
+            raw_meta = json.loads(raw_meta)
+        except Exception:
+            raw_meta = {}
+    meta = normalize_metadata_v2(
+        raw_meta if isinstance(raw_meta, dict) else {},
+        base_item=item,
+    )
+    occ = _norm_key(occasion)
+    arch = str(archetype or item.get("style_archetype") or "").strip().lower()
+    flags = {_norm_key(flag) for flag in _coerce_list(meta.get("risk_flags"))}
+    avoid_values = {_norm_key(v) for v in _coerce_list(meta.get("avoid_for"))}
+    blocked_values = {_norm_key(v) for v in _coerce_list(meta.get("blocked_occasions"))}
+    avoid = avoid_values | blocked_values
+    best = {
+        _norm_key(v)
+        for v in _coerce_list(meta.get("best_for"))
+        + _coerce_list(meta.get("allowed_occasions"))
+    }
+    shine = _as_v2_float(meta.get("shine_level"), 0.0)
+    statement = _as_v2_float(
+        meta.get("statement_level_score", meta.get("statement_level")), 0.0
+    )
+    noise = _as_v2_float(meta.get("visual_noise_score", meta.get("visual_noise")), 0.0)
+    formality = _as_v2_float(
+        meta.get("formality_score"), _formality_score(meta.get("formality"))
+    )
+    blob = _style_blob_for_v2(meta, item)
+    accessory_like = any(
+        term in blob
+        for term in ("watch", "ring", "bracelet", "necklace", "belt", "accessory", "jewelry")
+    )
+
+    if occ and occ in avoid and occ not in best:
+        source = "blocked_occasions" if occ in blocked_values else "avoid_for"
+        return f"metadata_v2.{source}:{occ}"
+
+    if occ in LOW_RISK_OCCASIONS and not (best & FESTIVE_OK_OCCASIONS):
+        if shine >= 0.70:
+            return "metadata_v2.high_shine_for_low_risk_occasion"
+        if statement >= 0.80:
+            return "metadata_v2.high_statement_for_low_risk_occasion"
+        if flags & _RISKY_STYLE_FLAGS:
+            return "metadata_v2.risk_flag_for_low_risk_occasion"
+
+    if any(term in arch for term in UNDERSTATED_ARCHETYPES):
+        if shine >= 0.65 or statement >= 0.78 or flags & {
+            "shiny",
+            "metallic",
+            "sequined",
+            "festive",
+        }:
+            return "metadata_v2.high_statement_for_understated_archetype"
+
+    professional = occ in {
+        "office",
+        "office_meeting",
+        "client_meeting",
+        "client_presentation",
+        "business",
+        "interview",
+        "boardroom",
+    }
+    if professional:
+        if (not accessory_like) and flags & {
+            "beachwear",
+            "gymwear",
+            "athletic_only",
+            "party_statement",
+            "shiny",
+            "metallic",
+            "sequined",
+            "festive",
+        }:
+            return "metadata_v2.risky_item_for_professional_occasion"
+        if (not accessory_like) and (shine >= 0.70 or noise >= 0.80):
+            return "metadata_v2.high visual noise for professional occasion"
+        for term in (
+            "flip flop",
+            "flip-flop",
+            "slides",
+            "sliders",
+            "gymwear",
+            "beachwear",
+            "loud party",
+        ):
+            if term in blob:
+                return f"metadata_v2.{term} blocked for professional occasion"
+
+    social_dinner = occ in {
+        "date",
+        "date_night",
+        "first_date",
+        "casual_dinner",
+        "client_dinner",
+        "dinner",
+    }
+    if social_dinner and any(
+        term in blob for term in ("gym shorts", "running shorts", "athletic only", "dirty", "worn out")
+    ):
+        return "metadata_v2.too_casual_for_dinner_date"
+
+    if occ in FESTIVE_OK_OCCASIONS:
+        return ""
+
+    if formality >= 0.82 and occ in LOW_RISK_OCCASIONS:
+        return "metadata_v2.too_formal_for_low_risk_occasion"
+    return ""
+
+
+def metadata_v2_coverage(
+    wardrobe_items: List[Dict[str, Any]],
+    metadata_docs: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, int]:
+    docs_by_item: Dict[str, Dict[str, Any]] = {}
+    for doc in metadata_docs or []:
+        if not isinstance(doc, dict):
+            continue
+        item_id = str(doc.get("item_id") or doc.get("itemId") or "").strip()
+        if not item_id:
+            continue
+        parsed = _parse_style_metadata_string(doc.get("style_metadata"))
+        if parsed:
+            docs_by_item[item_id] = parsed
+    coverage = {
+        "total_items": len([i for i in wardrobe_items or [] if isinstance(i, dict)]),
+        "has_style_metadata": 0,
+        "metadata_v2": 0,
+        "missing_formality": 0,
+        "missing_risk_flags": 0,
+        "high_risk_items": 0,
+    }
+    for item in wardrobe_items or []:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("$id") or item.get("id") or item.get("item_id") or "").strip()
+        meta = item.get("style_metadata")
+        if not isinstance(meta, dict):
+            meta = docs_by_item.get(item_id, {})
+        if isinstance(meta, dict) and meta:
+            coverage["has_style_metadata"] += 1
+        v2 = normalize_metadata_v2(meta if isinstance(meta, dict) else {}, base_item=item)
+        if v2.get("metadata_version") == "v2":
+            coverage["metadata_v2"] += 1
+        if not v2.get("formality_score"):
+            coverage["missing_formality"] += 1
+        if not v2.get("risk_flags"):
+            coverage["missing_risk_flags"] += 1
+        if _as_v2_float(v2.get("shine_level")) >= 0.70 or _as_v2_float(v2.get("statement_level_score")) >= 0.80:
+            coverage["high_risk_items"] += 1
+    return coverage
 
 
 def _max_score(meta: Dict[str, Any], key: str, value: float) -> None:
@@ -589,7 +989,7 @@ def validate_metadata_payload(
         validated["manual_review_required"] = True
     elif validated.get("manual_review_required") is False:
         validated.pop("manual_review_required", None)
-    return validated
+    return normalize_metadata_v2(validated, base_item=base)
 
 
 def default_metadata(base_item: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1057,6 +1457,9 @@ __all__ = [
     "validate_wardrobe_metadata_sync",
     "validate_metadata_payload",
     "default_metadata",
+    "normalize_metadata_v2",
+    "item_metadata_v2_reject_reason",
+    "metadata_v2_coverage",
     "upsert_wardrobe_style_metadata",
     "upsert_wardrobe_style_metadata_sync",
     "merge_style_metadata_into_wardrobe_items",

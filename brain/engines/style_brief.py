@@ -21,10 +21,23 @@ logger = logging.getLogger("ahvi.style_brief")
 # ---------------------------------------------------------------------------
 
 _PHRASE_TOKENS: Dict[str, str] = {
+    "basketball game": "basketball_game",
+    "beach dinner": "beach_dinner",
+    "business dinner": "client_dinner",
+    "casual dinner": "casual_dinner",
+    "christian funeral": "funeral",
+    "client dinner": "client_dinner",
     "client meeting": "client_meeting",
     "client-meeting": "client_meeting",
+    "client pitch": "client_presentation",
+    "client presentation": "client_presentation",
+    "coffee date": "coffee_date",
     "date night": "date_night",
     "date-night": "date_night",
+    "first date": "first_date",
+    "office meeting": "office_meeting",
+    "team dinner": "team_dinner",
+    "wedding guest": "wedding_guest",
     "night out": "night_out",
     "house party": "house_party",
     "happy hour": "happy_hour",
@@ -60,6 +73,7 @@ def tokenize(text: Any) -> List[str]:
 
 _OCCASION_TOKENS: Dict[str, set] = {
     # ORDER OF EVALUATION MATTERS: more specific buckets first.
+    "basketball_game": {"basketball_game", "basketball"},
     "workout": {
         "workout",
         "gym",
@@ -72,6 +86,15 @@ _OCCASION_TOKENS: Dict[str, set] = {
         "session",
         "strength",
     },
+    "client_presentation": {
+        "client_presentation",
+        "presentation",
+        "pitch",
+        "investor",
+        "boardroom",
+    },
+    "client_dinner": {"client_dinner"},
+    "office_meeting": {"office_meeting"},
     "client_meeting": {
         "client_meeting",
         "client",
@@ -98,11 +121,18 @@ _OCCASION_TOKENS: Dict[str, set] = {
         "rooftop_bar",
         "after_hours",
     },
+    "coffee_date": {"coffee_date"},
+    "first_date": {"first_date"},
+    "casual_dinner": {"casual_dinner"},
+    "beach_dinner": {"beach_dinner"},
+    "team_dinner": {"team_dinner"},
     "beach": {"beach", "pool", "seaside", "coastal", "resort", "shore"},
     "brunch": {"brunch"},
     "rave": {"rave", "club", "edm", "festival"},
     "cocktail": {"cocktail"},
+    "wedding_guest": {"wedding_guest"},
     "wedding": {"wedding", "reception", "ceremony", "sangeet"},
+    "funeral": {"funeral", "memorial", "condolence", "wake"},
     "party": {"party", "house_party", "night_out", "happy_hour", "celebration"},
     "travel": {"travel", "airport", "flight", "vacation", "trip", "transit"},
     "temple_modest": {"temple", "mandir", "pooja", "puja", "shrine", "darshan", "religious"},
@@ -116,8 +146,19 @@ _OCCASION_TOKENS: Dict[str, set] = {
 _OCCASION_PRIORITY: List[str] = [
     "capsule",          # capsule beats everything — different engine.
     "swimming",         # swimming beats beach because swim items are stricter.
+    "basketball_game",
     "workout",          # workout MUST beat office to fix the "work in workout" bug.
+    "client_presentation",
+    "client_dinner",
     "client_meeting",
+    "office_meeting",
+    "coffee_date",
+    "first_date",
+    "beach_dinner",
+    "casual_dinner",
+    "team_dinner",
+    "funeral",
+    "wedding_guest",
     "wedding",
     "beach",
     "rave",
@@ -146,6 +187,34 @@ def detect_occasion_from_tokens(query: Any) -> Tuple[str, List[str]]:
         if hit:
             return occ, sorted(hit)
     return "", []
+
+
+_ARCHETYPE_ALIASES: Dict[str, str] = {
+    "date": "date_night",
+    "dinner_date": "date_night",
+    "coffee": "coffee_date",
+    "coffee_run": "casual",
+    "office": "office_meeting",
+    "business": "office_meeting",
+    "client_meeting": "client_presentation",
+    "beach": "beach",
+    "wedding": "wedding_guest",
+    "sensitive": "funeral",
+}
+
+
+def resolve_occasion_archetype(value: Any = "", query: Any = "") -> str:
+    """Resolve the most specific wardrobe-board occasion archetype."""
+    combined = f"{value or ''} {query or ''}".strip()
+    token_occ, _hits = detect_occasion_from_tokens(combined)
+    if token_occ:
+        return token_occ
+    raw = str(value or "").strip().lower().replace("-", "_")
+    readable = raw.replace("_", " ")
+    for alias, target in _ARCHETYPE_ALIASES.items():
+        if alias == raw or alias == readable or alias in readable:
+            return target
+    return raw
 
 
 # ---------------------------------------------------------------------------
@@ -364,6 +433,136 @@ _OCCASION_CONTRACTS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+_OCCASION_CONTRACTS.update(
+    {
+        "coffee_date": {
+            "sub_intent": "coffee_date",
+            "formality": "low",
+            "movement_requirement": "medium",
+            "polish_requirement": "mid",
+            "required_slots": ["top", "bottom", "footwear"],
+            "preferred_item_signals": [
+                "oxford", "linen", "overshirt", "polo", "button down",
+                "button-down", "relaxed", "chino", "chinos", "denim",
+                "jeans", "clean sneaker", "sneakers", "suede loafer",
+                "watch",
+            ],
+            "forbidden_item_signals": [
+                "formal trouser", "formal trousers", "black formal",
+                "wedding", "wedding shirt", "tuxedo", "shiny", "satin",
+                "sequin", "sequined", "festive", "embroidered",
+                "embroidery", "corporate", "boardroom", "office", "client",
+                "gold ring", "statement gold",
+            ],
+            "board_mood": ["relaxed", "conversational", "approachable", "intentional"],
+            "allowed_badges": ["COFFEE DATE", "RELAXED SOCIAL"],
+            "allowed_titles": ["Relaxed Oxford", "Soft Coffee Polish", "Easy Conversation"],
+        },
+        "first_date": {
+            "sub_intent": "first_date",
+            "formality": "mid",
+            "movement_requirement": "medium",
+            "polish_requirement": "mid",
+            "required_slots": ["top", "bottom", "footwear"],
+            "preferred_item_signals": ["shirt", "polo", "knit", "chino", "denim", "sneaker", "loafer", "watch"],
+            "forbidden_item_signals": ["gym", "track", "slipper", "slides", "tuxedo", "corporate", "boardroom"],
+            "board_mood": ["warm", "approachable", "intentional"],
+            "allowed_badges": ["FIRST DATE", "SOCIAL"],
+            "allowed_titles": ["Easy First Impression", "Soft Confidence", "Relaxed Polish"],
+        },
+        "casual_dinner": {
+            "sub_intent": "casual_dinner",
+            "formality": "mid",
+            "movement_requirement": "low",
+            "polish_requirement": "mid",
+            "required_slots": ["top", "bottom", "footwear"],
+            "preferred_item_signals": ["shirt", "knit", "polo", "chino", "denim", "loafer", "clean sneaker", "watch"],
+            "forbidden_item_signals": ["gym", "track", "slides", "slipper", "tuxedo", "corporate"],
+            "board_mood": ["easy", "evening-aware", "social"],
+            "allowed_badges": ["DINNER", "SMART CASUAL"],
+            "allowed_titles": ["Dinner Ease", "Soft Evening Casual", "Clean Social"],
+        },
+        "client_dinner": {
+            "sub_intent": "client_dinner",
+            "formality": "mid_high",
+            "movement_requirement": "low",
+            "polish_requirement": "high",
+            "required_slots": ["top", "bottom", "footwear"],
+            "preferred_item_signals": ["button down", "shirt", "trouser", "chino", "loafer", "derby", "watch", "belt", "blazer"],
+            "forbidden_item_signals": ["shorts", "slides", "slipper", "gym", "track", "loud print", "sequin", "neon", "beach"],
+            "board_mood": ["professional-first", "social-second", "composed"],
+            "allowed_badges": ["CLIENT DINNER", "POLISHED SOCIAL"],
+            "allowed_titles": ["Client Dinner Polish", "Professional Social", "Composed Evening"],
+        },
+        "beach_dinner": {
+            "sub_intent": "beach_dinner",
+            "formality": "mid",
+            "movement_requirement": "medium",
+            "polish_requirement": "mid",
+            "required_slots": ["top", "bottom", "footwear"],
+            "preferred_item_signals": ["linen", "cotton", "camp collar", "resort", "chino", "sandal", "espadrille", "slides", "lightweight"],
+            "forbidden_item_signals": ["office trouser", "black trousers", "black pants", "oxford", "derby", "formal leather", "heavy blazer", "corporate"],
+            "board_mood": ["breathable", "sunset", "relaxed polish"],
+            "allowed_badges": ["BEACH DINNER", "COASTAL EVENING"],
+            "allowed_titles": ["Coastal Dinner", "Sunset Polish", "Breathable Evening"],
+        },
+        "wedding_guest": {
+            **_OCCASION_CONTRACTS["wedding"],
+            "sub_intent": "wedding_guest",
+            "allowed_badges": ["WEDDING GUEST", "CEREMONY", "FORMAL"],
+            "allowed_titles": ["Guest Polish", "Ceremony Refined", "Reception Ready"],
+        },
+        "funeral": {
+            "sub_intent": "funeral",
+            "formality": "high",
+            "movement_requirement": "low",
+            "polish_requirement": "high",
+            "required_slots": ["top", "bottom", "footwear"],
+            "preferred_item_signals": ["dark", "black", "navy", "charcoal", "plain", "shirt", "trouser", "closed shoe", "loafer"],
+            "forbidden_item_signals": ["bright", "neon", "shiny", "satin", "sequin", "loud print", "floral print", "party", "shorts", "slides"],
+            "board_mood": ["respectful", "quiet", "understated"],
+            "allowed_badges": ["RESPECTFUL", "UNDERSTATED"],
+            "allowed_titles": ["Quiet Formal", "Respectful Minimal", "Understated Polish"],
+        },
+        "office_meeting": {
+            **_OCCASION_CONTRACTS["office"],
+            "sub_intent": "office_meeting",
+            "allowed_badges": ["OFFICE MEETING", "OFFICE"],
+            "allowed_titles": ["Meeting Ready", "Office Polish", "Clean Professional"],
+        },
+        "client_presentation": {
+            **_OCCASION_CONTRACTS["client_meeting"],
+            "sub_intent": "client_presentation",
+            "allowed_badges": ["CLIENT READY", "PRESENTATION"],
+            "allowed_titles": ["Presentation Polish", "Client Authority", "Composed Pitch"],
+        },
+        "basketball_game": {
+            "sub_intent": "basketball_game",
+            "formality": "low",
+            "movement_requirement": "high",
+            "polish_requirement": "low",
+            "required_slots": ["top", "bottom", "footwear"],
+            "preferred_item_signals": ["tee", "polo", "jersey", "denim", "chino", "sneaker", "jacket", "cap"],
+            "forbidden_item_signals": ["formal shirt", "button down", "button-down", "embroidered", "loafer", "blazer", "oxford", "tuxedo"],
+            "board_mood": ["active", "casual", "team-ready"],
+            "allowed_badges": ["GAME", "CASUAL"],
+            "allowed_titles": ["Game Casual", "Courtside Easy", "Team Dinner Transition"],
+        },
+        "team_dinner": {
+            "sub_intent": "team_dinner",
+            "formality": "mid",
+            "movement_requirement": "medium",
+            "polish_requirement": "mid",
+            "required_slots": ["top", "bottom", "footwear"],
+            "preferred_item_signals": ["shirt", "polo", "chino", "denim", "clean sneaker", "loafer", "jacket"],
+            "forbidden_item_signals": ["tuxedo", "wedding", "shiny", "sequin", "slides", "slipper"],
+            "board_mood": ["social", "easy", "team-friendly"],
+            "allowed_badges": ["TEAM DINNER", "SOCIAL"],
+            "allowed_titles": ["Team Dinner Ease", "Clean Social", "Relaxed Table Ready"],
+        },
+    }
+)
+
 
 # Accessory-occasion rules. Cleaner separation from item-level signals
 # because accessories can be removed in isolation (a board can still be
@@ -463,6 +662,22 @@ _ACCESSORY_OCCASION_RULES: Dict[str, Dict[str, List[str]]] = {
     },
 }
 
+_ACCESSORY_OCCASION_RULES.update(
+    {
+        "coffee_date": _ACCESSORY_OCCASION_RULES["date_night"],
+        "first_date": _ACCESSORY_OCCASION_RULES["date_night"],
+        "casual_dinner": _ACCESSORY_OCCASION_RULES["date_night"],
+        "client_dinner": _ACCESSORY_OCCASION_RULES["client_meeting"],
+        "beach_dinner": _ACCESSORY_OCCASION_RULES["beach"],
+        "wedding_guest": _ACCESSORY_OCCASION_RULES["wedding"],
+        "funeral": _ACCESSORY_OCCASION_RULES["wedding"],
+        "office_meeting": _ACCESSORY_OCCASION_RULES["office"],
+        "client_presentation": _ACCESSORY_OCCASION_RULES["client_meeting"],
+        "basketball_game": _ACCESSORY_OCCASION_RULES["casual"],
+        "team_dinner": _ACCESSORY_OCCASION_RULES["date_night"],
+    }
+)
+
 
 _DEFAULT_CONTRACT: Dict[str, Any] = {
     "sub_intent": "outfit_generation",
@@ -500,8 +715,12 @@ def build_brief(
         agent_conf = 0.0
     agent_occ_raw = str(agent_payload.get("occasion") or "").strip().lower()
 
-    router_occ = str(router_occasion or "").strip().lower() or None
+    router_occ_raw = str(router_occasion or "").strip().lower() or None
+    router_occ = resolve_occasion_archetype(router_occ_raw or "", "") if router_occ_raw else None
     token_occ, matched_tokens = detect_occasion_from_tokens(query)
+    if token_occ:
+        token_occ = resolve_occasion_archetype(token_occ, query)
+    agent_occ = resolve_occasion_archetype(agent_occ_raw, "") if agent_occ_raw else ""
 
     occasion = ""
     chosen_from = ""
@@ -509,21 +728,21 @@ def build_brief(
         # "Client meeting" is stricter than generic office. Some upstream
         # routers collapse it to office, so keep the user's explicit client
         # wording authoritative when token detection finds it.
-        if router_occ == "office" and token_occ == "client_meeting":
-            occasion, chosen_from = "client_meeting", "tokens_over_office_router"
+        if router_occ in {"office", "office_meeting"} and token_occ in {"client_meeting", "client_presentation"}:
+            occasion, chosen_from = token_occ, "tokens_over_office_router"
         # Router was explicit; agent may only override on high confidence.
         elif (
-            agent_occ_raw
-            and agent_occ_raw != router_occ
+            agent_occ
+            and agent_occ != router_occ
             and agent_conf >= 0.8
         ):
-            occasion, chosen_from = agent_occ_raw, "agent_high_confidence"
+            occasion, chosen_from = agent_occ, "agent_high_confidence"
         else:
             occasion, chosen_from = router_occ, "router"
     elif token_occ:
         occasion, chosen_from = token_occ, "tokens"
-    elif agent_occ_raw:
-        occasion, chosen_from = agent_occ_raw, "agent"
+    elif agent_occ:
+        occasion, chosen_from = agent_occ, "agent"
     else:
         occasion, chosen_from = "daily", "default"
 
@@ -1006,6 +1225,7 @@ def select_board_set(
 __all__ = [
     "tokenize",
     "detect_occasion_from_tokens",
+    "resolve_occasion_archetype",
     "build_brief",
     "validate_board",
     "select_board_set",

@@ -1,9 +1,9 @@
-"""Test the relaxed weak-match safety gate.
+"""Test the weak-match safety gate.
 
 Behavior contract:
 - When the style flow generates cards but the best occasion score is below
-  the threshold, cards are NOT suppressed. They are returned with
-  weak_match=True, badge="CLOSEST OPTION", and confidence_note set.
+  the threshold, cards are suppressed into missing-piece guidance unless the
+  user explicitly asks for the closest option.
 - When the style flow generates zero cards, the existing missing/weak
   wardrobe responses are preserved.
 """
@@ -52,8 +52,8 @@ def _card(idx: int, score: float, title: str) -> Dict[str, Any]:
     }
 
 
-def test_weak_match_relaxation_via_finalize(monkeypatch):
-    """Unit-test the relax block directly through finalize_style_response_payload."""
+def test_weak_match_routes_to_missing_piece_guidance_via_finalize(monkeypatch):
+    """Unit-test the weak-match block through finalize_style_response_payload."""
     cards = [_card(0, 0.65, "Boardroom Casual"), _card(1, 0.60, "Creative Professional")]
 
     result = {
@@ -86,15 +86,10 @@ def test_weak_match_relaxation_via_finalize(monkeypatch):
         cache_bypass=True,
     )
 
-    # Critical: cards still returned, not suppressed.
-    assert finalized.get("type") != "weak_match"
-    assert finalized.get("cards"), "weak-match safety gate must NOT suppress cards"
-    for card in finalized["cards"]:
-        assert card.get("weak_match") is True
-        # Badge: set to CLOSEST OPTION only when missing; pre-existing
-        # occasion badges (e.g. OFFICE) are preserved.
-        assert card.get("badge"), "card must carry some badge"
-        assert "closest wardrobe-safe" in (card.get("confidence_note") or "").lower()
+    assert finalized.get("type") == "weak_occasion_match"
+    assert finalized.get("cards") == []
+    assert finalized.get("style_boards") == []
+    assert finalized.get("data", {}).get("missing_piece_intelligence") is not None
 
 
 def test_weak_match_relax_skips_when_cards_empty(monkeypatch):

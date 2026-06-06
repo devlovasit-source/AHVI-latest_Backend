@@ -59,6 +59,39 @@ def test_tropical_print_shirt_is_positive_beach_signal():
     assert any("tropical" in boost or "cotton" in boost for boost in result["boosts"])
 
 
+def test_metadata_v2_hard_rejects_shiny_gold_for_coffee_date_before_memory():
+    outfit = {
+        "items": [
+            {
+                "id": "top-gold",
+                "name": "Shiny Gold Formal Shirt",
+                "category": "Tops",
+                "sub_category": "Shirt",
+                "color": "gold",
+            },
+            {"id": "bottom-1", "name": "Soft Chinos", "category": "Bottoms"},
+            {"id": "shoe-1", "name": "Clean Sneakers", "category": "Footwear"},
+        ]
+    }
+
+    result = score_occasion_compatibility(outfit, {"occasion": "coffee_date"})
+    scored = style_scorer.score_outfit(
+        outfit["items"],
+        {
+            "occasion": "coffee_date",
+            "saved_item_ids": ["top-gold"],
+            "underworn_ids": ["top-gold"],
+        },
+        {},
+    )
+
+    assert result["reject"] is True
+    assert any("metadata_v2" in p for p in result["penalties"])
+    assert scored["occasion_reject"] is True
+    assert scored["breakdown"].get("saved_board_affinity", 0) == 0
+    assert scored["breakdown"].get("underworn_boost", 0) == 0
+
+
 def test_pipeline_score_outfit_uses_scorer_occasion_metadata():
     outfit = {
         "top": {"id": "top-1", "name": "Wool blazer", "category": "blazer"},

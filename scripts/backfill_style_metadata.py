@@ -12,6 +12,8 @@ if ROOT not in sys.path:
 
 from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
 from services.agent_metadata_validator import (
+    metadata_v2_coverage,
+    normalize_metadata_v2,
     upsert_wardrobe_style_metadata_sync,
     validate_metadata_payload,
     validate_wardrobe_metadata_sync,
@@ -22,6 +24,16 @@ log = logging.getLogger("ahvi.backfill_style_metadata")
 STYLE_METADATA_RESOURCE = "wardrobe_style_metadata"
 _SAFE_DOC_ID_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 _NEW_STYLE_KEYS = {
+    "metadata_version",
+    "formality_score",
+    "shine_level",
+    "statement_level_score",
+    "visual_noise_score",
+    "best_for",
+    "avoid_for",
+    "style_keywords",
+    "fabric_feel",
+    "silhouette",
     "visual_noise",
     "pattern_intensity",
     "statement_level",
@@ -85,7 +97,7 @@ def _style_metadata_for_doc(
             metadata["agent_validated"] = True
             metadata["agent_confidence"] = float(agent_meta.get("confidence") or 0.0)
 
-    return metadata
+    return normalize_metadata_v2(metadata, base_item=doc)
 
 
 def _metadata_payload(
@@ -150,6 +162,7 @@ def run(
     failed = 0
     scanned = 0
     unchanged = 0
+    coverage_items = []
 
     while True:
         page = proxy.list_documents(
@@ -168,6 +181,7 @@ def run(
             if not isinstance(doc, dict):
                 skipped += 1
                 continue
+            coverage_items.append(doc)
             doc_id = _doc_id(doc)
             if not doc_id:
                 skipped += 1
@@ -184,16 +198,17 @@ def run(
             if dry_run:
                 style_meta = json.loads(payload.get("style_metadata") or "{}")
                 log.info(
-                    "dry_run metadata doc=%s user=%s category=%s subcategory=%s formality=%s role=%s client=%.2f boardroom=%.2f capsule=%.2f",
+                    "AHVI_METADATA_V2_DRY_RUN doc=%s user=%s category=%s subcategory=%s formality=%s formality_score=%.2f shine=%.2f statement=%.2f avoid_for=%s risk_flags=%s",
                     doc_id,
                     doc_user_id,
                     style_meta.get("category"),
                     style_meta.get("subcategory"),
                     style_meta.get("formality"),
-                    style_meta.get("style_role"),
-                    float(style_meta.get("client_meeting_score") or 0.0),
-                    float(style_meta.get("boardroom_score") or 0.0),
-                    float(style_meta.get("capsule_score") or 0.0),
+                    float(style_meta.get("formality_score") or 0.0),
+                    float(style_meta.get("shine_level") or 0.0),
+                    float(style_meta.get("statement_level_score") or 0.0),
+                    style_meta.get("avoid_for") or [],
+                    style_meta.get("risk_flags") or [],
                 )
                 updated += 1
                 continue
@@ -209,6 +224,12 @@ def run(
                     created += 1
                 else:
                     updated += 1
+                log.info(
+                    "AHVI_METADATA_V2_MIGRATED doc=%s user=%s status=%s",
+                    doc_id,
+                    doc_user_id,
+                    result,
+                )
             except Exception as exc:
                 failed += 1
                 log.warning("backfill failed doc=%s err=%s", doc_id, exc)
@@ -218,6 +239,8 @@ def run(
             break
         offset += len(docs)
 
+    coverage = metadata_v2_coverage(coverage_items)
+    log.info("AHVI_METADATA_V2_AUDIT coverage=%s", coverage)
     return {
         "scanned": scanned,
         "updated": updated,
@@ -225,6 +248,7 @@ def run(
         "unchanged": unchanged,
         "skipped": skipped,
         "failed": failed,
+        **coverage,
     }
 
 

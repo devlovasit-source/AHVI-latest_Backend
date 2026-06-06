@@ -1,6 +1,7 @@
 from services.style_flow_service import (
     apply_occasion_card_language,
     card_signature,
+    curate_wardrobe_boards,
     finalize_style_cards,
     finalize_style_response_payload,
     interpret_occasion,
@@ -405,6 +406,77 @@ def test_date_request_blocks_relaxed_sandals_from_final_boards():
     assert all("birkenstock" not in name and "sandal" not in name for name in footwear_names)
 
 
+def test_coffee_date_rejects_formal_festive_energy_and_allows_relaxed_polish():
+    cards = [
+        _card(
+            _item("top-bad", "Embroidered Wedding Shirt", "top", "navy"),
+            _item("bottom-bad", "Black Formal Trousers", "bottom"),
+            _item("shoe-bad", "Brown Loafers", "footwear"),
+            score=180,
+        ),
+        _card(
+            _item("top-good", "Relaxed Oxford Shirt", "top", "blue"),
+            _item("bottom-good", "Soft Chinos", "bottom", "tan"),
+            _item("shoe-good", "Clean Sneakers", "footwear", "white"),
+            score=90,
+        ),
+    ]
+
+    filtered = finalize_style_cards(cards, query="coffee date outfit", default_limit=2)
+    names = " ".join(item["name"].lower() for card in filtered for item in card["items"])
+
+    assert filtered
+    assert "relaxed oxford" in names
+    assert "embroidered wedding" not in names
+    assert all(card["occasion_fit"] > 0 for card in filtered)
+
+
+def test_client_dinner_prefers_professional_social_over_loud_date_energy():
+    cards = [
+        _card(
+            _item("top-loud", "Loud Party Shirt", "top", "red"),
+            _item("bottom-loud", "Black Jeans", "bottom"),
+            _item("shoe-loud", "Chelsea Boots", "footwear"),
+            score=130,
+        ),
+        _card(
+            _item("top-client", "Blue Button Down Shirt", "top", "blue"),
+            _item("bottom-client", "Navy Chinos", "bottom", "navy"),
+            _item("shoe-client", "Brown Loafers", "footwear", "brown"),
+            score=90,
+        ),
+    ]
+
+    filtered = finalize_style_cards(cards, query="client dinner outfit", default_limit=2)
+    first_names = " ".join(item["name"].lower() for item in filtered[0]["items"])
+
+    assert "button down" in first_names
+    assert filtered[0]["style_direction"] == "professional_social_transition"
+
+
+def test_beach_dinner_blocks_office_trousers_but_keeps_coastal_polish():
+    cards = [
+        _card(
+            _item("top-office", "White Office Shirt", "top", "white"),
+            _item("bottom-office", "Black Trousers", "bottom"),
+            _item("shoe-office", "Oxford Shoes", "footwear"),
+            score=150,
+        ),
+        _card(
+            _item("top-coast", "Linen Camp Collar Shirt", "top", "cream"),
+            _item("bottom-coast", "Tan Chinos", "bottom", "tan"),
+            _item("shoe-coast", "Espadrille Sandals", "footwear", "brown"),
+            score=85,
+        ),
+    ]
+
+    filtered = finalize_style_cards(cards, query="beach dinner outfit", default_limit=2)
+    names = " ".join(item["name"].lower() for card in filtered for item in card["items"])
+
+    assert "linen camp collar" in names
+    assert "oxford shoes" not in names
+
+
 def test_party_request_prefers_statement_or_polished_energy():
     cards = [
         _card(_item("top-1", "Plain Office Shirt", "top", "white"), _item("bottom-1", "Grey Trousers", "bottom", "grey"), _item("shoe-1", "White Sneakers", "footwear"), score=100),
@@ -441,6 +513,48 @@ def test_first_boards_prefer_distinct_style_energy_when_supported():
     energies = [card.get("style_energy") for card in filtered[:5]]
 
     assert len(set(energies)) >= 4
+
+
+def test_final_three_boards_do_not_repeat_same_bottom_three_times():
+    cards = [
+        _card(_item("top-1", "Relaxed Oxford Shirt", "top", "blue"), _item("black-pants", "Black Pants", "bottom"), _item("shoe-1", "Clean Sneakers", "footwear"), score=120),
+        _card(_item("top-2", "Clean Polo", "top", "cream"), _item("black-pants", "Black Pants", "bottom"), _item("shoe-2", "Suede Loafers", "footwear"), score=118),
+        _card(_item("top-3", "Linen Shirt", "top", "white"), _item("black-pants", "Black Pants", "bottom"), _item("shoe-3", "White Sneakers", "footwear"), score=116),
+        _card(_item("top-4", "Soft Blue Shirt", "top", "blue"), _item("tan-chinos", "Tan Chinos", "bottom", "tan"), _item("shoe-4", "Canvas Sneakers", "footwear"), score=92),
+        _card(_item("top-5", "Cotton Overshirt", "top", "olive"), _item("navy-chinos", "Navy Chinos", "bottom", "navy"), _item("shoe-5", "Brown Suede Loafers", "footwear"), score=90),
+        _card(_item("top-6", "White Oxford Shirt", "top", "white"), _item("denim", "Dark Denim", "bottom", "blue"), _item("shoe-6", "Minimal Sneakers", "footwear"), score=88),
+    ]
+
+    filtered = finalize_style_cards(cards, query="coffee date outfit", default_limit=3)
+    bottoms = [
+        item["id"]
+        for card in filtered
+        for item in card["items"]
+        if item.get("role") == "bottom"
+    ]
+
+    assert len(filtered) == 3
+    assert bottoms.count("black-pants") <= 2
+
+
+def test_curated_board_strategies_are_distinct_v2(monkeypatch):
+    monkeypatch.setattr("services.style_flow_service._gemini_curate", lambda *_args, **_kwargs: [])
+    cards = [
+        _card(_item("top-1", "Relaxed Oxford Shirt", "top", "blue"), _item("bottom-1", "Tan Chinos", "bottom", "tan"), _item("shoe-1", "Clean Sneakers", "footwear"), score=100),
+        _card(_item("top-2", "Clean Polo", "top", "cream"), _item("bottom-2", "Dark Denim", "bottom", "blue"), _item("shoe-2", "Suede Loafers", "footwear"), score=95),
+        _card(_item("top-3", "Linen Shirt", "top", "white"), _item("bottom-3", "Navy Chinos", "bottom", "navy"), _item("shoe-3", "Minimal Sneakers", "footwear"), score=90),
+    ]
+
+    curated = curate_wardrobe_boards(
+        cards,
+        query="coffee date outfit",
+        occasion="coffee_date",
+        wardrobe_count=12,
+        target=3,
+    )
+    strategies = [card.get("look_strategy") for card in curated]
+
+    assert strategies[:3] == ["best_overall", "relaxed_alternative", "elevated_alternative"]
 
 
 def test_pipeline_diversifier_preserves_bottom_and_footwear_variety():

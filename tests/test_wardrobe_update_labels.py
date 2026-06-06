@@ -273,24 +273,20 @@ def test_backfill_targets_metadata_table_and_dry_run_does_not_write(monkeypatch)
     )
 
     dry = backfill_style_metadata.run(dry_run=True, all_users=True)
-    assert dry == {
-        "updated": 1,
-        "created": 0,
-        "skipped": 0,
-        "failed": 0,
-        "scanned": 1,
-        "unchanged": 0,
-    }
+    assert {
+        key: dry[key]
+        for key in ("updated", "created", "skipped", "failed", "scanned", "unchanged")
+    } == {"updated": 1, "created": 0, "skipped": 0, "failed": 0, "scanned": 1, "unchanged": 0}
+    assert dry["total_items"] == 1
+    assert dry["metadata_v2"] == 1
     assert writes == []
 
     real = backfill_style_metadata.run(dry_run=False, all_users=True)
-    assert real == {
-        "updated": 1,
-        "created": 0,
-        "skipped": 0,
-        "failed": 0,
-        "scanned": 1,
-        "unchanged": 0,
-    }
+    assert {
+        key: real[key]
+        for key in ("updated", "created", "skipped", "failed", "scanned", "unchanged")
+    } == {"updated": 1, "created": 0, "skipped": 0, "failed": 0, "scanned": 1, "unchanged": 0}
+    assert real["total_items"] == 1
+    assert real["metadata_v2"] == 1
     assert writes[0]["doc_id"] == "item_1"
     assert writes[0]["user_id"] == "user_1"

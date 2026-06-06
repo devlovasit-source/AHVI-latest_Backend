@@ -10,7 +10,9 @@ import pytest
 from services.agent_metadata_validator import (
     default_metadata,
     fetch_style_metadata_docs_for_user,
+    item_metadata_v2_reject_reason,
     merge_style_metadata_into_wardrobe_items,
+    normalize_metadata_v2,
     validate_metadata_payload,
     validate_wardrobe_metadata_sync,
 )
@@ -291,6 +293,36 @@ def test_zero_score_cap_gets_deterministic_scores():
     assert meta["capsule_score"] == pytest.approx(0.35)
     assert meta["versatility_score"] == pytest.approx(0.45)
     assert meta["date_night_score"] == pytest.approx(0.20)
+
+
+def test_metadata_v2_flags_shiny_gold_formal_shirt_from_weak_payload():
+    meta = normalize_metadata_v2(
+        {},
+        base_item={
+            "name": "Shiny Gold Formal Shirt",
+            "category": "Tops",
+            "sub_category": "Shirt",
+            "color": "gold",
+        },
+    )
+    assert meta["metadata_version"] == "v2"
+    assert meta["shine_level"] >= 0.75
+    assert meta["statement_level_score"] >= 0.75
+    assert "shiny" in meta["risk_flags"]
+    assert "coffee_date" in meta["avoid_for"]
+
+
+def test_metadata_v2_rejects_shiny_gold_for_coffee_and_today_but_allows_wedding():
+    item = {
+        "id": "gold-shirt",
+        "name": "Shiny Gold Formal Shirt",
+        "category": "Tops",
+        "sub_category": "Shirt",
+        "color": "gold",
+    }
+    assert item_metadata_v2_reject_reason(item, occasion="coffee_date")
+    assert item_metadata_v2_reject_reason(item, occasion="general_today")
+    assert item_metadata_v2_reject_reason(item, occasion="wedding_guest") == ""
 
 
 def test_weak_nonzero_agent_scores_do_not_override_professional_floors():

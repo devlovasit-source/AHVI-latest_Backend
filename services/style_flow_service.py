@@ -12,6 +12,11 @@ from services.category_taxonomy import infer_style_attributes
 from services.wardrobe_suitability import outfit_contains_private_wear
 
 try:
+    from brain.engines.style_brief import resolve_occasion_archetype
+except Exception:  # pragma: no cover
+    resolve_occasion_archetype = None
+
+try:
     from brain.engines.occasion_interpreter import interpret_occasion_context
     from brain.engines.occasion_style_rules import (
         detect_wardrobe_gap,
@@ -32,6 +37,11 @@ try:
     )
 except Exception:  # pragma: no cover - optional during partial deploys
     reject_quality_board_for_occasion = None
+
+try:
+    from services.agent_metadata_validator import item_metadata_v2_reject_reason
+except Exception:  # pragma: no cover
+    item_metadata_v2_reject_reason = None  # type: ignore
 
 try:
     from services.agent_style_orchestrator import (
@@ -125,6 +135,66 @@ _OCCASION_CARD_LANGUAGE = {
         ],
         "forbidden_title_words": _OCCASION_FORBIDDEN_OFFICE,
     },
+    "coffee_date": {
+        "badge": "COFFEE DATE",
+        "titles": [
+            "Relaxed Oxford",
+            "Soft Coffee Polish",
+            "Easy Conversation",
+            "Approachable Edit",
+        ],
+        "forbidden_title_words": _OCCASION_FORBIDDEN_OFFICE + ["evening", "after-dark", "boardroom", "formal"],
+    },
+    "first_date": {
+        "badge": "FIRST DATE",
+        "titles": ["Easy First Impression", "Soft Confidence", "Relaxed Polish"],
+        "forbidden_title_words": _OCCASION_FORBIDDEN_OFFICE + ["boardroom"],
+    },
+    "casual_dinner": {
+        "badge": "DINNER",
+        "titles": ["Dinner Ease", "Soft Evening Casual", "Clean Social"],
+        "forbidden_title_words": _OCCASION_FORBIDDEN_OFFICE,
+    },
+    "client_dinner": {
+        "badge": "CLIENT DINNER",
+        "titles": ["Client Dinner Polish", "Professional Social", "Composed Evening"],
+        "forbidden_title_words": ["party", "rave", "beach"],
+    },
+    "beach_dinner": {
+        "badge": "BEACH DINNER",
+        "titles": ["Coastal Dinner", "Sunset Polish", "Breathable Evening"],
+        "forbidden_title_words": _OCCASION_FORBIDDEN_OFFICE + ["formal"],
+    },
+    "wedding_guest": {
+        "badge": "WEDDING GUEST",
+        "titles": ["Guest Polish", "Ceremony Refined", "Reception Ready"],
+        "forbidden_title_words": ["office", "boardroom", "gym"],
+    },
+    "funeral": {
+        "badge": "RESPECTFUL",
+        "titles": ["Quiet Formal", "Respectful Minimal", "Understated Polish"],
+        "forbidden_title_words": ["party", "statement", "bright"],
+    },
+    "office_meeting": {
+        "badge": "OFFICE MEETING",
+        "titles": ["Meeting Ready", "Office Polish", "Clean Professional"],
+        "forbidden_title_words": [],
+    },
+    "client_presentation": {
+        "badge": "PRESENTATION",
+        "titles": ["Presentation Polish", "Client Authority", "Composed Pitch"],
+        "forbidden_title_words": [],
+    },
+    "basketball_game": {
+        "badge": "GAME",
+        "titles": ["Game Casual", "Courtside Easy", "Team Dinner Transition"],
+        "forbidden_title_words": _OCCASION_FORBIDDEN_OFFICE + ["formal"],
+    },
+    "team_dinner": {
+        "badge": "TEAM DINNER",
+        "titles": ["Team Dinner Ease", "Clean Social", "Relaxed Table Ready"],
+        "forbidden_title_words": _OCCASION_FORBIDDEN_OFFICE,
+    },
     "beach": {
         "badge": "BEACH",
         "titles": [
@@ -212,6 +282,18 @@ def _tokens(value: Any) -> set[str]:
 
 
 _CANONICAL_OCCASIONS = {
+    "coffee_date",
+    "first_date",
+    "date_night",
+    "casual_dinner",
+    "client_dinner",
+    "beach_dinner",
+    "wedding_guest",
+    "funeral",
+    "office_meeting",
+    "client_presentation",
+    "basketball_game",
+    "team_dinner",
     "date_night",
     "swimming",
     "beach",
@@ -246,6 +328,14 @@ def _normalize_occasion_value(value: Any, query: Any = "") -> str:
     """
     explicit = _safe_text(value).lower().replace("-", "_")
     combined_text = f"{_safe_text(value)} {_safe_text(query)}".strip().lower()
+    if resolve_occasion_archetype is not None:
+        try:
+            archetype = resolve_occasion_archetype(explicit, combined_text)
+            if archetype in _CANONICAL_OCCASIONS:
+                logger.info("AHVI_OCCASION_ARCHETYPE=%s source=%s", archetype, "style_flow")
+                return archetype
+        except Exception:
+            pass
     if "capsule" in combined_text and any(
         token in combined_text
         for token in ("wardrobe", "essentials", "core", "minimalist", "foundation")
@@ -470,7 +560,34 @@ def _ahvi_missing_occasion_response(
     closest_board: dict | None = None,
 ) -> dict:
     normalized = str(occasion or "").lower()
-    if normalized in {"date", "date_night"}:
+    if normalized in {"coffee_date", "coffee"}:
+        message = (
+            "I don't see enough relaxed coffee-date pieces yet. "
+            "Your current options lean too formal or too statement-heavy for that mood."
+        )
+        missing_items = [
+            {
+                "label": "Relaxed Oxford Shirt",
+                "reason": "Unlocks coffee-date looks without feeling corporate or festive.",
+                "cta": "Find this",
+            },
+            {
+                "label": "Soft chinos",
+                "reason": "Breaks up formal trouser repetition and keeps the outfit conversational.",
+                "cta": "Find this",
+            },
+            {
+                "label": "Clean casual sneakers",
+                "reason": "Keeps the look approachable instead of evening-formal.",
+                "cta": "Find this",
+            },
+        ]
+        chips = [
+            "Show closest option",
+            "Find relaxed oxford shirt",
+            "Find clean casual sneakers",
+        ]
+    elif normalized in {"date", "date_night"}:
         message = (
             "I don't see enough strong date-night options yet. "
             "I'd avoid forcing office styling into an evening brief."
@@ -548,6 +665,21 @@ def _ahvi_missing_occasion_response(
             "occasion": normalized,
             "slot_counts": slot_counts,
             "missing_items": missing_items,
+            "missing_piece_intelligence": [
+                {
+                    "missing_item": item.get("label"),
+                    "reason": item.get("reason"),
+                    "unlocks": (
+                        ["Refined Weekend", "Smart Casual Edge", "Polished Casual"]
+                        if normalized in {"coffee_date", "coffee", "casual"}
+                        else ["Better occasion fit", "Cleaner styling route"]
+                    ),
+                    "owned": False,
+                }
+                for item in missing_items
+                if isinstance(item, dict)
+            ],
+            "owned_percentage": 0 if not _ahvi_has_core_slots(slot_counts) else 50,
             "weak_occasion_match": _ahvi_has_core_slots(slot_counts),
             "closest_safe_brief": (
                 "evening casual"
@@ -1209,17 +1341,18 @@ def _canonicalize_card(card: Dict[str, Any], index: int) -> Optional[Dict[str, A
 
 def _occasion_flags(query: str) -> Dict[str, bool]:
     q = str(query or "").lower()
+    normalized = _normalize_occasion_value("", q)
     return {
         "temple_modest": any(k in q for k in ("temple", "mandir", "pooja", "puja", "religious", "shrine", "darshan")),
         "swimming": any(k in q for k in ("swim", "swimming", "swimwear", "swimsuit", "pool")),
-        "beach": any(k in q for k in ("beach", "seaside", "coastal", "sand-friendly", "sand friendly")),
+        "beach": normalized in {"beach", "beach_dinner"} or any(k in q for k in ("beach", "seaside", "coastal", "sand-friendly", "sand friendly")),
         "workout": any(k in q for k in ("workout", "gym", "fitness", "training", "yoga", "running")),
         "brunch": any(k in q for k in ("brunch",)),
-        "office": any(k in q for k in ("office", "work", "meeting", "client", "business", "interview", "corporate")),
-        "date": any(k in q for k in ("date", "dinner", "night")),
+        "office": normalized in {"office_meeting", "client_presentation", "client_dinner"} or any(k in q for k in ("office", "work", "meeting", "client", "business", "interview", "corporate")),
+        "date": normalized in {"date_night", "coffee_date", "first_date", "casual_dinner", "team_dinner"} or any(k in q for k in ("date", "dinner", "night")),
         "party": any(k in q for k in ("party", "club", "after-hours", "night out")),
         "travel": any(k in q for k in ("travel", "airport", "flight", "vacation", "trip")),
-        "wedding": any(k in q for k in ("wedding", "reception", "ceremony", "sangeet", "formal event", "event")),
+        "wedding": normalized in {"wedding_guest", "funeral"} or any(k in q for k in ("wedding", "reception", "ceremony", "sangeet", "formal event", "event", "funeral", "memorial")),
         "casual": any(k in q for k in ("casual", "weekend", "errand", "coffee")),
     }
 
@@ -1326,6 +1459,14 @@ def _coherence_score(card: Dict[str, Any]) -> float:
 
 
 def _occasion_kind(query: str) -> str:
+    normalized = _normalize_occasion_value("", query)
+    if normalized in {
+        "coffee_date", "first_date", "date_night", "casual_dinner",
+        "client_dinner", "beach_dinner", "wedding_guest", "funeral",
+        "office_meeting", "client_presentation", "basketball_game",
+        "team_dinner",
+    }:
+        return normalized
     flags = _occasion_flags(query)
     for key in ("temple_modest", "swimming", "beach", "workout", "brunch", "office", "date", "party", "travel", "wedding", "casual"):
         if flags.get(key):
@@ -1336,13 +1477,36 @@ def _occasion_kind(query: str) -> str:
 
 def _style_direction(query: str) -> str:
     q = str(query or "").lower()
-    if _occasion_kind(query) == "swimming":
+    kind = _occasion_kind(query)
+    if kind == "coffee_date":
+        return "relaxed_social_coffee"
+    if kind == "first_date":
+        return "approachable_first_date"
+    if kind == "casual_dinner":
+        return "casual_evening"
+    if kind == "client_dinner":
+        return "professional_social_transition"
+    if kind == "beach_dinner":
+        return "coastal_evening"
+    if kind == "wedding_guest":
+        return "wedding_guest"
+    if kind == "funeral":
+        return "respectful_understated"
+    if kind == "office_meeting":
+        return "smart_casual_office"
+    if kind == "client_presentation":
+        return "corporate_office"
+    if kind == "basketball_game":
+        return "sports_casual"
+    if kind == "team_dinner":
+        return "team_social"
+    if kind == "swimming":
         return "swim_functional"
-    if _occasion_kind(query) == "beach":
+    if kind == "beach":
         return "coastal_casual"
-    if _occasion_kind(query) == "workout":
+    if kind == "workout":
         return "training_functional"
-    if _occasion_kind(query) == "brunch":
+    if kind == "brunch":
         return "daytime_polish"
     if any(k in q for k in ("corporate", "boardroom", "formal", "client", "presentation")):
         return "corporate_office"
@@ -1352,9 +1516,9 @@ def _style_direction(query: str) -> str:
         return "startup_office"
     if any(k in q for k in ("friday", "relaxed office", "casual friday")):
         return "friday_office"
-    if _occasion_kind(query) == "office":
+    if kind == "office":
         return "smart_casual_office"
-    if _occasion_kind(query) == "daily":
+    if kind == "daily":
         return "smart_casual_office"
     flags = _occasion_flags(query)
     if flags["swimming"]:
@@ -1594,6 +1758,21 @@ def _wardrobe_gap_response(
             "outfits": [],
             "rendered_boards": [],
             "missing_items": missing_items,
+            "missing_piece_intelligence": [
+                {
+                    "missing_item": item.get("label"),
+                    "reason": item.get("reason"),
+                    "unlocks": (
+                        ["Refined Weekend", "Smart Casual Edge", "Polished Casual"]
+                        if normalized_occasion in {"coffee_date", "coffee", "casual"}
+                        else ["Better occasion fit", "Cleaner styling route"]
+                    ),
+                    "owned": False,
+                }
+                for item in missing_items
+                if isinstance(item, dict)
+            ],
+            "owned_percentage": 0 if not has_core_slots else 50,
             "find_this_recommendations": missing_items,
             "closest_safe_brief": _safe_text(gap.get("closest_safe_brief")) or "clean daily",
             "occasion_interpretation": interpretation,
@@ -1943,6 +2122,7 @@ def _card_blob(card: Dict[str, Any]) -> str:
 
 def _quality_score(card: Dict[str, Any], query: str) -> float:
     text = _card_blob(card)
+    kind = _occasion_kind(query)
     flags = _occasion_flags(query)
     score = float(card.get("score") or 0.0) / 100.0
     roles = {item_role(item) for item in card.get("items", []) if isinstance(item, dict)}
@@ -1969,6 +2149,18 @@ def _quality_score(card: Dict[str, Any], query: str) -> float:
         if any(k in text for k in ("black pants", "black trousers", "black shirt")):
             score += 0.6
         score += _footwear_formality_score(_item_by_role(card, "footwear"), query)
+    if kind == "coffee_date":
+        if any(k in text for k in ("oxford", "linen", "polo", "chino", "denim", "clean sneaker", "suede loafer", "cotton")):
+            score += 2.4
+        if any(k in text for k in ("formal trouser", "formal trousers", "black trousers", "black pants", "corporate", "boardroom", "office")):
+            score -= 3.2
+        if any(k in text for k in ("wedding", "embroidered", "embroidery", "festive", "shiny", "satin", "sequin", "gold ring")):
+            score -= 5.0
+    if kind == "client_dinner":
+        if any(k in text for k in ("button", "shirt", "trouser", "chino", "loafer", "watch", "belt", "blazer")):
+            score += 2.0
+        if any(k in text for k in ("loud print", "party shirt", "neon", "slides", "slipper", "gym", "track")):
+            score -= 4.0
     if flags["party"] and any(k in text for k in ("print", "pattern", "statement", "black")):
         score += 1.0
     if flags["travel"]:
@@ -2045,7 +2237,52 @@ def _occasion_fit_score(card: Dict[str, Any], query: str) -> float:
             )
         ) and _style_direction(query) not in {"creative_office", "startup_office", "friday_office"}:
             score -= 5.0
-    elif kind == "date":
+    elif kind == "coffee_date":
+        if formality in {"casual", "smart"} or footwear in {"casual", "elevated casual", "polished"}:
+            score += 1.5
+        if any(k in text for k in ("oxford", "linen", "polo", "chino", "denim", "clean sneaker", "suede loafer", "cotton")):
+            score += 2.5
+        if any(k in text for k in ("formal trouser", "formal trousers", "black trousers", "black pants", "corporate", "boardroom", "office")):
+            score -= 4.0
+        if any(k in text for k in ("wedding", "embroidered", "embroidery", "festive", "shiny", "satin", "sequin", "gold ring")):
+            score -= 7.0
+    elif kind in {"first_date", "casual_dinner", "team_dinner"}:
+        if formality in {"smart", "casual"} or footwear in {"polished", "structured", "elevated casual", "casual"}:
+            score += 1.5
+        if any(k in text for k in ("gym", "track", "slides", "slippers", "flip flop", "tuxedo", "boardroom")):
+            score -= 4.0
+    elif kind == "client_dinner":
+        if formality in {"smart", "formal"} or footwear in {"polished", "structured"}:
+            score += 2.0
+        if any(k in text for k in ("shirt", "trouser", "chino", "loafer", "watch", "belt", "blazer")):
+            score += 1.5
+        if any(k in text for k in ("shorts", "slides", "slippers", "gym", "track", "loud print", "neon", "beach")):
+            score -= 6.0
+    elif kind == "beach_dinner":
+        if any(k in text for k in ("linen", "cotton", "camp collar", "resort", "lightweight", "chino", "sandal", "espadrille", "slides")):
+            score += 2.4
+        if any(k in text for k in ("office trouser", "black trousers", "black pants", "oxford", "derby", "formal leather", "heavy blazer", "corporate")):
+            score -= 8.0
+    elif kind == "funeral":
+        if formality in {"smart", "formal"}:
+            score += 2.0
+        if any(k in text for k in ("black", "navy", "charcoal", "plain", "closed", "minimal")):
+            score += 1.5
+        if any(k in text for k in ("bright", "neon", "shiny", "sequin", "loud print", "party", "shorts", "slides", "gold")):
+            score -= 8.0
+    elif kind in {"office_meeting", "client_presentation"}:
+        if formality in {"formal", "smart"}:
+            score += 2.2
+        if footwear in {"relaxed", "athletic"}:
+            score -= 4.5
+        if any(k in text for k in ("tropical", "vacation", "beach", "loud", "embroidered", "festive", "satin", "shiny", "glossy", "shorts")):
+            score -= 5.0
+    elif kind == "basketball_game":
+        if any(k in text for k in ("tee", "jersey", "denim", "chino", "sneaker", "jacket", "cap")):
+            score += 2.0
+        if any(k in text for k in ("formal shirt", "button-down", "button down", "embroidered", "loafer", "blazer", "oxford", "tuxedo")):
+            score -= 7.0
+    elif kind in {"date", "date_night"}:
         if formality in {"smart", "formal"} or footwear in {"polished", "structured", "elevated casual"}:
             score += 1.8
         if footwear in {"relaxed", "athletic"}:
@@ -2104,8 +2341,13 @@ def _hard_rejection_reason(card: Dict[str, Any], query: str) -> str:
         except Exception:
             pass
     footwear_mood = _footwear_mood(_item_by_role(card, "footwear"))
+    smart_occasions = {
+        "office", "office_meeting", "client_presentation", "client_dinner",
+        "date", "date_night", "coffee_date", "first_date", "casual_dinner",
+        "team_dinner", "wedding", "wedding_guest", "funeral",
+    }
     if (
-        kind in {"office", "date", "wedding"}
+        kind in smart_occasions
         and footwear_mood == "relaxed sandal"
         and not _allows_relaxed_footwear(query)
     ):
@@ -2117,10 +2359,26 @@ def _hard_rejection_reason(card: Dict[str, Any], query: str) -> str:
         and not _allows_relaxed_footwear(query)
     ):
         return "relaxed_footwear_blocked_for_smart_daily"
-    if kind in {"office", "date", "wedding"}:
+    if kind in smart_occasions:
         for item in card.get("accessories", []) or []:
             if isinstance(item, dict) and _accessory_type(item) == "headwear" and not _allows_headwear(query):
                 return "headwear_blocked_for_polished_occasion"
+    text = _card_blob(card)
+    if kind == "coffee_date":
+        if any(k in text for k in ("wedding shirt", "tuxedo", "shiny gold", "sequin")):
+            return "coffee_date_formal_or_festive_blocked"
+        if "embroidered" in text and any(k in text for k in ("formal trouser", "black trousers", "black pants")):
+            return "coffee_date_wedding_energy_blocked"
+    if kind == "client_dinner" and any(k in text for k in ("slides", "slipper", "gym", "shorts", "loud print", "neon")):
+        return "client_dinner_casual_or_loud_blocked"
+    if kind == "beach_dinner" and any(
+        k in text
+        for k in (
+            "office trouser", "black trousers", "black pants", "oxford",
+            "derby", "formal leather", "heavy blazer", "corporate",
+        )
+    ):
+        return "beach_dinner_office_weight_blocked"
     return ""
 
 
@@ -2199,6 +2457,23 @@ _STYLE_DNA_TARGETS = {
     ],
 }
 _STYLE_DNA_TARGETS["casual"] = _STYLE_DNA_TARGETS["daily"]
+_STYLE_DNA_TARGETS["office_meeting"] = _STYLE_DNA_TARGETS["office"]
+_STYLE_DNA_TARGETS["client_presentation"] = _STYLE_DNA_TARGETS["office"]
+_STYLE_DNA_TARGETS["client_dinner"] = _STYLE_DNA_TARGETS["office"]
+_STYLE_DNA_TARGETS["date_night"] = _STYLE_DNA_TARGETS["date"]
+_STYLE_DNA_TARGETS["first_date"] = _STYLE_DNA_TARGETS["date"]
+_STYLE_DNA_TARGETS["casual_dinner"] = _STYLE_DNA_TARGETS["date"]
+_STYLE_DNA_TARGETS["team_dinner"] = _STYLE_DNA_TARGETS["date"]
+_STYLE_DNA_TARGETS["coffee_date"] = [
+    {"style_energy": "elevated/casual", "archetype": "Hero Look", "title": "Relaxed Oxford"},
+    {"style_energy": "relaxed/creative", "archetype": "Relaxed Sharp", "title": "Easy Conversation"},
+    {"style_energy": "safest/refined", "archetype": "Elevated Option", "title": "Soft Coffee Polish"},
+    {"style_energy": "minimal/monochrome", "archetype": "Safest Option", "title": "Approachable Edit"},
+]
+_STYLE_DNA_TARGETS["beach_dinner"] = _STYLE_DNA_TARGETS["beach"]
+_STYLE_DNA_TARGETS["wedding_guest"] = _STYLE_DNA_TARGETS["wedding"]
+_STYLE_DNA_TARGETS["funeral"] = _STYLE_DNA_TARGETS["wedding"]
+_STYLE_DNA_TARGETS["basketball_game"] = _STYLE_DNA_TARGETS["casual"]
 
 
 def _style_targets_for_query(query: str) -> List[Dict[str, str]]:
@@ -2219,6 +2494,43 @@ def _style_dna_match_score(card: Dict[str, Any], target: Dict[str, str], query: 
     if target.get("style_energy") == "polished/social" and profile.get("footwear_energy") in {"polished", "structured", "elevated casual"}:
         score += 1.0
     return score
+
+
+def _controlled_style_archetype_for_card(card: Dict[str, Any], query: str) -> str:
+    """Map a wardrobe board onto the controlled fashion archetype library.
+
+    Existing board roles still drive layout/diversity; this value is the
+    user-visible style archetype.
+    """
+    try:
+        from services.stylist_knowledge_service import select_archetypes
+
+        names = [
+            _safe_text(item.get("name") or item.get("label") or item.get("title"))
+            for item in (card.get("items") or [])
+            if isinstance(item, dict)
+        ]
+        anchor = {
+            "name": " ".join(names[:4]),
+            "category": _safe_text(card.get("style_energy") or ""),
+            "color": _safe_text(card.get("palette_direction") or ""),
+        }
+        selected = select_archetypes(
+            anchor=anchor,
+            occasion=_occasion_kind(query),
+            style_keywords=[
+                _safe_text(card.get("style_energy")),
+                _safe_text(card.get("silhouette_category")),
+                _safe_text(card.get("palette_direction")),
+            ],
+            style_dna={},
+            limit=1,
+        )
+        name = _safe_text((selected[0] if selected else {}).get("name"))
+        return name or "Elevated Essentials"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ahvi.board_archetype_map_failed err=%s", str(exc)[:120])
+        return "Elevated Essentials"
 
 
 def _identity_match_score(card: Dict[str, Any], style_identity: Dict[str, Any]) -> float:
@@ -2281,8 +2593,29 @@ def _title_for(card: Dict[str, Any], query: str, index: int, archetype: str = ""
     if not generic:
         return existing
 
+    kind = _occasion_kind(query)
     flags = _occasion_flags(query)
-    if flags["office"]:
+    if kind == "coffee_date":
+        title_by_archetype = {
+            "Hero Look": "Relaxed Oxford",
+            "Safest Option": "Approachable Edit",
+            "Elevated Option": "Soft Coffee Polish",
+            "Relaxed Sharp": "Easy Conversation",
+            "Creative Professional": "Soft Personality",
+            "Backup Option": "Quiet Coffee Fit",
+        }
+        titles = ["Relaxed Oxford", "Easy Conversation", "Soft Coffee Polish", "Approachable Edit"]
+    elif kind == "client_dinner":
+        title_by_archetype = {
+            "Hero Look": "Client Dinner Polish",
+            "Safest Option": "Composed Evening",
+            "Elevated Option": "Professional Social",
+            "Relaxed Sharp": "After-Work Ease",
+            "Creative Professional": "Measured Personality",
+            "Backup Option": "Quiet Authority",
+        }
+        titles = ["Client Dinner Polish", "Professional Social", "Composed Evening"]
+    elif flags["office"]:
         title_by_archetype = {
             "Hero Look": "Boardroom Casual",
             "Safest Option": "Sharp Daily",
@@ -2360,6 +2693,38 @@ def _explanation_for(card: Dict[str, Any], query: str, index: int) -> Dict[str, 
     )
 
     by_occasion = {
+        "coffee_date": (
+            "For a coffee date, this stays relaxed first and polished second. "
+            f"{top} feels intentional without looking dressed up, while {footwear} keeps the mood approachable rather than formal."
+        ),
+        "client_dinner": (
+            "For a client dinner, the priority is professional first and social second. "
+            f"{top} keeps the room credible, while {footwear} and the cleaner base let the look relax after work."
+        ),
+        "first_date": (
+            "This keeps the first impression easy and considered. The outfit has enough polish to feel intentional without turning the moment into a formal event."
+        ),
+        "casual_dinner": (
+            "This reads dinner-aware without becoming date-night heavy. The pieces keep the shape clean while leaving the mood relaxed enough for a casual table."
+        ),
+        "beach_dinner": (
+            "For a beach dinner, this keeps breathability in front and adds just enough evening polish. It avoids office weight while still looking intentional after sunset."
+        ),
+        "funeral": (
+            "This keeps the attention on the moment, not the clothes. The darker, quieter choices feel respectful, and the closed footwear keeps the outfit composed."
+        ),
+        "office_meeting": (
+            f"{top}, {bottom}, and {footwear} keep the meeting impression clear: polished, credible, and free of casual noise."
+        ),
+        "client_presentation": (
+            "For a client presentation, this leads with credibility. The structure keeps attention on what you are saying, while the styling stays controlled rather than flashy."
+        ),
+        "basketball_game": (
+            "This respects the game first: comfortable, casual, and easy to move in. It can still carry into a team dinner without feeling like officewear."
+        ),
+        "team_dinner": (
+            "This keeps the social energy easy and team-friendly. It looks considered at the table without feeling dressed for a formal date."
+        ),
         "office": (
             (
                 f"{top}, {bottom}, and {footwear} keep the look client-ready, "
@@ -2589,16 +2954,13 @@ def _select_diverse_cards(
     enforce_accessory_limit = len(unique_accessories) > 1
     enforce_base_variation = len(unique_bases) > 1
     strong_office_footwear_exists = _office_has_strong_footwear(cards, query)
-    top_reuse_needed = math.ceil(limit / max(1, len(unique_tops)))
-    bottom_reuse_needed = math.ceil(limit / max(1, len(unique_bottoms)))
-    footwear_reuse_needed = math.ceil(limit / max(1, len(unique_footwear)))
-    accessory_reuse_needed = math.ceil(limit / max(1, len(unique_accessories)))
-    base_reuse_needed = math.ceil(limit / max(1, len(unique_bases)))
-    max_top_reuse = max(MAX_TOP_REUSE, top_reuse_needed) if allow_core_variants else MAX_TOP_REUSE
-    max_bottom_reuse = max(3, bottom_reuse_needed) if allow_core_variants else MAX_BOTTOM_REUSE
-    max_footwear_reuse = max(MAX_FOOTWEAR_REUSE, footwear_reuse_needed) if allow_core_variants else MAX_FOOTWEAR_REUSE
-    max_accessory_reuse = max(2, accessory_reuse_needed) if allow_core_variants else MAX_ACCESSORY_REUSE
-    relaxed_base_reuse = max(RELAXED_TOP_BOTTOM_REUSE, base_reuse_needed) if allow_core_variants else RELAXED_TOP_BOTTOM_REUSE
+    # Occasion Intelligence V2: selection may request a broad candidate pool,
+    # but visible 3-board responses must not let one bottom or shoe dominate.
+    max_top_reuse = MAX_TOP_REUSE
+    max_bottom_reuse = 2
+    max_footwear_reuse = MAX_FOOTWEAR_REUSE
+    max_accessory_reuse = 2
+    relaxed_base_reuse = RELAXED_TOP_BOTTOM_REUSE
     logger.info(
         "style_flow.finalizer_diversity_caps limit=%s pool=%s unique_tops=%s unique_bottoms=%s unique_footwear=%s unique_accessories=%s max_top_reuse=%s max_bottom_reuse=%s max_footwear_reuse=%s max_accessory_reuse=%s relaxed_base_reuse=%s",
         limit,
@@ -2612,6 +2974,21 @@ def _select_diverse_cards(
         max_footwear_reuse,
         max_accessory_reuse,
         relaxed_base_reuse,
+    )
+    logger.info(
+        "AHVI_DIVERSITY_CAP_APPLIED limit=%s pool=%s max_top_reuse=%s max_bottom_reuse=%s max_footwear_reuse=%s max_accessory_reuse=%s sparse=%s",
+        limit,
+        len(cards),
+        max_top_reuse,
+        max_bottom_reuse,
+        max_footwear_reuse,
+        max_accessory_reuse,
+        {
+            "top": len(unique_tops) <= 1,
+            "bottom": len(unique_bottoms) <= 1,
+            "footwear": len(unique_footwear) <= 1,
+            "accessory": len(unique_accessories) <= 1,
+        },
     )
     selected: List[Dict[str, Any]] = []
     selected_sigs: set[str] = set()
@@ -2855,15 +3232,17 @@ def finalize_style_cards(
         skipped_counts,
     )
     for idx, card in enumerate(canonical):
-        archetype = _safe_text(card.get("_target_archetype")) or _ARCHETYPES[idx % len(_ARCHETYPES)]
-        title = _safe_text(card.get("_target_title")) or _title_for(card, query, idx, archetype)
+        board_role = _safe_text(card.get("_target_archetype")) or _ARCHETYPES[idx % len(_ARCHETYPES)]
+        title = _safe_text(card.get("_target_title")) or _title_for(card, query, idx, board_role)
         profile = _diversity_profile(card, query)
         explanation = _explanation_for(card, query, idx)
-        layout = _layout_metadata(card, archetype)
+        layout = _layout_metadata(card, board_role)
         composition = _composition_metadata(card)
+        controlled_archetype = _controlled_style_archetype_for_card(card, query)
         card["title"] = title
         card["name"] = title
-        card["style_archetype"] = archetype
+        card["board_role"] = board_role
+        card["style_archetype"] = controlled_archetype
         card["style_direction"] = _style_direction(query)
         card["style_energy"] = profile.get("style_energy")
         card["silhouette_category"] = profile.get("silhouette_category")
@@ -2871,6 +3250,19 @@ def finalize_style_cards(
         card["footwear_energy"] = profile.get("footwear_energy")
         card["formality_energy"] = profile.get("formality_energy")
         card["occasion_fit"] = round(_occasion_fit_score(card, query), 3)
+        logger.info(
+            "AHVI_OCCASION_SCORE_APPLIED archetype=%s title=%r occasion_fit=%.3f quality_score=%.3f",
+            _occasion_kind(query),
+            title,
+            card["occasion_fit"],
+            float(card.get("_style_quality_score") or 0.0),
+        )
+        logger.info(
+            "AHVI_BOARD_ARCHETYPE_APPLIED style_archetype=%s board_role=%s title=%r",
+            controlled_archetype,
+            board_role,
+            title,
+        )
         card["diversity_profile"] = profile
         card["explanation_mode"] = explanation["explanation_mode"]
         card["why_it_works"] = explanation["why_it_works"]
@@ -2878,6 +3270,12 @@ def finalize_style_cards(
         card["reason"] = explanation["why_it_works"]
         card["style_reason"] = explanation["why_it_works"]
         card["styling_tip"] = explanation["styling_tip"]
+        logger.info(
+            "AHVI_EDITORIAL_REASONING_MODE archetype=%s mode=%s title=%r",
+            _occasion_kind(query),
+            card["explanation_mode"],
+            title,
+        )
         card["layout_preset"] = layout["layout_preset"]
         card["visual_hierarchy"] = layout["visual_hierarchy"]
         card["composition_notes"] = layout["composition_notes"]
@@ -2893,7 +3291,8 @@ def finalize_style_cards(
             "quality_score": round(float(card.get("_style_quality_score") or 0.0), 3),
             "coherence_score": round(_coherence_score(card), 3),
             "occasion_fit": card["occasion_fit"],
-            "style_archetype": archetype,
+            "style_archetype": controlled_archetype,
+            "board_role": board_role,
             "style_direction": card["style_direction"],
             "style_energy": card["style_energy"],
             "silhouette_category": card["silhouette_category"],
@@ -3286,7 +3685,10 @@ def finalize_style_response_payload(
     for card in cards or []:
         if not isinstance(card, dict):
             continue
-        if reject_quality_board_for_occasion is None:
+        v2_reason = _metadata_v2_board_reject(card, normalized_occasion)
+        if v2_reason:
+            rejected, reason = True, v2_reason
+        elif reject_quality_board_for_occasion is None:
             rejected, reason = False, ""
         else:
             try:
@@ -3301,8 +3703,21 @@ def finalize_style_response_payload(
                 reason,
                 card.get("title"),
             )
+            logger.info(
+                "AHVI_OUTFIT_DROPPED_WEAK_MATCH occasion=%s reason=%s title=%s",
+                normalized_occasion,
+                reason,
+                card.get("title"),
+            )
             continue
         filtered_cards.append(card)
+    logger.info(
+        "AHVI_OUTFIT_VALIDATION_APPLIED occasion=%s input=%d accepted=%d rejected=%d",
+        normalized_occasion,
+        len(cards or []),
+        len(filtered_cards),
+        len(rejected_cards),
+    )
     if not filtered_cards:
         closest_board = _ahvi_pick_closest_safe_board(cards, normalized_occasion)
         closest_rejected_reason = ""
@@ -3492,23 +3907,18 @@ def finalize_style_response_payload(
     )
 
     if weak_match:
-        # AHVI safety gate RELAXED: generated cards are returned as
-        # "closest wardrobe-safe options" instead of being suppressed.
-        # Each card is annotated so the UI can label it appropriately.
         logger.info(
-            "style_safety_gate_relaxed user_id=%s occasion=%s best_score=%.2f threshold=%.2f cards=%s",
+            "AHVI_OUTFIT_DROPPED_WEAK_MATCH user_id=%s occasion=%s best_score=%.2f threshold=%.2f cards=%s",
             user_id, normalized_occasion, best_occasion_score, threshold, len(cards),
         )
-        for c in cards:
-            if not isinstance(c, dict):
-                continue
-            c.setdefault("badge", "CLOSEST OPTION")
-            c.setdefault(
-                "confidence_note",
-                "Closest wardrobe-safe option for this occasion.",
-            )
-            c["weak_match"] = True
-        # Fall through to the normal final response path below.
+        logger.info(
+            "AHVI_MISSING_PIECE_FROM_VALIDATION occasion=%s reason=below_confidence_threshold",
+            normalized_occasion,
+        )
+        return _ahvi_missing_occasion_response(
+            normalized_occasion,
+            _ahvi_slot_counts(wardrobe_items),
+        )
 
     if closest_option_requested:
         logger.info(
@@ -4049,12 +4459,20 @@ def build_style_flow_response(
 # to deterministic selection + diversity.
 # ============================================================================
 
-_LOOK_STRATEGY_ORDER = ("best_overall", "relaxed", "polished", "personality")
+_LOOK_STRATEGY_ORDER = (
+    "best_overall",
+    "relaxed_alternative",
+    "elevated_alternative",
+    "personality_alternative",
+)
 _STRATEGY_LABELS = {
     "best_overall": "Best Overall",
-    "relaxed": "Relaxed",
-    "polished": "Polished",
-    "personality": "Personality",
+    "relaxed": "Relaxed Alternative",
+    "polished": "Elevated Alternative",
+    "personality": "Personality Alternative",
+    "relaxed_alternative": "Relaxed Alternative",
+    "elevated_alternative": "Elevated Alternative",
+    "personality_alternative": "Personality Alternative",
 }
 _FALLBACK_TITLES = (
     "Quietly Intentional",
@@ -4069,6 +4487,12 @@ _FALLBACK_TITLES = (
 _OCCASION_REJECT_KEYWORDS = {
     "date": (("shiny", "gold formal"), ("wedding shirt",), ("sequin", "loud party"), ("tuxedo",)),
     "coffee": (("shiny", "gold formal"), ("wedding shirt",), ("sequin", "loud party"), ("tuxedo",)),
+    "coffee_date": (("shiny",), ("wedding shirt",), ("sequin",), ("tuxedo",), ("embroidered", "formal trouser"), ("gold ring",)),
+    "first_date": (("tuxedo",), ("gym",), ("slides",)),
+    "casual_dinner": (("tuxedo",), ("gym",), ("slides",)),
+    "client_dinner": (("gym",), ("slides",), ("shorts",), ("loud print",), ("neon",)),
+    "beach_dinner": (("office trouser",), ("black trousers", "loafer"), ("oxford shoe",), ("heavy blazer",)),
+    "wedding_guest": (("gym",), ("shorts",), ("slides",)),
     "casual outing": (("shiny", "gold formal"), ("tuxedo",), ("sequin",)),
     "basketball_game": (("formal shirt",), ("button-down",), ("button down",), ("embroidered",), ("loafer",), ("blazer",), ("oxford",)),
     "sports_game": (("formal shirt",), ("embroidered",), ("loafer",), ("blazer",)),
@@ -4134,6 +4558,39 @@ def _occasion_guardrail_reject(card: Dict[str, Any], occasion: str) -> str:
     return ""
 
 
+def _metadata_v2_board_reject(card: Dict[str, Any], occasion: str) -> str:
+    if item_metadata_v2_reject_reason is None:
+        return ""
+    archetype = _safe_text(
+        card.get("style_archetype")
+        or _dict(card.get("style_metadata")).get("style_archetype")
+    )
+    for item in _card_items(card, include_slots=True):
+        if not isinstance(item, dict):
+            continue
+        reason = item_metadata_v2_reject_reason(
+            item,
+            occasion=occasion,
+            archetype=archetype,
+        )
+        if reason:
+            logger.info(
+                "AHVI_ITEM_OCCASION_REJECTED occasion=%s item=%s reason=%s source=style_flow_final",
+                occasion,
+                item.get("id") or item.get("$id") or item.get("name"),
+                reason,
+            )
+            if archetype:
+                logger.info(
+                    "AHVI_ITEM_ARCHETYPE_REJECTED archetype=%s item=%s reason=%s",
+                    archetype,
+                    item.get("id") or item.get("$id") or item.get("name"),
+                    reason,
+                )
+            return reason
+    return ""
+
+
 def _curation_item_summary(item: Dict[str, Any]) -> Dict[str, Any]:
     tags = item.get("style_tags") or item.get("tags") or []
     if not isinstance(tags, list):
@@ -4176,7 +4633,7 @@ def _curation_prompt(summaries: List[Dict[str, Any]], reasoning: Dict[str, Any],
     schema = (
         '{"selected_candidates":[{"candidate_id":"look_01","rank":1,'
         '"title":"distinct evocative title, never \'Considered Look\'",'
-        '"look_strategy":"best_overall | relaxed | polished | personality",'
+        '"look_strategy":"best_overall | relaxed_alternative | elevated_alternative | personality_alternative",'
         '"why_it_works":"stylist reasoning about the social/contextual strategy, not item matching",'
         '"styling_tip":"one concrete wearable tip","what_to_avoid":["string"],'
         '"missing_piece":{"name":"","category":"","reason":"","unlocks":[]}}]}'
@@ -4190,8 +4647,8 @@ def _curation_prompt(summaries: List[Dict[str, Any]], reasoning: Dict[str, Any],
         "Candidates:\n" + _json.dumps(summaries, ensure_ascii=False) + "\n\n"
         "Select the best 3-4 candidates. Make them feel hand-picked, not "
         "mechanical. Assign one distinct look_strategy each in this priority: "
-        "Look 1 = best_overall (safest, strongest), Look 2 = relaxed, "
-        "Look 3 = polished, Look 4 = personality/alternative.\n\n"
+        "Look 1 = best_overall (safest, strongest), Look 2 = relaxed_alternative, "
+        "Look 3 = elevated_alternative, Look 4 = personality_alternative.\n\n"
         "Return ONLY valid JSON:\n" + schema + "\n\n"
         "Rules:\n"
         "- candidate_id must come from the list above; invalid ids are ignored.\n"
@@ -4384,6 +4841,11 @@ def _apply_curation(
 ) -> Dict[str, Any]:
     out = dict(card)
     strategy = _safe_text(row.get("look_strategy")).lower()
+    strategy = {
+        "relaxed": "relaxed_alternative",
+        "polished": "elevated_alternative",
+        "personality": "personality_alternative",
+    }.get(strategy, strategy)
     if strategy not in _LOOK_STRATEGY_ORDER:
         strategy = _LOOK_STRATEGY_ORDER[min(index, len(_LOOK_STRATEGY_ORDER) - 1)]
     title = _clean_editorial_copy(row.get("title"), "")
@@ -4412,6 +4874,13 @@ def _apply_curation(
     out["title"] = title
     out["look_strategy"] = strategy
     out["strategy_label"] = _STRATEGY_LABELS.get(strategy, strategy.title())
+    logger.info(
+        "AHVI_BOARD_STRATEGY_ASSIGNED occasion=%s index=%d strategy=%s title=%r",
+        occasion,
+        index,
+        strategy,
+        title,
+    )
     if why:
         out["why_it_works"] = why
     if tip:

@@ -38,6 +38,21 @@ def test_client_meeting_phrase_beats_office():
     assert "client_meeting" in hits or "client" in hits
 
 
+@pytest.mark.parametrize(
+    "prompt,expected",
+    [
+        ("coffee date outfit", "coffee_date"),
+        ("date night outfit", "date_night"),
+        ("client dinner tomorrow", "client_dinner"),
+        ("beach dinner in Goa", "beach_dinner"),
+        ("client presentation at 4", "client_presentation"),
+    ],
+)
+def test_occasion_archetypes_do_not_collapse_to_broad_buckets(prompt: str, expected: str):
+    occ, _ = detect_occasion_from_tokens(prompt)
+    assert occ == expected
+
+
 def test_date_night_phrase_normalizes_correctly():
     occ, _ = detect_occasion_from_tokens("dinner date tonight")
     assert occ == "date_night"
