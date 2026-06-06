@@ -32,8 +32,9 @@ DEFAULT_MODEL = "gemini-3.5-flash"
 DEFAULT_TIMEOUT = 12.0
 DEFAULT_LOW_CONFIDENCE = 0.55
 
-# Appwrite string attributes have a default upper bound. Keep us well under.
-APPWRITE_STRING_SOFT_LIMIT = 16000
+# Appwrite wardrobe_style_metadata.style_metadata is configured at 8912 chars.
+# Keep below that so metadata migrations do not fail schema validation.
+APPWRITE_STRING_SOFT_LIMIT = 8500
 _SCORE_KEYS = (
     "professionalism_score",
     "client_meeting_score",
@@ -1278,6 +1279,7 @@ def _json_compact(metadata: Dict[str, Any]) -> str:
     text = json.dumps(metadata, separators=(",", ":"), ensure_ascii=False)
     if len(text) <= APPWRITE_STRING_SOFT_LIMIT:
         return text
+    original_len = len(text)
     # Trim long list fields first.
     trimmed = dict(metadata)
     for key in (
@@ -1296,7 +1298,59 @@ def _json_compact(metadata: Dict[str, Any]) -> str:
         if isinstance(trimmed.get(key), list) and len(trimmed[key]) > 8:
             trimmed[key] = trimmed[key][:8]
     text = json.dumps(trimmed, separators=(",", ":"), ensure_ascii=False)
-    return text[:APPWRITE_STRING_SOFT_LIMIT]
+    if len(text) <= APPWRITE_STRING_SOFT_LIMIT:
+        logger.info(
+            "AHVI_METADATA_PAYLOAD_TRUNCATED original_len=%s final_len=%s mode=list_trim",
+            original_len,
+            len(text),
+        )
+        return text
+
+    # Drop verbose fields before falling back to string truncation so the JSON
+    # remains parseable whenever possible.
+    for key in (
+        "styling_notes",
+        "material_characteristics",
+        "climate_appropriateness",
+        "compatible_accessories",
+        "incompatible_accessories",
+        "compatible_footwear",
+        "incompatible_footwear",
+        "suitable_seasons",
+        "allowed_occasions",
+        "blocked_occasions",
+        "risk_flags",
+        "style_keywords",
+        "fabric_feel",
+        "silhouette",
+        "raw_response",
+        "vision_result",
+    ):
+        if key not in trimmed:
+            continue
+        trimmed.pop(key, None)
+        trimmed["_truncated"] = True
+        text = json.dumps(trimmed, separators=(",", ":"), ensure_ascii=False)
+        if len(text) <= APPWRITE_STRING_SOFT_LIMIT:
+            logger.info(
+                "AHVI_METADATA_PAYLOAD_TRUNCATED original_len=%s final_len=%s mode=field_drop",
+                original_len,
+                len(text),
+            )
+            return text
+
+    text = text[:APPWRITE_STRING_SOFT_LIMIT]
+    logger.info(
+        "AHVI_METADATA_PAYLOAD_TRUNCATED original_len=%s final_len=%s mode=hard_cap",
+        original_len,
+        len(text),
+    )
+    return text
+
+
+def _is_appwrite_not_found(exc: Exception) -> bool:
+    text = str(exc)
+    return "(404)" in text or " 404" in text or "not_found" in text or "not found" in text.lower()
 
 
 def upsert_wardrobe_style_metadata_sync(
@@ -1309,9 +1363,10 @@ def upsert_wardrobe_style_metadata_sync(
     """
     from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
 
-    doc_id = _safe_doc_id(item_id)
-    if not doc_id or not user_id:
-        return {"status": "failed", "doc_id": doc_id, "reason": "missing ids"}
+    exact_doc_id = str(item_id or "").strip()
+    safe_doc_id = _safe_doc_id(item_id)
+    if not exact_doc_id or not safe_doc_id or not user_id:
+        return {"status": "failed", "doc_id": safe_doc_id, "reason": "missing ids"}
 
     payload = {
         "item_id": str(item_id),
@@ -1319,31 +1374,120 @@ def upsert_wardrobe_style_metadata_sync(
         "style_metadata": _json_compact(metadata),
     }
     proxy = AppwriteProxy()
-    try:
-        proxy.update_document("wardrobe_style_metadata", doc_id, payload)
-        status = "updated"
-    except AppwriteProxyError as exc:
-        if "404" not in str(exc):
+
+    def _update(document_id: str, marker: str) -> Optional[Dict[str, Any]]:
+        try:
+            proxy.update_document("wardrobe_style_metadata", document_id, payload)
+            logger.info(
+                "%s item=%s user=%s doc_id=%s",
+                marker,
+                item_id,
+                user_id,
+                document_id,
+            )
+            return {"status": "updated", "doc_id": document_id}
+        except AppwriteProxyError as exc:
+            if _is_appwrite_not_found(exc):
+                return None
             logger.warning(
                 "ahvi.metadata.save_failed item=%s user=%s err=%s",
                 item_id,
                 user_id,
                 str(exc)[:200],
             )
-            return {"status": "failed", "doc_id": doc_id, "reason": str(exc)[:200]}
-        try:
-            proxy.create_document(
-                "wardrobe_style_metadata", payload, document_id=doc_id
-            )
-            status = "created"
-        except Exception as exc2:
+            return {"status": "failed", "doc_id": document_id, "reason": str(exc)[:200]}
+        except Exception as exc:
             logger.warning(
                 "ahvi.metadata.save_failed item=%s user=%s err=%s",
                 item_id,
                 user_id,
-                str(exc2)[:200],
+                str(exc)[:200],
             )
-            return {"status": "failed", "doc_id": doc_id, "reason": str(exc2)[:200]}
+            return {"status": "failed", "doc_id": document_id, "reason": str(exc)[:200]}
+
+    result = _update(exact_doc_id, "AHVI_METADATA_UPSERT_EXACT_UPDATED")
+    if result:
+        if result.get("status") == "updated" and safe_doc_id != exact_doc_id:
+            logger.info(
+                "AHVI_METADATA_UPSERT_DUPLICATE_AVOIDED item=%s user=%s kept_doc_id=%s skipped_doc_id=%s",
+                item_id,
+                user_id,
+                exact_doc_id,
+                safe_doc_id,
+            )
+        logger.info(
+            "ahvi.metadata.saved item=%s user=%s status=%s confidence=%.2f",
+            item_id,
+            user_id,
+            result["status"],
+            float(metadata.get("confidence") or 0.0),
+        )
+        return result
+
+    if safe_doc_id != exact_doc_id:
+        result = _update(safe_doc_id, "AHVI_METADATA_UPSERT_SAFE_UPDATED")
+        if result:
+            logger.info(
+                "ahvi.metadata.saved item=%s user=%s status=%s confidence=%.2f",
+                item_id,
+                user_id,
+                result["status"],
+                float(metadata.get("confidence") or 0.0),
+            )
+            return result
+
+    try:
+        matches = proxy.find_by_attribute(
+            "wardrobe_style_metadata",
+            "item_id",
+            exact_doc_id,
+            user_id=str(user_id),
+            limit=25,
+        )
+    except Exception as exc:
+        logger.debug(
+            "ahvi.metadata.query_match_failed item=%s user=%s err=%s",
+            item_id,
+            user_id,
+            str(exc)[:200],
+        )
+        matches = []
+
+    if matches:
+        matches = [m for m in matches if isinstance(m, dict)]
+        matches.sort(key=lambda d: str(d.get("$updatedAt") or d.get("$createdAt") or ""), reverse=True)
+        query_doc_id = str(matches[0].get("$id") or "").strip()
+        if query_doc_id:
+            result = _update(query_doc_id, "AHVI_METADATA_UPSERT_QUERY_UPDATED")
+            if result:
+                if len(matches) > 1:
+                    logger.info(
+                        "AHVI_METADATA_UPSERT_DUPLICATE_AVOIDED item=%s user=%s kept_doc_id=%s duplicate_count=%s",
+                        item_id,
+                        user_id,
+                        query_doc_id,
+                        len(matches),
+                    )
+                logger.info(
+                    "ahvi.metadata.saved item=%s user=%s status=%s confidence=%.2f",
+                    item_id,
+                    user_id,
+                    result["status"],
+                    float(metadata.get("confidence") or 0.0),
+                )
+                return result
+
+    try:
+        proxy.create_document(
+            "wardrobe_style_metadata", payload, document_id=safe_doc_id
+        )
+        logger.info(
+            "AHVI_METADATA_UPSERT_CREATED item=%s user=%s doc_id=%s",
+            item_id,
+            user_id,
+            safe_doc_id,
+        )
+        status = "created"
     except Exception as exc:
         logger.warning(
             "ahvi.metadata.save_failed item=%s user=%s err=%s",
@@ -1351,7 +1495,7 @@ def upsert_wardrobe_style_metadata_sync(
             user_id,
             str(exc)[:200],
         )
-        return {"status": "failed", "doc_id": doc_id, "reason": str(exc)[:200]}
+        return {"status": "failed", "doc_id": safe_doc_id, "reason": str(exc)[:200]}
 
     logger.info(
         "ahvi.metadata.saved item=%s user=%s status=%s confidence=%.2f",
@@ -1360,7 +1504,7 @@ def upsert_wardrobe_style_metadata_sync(
         status,
         float(metadata.get("confidence") or 0.0),
     )
-    return {"status": status, "doc_id": doc_id}
+    return {"status": status, "doc_id": safe_doc_id}
 
 
 async def upsert_wardrobe_style_metadata(
@@ -1401,7 +1545,7 @@ def merge_style_metadata_into_wardrobe_items(
     if not isinstance(wardrobe_items, list):
         return wardrobe_items
 
-    by_item: Dict[str, Dict[str, Any]] = {}
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
     for doc in metadata_docs or []:
         if not isinstance(doc, dict):
             continue
@@ -1410,10 +1554,26 @@ def merge_style_metadata_into_wardrobe_items(
             continue
         parsed = _parse_style_metadata_string(doc.get("style_metadata"))
         if parsed:
-            by_item[item_id] = parsed
+            grouped.setdefault(item_id, []).append({**doc, "_parsed_style_metadata": parsed})
 
-    if not by_item:
+    if not grouped:
         return wardrobe_items
+
+    def _best_doc_for_item(item_id: str) -> Optional[Dict[str, Any]]:
+        candidates = list(grouped.get(item_id) or [])
+        if not candidates:
+            return None
+        safe_id = _safe_doc_id(item_id)
+
+        def score(doc: Dict[str, Any]) -> tuple:
+            doc_id = str(doc.get("$id") or doc.get("id") or "").strip()
+            exact_rank = 2 if doc_id == item_id else 0
+            safe_rank = 1 if safe_id and doc_id == safe_id else 0
+            updated = str(doc.get("$updatedAt") or doc.get("updatedAt") or doc.get("$createdAt") or "")
+            return (exact_rank, safe_rank, updated)
+
+        candidates.sort(key=score, reverse=True)
+        return candidates[0]
 
     enriched: List[Dict[str, Any]] = []
     for item in wardrobe_items:
@@ -1423,7 +1583,12 @@ def merge_style_metadata_into_wardrobe_items(
         item_id = str(
             item.get("$id") or item.get("id") or item.get("item_id") or ""
         ).strip()
-        meta = by_item.get(item_id)
+        selected_doc = _best_doc_for_item(item_id)
+        meta = (
+            selected_doc.get("_parsed_style_metadata")
+            if isinstance(selected_doc, dict)
+            else None
+        )
         if meta:
             new_item = dict(item)
             new_item["style_metadata"] = meta

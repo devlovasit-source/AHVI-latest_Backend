@@ -8,11 +8,13 @@ from typing import Any, Dict, List
 import pytest
 
 from services.agent_metadata_validator import (
+    APPWRITE_STRING_SOFT_LIMIT,
     default_metadata,
     fetch_style_metadata_docs_for_user,
     item_metadata_v2_reject_reason,
     merge_style_metadata_into_wardrobe_items,
     normalize_metadata_v2,
+    upsert_wardrobe_style_metadata_sync,
     validate_metadata_payload,
     validate_wardrobe_metadata_sync,
 )
@@ -392,6 +394,158 @@ def test_merge_style_metadata_handles_invalid_json_doc():
         items, [{"item_id": "x", "style_metadata": "not json"}]
     )
     assert "style_metadata" not in out[0]
+
+
+def test_merge_style_metadata_prefers_exact_doc_over_sanitized_duplicate():
+    item_id = "item-1"
+    items = [{"$id": item_id, "name": "White Shirt"}]
+    meta_docs = [
+        {
+            "$id": "item1",
+            "$updatedAt": "2026-01-02T00:00:00.000Z",
+            "item_id": item_id,
+            "style_metadata": json.dumps({"source": "safe"}),
+        },
+        {
+            "$id": item_id,
+            "$updatedAt": "2026-01-01T00:00:00.000Z",
+            "item_id": item_id,
+            "style_metadata": json.dumps({"source": "exact"}),
+        },
+    ]
+
+    enriched = merge_style_metadata_into_wardrobe_items(items, meta_docs)
+
+    assert enriched[0]["style_metadata"]["source"] == "exact"
+
+
+def test_metadata_json_compact_stays_under_appwrite_limit():
+    from services.agent_metadata_validator import _json_compact
+
+    raw = {
+        "confidence": 0.9,
+        "styling_notes": [f"note-{i}-" + ("x" * 1000) for i in range(30)],
+        "material_characteristics": [f"material-{i}-" + ("y" * 1000) for i in range(30)],
+        "raw_response": "z" * 20000,
+    }
+
+    compact = _json_compact(raw)
+
+    assert APPWRITE_STRING_SOFT_LIMIT == 8500
+    assert len(compact) <= 8500
+
+
+class _MetadataUpsertFakeProxy:
+    def __init__(
+        self,
+        *,
+        existing_update_ids=None,
+        query_docs=None,
+        fail_update_ids=None,
+    ):
+        self.existing_update_ids = set(existing_update_ids or [])
+        self.query_docs = list(query_docs or [])
+        self.fail_update_ids = set(fail_update_ids or [])
+        self.calls = []
+
+    def update_document(self, resource, document_id, data):
+        from services.appwrite_proxy import AppwriteProxyError
+
+        self.calls.append(("update", resource, document_id, data))
+        if document_id in self.fail_update_ids:
+            raise AppwriteProxyError("Appwrite request failed (500): boom")
+        if document_id not in self.existing_update_ids:
+            raise AppwriteProxyError("Appwrite request failed (404): not found")
+        return {"$id": document_id}
+
+    def create_document(self, resource, data, document_id="unique()"):
+        self.calls.append(("create", resource, document_id, data))
+        return {"$id": document_id}
+
+    def find_by_attribute(self, resource, attribute, value, *, user_id=None, limit=10):
+        self.calls.append(("query", resource, attribute, value, user_id, limit))
+        return list(self.query_docs)
+
+
+def _patch_upsert_proxy(monkeypatch, proxy):
+    import services.appwrite_proxy as appwrite_proxy
+
+    monkeypatch.setattr(appwrite_proxy, "AppwriteProxy", lambda: proxy)
+
+
+def test_metadata_upsert_updates_existing_exact_doc(monkeypatch):
+    proxy = _MetadataUpsertFakeProxy(existing_update_ids={"item-1"})
+    _patch_upsert_proxy(monkeypatch, proxy)
+
+    result = upsert_wardrobe_style_metadata_sync("user-1", "item-1", {"confidence": 0.8})
+
+    assert result == {"status": "updated", "doc_id": "item-1"}
+    assert [c[0:3] for c in proxy.calls] == [
+        ("update", "wardrobe_style_metadata", "item-1")
+    ]
+
+
+def test_metadata_upsert_updates_existing_sanitized_doc(monkeypatch):
+    proxy = _MetadataUpsertFakeProxy(existing_update_ids={"item1"})
+    _patch_upsert_proxy(monkeypatch, proxy)
+
+    result = upsert_wardrobe_style_metadata_sync("user-1", "item-1", {"confidence": 0.8})
+
+    assert result == {"status": "updated", "doc_id": "item1"}
+    assert [c[0:3] for c in proxy.calls[:2]] == [
+        ("update", "wardrobe_style_metadata", "item-1"),
+        ("update", "wardrobe_style_metadata", "item1"),
+    ]
+    assert not any(c[0] == "create" for c in proxy.calls)
+
+
+def test_metadata_upsert_updates_query_match(monkeypatch):
+    proxy = _MetadataUpsertFakeProxy(
+        existing_update_ids={"metadata_doc"},
+        query_docs=[
+            {
+                "$id": "metadata_doc",
+                "$updatedAt": "2026-06-01T00:00:00.000Z",
+                "item_id": "item-1",
+                "userId": "user-1",
+            }
+        ],
+    )
+    _patch_upsert_proxy(monkeypatch, proxy)
+
+    result = upsert_wardrobe_style_metadata_sync("user-1", "item-1", {"confidence": 0.8})
+
+    assert result == {"status": "updated", "doc_id": "metadata_doc"}
+    assert any(c[0] == "query" for c in proxy.calls)
+    assert ("update", "wardrobe_style_metadata", "metadata_doc") in [
+        c[0:3] for c in proxy.calls
+    ]
+    assert not any(c[0] == "create" for c in proxy.calls)
+
+
+def test_metadata_upsert_creates_sanitized_doc_when_no_existing_doc(monkeypatch):
+    proxy = _MetadataUpsertFakeProxy()
+    _patch_upsert_proxy(monkeypatch, proxy)
+
+    result = upsert_wardrobe_style_metadata_sync("user-1", "item-1", {"confidence": 0.8})
+
+    assert result == {"status": "created", "doc_id": "item1"}
+    assert ("create", "wardrobe_style_metadata", "item1") in [
+        c[0:3] for c in proxy.calls
+    ]
+
+
+def test_metadata_upsert_does_not_create_duplicate_when_exact_exists(monkeypatch):
+    proxy = _MetadataUpsertFakeProxy(existing_update_ids={"item-1", "item1"})
+    _patch_upsert_proxy(monkeypatch, proxy)
+
+    result = upsert_wardrobe_style_metadata_sync("user-1", "item-1", {"confidence": 0.8})
+
+    assert result["doc_id"] == "item-1"
+    assert not any(c[0] == "create" for c in proxy.calls)
+    assert ("update", "wardrobe_style_metadata", "item1") not in [
+        c[0:3] for c in proxy.calls
+    ]
 
 
 # ---------------------------------------------------------------------------
