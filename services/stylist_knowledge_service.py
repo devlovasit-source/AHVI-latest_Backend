@@ -15,6 +15,9 @@ STYLE_EDUCATION = "style_education"
 COLOR_BODY_ADVICE = "color_body_advice"
 VISUAL_INSPIRATION = "visual_inspiration"
 STYLE_PAIRING = "style_pairing"
+BODY_PROPORTION_ADVICE = "body_proportion_advice"
+COLOR_ADVICE = "color_advice"
+OCCASION_ADVICE = "occasion_advice"
 
 STYLE_MODES = {
     STYLE_ADVICE,
@@ -23,6 +26,9 @@ STYLE_MODES = {
     STYLE_EDUCATION,
     COLOR_BODY_ADVICE,
     STYLE_PAIRING,
+    BODY_PROPORTION_ADVICE,
+    COLOR_ADVICE,
+    OCCASION_ADVICE,
 }
 
 
@@ -152,6 +158,45 @@ def is_style_pairing_request(text: Any) -> bool:
     )
 
 
+def is_body_proportion_request(text: Any) -> bool:
+    q = _norm(text)
+    return _has_any(
+        q,
+        (
+            "look taller", "look shorter", "appear taller", "appear slimmer",
+            "look slimmer", "look leaner", "elongate", "proportion", "proportions",
+            "body type", "body shape", "what works for my body", "what suits my body",
+            "pear body", "apple body", "rectangle body", "hourglass",
+            "broad shoulders", "wide hips", "short legs", "long torso",
+            "petite", "tall frame", "balance my", "make my legs",
+        ),
+    )
+
+
+def is_color_advice_request(text: Any) -> bool:
+    q = _norm(text)
+    return _has_any(
+        q,
+        (
+            "what colors suit", "what colours suit", "colors suit me", "colours suit me",
+            "what colors work", "what colours work", "color that suit", "colors for my",
+            "skin tone", "warm skin", "cool skin", "neutral skin", "olive skin",
+            "fair skin", "dark skin", "undertone", "color palette for me",
+            "what colors should i wear", "best colors for",
+        ),
+    )
+
+
+def is_occasion_advice_request(text: Any) -> bool:
+    q = _norm(text)
+    has_avoid = _has_any(q, ("what to avoid", "what should i avoid", "avoid for",
+                             "avoid on a", "dos and don", "do and don", "is it ok to wear",
+                             "appropriate for", "what not to wear"))
+    has_occasion = _has_any(q, ("date", "coffee", "interview", "wedding", "funeral",
+                                "office", "party", "dinner", "meeting", "brunch", "beach"))
+    return has_avoid and has_occasion
+
+
 def is_color_body_advice_request(text: Any) -> bool:
     q = _norm(text)
     return _has_any(
@@ -192,6 +237,9 @@ def is_style_education_request(text: Any) -> bool:
             "what does",
             "difference between",
             "why does",
+            "why do",
+            "why is",
+            "what makes",
             "style rule",
             "dress code",
         ),
@@ -210,6 +258,15 @@ def is_style_education_request(text: Any) -> bool:
             "business casual",
             "modesty",
             "proportion",
+            "work with",
+            "go with",
+            "pair with",
+            "loafer",
+            "chino",
+            "sneaker",
+            "blazer",
+            "denim",
+            "trouser",
         ),
     )
 
@@ -305,6 +362,13 @@ def classify_style_mode(
         return STYLE_PAIRING
     if is_shopping_assist_request(text):
         return SHOPPING_ASSIST
+    # Specific advice modes BEFORE the broad color_body fallback.
+    if is_body_proportion_request(text):
+        return BODY_PROPORTION_ADVICE
+    if is_occasion_advice_request(text):
+        return OCCASION_ADVICE
+    if is_color_advice_request(text):
+        return COLOR_ADVICE
     if is_color_body_advice_request(text):
         return COLOR_BODY_ADVICE
     if is_style_education_request(text):

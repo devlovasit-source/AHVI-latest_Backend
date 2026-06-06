@@ -11,7 +11,10 @@ from prompts.core_prompts import AHVI_SYSTEM_PROMPT
 from prompts.styling_prompts import OCCASION_INTERPRETER_PROMPT
 from services.ai_gateway import generate_text, parse_json_object
 from services.stylist_knowledge_service import (
+    BODY_PROPORTION_ADVICE,
+    COLOR_ADVICE,
     COLOR_BODY_ADVICE,
+    OCCASION_ADVICE,
     SHOPPING_ASSIST,
     STYLE_ADVICE,
     STYLE_EDUCATION,
@@ -22,6 +25,7 @@ from services.stylist_knowledge_service import (
 
 GENERAL = "general"
 VISUAL_INSPIRATION = "visual_inspiration"
+_ADVICE_MODES = {BODY_PROPORTION_ADVICE, COLOR_ADVICE, OCCASION_ADVICE}
 
 _STYLE_REASONING_MODES = {
     GENERAL,
@@ -32,6 +36,7 @@ _STYLE_REASONING_MODES = {
     STYLE_EDUCATION,
     COLOR_BODY_ADVICE,
     STYLE_PAIRING,
+    *_ADVICE_MODES,
 }
 
 _GEMINI_MODES = {
@@ -41,6 +46,7 @@ _GEMINI_MODES = {
     STYLE_EDUCATION,
     COLOR_BODY_ADVICE,
     STYLE_PAIRING,
+    *_ADVICE_MODES,
 }
 
 
@@ -651,6 +657,54 @@ Rules:
 
 Known deterministic mode: style_pairing
 Detected anchor_item: {anchor}
+User query: {_clean_recursive_prompt(query)}
+"""
+    if mode in _ADVICE_MODES:
+        if mode == BODY_PROPORTION_ADVICE:
+            _shape = (
+                '"principles": [string],   // proportion rules (e.g. "vertical lines elongate")\n'
+                '  "do": [string],          // concrete styling moves\n'
+                '  "avoid": [string],       // what shortens / unbalances\n'
+                '  "outfit_examples": [string]'
+            )
+            _label = "body_proportion_advice"
+        elif mode == COLOR_ADVICE:
+            _shape = (
+                '"recommended_colors": [string],\n'
+                '  "avoid_colors": [string],\n'
+                '  "why": [string],         // why these work for them\n'
+                '  "outfit_palettes": [string]'
+            )
+            _label = "color_advice"
+        else:  # OCCASION_ADVICE
+            _shape = (
+                '"do": [string],\n'
+                '  "avoid": [string],\n'
+                '  "better_alternatives": [string],\n'
+                '  "styling_routes": [string]'
+            )
+            _label = "occasion_advice"
+        return f"""
+{AHVI_SYSTEM_PROMPT}
+
+You are AHVI's senior stylist answering an open-ended {_label} question — not
+building an outfit board. Be specific and practical, like a stylist, never a
+textbook. No "styling principles" headings.
+
+Return ONLY valid JSON:
+{{
+  "mode": "{_label}",
+  "stylist_reasoning": string,   // 1-2 sentence human summary
+  {_shape},
+  "what_to_avoid": [string],
+  "confidence": float
+}}
+
+Rules:
+- 3-5 items per list, concrete and wearable.
+- Ground in the persona/style context if present; never invent personal data.
+- No images, no wardrobe board, no shopping links.
+
 User query: {_clean_recursive_prompt(query)}
 """
     return f"""
@@ -1287,6 +1341,32 @@ def _gemini_reasoning(
     return parsed
 
 
+_ADVICE_BLOCK_FIELDS = {
+    "body_proportion_advice": ("principles", "do", "avoid", "outfit_examples"),
+    "color_advice": ("recommended_colors", "avoid_colors", "why", "outfit_palettes"),
+    "occasion_advice": ("do", "avoid", "better_alternatives", "styling_routes"),
+}
+
+
+def _build_advice_block(mode: str, payload: Dict[str, Any]) -> Dict[str, Any] | None:
+    """Structured open-ended advice block (body_proportion / color / occasion)."""
+    fields = _ADVICE_BLOCK_FIELDS.get(mode)
+    if not fields:
+        return None
+    block: Dict[str, Any] = {"type": mode}
+    has_any = False
+    for f in fields:
+        vals = _safe_list(payload.get(f), limit=6)
+        block[f] = vals
+        if vals:
+            has_any = True
+    block["summary"] = str(payload.get("stylist_reasoning") or "").strip()
+    if not has_any:
+        return None
+    logger.info("AHVI_ADVICE_BLOCK_BUILT mode=%s fields=%s", mode, [f for f in fields if block.get(f)])
+    return block
+
+
 def _build_missing_piece(payload: Dict[str, Any], reasoning_text: str) -> Dict[str, Any] | None:
     mp = payload.get("missing_piece")
     if isinstance(mp, dict) and str(mp.get("name") or "").strip():
@@ -1523,6 +1603,7 @@ def _build_response(
         "missing_piece_reasoning": missing_piece_reasoning,
         "missing_piece": missing_piece,
         "visual_inspiration_board": visual_inspiration_board,
+        "advice_block": _build_advice_block(final_mode, payload),
         "transition_plan": transition_plan,
         "is_transition": bool(is_multi_event),
         "anchor_item": pairing_anchor or None,

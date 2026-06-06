@@ -545,7 +545,9 @@ def _style_reasoning_chat_response(
             "visual_inspiration_board": visual_board or None,
         },
         "blocks": (
-            ([{"type": "transition_plan", **reasoning["transition_plan"]}]
+            ([reasoning["advice_block"]]
+                if isinstance(reasoning.get("advice_block"), dict) else [])
+            + ([{"type": "transition_plan", **reasoning["transition_plan"]}]
                 if isinstance(reasoning.get("transition_plan"), dict) else [])
             + ([stylist_reasoning_block] if stylist_reasoning_block else [])
             + ([missing_block] if missing_block.get("missing_items") else [])
@@ -4239,6 +4241,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
         SHOPPING_ASSIST,
         VISUAL_INSPIRATION,
         STYLE_PAIRING,
+        "body_proportion_advice",
+        "color_advice",
+        "occasion_advice",
     } and not reasoning.get("should_generate_board"):
         logger.info(
             "chat.intent.route intent=%s module=%s path=%s text=%r",

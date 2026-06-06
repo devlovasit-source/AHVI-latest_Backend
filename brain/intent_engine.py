@@ -7,6 +7,7 @@ from services.stylist_knowledge_service import (
     SHOPPING_ASSIST,
     STYLE_ADVICE,
     STYLE_EDUCATION,
+    STYLE_PAIRING,
     WARDROBE_STYLE,
     classify_style_mode,
 )
@@ -21,7 +22,7 @@ Return ONLY JSON.
 
 Schema:
 {
-  "intent": "daily_dependency | daily_outfit | occasion_outfit | explore_styles | wardrobe_query | try_on | organize_hub | plan_pack | style_advice | wardrobe_style | shopping_assist | style_education | color_body_advice | general",
+  "intent": "daily_dependency | daily_outfit | occasion_outfit | explore_styles | wardrobe_query | try_on | organize_hub | plan_pack | style_advice | style_pairing | wardrobe_style | shopping_assist | style_education | color_body_advice | general",
   "slots": {
     "occasion": "string or null",
     "style": "string or null",
@@ -42,6 +43,7 @@ Rules:
 - "organize / life planner / bills / medicines / calendar / workout / skincare / contacts / goals" -> organize_hub
 - "plan trip / pack for travel / wedding checklist / business travel packing" -> plan_pack
 - Style advice questions ("what should I wear...", "what is appropriate...", "how should I dress...", "what works for...") -> style_advice
+- Open-ended pairing questions ("what to pair with", "what goes with", "how to style", "ways to wear") -> style_pairing
 - Color/body questions ("what colors suit...", "skin tone", "body shape", "broad shoulders") -> color_body_advice
 - Style concept questions ("what is smart casual", "explain color harmony") -> style_education
 - Explicit wardrobe usage only ("use my wardrobe", "from my wardrobe", "with my clothes", "build a look from my closet") -> wardrobe_style
@@ -71,8 +73,12 @@ _ALLOWED_INTENTS = {
     "organize_hub",
     "plan_pack",
     "style_advice",
+    "style_pairing",
     "style_education",
     "color_body_advice",
+    "body_proportion_advice",
+    "color_advice",
+    "occasion_advice",
     "wardrobe_style",
     "shopping_assist",
     "general",
@@ -427,6 +433,101 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
         slots["module"] = "workout"
         return {"intent": "organize_hub", "slots": slots, "confidence": 0.9}
 
+    early_module_hits = [
+        (
+            "meal_planner",
+            (
+                "today's meals",
+                "todays meals",
+                "today meals",
+                "my meals",
+                "meal plan",
+                "meal planner",
+                "what should i eat",
+            ),
+        ),
+        (
+            "workout",
+            (
+                "today's workout",
+                "todays workout",
+                "today workout",
+                "my workout",
+                "workout today",
+                "fitness today",
+            ),
+        ),
+        (
+            "skincare",
+            (
+                "morning skincare",
+                "night skincare",
+                "evening skincare",
+                "skincare routine",
+                "my skincare",
+                "morning routine",
+                "evening routine",
+                "night routine",
+                "create routine",
+                "open skincare",
+            ),
+        ),
+        (
+            "bills",
+            (
+                "pending bills",
+                "my bills",
+                "unpaid bills",
+                "bills due",
+                "today's bills",
+                "todays bills",
+            ),
+        ),
+        (
+            "medicines",
+            (
+                "my medicines",
+                "my medicine",
+                "my meds",
+                "today's medicines",
+                "todays medicines",
+                "today medicines",
+                "medication list",
+            ),
+        ),
+        (
+            "calendar",
+            (
+                "today's events",
+                "todays events",
+                "today events",
+                "upcoming events",
+                "my events",
+                "my schedule",
+                "today's schedule",
+                "todays schedule",
+            ),
+        ),
+    ]
+    for module, phrases in early_module_hits:
+        if _has_any(*phrases):
+            slots["module"] = module
+            return {"intent": "organize_hub", "slots": slots, "confidence": 0.84}
+
+    style_priority_phrases = (
+        "client meeting outfit",
+    )
+    if _has_any(*style_priority_phrases):
+        if "client meeting" in normalized or "office" in normalized:
+            slots["occasion"] = "office"
+        elif "date" in normalized:
+            slots["occasion"] = "date_night"
+        elif "party" in normalized:
+            slots["occasion"] = "party"
+        elif "dinner" in normalized:
+            slots["occasion"] = "date_night"
+        return {"intent": "occasion_outfit", "slots": slots, "confidence": 0.9}
+
     if style_mode == STYLE_ADVICE:
         return {"intent": STYLE_ADVICE, "slots": slots, "confidence": 0.9}
 
@@ -567,6 +668,21 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
 
     if _has_any("what should i wear", "what to wear", "what do i wear"):
         return {"intent": STYLE_ADVICE, "slots": slots, "confidence": 0.86}
+
+    if _has_any(
+        "what to pair with",
+        "what goes with",
+        "how to style",
+        "how do i style",
+        "ways to wear",
+        "ways to style",
+        "how can i wear",
+        "what matches",
+        "style this",
+        "pair this with",
+        "pair with",
+    ):
+        return {"intent": STYLE_PAIRING, "slots": slots, "confidence": 0.9}
 
     if any(
         x in t
