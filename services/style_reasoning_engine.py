@@ -216,7 +216,78 @@ def _style_asset_rows(limit: int = 120) -> List[Dict[str, Any]]:
         return []
 
 
-def _asset_score(asset: Dict[str, Any], *, direction: Dict[str, Any], occasion: str) -> int:
+_ASSET_MALE_GENDERS = {"male", "man", "men", "mens", "masculine", "m"}
+_ASSET_FEMALE_GENDERS = {"female", "woman", "women", "womens", "feminine", "f"}
+_ASSET_UNISEX_GENDERS = {"", "all", "any", "unisex", "neutral", "genderless"}
+
+
+def _asset_gender(value: Any) -> str:
+    raw = _norm(value)
+    if raw in _ASSET_MALE_GENDERS:
+        return "male"
+    if raw in _ASSET_FEMALE_GENDERS:
+        return "female"
+    if raw in _ASSET_UNISEX_GENDERS:
+        return "unisex"
+    return raw or "unisex"
+
+
+def _prompt_gender_override(query: Any) -> str:
+    q = f" {_norm(query)} "
+    female_markers = (
+        " women ", " womens ", " woman ", " female ", " feminine ",
+        " ladies ", " girl ", " girls ",
+    )
+    male_markers = (
+        " men ", " mens ", " man ", " male ", " masculine ",
+        " menswear ", " menswear inspired ",
+    )
+    if any(marker in q for marker in female_markers):
+        return "female"
+    if any(marker in q for marker in male_markers):
+        return "male"
+    return ""
+
+
+def _resolve_asset_gender(*, query: Any, user_profile: Any) -> str:
+    override = _prompt_gender_override(query)
+    if override:
+        logger.info("AHVI_ASSET_GENDER_CONTEXT source=prompt gender=%s", override)
+        return override
+    try:
+        from services.style_context_service import _resolve_gender
+
+        profile_gender = _resolve_gender(user_profile if isinstance(user_profile, dict) else {})
+    except Exception:  # noqa: BLE001
+        profile_gender = "unknown"
+    if profile_gender in {"male", "female"}:
+        logger.info("AHVI_ASSET_GENDER_CONTEXT source=profile gender=%s", profile_gender)
+        return profile_gender
+    logger.info("AHVI_ASSET_GENDER_CONTEXT source=neutral gender=unknown")
+    return "unknown"
+
+
+def _asset_allowed_for_gender(asset: Dict[str, Any], target_gender: str) -> bool:
+    asset_genders = _asset_list(asset.get("gender"))
+    if not asset_genders:
+        asset_genders = ["unisex"]
+    normalized = {_asset_gender(g) for g in asset_genders}
+    if target_gender == "male":
+        return bool(normalized.intersection({"male", "unisex"}))
+    if target_gender == "female":
+        return bool(normalized.intersection({"female", "unisex"}))
+    # Unknown users should stay neutral unless the prompt explicitly overrode
+    # gender before this helper was called.
+    return bool(normalized.intersection({"unisex"}))
+
+
+def _asset_score(
+    asset: Dict[str, Any],
+    *,
+    direction: Dict[str, Any],
+    occasion: str,
+    target_gender: str = "unknown",
+) -> int:
     blob = " ".join(
         [
             _asset_text(asset.get("name")),
@@ -237,6 +308,12 @@ def _asset_score(asset: Dict[str, Any], *, direction: Dict[str, Any], occasion: 
         score -= 8
     if _asset_text(asset.get("image_url")):
         score += 3
+    asset_gender = _asset_gender(asset.get("gender"))
+    if target_gender in {"male", "female"}:
+        if asset_gender == target_gender:
+            score += 6
+        elif asset_gender == "unisex":
+            score += 2
     archetype = _asset_text(direction.get("archetype")).lower()
     if archetype and archetype in _asset_list(asset.get("archetypes")):
         score += 5
@@ -257,11 +334,34 @@ def _best_style_asset(
     direction: Dict[str, Any],
     occasion: str,
     accessory_only: bool = False,
+    target_gender: str = "unknown",
 ) -> Dict[str, Any] | None:
+    matches = _best_style_assets(
+        assets,
+        direction=direction,
+        occasion=occasion,
+        accessory_only=accessory_only,
+        target_gender=target_gender,
+        limit=1,
+    )
+    return matches[0] if matches else None
+
+
+def _best_style_assets(
+    assets: List[Dict[str, Any]],
+    *,
+    direction: Dict[str, Any],
+    occasion: str,
+    accessory_only: bool = False,
+    target_gender: str = "unknown",
+    limit: int = 3,
+) -> List[Dict[str, Any]]:
     candidates: List[tuple[int, Dict[str, Any]]] = []
     for asset in assets:
         image_url = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
         if not image_url:
+            continue
+        if not _asset_allowed_for_gender(asset, target_gender):
             continue
         category_blob = f"{asset.get('category', '')} {asset.get('subcategory', '')}".lower()
         is_accessory = any(
@@ -270,26 +370,33 @@ def _best_style_asset(
         )
         if accessory_only != is_accessory:
             continue
-        score = _asset_score(asset, direction=direction, occasion=occasion)
+        score = _asset_score(asset, direction=direction, occasion=occasion, target_gender=target_gender)
         if score > 0:
             candidates.append((score, asset))
     if not candidates:
-        return None
+        return []
     candidates.sort(key=lambda pair: pair[0], reverse=True)
-    return candidates[0][1]
+    return [asset for _, asset in candidates[: max(1, limit)]]
+
+
+def _accessory_asset_to_complete_item(asset: Dict[str, Any], direction: Dict[str, Any]) -> Dict[str, Any]:
+    archetype = _asset_text(direction.get("archetype")) or "this direction"
+    return {
+        "name": _asset_text(asset.get("name")) or "Accessory",
+        "category": _asset_text(asset.get("category")) or "accessory",
+        "image_url": _asset_text(asset.get("image_url") or asset.get("imageUrl")),
+        "asset_id": _asset_text(asset.get("asset_id") or asset.get("$id")),
+        "reason": "Completes the look with the right level of finish.",
+        "unlocks": _safe_list(asset.get("archetypes"), limit=4) or [archetype],
+    }
 
 
 def _default_complete_the_look(direction: Dict[str, Any], occasion: str) -> List[Dict[str, Any]]:
     archetype = _asset_text(direction.get("archetype")) or "this direction"
-    q = _norm(occasion)
-    if "office" in q or "client" in q or "presentation" in q:
-        names = ["structured tote", "minimal watch", "quiet belt"]
-    elif "beach" in q or "travel" in q:
-        names = ["woven tote", "phone sling", "water bottle"]
-    elif "wedding" in q or "party" in q or "date" in q:
-        names = ["small bag", "minimal jewelry", "soft metal accent"]
-    else:
-        names = ["clean watch", "simple bag", "restrained accessory"]
+    # Last-resort copy only. Curated style_assets are the source of truth for
+    # gendered accessories; fallback text stays neutral so it does not leak the
+    # same female-coded set into every response.
+    names = ["Clean Finishing Detail", "Practical Carry Piece", "Quiet Accent"]
     return [
         {
             "name": name.title(),
@@ -306,6 +413,7 @@ def _enrich_visual_directions_with_assets(
     visual_directions: List[Dict[str, Any]],
     *,
     occasion: str | None,
+    target_gender: str = "unknown",
 ) -> List[Dict[str, Any]]:
     if not visual_directions:
         return visual_directions
@@ -316,39 +424,42 @@ def _enrich_visual_directions_with_assets(
         out = dict(direction)
         image_url = _asset_text(out.get("image_url") or out.get("imageUrl"))
         if not image_url and assets:
-            asset = _best_style_asset(assets, direction=out, occasion=occasion_text)
+            asset = _best_style_asset(
+                assets,
+                direction=out,
+                occasion=occasion_text,
+                target_gender=target_gender,
+            )
             if asset:
                 out["image_url"] = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
                 out["asset_id"] = _asset_text(asset.get("asset_id") or asset.get("$id"))
         complete = out.get("complete_the_look")
         if not isinstance(complete, list) or not complete:
-            complete = _default_complete_the_look(out, occasion_text)
+            complete = []
         if assets:
-            accessory_asset = _best_style_asset(
+            accessory_assets = _best_style_assets(
                 assets,
                 direction=out,
                 occasion=occasion_text,
                 accessory_only=True,
+                target_gender=target_gender,
+                limit=3,
             )
-            if accessory_asset:
+            if accessory_assets:
                 complete = [
-                    {
-                        "name": _asset_text(accessory_asset.get("name")) or "Accessory",
-                        "category": _asset_text(accessory_asset.get("category")) or "accessory",
-                        "image_url": _asset_text(accessory_asset.get("image_url") or accessory_asset.get("imageUrl")),
-                        "reason": "Completes the look with the right level of finish.",
-                        "unlocks": _safe_list(accessory_asset.get("archetypes"), limit=4)
-                            or [_asset_text(out.get("archetype"))],
-                    },
-                    *complete,
+                    *[_accessory_asset_to_complete_item(asset, out) for asset in accessory_assets],
+                    *[item for item in complete if isinstance(item, dict)],
                 ][:4]
+        if not complete:
+            complete = _default_complete_the_look(out, occasion_text)
         out["complete_the_look"] = complete[:4]
         enriched.append(out)
     logger.info(
-        "AHVI_VISUAL_ASSETS_ENRICHED directions=%d assets=%d with_images=%d",
+        "AHVI_VISUAL_ASSETS_ENRICHED directions=%d assets=%d with_images=%d gender=%s",
         len(enriched),
         len(assets),
         sum(1 for item in enriched if item.get("image_url")),
+        target_gender,
     )
     return enriched
 
@@ -1583,6 +1694,7 @@ def _enrich_missing_piece_with_asset(
     *,
     assets: List[Dict[str, Any]] | None = None,
     occasion: str | None = None,
+    target_gender: str = "unknown",
 ) -> Dict[str, Any] | None:
     if not missing_piece:
         return missing_piece
@@ -1598,7 +1710,12 @@ def _enrich_missing_piece_with_asset(
         "colors": [],
         "archetype": "",
     }
-    asset = _best_style_asset(rows, direction=direction, occasion=_asset_text(occasion))
+    asset = _best_style_asset(
+        rows,
+        direction=direction,
+        occasion=_asset_text(occasion),
+        target_gender=target_gender,
+    )
     if asset:
         out["image_url"] = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
         out["asset_id"] = _asset_text(asset.get("asset_id") or asset.get("$id"))
@@ -1732,6 +1849,7 @@ def _build_response(
             pairing_gender = _resolve_gender(user_profile if isinstance(user_profile, dict) else {})
         except Exception:  # noqa: BLE001
             pairing_gender = "unknown"
+    asset_gender = _resolve_asset_gender(query=query, user_profile=user_profile)
     goal = str(payload.get("goal") or _fallback_goal(final_mode, category)).strip()
     impression = str(payload.get("impression") or _fallback_impression(category)).strip()
     atmosphere = str(payload.get("atmosphere") or _fallback_atmosphere(category)).strip()
@@ -1795,6 +1913,7 @@ def _build_response(
     visual_directions = _enrich_visual_directions_with_assets(
         visual_directions,
         occasion=str(payload.get("occasion") or occasion or category or query),
+        target_gender=asset_gender,
     )
     try:
         final_confidence = max(0.0, min(1.0, float(payload.get("confidence", confidence))))
@@ -1805,6 +1924,7 @@ def _build_response(
     missing_piece = _enrich_missing_piece_with_asset(
         _build_missing_piece(payload, missing_piece_reasoning),
         occasion=str(payload.get("occasion") or occasion or category or query),
+        target_gender=asset_gender,
     )
     visual_inspiration_board = None
     if final_mode == VISUAL_INSPIRATION:
@@ -1862,6 +1982,7 @@ def _build_response(
             "missing_piece_reasoning": missing_piece_reasoning,
             "emotion_state": emotion_state,
             "confidence": final_confidence,
+            "asset_gender": asset_gender,
             "anchor_item": pairing_anchor or None,
             "selected_archetypes": [str(a.get("name") or "").strip() for a in selected_archetypes if isinstance(a, dict)],
             "archetype_reasoning": str(payload.get("archetype_reasoning") or "").strip(),

@@ -67,6 +67,167 @@ def test_visual_directions_get_assets_and_complete_the_look(monkeypatch):
     assert directions[0]["complete_the_look"][0]["image_url"] == "https://cdn.test/tote.png"
 
 
+def test_visual_assets_filter_complete_the_look_by_profile_gender(monkeypatch):
+    monkeypatch.setattr(
+        style_reasoning_engine,
+        "_style_asset_rows",
+        lambda limit=120: [
+            {
+                "asset_id": "gold-earrings",
+                "name": "Gold Hoop Earrings",
+                "category": "accessory",
+                "image_url": "https://cdn.test/earrings.png",
+                "archetypes": ["Refined Weekend"],
+                "occasions": ["coffee date"],
+                "tags": ["jewelry", "coffee"],
+                "gender": "female",
+                "status": "active",
+            },
+            {
+                "asset_id": "clean-watch",
+                "name": "Clean Leather Watch",
+                "category": "accessory",
+                "image_url": "https://cdn.test/watch.png",
+                "archetypes": ["Refined Weekend"],
+                "occasions": ["coffee date"],
+                "tags": ["watch", "coffee"],
+                "gender": "male",
+                "status": "active",
+            },
+            {
+                "asset_id": "canvas-sling",
+                "name": "Canvas Sling",
+                "category": "accessory",
+                "image_url": "https://cdn.test/sling.png",
+                "archetypes": ["Refined Weekend"],
+                "occasions": ["coffee date"],
+                "tags": ["bag", "coffee"],
+                "gender": "unisex",
+                "status": "active",
+            },
+        ],
+    )
+
+    target_gender = style_reasoning_engine._resolve_asset_gender(
+        query="show visual inspiration for coffee date",
+        user_profile={"gender": "male"},
+    )
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Refined Weekend",
+                "title": "Weekend Ease",
+                "items": ["White Shirt", "Dark Denim"],
+                "colors": ["white", "navy"],
+            }
+        ],
+        occasion="coffee date",
+        target_gender=target_gender,
+    )
+
+    names = [item["name"] for item in directions[0]["complete_the_look"]]
+    assert "Clean Leather Watch" in names
+    assert "Canvas Sling" in names
+    assert "Gold Hoop Earrings" not in names
+
+
+def test_prompt_gender_overrides_profile_for_assets(monkeypatch):
+    monkeypatch.setattr(
+        style_reasoning_engine,
+        "_style_asset_rows",
+        lambda limit=120: [
+            {
+                "asset_id": "gold-earrings",
+                "name": "Gold Hoop Earrings",
+                "category": "accessory",
+                "image_url": "https://cdn.test/earrings.png",
+                "archetypes": ["Refined Weekend"],
+                "occasions": ["coffee date"],
+                "tags": ["jewelry", "coffee"],
+                "gender": "female",
+                "status": "active",
+            },
+            {
+                "asset_id": "clean-watch",
+                "name": "Clean Leather Watch",
+                "category": "accessory",
+                "image_url": "https://cdn.test/watch.png",
+                "archetypes": ["Refined Weekend"],
+                "occasions": ["coffee date"],
+                "tags": ["watch", "coffee"],
+                "gender": "male",
+                "status": "active",
+            },
+        ],
+    )
+
+    target_gender = style_reasoning_engine._resolve_asset_gender(
+        query="suggest women's coffee date outfit",
+        user_profile={"gender": "male"},
+    )
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Refined Weekend",
+                "title": "Weekend Ease",
+                "items": ["White Shirt", "Dark Denim"],
+                "colors": ["white", "navy"],
+            }
+        ],
+        occasion="coffee date",
+        target_gender=target_gender,
+    )
+
+    names = [item["name"] for item in directions[0]["complete_the_look"]]
+    assert "Gold Hoop Earrings" in names
+    assert "Clean Leather Watch" not in names
+
+
+def test_unknown_gender_uses_neutral_assets_only(monkeypatch):
+    monkeypatch.setattr(
+        style_reasoning_engine,
+        "_style_asset_rows",
+        lambda limit=120: [
+            {
+                "asset_id": "gold-earrings",
+                "name": "Gold Hoop Earrings",
+                "category": "accessory",
+                "image_url": "https://cdn.test/earrings.png",
+                "archetypes": ["Refined Weekend"],
+                "occasions": ["coffee date"],
+                "gender": "female",
+                "status": "active",
+            },
+            {
+                "asset_id": "canvas-sling",
+                "name": "Canvas Sling",
+                "category": "accessory",
+                "image_url": "https://cdn.test/sling.png",
+                "archetypes": ["Refined Weekend"],
+                "occasions": ["coffee date"],
+                "gender": "unisex",
+                "status": "active",
+            },
+        ],
+    )
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Refined Weekend",
+                "title": "Weekend Ease",
+                "items": ["White Shirt", "Dark Denim"],
+                "colors": ["white", "navy"],
+            }
+        ],
+        occasion="coffee date",
+        target_gender="unknown",
+    )
+
+    names = [item["name"] for item in directions[0]["complete_the_look"]]
+    assert names == ["Canvas Sling"]
+
+
 def test_daily_wear_cards_expose_composition_and_style_dna_metadata():
     cards = [
         _card(
