@@ -530,6 +530,61 @@ def test_complete_the_look_varies_across_three_cards(monkeypatch):
     assert len(set(sets)) == 3
 
 
+def test_generic_visual_diversity_guard_replaces_repeated_blazer_formula():
+    rows = [
+        {
+            "title": "Blazer One",
+            "hero_piece": "Navy Blazer",
+            "items": ["Navy Blazer", "White Shirt", "Dark Trousers", "Loafers"],
+            "palette": ["navy", "white", "black"],
+        },
+        {
+            "title": "Blazer Two",
+            "hero_piece": "Blue Blazer",
+            "items": ["Blue Blazer", "White Shirt", "Black Trousers", "Loafers"],
+            "palette": ["navy", "white", "black"],
+        },
+        {
+            "title": "Blazer Three",
+            "hero_piece": "Structured Blazer",
+            "items": ["Structured Blazer", "White Shirt", "Formal Trousers", "Loafers"],
+            "palette": ["navy", "white", "black"],
+        },
+    ]
+
+    directions = style_reasoning_engine._normalize_visual_directions(
+        rows,
+        "visual_inspiration",
+        "coffee date",
+    )
+
+    formulas = [style_reasoning_engine._direction_formula_signature(card) for card in directions]
+    heroes = [card["hero_piece"].lower() for card in directions]
+    assert len(set(formulas)) == 3
+    assert len(set(heroes)) == 3
+    assert any("soft" in hero or "shirt" in hero or "utility" in hero for hero in heroes[1:])
+
+
+def test_generic_diversity_guard_is_gender_independent():
+    male_like = {
+        "title": "Structured",
+        "hero_piece": "Navy Blazer",
+        "items": ["Navy Blazer", "White Shirt", "Dark Trousers", "Loafers"],
+        "palette": ["navy", "white", "black"],
+    }
+    female_like = {
+        "title": "Structured Again",
+        "hero_piece": "Cream Blazer",
+        "items": ["Cream Blazer", "Silk Top", "Tailored Bottom", "Polished Footwear"],
+        "palette": ["navy", "white", "black"],
+    }
+
+    duplicate, reason = style_reasoning_engine._directions_too_similar(female_like, male_like)
+
+    assert duplicate is True
+    assert reason in {"same_hero", "same_formula", "same_silhouette_palette", "same_palette_hero_role"}
+
+
 def test_internal_reasoning_language_is_scrubbed():
     text = (
         "For a coffee date, the social outcome is connection. "

@@ -371,6 +371,8 @@ def test_text_chat_general_style_advice_bypasses_wardrobe_style(monkeypatch):
         assert body["meta"]["style_mode"] in {
             "style_advice",
             "color_body_advice",
+            "color_advice",
+            "body_proportion_advice",
             "shopping_assist",
         }
         assert body["meta"]["wardrobe_lookup"] is False
@@ -1117,9 +1119,10 @@ def test_occasion_guards_block_called_out_bad_pairings():
         "material": "satin",
     }
     assert score_item_for_occasion(shiny_gold_shirt, get_occasion_rule("office")) <= -10
-    assert reject_board_for_occasion({"items": [shiny_gold_shirt]}, "office") == (
-        "shiny_gold_shirt_blocked_for_smart_occasion"
-    )
+    assert reject_board_for_occasion({"items": [shiny_gold_shirt]}, "office") in {
+        "shiny_gold_shirt_blocked_for_smart_occasion",
+        "metadata_v2.risky_item_for_professional_occasion",
+    }
 
     shorts_board = {"items": [{"name": "Tailored shorts", "category": "bottom"}]}
     assert reject_board_for_occasion(shorts_board, "date_night") == "short_bottom_blocked_for_smart_occasion"

@@ -454,6 +454,175 @@ def _style_items_similar(a: Any, b: Any) -> bool:
     return _style_similarity(a, b) >= 0.75
 
 
+def _palette_terms(value: Any) -> set[str]:
+    values = _safe_list(value, limit=8)
+    terms: set[str] = set()
+    for item in values:
+        terms.update(_style_tokens(item))
+    return terms
+
+
+def _palette_overlap(a: Any, b: Any) -> float:
+    at = _palette_terms(a)
+    bt = _palette_terms(b)
+    if not at or not bt:
+        return 0.0
+    return len(at.intersection(bt)) / max(1, min(len(at), len(bt)))
+
+
+def _silhouette_tokens(direction: Dict[str, Any]) -> set[str]:
+    components = _safe_list(direction.get("items") or direction.get("pieces"), limit=8)
+    blob = " ".join(components).lower()
+    tokens: set[str] = set()
+    categories = _direction_component_categories(components)
+    tokens.update(categories)
+    if any(word in blob for word in ("blazer", "jacket", "overshirt", "coat", "cardigan")):
+        tokens.add("structured_layer")
+    if any(word in blob for word in ("knit", "sweater", "polo", "linen", "suede", "textured")):
+        tokens.add("texture")
+    if any(word in blob for word in ("tee", "t-shirt", "crew-neck", "crewneck")):
+        tokens.add("minimal_base")
+    if any(word in blob for word in ("cargo", "utility", "overshirt", "chore")):
+        tokens.add("utility")
+    if any(word in blob for word in ("loafer", "loafers")):
+        tokens.add("loafer_footwear")
+    if any(word in blob for word in ("sneaker", "sneakers")):
+        tokens.add("sneaker_footwear")
+    return tokens
+
+
+def _direction_formula_signature(direction: Dict[str, Any]) -> tuple[str, ...]:
+    hero_role = _style_category(direction.get("hero_piece")) or "hero"
+    silhouette = _silhouette_tokens(direction)
+    # Focus on styling formula rather than gendered garment names.
+    formula_bits = {hero_role}
+    for bit in (
+        "structured_layer",
+        "texture",
+        "minimal_base",
+        "utility",
+        "loafer_footwear",
+        "sneaker_footwear",
+    ):
+        if bit in silhouette:
+            formula_bits.add(bit)
+    return tuple(sorted(formula_bits))
+
+
+def _directions_too_similar(candidate: Dict[str, Any], accepted: Dict[str, Any]) -> tuple[bool, str]:
+    hero = _asset_text(candidate.get("hero_piece"))
+    accepted_hero = _asset_text(accepted.get("hero_piece"))
+    if hero and accepted_hero and _style_items_similar(hero, accepted_hero):
+        return True, "same_hero"
+    formula = _direction_formula_signature(candidate)
+    accepted_formula = _direction_formula_signature(accepted)
+    palette_overlap = _palette_overlap(
+        candidate.get("palette") or candidate.get("colors"),
+        accepted.get("palette") or accepted.get("colors"),
+    )
+    if formula and formula == accepted_formula:
+        return True, "same_formula"
+    candidate_silhouette = _silhouette_tokens(candidate)
+    accepted_silhouette = _silhouette_tokens(accepted)
+    if candidate_silhouette and accepted_silhouette:
+        overlap = len(candidate_silhouette.intersection(accepted_silhouette)) / max(
+            1, min(len(candidate_silhouette), len(accepted_silhouette))
+        )
+        if overlap >= 0.75 and palette_overlap >= 0.6:
+            return True, "same_silhouette_palette"
+    if palette_overlap >= 0.85 and _style_category(hero) == _style_category(accepted_hero):
+        return True, "same_palette_hero_role"
+    return False, ""
+
+
+_GENERIC_VISUAL_STRATEGIES: List[Dict[str, Any]] = [
+    {
+        "title": "Structured Layer",
+        "subtitle": "Shape-led polish",
+        "archetype": "Structured Ease",
+        "hero_piece": "Lightweight structured layer",
+        "items": ["Lightweight structured layer", "clean base top", "straight-leg bottom", "polished footwear"],
+        "palette": ["navy", "white", "tan"],
+        "description": "A structured layer leads the outfit while simple supporting pieces keep it approachable.",
+        "why_it_works": "The layer gives the look shape without making it stiff. Clean supporting pieces keep the overall impression relaxed and intentional.",
+        "styling_tip": "Keep the layer open for an easier finish.",
+    },
+    {
+        "title": "Soft Texture",
+        "subtitle": "Tactile and easy",
+        "archetype": "Textural Ease",
+        "hero_piece": "Soft knit or textured top",
+        "items": ["Soft knit or textured top", "relaxed tailored bottom", "low-profile footwear"],
+        "palette": ["cream", "olive", "brown"],
+        "description": "Texture becomes the focal point, with quiet separates keeping the outfit grounded.",
+        "why_it_works": "A softer hero piece makes the look feel considered without feeling formal. The restrained base keeps the texture from becoming busy.",
+        "styling_tip": "Keep the texture neat and let it be the focal point.",
+    },
+    {
+        "title": "Clean Shirt Base",
+        "subtitle": "Crisp and minimal",
+        "archetype": "Clean Minimal",
+        "hero_piece": "Crisp clean shirt",
+        "items": ["Crisp clean shirt", "minimal straight bottom", "simple footwear"],
+        "palette": ["white", "stone", "charcoal"],
+        "description": "A clean shirt anchors the look, with minimal pieces keeping everything sharp but easy.",
+        "why_it_works": "The shirt creates clarity, while the simple bottom and footwear keep the outfit from feeling overworked.",
+        "styling_tip": "Roll sleeves once if the setting feels relaxed.",
+    },
+    {
+        "title": "Relaxed Utility",
+        "subtitle": "Casual polish",
+        "archetype": "Modern Utility",
+        "hero_piece": "Relaxed utility layer",
+        "items": ["Relaxed utility layer", "plain base top", "casual tailored bottom", "clean casual footwear"],
+        "palette": ["olive", "ecru", "tobacco"],
+        "description": "A utility layer adds ease and function while clean basics keep the outfit refined.",
+        "why_it_works": "The utility detail makes the look feel practical and current. A simple base keeps it polished rather than rugged.",
+        "styling_tip": "Keep pockets and layers neat so it reads intentional.",
+    },
+]
+
+
+def _generic_diversity_replacement(index: int, category: str | None) -> Dict[str, Any]:
+    replacement = dict(_GENERIC_VISUAL_STRATEGIES[index % len(_GENERIC_VISUAL_STRATEGIES)])
+    if category:
+        replacement["description"] = _direction_description_from_source(replacement, category)
+        replacement["why_it_works"] = _direction_why_from_source(replacement, category)
+    replacement["pieces"] = list(replacement.get("items") or [])
+    replacement["colors"] = list(replacement.get("palette") or [])
+    return replacement
+
+
+def _apply_generic_visual_diversity(
+    directions: List[Dict[str, Any]],
+    *,
+    category: str | None = None,
+) -> List[Dict[str, Any]]:
+    diversified: List[Dict[str, Any]] = []
+    for idx, direction in enumerate(directions):
+        candidate = dict(direction)
+        reason = ""
+        for accepted in diversified:
+            duplicate, reason = _directions_too_similar(candidate, accepted)
+            if duplicate:
+                replacement = _generic_diversity_replacement(idx, category)
+                # Preserve the selected archetype if one was already enforced;
+                # the role/formula changes, not the registry source of truth.
+                if candidate.get("archetype"):
+                    replacement["archetype"] = candidate.get("archetype")
+                candidate = _ensure_direction_logic(_normalize_direction(replacement, replacement))
+                break
+        diversified.append(candidate)
+        if reason:
+            logger.info(
+                "AHVI_VISUAL_DIVERSITY_GUARD_APPLIED index=%d reason=%s formula=%s",
+                idx,
+                reason,
+                _direction_formula_signature(candidate),
+            )
+    return diversified
+
+
 def _component_blob(components: List[str]) -> str:
     return ", ".join(str(item).strip() for item in components if str(item).strip())
 
@@ -1833,7 +2002,7 @@ def _normalize_visual_directions(
                     direction.get("title"),
                 )
         out.append(direction)
-    return out
+    return _apply_generic_visual_diversity(out, category=category)
 
 
 def _fallback_pairing_routes(anchor: Dict[str, str]) -> List[Dict[str, Any]]:
