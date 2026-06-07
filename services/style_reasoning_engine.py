@@ -210,7 +210,9 @@ def _style_asset_rows(limit: int = 120) -> List[Dict[str, Any]]:
         from services.appwrite_proxy import AppwriteProxy
 
         rows = AppwriteProxy().list_documents("style_assets", limit=limit)
-        return [row for row in rows if isinstance(row, dict)]
+        cleaned = [row for row in rows if isinstance(row, dict)]
+        _validate_style_assets(cleaned)
+        return cleaned
     except Exception as exc:  # noqa: BLE001
         logger.info("AHVI_STYLE_ASSETS_UNAVAILABLE err=%s", str(exc)[:120])
         return []
@@ -218,18 +220,48 @@ def _style_asset_rows(limit: int = 120) -> List[Dict[str, Any]]:
 
 _ASSET_MALE_GENDERS = {"male", "man", "men", "mens", "masculine", "m"}
 _ASSET_FEMALE_GENDERS = {"female", "woman", "women", "womens", "feminine", "f"}
-_ASSET_UNISEX_GENDERS = {"", "all", "any", "unisex", "neutral", "genderless"}
+_ASSET_UNISEX_GENDERS = {"all", "any", "unisex", "neutral", "genderless"}
+_FEMININE_ACCESSORY_TERMS = {
+    "earring",
+    "earrings",
+    "necklace",
+    "necklaces",
+    "bracelet",
+    "bracelets",
+    "jewelry",
+    "jewellery",
+    "bangle",
+    "bangles",
+}
+_SAFE_ACCESSORY_TERMS = {
+    "watch",
+    "belt",
+    "loafer",
+    "loafers",
+    "sneaker",
+    "sneakers",
+    "bag",
+    "tote",
+    "sling",
+    "messenger",
+    "pouch",
+    "wallet",
+    "bottle",
+    "overshirt",
+}
 
 
 def _asset_gender(value: Any) -> str:
     raw = _norm(value)
+    if not raw:
+        return "missing"
     if raw in _ASSET_MALE_GENDERS:
         return "male"
     if raw in _ASSET_FEMALE_GENDERS:
         return "female"
     if raw in _ASSET_UNISEX_GENDERS:
         return "unisex"
-    return raw or "unisex"
+    return raw
 
 
 def _prompt_gender_override(query: Any) -> str:
@@ -242,11 +274,21 @@ def _prompt_gender_override(query: Any) -> str:
         " men ", " mens ", " man ", " male ", " masculine ",
         " menswear ", " menswear inspired ",
     )
+    neutral_markers = (
+        " androgynous ", " gender neutral ", " genderless ", " unisex ",
+    )
+    if any(marker in q for marker in neutral_markers):
+        return "unisex"
     if any(marker in q for marker in female_markers):
         return "female"
     if any(marker in q for marker in male_markers):
         return "male"
     return ""
+
+
+def _prompt_allows_feminine_accessory(query: Any) -> bool:
+    q = f" {_norm(query)} "
+    return any(f" {term} " in q for term in _FEMININE_ACCESSORY_TERMS)
 
 
 def _resolve_asset_gender(*, query: Any, user_profile: Any) -> str:
@@ -270,15 +312,43 @@ def _resolve_asset_gender(*, query: Any, user_profile: Any) -> str:
 def _asset_allowed_for_gender(asset: Dict[str, Any], target_gender: str) -> bool:
     asset_genders = _asset_list(asset.get("gender"))
     if not asset_genders:
-        asset_genders = ["unisex"]
+        asset_genders = ["missing"]
     normalized = {_asset_gender(g) for g in asset_genders}
+    blob = " ".join(
+        [
+            _asset_text(asset.get("name")),
+            _asset_text(asset.get("category")),
+            _asset_text(asset.get("subcategory")),
+            " ".join(_asset_list(asset.get("tags"))),
+        ]
+    ).lower()
+    is_feminine_accessory = any(term in blob for term in _FEMININE_ACCESSORY_TERMS)
     if target_gender == "male":
+        if is_feminine_accessory and not bool(asset.get("_allow_feminine_accessory")):
+            return False
         return bool(normalized.intersection({"male", "unisex"}))
     if target_gender == "female":
         return bool(normalized.intersection({"female", "unisex"}))
-    # Unknown users should stay neutral unless the prompt explicitly overrode
-    # gender before this helper was called.
+    # Unknown/unisex users should stay neutral unless the prompt explicitly
+    # asked for feminine accessories.
+    if is_feminine_accessory and not bool(asset.get("_allow_feminine_accessory")):
+        return False
     return bool(normalized.intersection({"unisex"}))
+
+
+def _validate_style_assets(assets: List[Dict[str, Any]]) -> None:
+    required = ("asset_id", "name", "category", "image_url", "gender", "status")
+    for asset in assets:
+        missing = [field for field in required if not _asset_text(asset.get(field))]
+        bad_gender = _asset_gender(asset.get("gender")) not in {"male", "female", "unisex"}
+        if missing or bad_gender:
+            logger.warning(
+                "AHVI_STYLE_ASSET_INVALID asset_id=%s name=%s missing=%s gender=%s",
+                _asset_text(asset.get("asset_id") or asset.get("$id")),
+                _asset_text(asset.get("name")),
+                missing,
+                _asset_text(asset.get("gender")),
+            )
 
 
 def _asset_score(
@@ -335,6 +405,7 @@ def _best_style_asset(
     occasion: str,
     accessory_only: bool = False,
     target_gender: str = "unknown",
+    allow_feminine_accessory: bool = False,
 ) -> Dict[str, Any] | None:
     matches = _best_style_assets(
         assets,
@@ -342,6 +413,7 @@ def _best_style_asset(
         occasion=occasion,
         accessory_only=accessory_only,
         target_gender=target_gender,
+        allow_feminine_accessory=allow_feminine_accessory,
         limit=1,
     )
     return matches[0] if matches else None
@@ -354,10 +426,14 @@ def _best_style_assets(
     occasion: str,
     accessory_only: bool = False,
     target_gender: str = "unknown",
+    allow_feminine_accessory: bool = False,
     limit: int = 3,
 ) -> List[Dict[str, Any]]:
     candidates: List[tuple[int, Dict[str, Any]]] = []
-    for asset in assets:
+    _validate_style_assets([asset for asset in assets if isinstance(asset, dict)])
+    for raw_asset in assets:
+        asset = dict(raw_asset)
+        asset["_allow_feminine_accessory"] = allow_feminine_accessory
         image_url = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
         if not image_url:
             continue
@@ -391,12 +467,21 @@ def _accessory_asset_to_complete_item(asset: Dict[str, Any], direction: Dict[str
     }
 
 
-def _default_complete_the_look(direction: Dict[str, Any], occasion: str) -> List[Dict[str, Any]]:
+def _default_complete_the_look(
+    direction: Dict[str, Any],
+    occasion: str,
+    *,
+    target_gender: str = "unknown",
+) -> List[Dict[str, Any]]:
     archetype = _asset_text(direction.get("archetype")) or "this direction"
-    # Last-resort copy only. Curated style_assets are the source of truth for
-    # gendered accessories; fallback text stays neutral so it does not leak the
-    # same female-coded set into every response.
-    names = ["Clean Finishing Detail", "Practical Carry Piece", "Quiet Accent"]
+    # Last-resort copy only. Curated style_assets are still the source of truth;
+    # these labels stay product-like so the UI never shows abstract placeholders.
+    if target_gender == "male":
+        names = ["Minimal Steel Watch", "Leather Belt", "Canvas Tote"]
+    elif target_gender == "female":
+        names = ["Classic Watch", "Structured Handbag", "Simple Earrings"]
+    else:
+        names = ["Classic Watch", "Canvas Tote", "Leather Belt"]
     return [
         {
             "name": name.title(),
@@ -414,6 +499,7 @@ def _enrich_visual_directions_with_assets(
     *,
     occasion: str | None,
     target_gender: str = "unknown",
+    allow_feminine_accessory: bool = False,
 ) -> List[Dict[str, Any]]:
     if not visual_directions:
         return visual_directions
@@ -429,6 +515,7 @@ def _enrich_visual_directions_with_assets(
                 direction=out,
                 occasion=occasion_text,
                 target_gender=target_gender,
+                allow_feminine_accessory=allow_feminine_accessory,
             )
             if asset:
                 out["image_url"] = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
@@ -443,6 +530,7 @@ def _enrich_visual_directions_with_assets(
                 occasion=occasion_text,
                 accessory_only=True,
                 target_gender=target_gender,
+                allow_feminine_accessory=allow_feminine_accessory,
                 limit=3,
             )
             if accessory_assets:
@@ -451,7 +539,7 @@ def _enrich_visual_directions_with_assets(
                     *[item for item in complete if isinstance(item, dict)],
                 ][:4]
         if not complete:
-            complete = _default_complete_the_look(out, occasion_text)
+            complete = _default_complete_the_look(out, occasion_text, target_gender=target_gender)
         out["complete_the_look"] = complete[:4]
         enriched.append(out)
     logger.info(
@@ -633,7 +721,7 @@ def _fallback_advice(query: str, mode: str, category: str | None) -> str:
         )
     if mode == STYLE_EDUCATION:
         return (
-            "Think of the dress code as a signal, not a costume. Match the room first, then use fit, texture, "
+            "Think of the dress code as context, not a costume. Match the room first, then use fit, texture, "
             "and one deliberate detail to make it feel like you."
         )
     if mode == SHOPPING_ASSIST:
@@ -995,10 +1083,10 @@ User query: {_clean_recursive_prompt(query)}
 You are AHVI's senior stylist — a real human stylist thinking out loud, not a
 fashion database listing templates.
 
-Before recommending any clothing, decide in this order:
+Before recommending any clothing, decide privately in this order:
 1. What impression should the user create in this exact moment?
-2. What social outcome actually matters here?
-3. What styling strategy best fits the moment?
+2. What level of ease, polish, or restraint does the occasion need?
+3. What styling approach best fits the moment?
 4. What styling risk should be avoided, and why?
 5. What atmosphere should the outfit communicate?
 6. What single missing piece would most improve this direction?
@@ -1046,7 +1134,8 @@ the hero, what supports it, the footwear, and the one accent.
 Writing rules for stylist_reasoning:
 - Speak like a stylist explaining a decision. Use phrasing such as
   "This works because...", "I would avoid...", "The priority here is...".
-- Explain the social strategy first, then the clothing logic.
+- Explain the outfit feeling first, then the clothing logic.
+- Avoid internal planning labels; write only the final stylist recommendation.
 - KEEP IT SHORT: 35-60 words for a normal occasion, max 70 for multi-event.
   No markdown, no headings, no "**Core:**" / "**Presentation Layer:**" labels,
   no bullet lists. One tight paragraph.
@@ -1787,6 +1876,7 @@ def _compact_reasoning(text: str, *, multi_event: bool = False) -> str:
     raw = re.sub(r"(?m)^#{1,6}\s*", "", raw)
     raw = re.sub(r"(?m)^\s*[-*•]\s*", "", raw)
     raw = re.sub(r"\s+", " ", raw).strip(" :-•")
+    raw = _scrub_internal_style_language(raw)
     cap = 70 if multi_event else 60
     words = raw.split()
     if len(words) <= cap:
@@ -1801,6 +1891,25 @@ def _compact_reasoning(text: str, *, multi_event: bool = False) -> str:
         len(words), len(compacted.split()), multi_event,
     )
     return compacted
+
+
+def _scrub_internal_style_language(text: str) -> str:
+    out = str(text or "")
+    replacements = [
+        (r"\bthe social outcome is connection\b", "relaxed polish works best"),
+        (r"\bsocial outcome is connection\b", "relaxed polish works best"),
+        (r"\bthe styling strategy is to convey\b", "the look should feel"),
+        (r"\bstyling strategy is to convey\b", "the look should feel"),
+        (r"\bthe styling strategy is\b", "the styling approach is"),
+        (r"\bstyling strategy\b", "styling approach"),
+        (r"\bsocial outcome\b", "impression"),
+        (r"\bwe want to signal\b", "the outfit should show"),
+        (r"\bsignal\b", "show"),
+        (r"\barchetype selection\b", "style direction"),
+    ]
+    for pattern, replacement in replacements:
+        out = re.sub(pattern, replacement, out, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", out).strip()
 
 
 def _coerce_emotion(value: Any, category: str | None) -> str:
@@ -1914,6 +2023,7 @@ def _build_response(
         visual_directions,
         occasion=str(payload.get("occasion") or occasion or category or query),
         target_gender=asset_gender,
+        allow_feminine_accessory=_prompt_allows_feminine_accessory(query),
     )
     try:
         final_confidence = max(0.0, min(1.0, float(payload.get("confidence", confidence))))
