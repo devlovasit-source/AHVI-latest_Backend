@@ -210,7 +210,7 @@ def _style_asset_rows(limit: int = 120) -> List[Dict[str, Any]]:
         from services.appwrite_proxy import AppwriteProxy
 
         rows = AppwriteProxy().list_documents("style_assets", limit=limit)
-        cleaned = [row for row in rows if isinstance(row, dict)]
+        cleaned = [_normalize_style_asset(row) for row in rows if isinstance(row, dict)]
         _validate_style_assets(cleaned)
         return cleaned
     except Exception as exc:  # noqa: BLE001
@@ -285,6 +285,32 @@ def _asset_gender(value: Any) -> str:
     if raw in _ASSET_UNISEX_GENDERS:
         return "unisex"
     return raw
+
+
+def _normalize_style_asset(asset: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(asset)
+    out["asset_id"] = _asset_text(
+        out.get("asset_id") or out.get("assetId") or out.get("id") or out.get("$id")
+    )
+    out["image_url"] = _asset_text(
+        out.get("image_url")
+        or out.get("imageUrl")
+        or out.get("url")
+        or out.get("asset_url")
+        or out.get("asset_path")
+    )
+    out["subcategory"] = _asset_text(
+        out.get("subcategory") or out.get("sub_category") or out.get("subCategory")
+    )
+    gender = _asset_gender(out.get("gender"))
+    if gender in {"male", "female", "unisex"}:
+        out["gender"] = gender
+    if not _asset_text(out.get("status")):
+        out["status"] = "active"
+    for key in ("colors", "archetypes", "occasions", "tags"):
+        if _asset_text(out.get(key)) and not isinstance(out.get(key), list):
+            out[key] = _asset_list(out.get(key))
+    return out
 
 
 def _prompt_gender_override(query: Any) -> str:
@@ -818,8 +844,10 @@ def _asset_allowed_for_gender(asset: Dict[str, Any], target_gender: str) -> bool
 
 def _validate_style_assets(assets: List[Dict[str, Any]]) -> None:
     required = ("asset_id", "name", "category", "image_url", "gender", "status")
+    quality_fields = ("subcategory", "colors", "archetypes", "occasions")
     for asset in assets:
         missing = [field for field in required if not _asset_text(asset.get(field))]
+        weak = [field for field in quality_fields if not _asset_list(asset.get(field)) and not _asset_text(asset.get(field))]
         bad_gender = _asset_gender(asset.get("gender")) not in {"male", "female", "unisex"}
         if missing or bad_gender:
             logger.warning(
@@ -828,6 +856,13 @@ def _validate_style_assets(assets: List[Dict[str, Any]]) -> None:
                 _asset_text(asset.get("name")),
                 missing,
                 _asset_text(asset.get("gender")),
+            )
+        elif weak:
+            logger.info(
+                "AHVI_STYLE_ASSET_WEAK_METADATA asset_id=%s name=%s missing=%s",
+                _asset_text(asset.get("asset_id") or asset.get("$id")),
+                _asset_text(asset.get("name")),
+                weak,
             )
 
 
@@ -2660,6 +2695,41 @@ def _scrub_internal_style_language(text: str) -> str:
     return re.sub(r"\s+", " ", out).strip()
 
 
+_VISIBLE_PLACEHOLDER_REPLACEMENTS = [
+    (r"\bclean shirt\b", "crisp shirt"),
+    (r"\bsimple footwear\b", "polished shoes"),
+    (r"\bminimal straight bottom\b", "streamlined trouser"),
+    (r"\btailored bottom\b", "tailored trouser"),
+    (r"\brelaxed tailored bottom\b", "relaxed tailored trouser"),
+    (r"\bcasual tailored bottom\b", "casual tailored trouser"),
+    (r"\blow-profile footwear\b", "low-profile shoes"),
+    (r"\bclean casual footwear\b", "clean casual shoes"),
+    (r"\bclean supporting pieces\b", "well-chosen supporting pieces"),
+    (r"\bsensitive_occasion\b", "respectful occasion"),
+    (r"\bstyle piece\b", "wardrobe piece"),
+]
+
+
+def _scrub_visible_style_text(text: Any) -> str:
+    out = str(text or "")
+    if not out:
+        return out
+    out = _scrub_internal_style_language(out)
+    for pattern, replacement in _VISIBLE_PLACEHOLDER_REPLACEMENTS:
+        out = re.sub(pattern, replacement, out, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", out).strip()
+
+
+def _scrub_visible_style_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _scrub_visible_style_payload(val) for key, val in value.items()}
+    if isinstance(value, list):
+        return [_scrub_visible_style_payload(item) for item in value]
+    if isinstance(value, str):
+        return _scrub_visible_style_text(value)
+    return value
+
+
 def _coerce_emotion(value: Any, category: str | None) -> str:
     emotion = _norm(value)
     if emotion in {"neutral", "excited", "frustrated", "vulnerable", "professional", "social"}:
@@ -2813,6 +2883,18 @@ def _build_response(
             bool(persona_context.get("style_dna")),
             bool(context.get("wardrobe") or context.get("wardrobe_items")),
         )
+
+    polished_advice = _scrub_visible_style_text(polished_advice)
+    confidence_strategy = _scrub_visible_style_text(confidence_strategy)
+    missing_piece_reasoning = _scrub_visible_style_text(missing_piece_reasoning)
+    visual_directions = _scrub_visible_style_payload(visual_directions)
+    missing_piece = _scrub_visible_style_payload(missing_piece) if missing_piece else None
+    visual_inspiration_board = (
+        _scrub_visible_style_payload(visual_inspiration_board)
+        if visual_inspiration_board
+        else None
+    )
+    what_to_avoid = _scrub_visible_style_payload(what_to_avoid)
 
     return {
         "mode": final_mode,

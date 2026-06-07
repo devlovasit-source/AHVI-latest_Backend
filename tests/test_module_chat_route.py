@@ -1086,6 +1086,39 @@ def test_stylist_advice_response_fallback_is_not_robotic(monkeypatch):
     assert "Color harmony" not in response["message_text"]
 
 
+def test_find_this_grounding_infers_plain_item_metadata():
+    grounded = chat._find_this_grounding(
+        "Find this: Dark Brown Penny Loafers",
+        user_profile={"gender": "male"},
+    )
+
+    assert grounded["item_name"] == "Dark Brown Penny Loafers"
+    assert grounded["category"] == "footwear"
+    assert grounded["subcategory"] == "loafers"
+    assert grounded["color"] == "dark brown"
+    assert grounded["gender"] == "men"
+    assert grounded["search_query"] == "Dark Brown Penny Loafers men"
+
+
+def test_find_this_grounding_preserves_structured_metadata():
+    response = chat._shopping_intent_response(
+        "Find this: Dark Brown Penny Loafers | category=footwear | "
+        "subcategory=loafers | color=dark brown | occasion=startup_office | "
+        "archetype=Modern Operator",
+        user_profile={"gender": "male"},
+    )
+
+    block = response["data"]["shopping_intent"]
+    assert block["item_name"] == "Dark Brown Penny Loafers"
+    assert block["category"] == "footwear"
+    assert block["subcategory"] == "loafers"
+    assert block["color"] == "dark brown"
+    assert block["occasion"] == "startup_office"
+    assert block["archetype"] == "Modern Operator"
+    assert block["search_query"] == "Dark Brown Penny Loafers men"
+    assert response["meta"]["find_this_grounded"] is True
+
+
 def test_calendar_event_intents_do_not_route_to_style():
     from brain.intent_engine import detect_intent
 

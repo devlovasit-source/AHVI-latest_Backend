@@ -69,6 +69,29 @@ def test_visual_directions_get_assets_and_complete_the_look(monkeypatch):
     assert directions[0]["complete_the_look"][0]["image_url"] == "https://cdn.test/tote.png"
 
 
+def test_style_asset_metadata_normalizer_accepts_common_aliases():
+    asset = style_reasoning_engine._normalize_style_asset(
+        {
+            "id": "asset-1",
+            "name": "Brown Suede Loafer",
+            "category": "footwear",
+            "sub_category": "loafers",
+            "imageUrl": "https://cdn.test/loafer.png",
+            "gender": "men",
+            "colors": "brown|tan",
+            "archetypes": "Refined Weekend,Modern Professional",
+            "occasions": "coffee date|office",
+        }
+    )
+
+    assert asset["asset_id"] == "asset-1"
+    assert asset["image_url"] == "https://cdn.test/loafer.png"
+    assert asset["subcategory"] == "loafers"
+    assert asset["gender"] == "male"
+    assert asset["colors"] == ["brown", "tan"]
+    assert "refined weekend" in asset["archetypes"]
+
+
 def test_visual_assets_filter_complete_the_look_by_profile_gender(monkeypatch):
     monkeypatch.setattr(
         style_reasoning_engine,
@@ -597,6 +620,34 @@ def test_internal_reasoning_language_is_scrubbed():
     assert "social outcome" not in lowered
     assert "styling strategy" not in lowered
     assert "signal" not in lowered
+
+
+def test_visible_placeholder_terms_are_scrubbed():
+    payload = {
+        "description": "clean shirt with minimal straight bottom and simple footwear",
+        "items": ["clean shirt", "minimal straight bottom", "simple footwear"],
+        "reason": "sensitive_occasion calls for clean supporting pieces",
+    }
+
+    scrubbed = style_reasoning_engine._scrub_visible_style_payload(payload)
+    blob = " ".join(
+        [
+            scrubbed["description"],
+            " ".join(scrubbed["items"]),
+            scrubbed["reason"],
+        ]
+    ).lower()
+
+    for placeholder in [
+        "clean shirt",
+        "minimal straight bottom",
+        "simple footwear",
+        "sensitive_occasion",
+        "clean supporting pieces",
+    ]:
+        assert placeholder not in blob
+    assert "crisp shirt" in blob
+    assert "polished shoes" in blob
 
 
 def test_daily_wear_cards_expose_composition_and_style_dna_metadata():

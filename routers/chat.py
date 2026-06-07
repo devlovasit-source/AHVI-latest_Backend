@@ -662,28 +662,153 @@ def _is_find_this_request(text: str) -> bool:
     )
 
 
-def _shopping_intent_response(query: str) -> Dict[str, Any]:
-    """Safe placeholder for the Find This CTA until product search ships.
-    Routes the intent (shopping_assist) without falling back to generic
-    style advice."""
-    raw = str(query or "").strip()
-    # Extract the item after "find this:" / "find similar to" etc.
-    item = raw
-    for pref in ("find this:", "find this", "find similar to", "find similar",
-                 "shop this", "buy similar to", "buy similar"):
+_FIND_THIS_COLOR_WORDS = {
+    "black", "white", "brown", "tan", "navy", "blue", "grey", "gray", "cream",
+    "beige", "olive", "green", "burgundy", "maroon", "charcoal", "silver",
+    "gold", "ivory", "stone", "khaki", "dark", "light",
+}
+
+_FIND_THIS_CATEGORY_RULES = [
+    ("footwear", "loafers", ("loafer", "loafers", "penny loafer", "penny loafers")),
+    ("footwear", "sneakers", ("sneaker", "sneakers", "trainer", "trainers")),
+    ("footwear", "boots", ("boot", "boots", "chelsea boot", "chelsea boots")),
+    ("footwear", "formal shoes", ("derby", "derbies", "oxford shoe", "formal shoe", "formal shoes")),
+    ("outerwear", "blazer", ("blazer", "sport coat", "jacket")),
+    ("outerwear", "overshirt", ("overshirt", "shacket", "utility layer")),
+    ("top", "shirt", ("shirt", "button down", "button-down", "oxford")),
+    ("top", "knitwear", ("knit", "sweater", "jumper", "polo")),
+    ("bottom", "jeans", ("jean", "jeans", "denim")),
+    ("bottom", "trousers", ("trouser", "trousers", "pants", "chinos", "chino")),
+    ("accessory", "watch", ("watch",)),
+    ("accessory", "belt", ("belt",)),
+    ("accessory", "bag", ("bag", "tote", "sling", "pouch")),
+    ("accessory", "jewelry", ("earring", "earrings", "necklace", "bracelet", "ring")),
+]
+
+
+def _find_this_extract_item(raw: str) -> str:
+    item = str(raw or "").strip()
+    for pref in (
+        "find this:",
+        "find this",
+        "find similar to",
+        "find similar",
+        "shop this",
+        "buy similar to",
+        "buy similar",
+    ):
         if item.lower().startswith(pref):
             item = item[len(pref):].strip(" :-")
             break
     if "find this:" in item.lower():
         item = item.lower().split("find this:", 1)[1].strip()
-    item = item or "this piece"
+    # Strip structured suffix; it is parsed separately.
+    item = re.split(r"\s+\|\s+", item, maxsplit=1)[0].strip()
+    return item or "this piece"
+
+
+def _find_this_parse_meta(raw: str) -> Dict[str, str]:
+    text = str(raw or "")
+    meta: Dict[str, str] = {}
+    for part in re.split(r"\s+\|\s+", text):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        key = re.sub(r"[^a-z0-9_]+", "_", key.strip().lower()).strip("_")
+        value = value.strip()
+        if key and value:
+            meta[key] = value
+    return meta
+
+
+def _find_this_infer_category(item_name: str, meta: Dict[str, str]) -> tuple[str, str]:
+    category = str(meta.get("category") or "").strip()
+    subcategory = str(meta.get("subcategory") or meta.get("sub_category") or "").strip()
+    if category and subcategory:
+        return category, subcategory
+    name = str(item_name or "").lower()
+    for cat, sub, markers in _FIND_THIS_CATEGORY_RULES:
+        if any(marker in name for marker in markers):
+            return category or cat, subcategory or sub
+    return category or "fashion", subcategory or ""
+
+
+def _find_this_infer_color(item_name: str, meta: Dict[str, str]) -> str:
+    if meta.get("color"):
+        return meta["color"]
+    tokens = re.findall(r"[a-z0-9]+", str(item_name or "").lower())
+    colors: List[str] = []
+    for token in tokens:
+        if token in _FIND_THIS_COLOR_WORDS:
+            colors.append(token)
+    # Preserve useful compounds like "dark brown".
+    if len(colors) >= 2 and colors[0] in {"dark", "light"}:
+        return f"{colors[0]} {colors[1]}"
+    return colors[0] if colors else ""
+
+
+def _find_this_profile_gender(user_profile: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(user_profile, dict):
+        return ""
+    for key in ("style_gender", "gender", "preferred_gender", "target_gender"):
+        value = str(user_profile.get(key) or "").strip().lower()
+        if value in {"male", "man", "men", "mens", "masculine"}:
+            return "men"
+        if value in {"female", "woman", "women", "womens", "feminine"}:
+            return "women"
+    return ""
+
+
+def _find_this_grounding(query: str, user_profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    raw = str(query or "").strip()
+    meta = _find_this_parse_meta(raw)
+    item_name = meta.get("item_name") or meta.get("name") or _find_this_extract_item(raw)
+    category, subcategory = _find_this_infer_category(item_name, meta)
+    color = _find_this_infer_color(item_name, meta)
+    occasion = str(meta.get("occasion") or "").strip()
+    archetype = str(meta.get("archetype") or meta.get("style_archetype") or "").strip()
+    gender = str(meta.get("gender") or _find_this_profile_gender(user_profile)).strip()
+    item_has_color = bool(color and color.lower() in item_name.lower())
+    search_parts = ([] if item_has_color else [color]) + [item_name, gender]
+    search_query = " ".join(part for part in search_parts if part).strip()
+    search_query = re.sub(r"\s+", " ", search_query)
+    grounding = {
+        "item_name": item_name,
+        "category": category,
+        "subcategory": subcategory,
+        "color": color,
+        "occasion": occasion,
+        "archetype": archetype,
+        "gender": gender,
+        "search_query": search_query or item_name,
+    }
+    logger.info(
+        "AHVI_FIND_THIS_GROUNDED item=%r category=%s subcategory=%s color=%s archetype=%r occasion=%r gender=%s",
+        item_name,
+        category,
+        subcategory,
+        color,
+        archetype,
+        occasion,
+        gender,
+    )
+    return grounding
+
+
+def _shopping_intent_response(query: str, user_profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Safe placeholder for the Find This CTA until product search ships.
+    Routes the intent (shopping_assist) without falling back to generic
+    style advice."""
+    grounding = _find_this_grounding(query, user_profile=user_profile)
+    item = grounding["item_name"]
     block = {
         "type": "shopping_intent",
-        "query": item,
+        "query": grounding["search_query"],
+        **grounding,
         "message": f"I'll help you find similar options for {item}.",
         "status": "pending_catalog",
     }
-    logger.info("AHVI_FIND_THIS_ROUTE item=%r status=pending_catalog", item)
+    logger.info("AHVI_FIND_THIS_ROUTE item=%r search_query=%r status=pending_catalog", item, grounding["search_query"])
     msg = block["message"]
     return {
         "success": True,
@@ -699,8 +824,8 @@ def _shopping_intent_response(query: str) -> Dict[str, Any]:
         "blocks": [block],
         "chips": [],
         "board_ids": "",
-        "data": {"shopping_intent": block, "intent": "shopping_assist"},
-        "meta": {"mode": "shopping_intent", "status": "pending_catalog"},
+        "data": {"shopping_intent": block, "find_this": grounding, "intent": "shopping_assist"},
+        "meta": {"mode": "shopping_intent", "status": "pending_catalog", "find_this_grounded": True},
         "audio_job_id": "offline",
     }
 
@@ -4139,7 +4264,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # Find This CTA (from missing-piece / inspiration cards). Route to a
     # shopping_intent placeholder — never generic style advice.
     if _is_find_this_request(english_input):
-        response = _shopping_intent_response(english_input)
+        response = _shopping_intent_response(english_input, user_profile=effective_user_profile)
         if not cache_visual_boards:
             _CHAT_CACHE.set(cache_key, response)
         return response
