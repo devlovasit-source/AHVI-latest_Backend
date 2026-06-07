@@ -418,6 +418,118 @@ def test_complete_the_look_fallback_uses_product_like_labels(monkeypatch):
     assert "Quiet Accent" not in names
 
 
+def test_visual_card_copy_is_rewritten_from_components(monkeypatch):
+    monkeypatch.setattr(style_reasoning_engine, "_style_asset_rows", lambda limit=120: [])
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Smart Casual Edge",
+                "title": "Relaxed Polish",
+                "hero_piece": "Unlined Navy Blazer",
+                "items": ["Unlined Navy Blazer", "White Crew-Neck T-Shirt", "Dark Wash Jeans", "Cognac Loafers"],
+                "description": "A silk blouse, midi skirt, and heels keep this soft.",
+                "why_it_works": "The blouse and skirt bring feminine movement.",
+                "styling_tip": "Let the skirt sit below the knee.",
+            }
+        ],
+        occasion="coffee date",
+        target_gender="male",
+    )
+
+    card = directions[0]
+    combined = " ".join([card["description"], card["why_it_works"], card["styling_tip"]]).lower()
+    for blocked in ["blouse", "skirt", "heels"]:
+        assert blocked not in combined
+    assert "unlined navy blazer" in card["hero_piece"].lower()
+    assert "unlined navy blazer" in " ".join(card["items"]).lower()
+
+
+def test_visual_card_missing_piece_does_not_duplicate_hero(monkeypatch):
+    monkeypatch.setattr(style_reasoning_engine, "_style_asset_rows", lambda limit=120: [])
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Refined Weekend",
+                "title": "Knit Ease",
+                "hero_piece": "Fine-Gauge Knit Sweater",
+                "items": ["Fine-Gauge Knit Sweater", "Khaki Trousers", "Suede Loafers"],
+                "missing_piece": {
+                    "name": "Soft Knit Sweater",
+                    "category": "top",
+                    "reason": "Adds softness.",
+                    "unlocks": ["Refined Weekend"],
+                },
+            }
+        ],
+        occasion="coffee date",
+        target_gender="male",
+    )
+
+    missing = directions[0]["missing_piece"]
+    assert missing["name"] != "Soft Knit Sweater"
+    assert "knit sweater" not in missing["name"].lower()
+
+
+def test_top_level_missing_piece_dedupes_against_visual_directions():
+    directions = [
+        {
+            "title": "Knit Ease",
+            "hero_piece": "Fine-Gauge Knit Sweater",
+            "items": ["Fine-Gauge Knit Sweater", "Khaki Trousers", "Suede Loafers"],
+        }
+    ]
+
+    missing = style_reasoning_engine._dedupe_missing_piece_against_directions(
+        {
+            "name": "Soft Knit Sweater",
+            "category": "top",
+            "reason": "Adds softness.",
+            "unlocks": ["Coffee Date"],
+        },
+        directions,
+        occasion="coffee date",
+        target_gender="male",
+    )
+
+    assert missing is not None
+    assert missing["name"] != "Soft Knit Sweater"
+    assert "knit sweater" not in missing["name"].lower()
+
+
+def test_complete_the_look_varies_across_three_cards(monkeypatch):
+    monkeypatch.setattr(style_reasoning_engine, "_style_asset_rows", lambda limit=120: [])
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Smart Casual Edge",
+                "title": "Blazer Denim",
+                "hero_piece": "Navy Blazer",
+                "items": ["Navy Blazer", "White T-Shirt", "Dark Wash Jeans", "Cognac Loafers"],
+            },
+            {
+                "archetype": "Refined Weekend",
+                "title": "Knit Ease",
+                "hero_piece": "Fine-Gauge Knit Sweater",
+                "items": ["Fine-Gauge Knit Sweater", "Khaki Trousers", "Suede Loafers"],
+            },
+            {
+                "archetype": "Power Casual",
+                "title": "Tee Layer",
+                "hero_piece": "White T-Shirt",
+                "items": ["White T-Shirt", "Navy Chinos", "Clean Sneakers"],
+            },
+        ],
+        occasion="coffee date",
+        target_gender="male",
+    )
+
+    sets = [tuple(item["name"] for item in card["complete_the_look"]) for card in directions]
+    assert len(set(sets)) == 3
+
+
 def test_internal_reasoning_language_is_scrubbed():
     text = (
         "For a coffee date, the social outcome is connection. "

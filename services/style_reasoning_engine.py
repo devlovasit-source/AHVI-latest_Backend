@@ -355,6 +355,211 @@ def _safe_component_fallback(target_gender: str) -> List[str]:
     return ["clean shirt", "tailored trouser", "polished footwear"]
 
 
+_GARMENT_CATEGORY_TERMS: Dict[str, set[str]] = {
+    "top": {
+        "shirt", "shirts", "tee", "tshirt", "t-shirt", "polo", "knit", "sweater",
+        "jumper", "blouse", "top", "button", "button-down", "buttondown", "oxford",
+        "linen", "crewneck", "crew-neck",
+    },
+    "bottom": {
+        "trouser", "trousers", "pant", "pants", "jean", "jeans", "denim", "chino",
+        "chinos", "skirt", "shorts",
+    },
+    "footwear": {
+        "shoe", "shoes", "loafer", "loafers", "sneaker", "sneakers", "boot", "boots",
+        "heel", "heels", "sandal", "sandals", "formal shoes",
+    },
+    "outerwear": {
+        "blazer", "jacket", "overshirt", "coat", "cardigan", "shacket", "layer",
+        "outerwear",
+    },
+    "accessory": {
+        "watch", "belt", "bag", "tote", "sling", "wallet", "bracelet", "necklace",
+        "earring", "earrings", "ring", "scarf", "cap", "sunglasses",
+    },
+    "dress": {"dress", "dresses", "gown", "gowns", "saree", "sari", "lehenga"},
+}
+
+_CATEGORY_CANONICAL = {
+    "top": "top",
+    "shirt": "top",
+    "bottom": "bottom",
+    "pant": "bottom",
+    "pants": "bottom",
+    "trouser": "bottom",
+    "trousers": "bottom",
+    "footwear": "footwear",
+    "shoe": "footwear",
+    "shoes": "footwear",
+    "outerwear": "outerwear",
+    "layer": "outerwear",
+    "accessory": "accessory",
+    "jewelry": "accessory",
+    "jewellery": "accessory",
+    "dress": "dress",
+}
+
+_COFFEE_DATE_MISSING_FALLBACKS = [
+    "dark wash jeans",
+    "neutral loafers",
+    "soft overshirt",
+    "clean knit polo",
+]
+
+
+def _style_tokens(value: Any) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", _norm(value)))
+
+
+def _style_category(value: Any) -> str:
+    text = _norm(value)
+    tokens = _style_tokens(text)
+    for raw, canonical in _CATEGORY_CANONICAL.items():
+        if raw in tokens:
+            return canonical
+    for category, terms in _GARMENT_CATEGORY_TERMS.items():
+        if tokens.intersection({t.replace("-", "") for t in terms} | terms):
+            return category
+    return ""
+
+
+def _direction_component_categories(components: List[str]) -> set[str]:
+    return {cat for cat in (_style_category(item) for item in components) if cat}
+
+
+def _mentioned_garment_categories(text: Any) -> set[str]:
+    tokens = _style_tokens(text)
+    found: set[str] = set()
+    for category, terms in _GARMENT_CATEGORY_TERMS.items():
+        normalized_terms = {t.replace("-", "") for t in terms} | terms
+        if tokens.intersection(normalized_terms):
+            found.add(category)
+    return found
+
+
+def _style_similarity(a: Any, b: Any) -> float:
+    at = _style_tokens(a)
+    bt = _style_tokens(b)
+    if not at or not bt:
+        return 0.0
+    overlap = len(at.intersection(bt))
+    return overlap / max(1, min(len(at), len(bt)))
+
+
+def _style_items_similar(a: Any, b: Any) -> bool:
+    ac = _style_category(a)
+    bc = _style_category(b)
+    if ac and bc and ac == bc and _style_similarity(a, b) >= 0.45:
+        return True
+    return _style_similarity(a, b) >= 0.75
+
+
+def _component_blob(components: List[str]) -> str:
+    return ", ".join(str(item).strip() for item in components if str(item).strip())
+
+
+def _direction_description_from_source(direction: Dict[str, Any], occasion: str = "") -> str:
+    components = _safe_list(direction.get("items") or direction.get("pieces"), limit=6)
+    hero = _asset_text(direction.get("hero_piece")) or (components[0] if components else "the hero piece")
+    support = components[1] if len(components) > 1 else "clean supporting pieces"
+    occ = _asset_text(occasion) or "this setting"
+    return f"{hero} leads the look, with {support} keeping it balanced for {occ}."
+
+
+def _direction_why_from_source(direction: Dict[str, Any], occasion: str = "") -> str:
+    components = _safe_list(direction.get("items") or direction.get("pieces"), limit=6)
+    hero = _asset_text(direction.get("hero_piece")) or (components[0] if components else "the main piece")
+    support = components[1] if len(components) > 1 else "the rest of the outfit"
+    occ = _asset_text(occasion) or "the moment"
+    return (
+        f"For {occ}, {hero.lower()} gives the outfit a clear point of view. "
+        f"{support} keeps it wearable, so the final look feels intentional without becoming forced."
+    )
+
+
+def _direction_tip_from_source(direction: Dict[str, Any]) -> str:
+    components = " ".join(_safe_list(direction.get("items") or direction.get("pieces"), limit=6)).lower()
+    if "blazer" in components:
+        return "Keep the blazer open for an easier finish."
+    if "knit" in components or "sweater" in components:
+        return "Keep the knit neat at the hem."
+    if "tee" in components or "t-shirt" in components:
+        return "Choose a clean neckline and simple layers."
+    if "shirt" in components:
+        return "Roll sleeves once for a relaxed finish."
+    return "Keep one detail polished and the rest easy."
+
+
+def _direction_text_contradicts_components(text: Any, components: List[str]) -> bool:
+    if not _asset_text(text):
+        return False
+    mentioned = _mentioned_garment_categories(text)
+    if not mentioned:
+        return False
+    allowed = _direction_component_categories(components)
+    # Accessories are allowed in copy when Complete the Look exists later; core
+    # garment contradictions are what break user trust.
+    core_mentioned = mentioned - {"accessory"}
+    core_allowed = allowed - {"accessory"}
+    return bool(core_mentioned - core_allowed)
+
+
+def _direction_text_disallowed_for_gender(
+    text: Any,
+    *,
+    target_gender: str,
+    allow_feminine: bool = False,
+) -> bool:
+    if not _asset_text(text):
+        return False
+    return not _style_text_allowed_for_gender(text, target_gender, allow_feminine=allow_feminine)
+
+
+def _missing_piece_duplicate_reason(
+    missing_name: Any,
+    *,
+    hero_piece: Any,
+    components: List[str],
+) -> str:
+    name = _asset_text(missing_name)
+    if not name:
+        return "empty"
+    if _style_items_similar(name, hero_piece):
+        return "hero_duplicate"
+    missing_category = _style_category(name)
+    hero_category = _style_category(hero_piece)
+    if missing_category and hero_category and missing_category == hero_category and _style_similarity(name, hero_piece) >= 0.35:
+        return "hero_same_category"
+    for component in components:
+        if _style_items_similar(name, component):
+            return "component_duplicate"
+        comp_category = _style_category(component)
+        if missing_category and comp_category and missing_category == comp_category and _style_similarity(name, component) >= 0.35:
+            return "component_same_category"
+    return ""
+
+
+def _fallback_missing_piece_for_direction(
+    direction: Dict[str, Any],
+    *,
+    occasion: str = "",
+    target_gender: str = "unknown",
+    allow_feminine: bool = False,
+) -> str:
+    components = _safe_list(direction.get("items") or direction.get("pieces"), limit=6)
+    hero = _asset_text(direction.get("hero_piece"))
+    if "coffee" in _norm(occasion):
+        candidates = _COFFEE_DATE_MISSING_FALLBACKS
+    else:
+        candidates = ["clean overshirt", "simple watch", "neutral loafers", "structured belt"]
+    for candidate in candidates:
+        if not _style_text_allowed_for_gender(candidate, target_gender, allow_feminine=allow_feminine):
+            continue
+        if not _missing_piece_duplicate_reason(candidate, hero_piece=hero, components=components):
+            return candidate
+    return ""
+
+
 def _sanitize_direction_for_gender(
     direction: Dict[str, Any],
     *,
@@ -573,21 +778,96 @@ def _accessory_asset_to_complete_item(asset: Dict[str, Any], direction: Dict[str
     }
 
 
+def _complete_item_allowed_for_gender(
+    item: Dict[str, Any],
+    *,
+    target_gender: str,
+    allow_feminine: bool = False,
+) -> bool:
+    blob = " ".join(
+        [
+            _asset_text(item.get("name")),
+            _asset_text(item.get("category")),
+            _asset_text(item.get("reason")),
+            " ".join(_safe_list(item.get("unlocks"), limit=6)),
+        ]
+    )
+    return _style_text_allowed_for_gender(blob, target_gender, allow_feminine=allow_feminine)
+
+
+def _sanitize_complete_the_look(
+    items: List[Any],
+    *,
+    target_gender: str,
+    allow_feminine: bool = False,
+    limit: int = 3,
+) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for raw in items or []:
+        if not isinstance(raw, dict):
+            continue
+        name = _asset_text(raw.get("name") or raw.get("title"))
+        if not name:
+            continue
+        key = _norm(name)
+        if key in seen:
+            continue
+        item = dict(raw)
+        item["name"] = name
+        if not _complete_item_allowed_for_gender(
+            item,
+            target_gender=target_gender,
+            allow_feminine=allow_feminine,
+        ):
+            continue
+        seen.add(key)
+        out.append(item)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _default_complete_the_look(
     direction: Dict[str, Any],
     occasion: str,
     *,
     target_gender: str = "unknown",
+    index: int = 0,
 ) -> List[Dict[str, Any]]:
     archetype = _asset_text(direction.get("archetype")) or "this direction"
     # Last-resort copy only. Curated style_assets are still the source of truth;
     # these labels stay product-like so the UI never shows abstract placeholders.
-    if target_gender == "male":
-        names = ["Minimal Steel Watch", "Leather Belt", "Canvas Tote"]
-    elif target_gender == "female":
-        names = ["Classic Watch", "Structured Handbag", "Simple Earrings"]
+    component_blob = " ".join(_safe_list(direction.get("items") or direction.get("pieces"), limit=8)).lower()
+    occ = _norm(occasion)
+    if target_gender == "female":
+        pools = [
+            ["Classic Watch", "Structured Handbag", "Delicate Earrings"],
+            ["Slim Bracelet", "Soft Shoulder Bag", "Neutral Flats"],
+            ["Minimal Necklace", "Compact Handbag", "Polished Sandals"],
+        ]
+    elif target_gender == "male":
+        if "funeral" in occ or "memorial" in occ:
+            pools = [["Black Leather Belt", "Formal Black Shoes", "Simple Steel Watch"]]
+        elif "blazer" in component_blob and ("jean" in component_blob or "denim" in component_blob):
+            pools = [["Minimal Steel Watch", "Brown Leather Belt", "Cognac Loafers"]]
+        elif "knit" in component_blob or "sweater" in component_blob:
+            pools = [["Suede Belt", "Clean Sneakers", "Soft Overshirt"]]
+        elif "tee" in component_blob or "t-shirt" in component_blob:
+            pools = [["Casual Watch", "Light Overshirt", "Minimal Sling Bag"]]
+        else:
+            pools = [
+                ["Minimal Steel Watch", "Leather Belt", "Canvas Tote"],
+                ["Leather Strap Watch", "Suede Belt", "Clean Sneakers"],
+                ["Simple Watch", "Casual Jacket", "Minimal Sling Bag"],
+            ]
     else:
-        names = ["Classic Watch", "Canvas Tote", "Leather Belt"]
+        pools = [
+            ["Classic Watch", "Canvas Tote", "Leather Belt"],
+            ["Clean Sneakers", "Light Overshirt", "Minimal Bag"],
+            ["Simple Watch", "Neutral Loafers", "Soft Layer"],
+        ]
+    names = pools[index % len(pools)]
     return [
         {
             "name": name.title(),
@@ -612,7 +892,7 @@ def _enrich_visual_directions_with_assets(
     assets = _style_asset_rows()
     occasion_text = _asset_text(occasion)
     enriched: List[Dict[str, Any]] = []
-    for direction in visual_directions:
+    for idx, direction in enumerate(visual_directions):
         out = _sanitize_direction_for_gender(
             dict(direction),
             target_gender=target_gender,
@@ -633,6 +913,12 @@ def _enrich_visual_directions_with_assets(
         complete = out.get("complete_the_look")
         if not isinstance(complete, list) or not complete:
             complete = []
+        complete = _sanitize_complete_the_look(
+            complete,
+            target_gender=target_gender,
+            allow_feminine=allow_feminine_accessory,
+            limit=3,
+        )
         if assets:
             accessory_assets = _best_style_assets(
                 assets,
@@ -644,13 +930,29 @@ def _enrich_visual_directions_with_assets(
                 limit=3,
             )
             if accessory_assets:
-                complete = [
+                complete = _sanitize_complete_the_look(
+                    [
                     *[_accessory_asset_to_complete_item(asset, out) for asset in accessory_assets],
                     *[item for item in complete if isinstance(item, dict)],
-                ][:4]
+                    ],
+                    target_gender=target_gender,
+                    allow_feminine=allow_feminine_accessory,
+                    limit=3,
+                )
         if not complete:
-            complete = _default_complete_the_look(out, occasion_text, target_gender=target_gender)
-        out["complete_the_look"] = complete[:4]
+            complete = _default_complete_the_look(
+                out,
+                occasion_text,
+                target_gender=target_gender,
+                index=idx,
+            )
+        out["complete_the_look"] = complete[:3]
+        out = _validate_visual_direction_consistency(
+            out,
+            occasion=occasion_text,
+            target_gender=target_gender,
+            allow_feminine=allow_feminine_accessory,
+        )
         enriched.append(out)
     logger.info(
         "AHVI_VISUAL_ASSETS_ENRICHED directions=%d assets=%d with_images=%d gender=%s",
@@ -1383,6 +1685,8 @@ def _normalize_direction(value: Any, fallback: Dict[str, Any]) -> Dict[str, Any]
         "board_brief": item.get("board_brief") if isinstance(item.get("board_brief"), dict) else {},
         "style_note": style_note,
         "styling_tip": style_note[:80],
+        "missing_piece": item.get("missing_piece") if isinstance(item.get("missing_piece"), dict) else {},
+        "complete_the_look": item.get("complete_the_look") if isinstance(item.get("complete_the_look"), list) else [],
         "archetype_reasoning": str(item.get("archetype_reasoning") or "").strip(),
         "dna_alignment": str(item.get("dna_alignment") or "").strip(),
         "wardrobe_alignment": str(item.get("wardrobe_alignment") or "").strip(),
@@ -1409,6 +1713,92 @@ def _ensure_direction_logic(direction: Dict[str, Any]) -> Dict[str, Any]:
     if not direction.get("strategy"):
         direction["strategy"] = str(direction.get("style_note") or "").strip()
     return direction
+
+
+def _validate_visual_direction_consistency(
+    direction: Dict[str, Any],
+    *,
+    occasion: str = "",
+    target_gender: str = "unknown",
+    allow_feminine: bool = False,
+) -> Dict[str, Any]:
+    out = dict(direction)
+    components = _safe_list(out.get("items") or out.get("pieces"), limit=6)
+    if not components:
+        components = _safe_component_fallback(target_gender)
+    hero = _asset_text(out.get("hero_piece"))
+    if not hero or not any(_style_items_similar(hero, item) for item in components):
+        # The visual card has one source object. If Gemini supplied a hero that
+        # is not actually represented in the component list, promote the first
+        # component instead of letting the card contradict itself.
+        hero = components[0]
+    out["hero_piece"] = hero
+    out["items"] = components
+    out["pieces"] = components
+
+    rewritten_fields: List[str] = []
+    if _direction_text_contradicts_components(out.get("description"), components) or _direction_text_disallowed_for_gender(
+        out.get("description"), target_gender=target_gender, allow_feminine=allow_feminine
+    ):
+        out["description"] = _direction_description_from_source(out, occasion)
+        rewritten_fields.append("description")
+    if _direction_text_contradicts_components(out.get("why_it_works"), components) or _direction_text_disallowed_for_gender(
+        out.get("why_it_works"), target_gender=target_gender, allow_feminine=allow_feminine
+    ):
+        out["why_it_works"] = _direction_why_from_source(out, occasion)
+        rewritten_fields.append("why_it_works")
+    if _direction_text_contradicts_components(out.get("why_this_works"), components) or _direction_text_disallowed_for_gender(
+        out.get("why_this_works"), target_gender=target_gender, allow_feminine=allow_feminine
+    ):
+        out["why_this_works"] = out.get("why_it_works") or _direction_why_from_source(out, occasion)
+        rewritten_fields.append("why_this_works")
+    if not _asset_text(out.get("description")):
+        out["description"] = _direction_description_from_source(out, occasion)
+    if not _asset_text(out.get("why_it_works")):
+        out["why_it_works"] = _direction_why_from_source(out, occasion)
+    if not _asset_text(out.get("why_this_works")):
+        out["why_this_works"] = out.get("why_it_works") or _direction_why_from_source(out, occasion)
+
+    tip = _asset_text(out.get("styling_tip") or out.get("style_note"))
+    if (
+        _direction_text_contradicts_components(tip, components)
+        or _direction_text_disallowed_for_gender(tip, target_gender=target_gender, allow_feminine=allow_feminine)
+        or not tip
+    ):
+        tip = _direction_tip_from_source(out)
+    out["styling_tip"] = tip[:80]
+    out["style_note"] = out["styling_tip"]
+
+    mp = out.get("missing_piece")
+    if isinstance(mp, dict) and _asset_text(mp.get("name")):
+        name = _asset_text(mp.get("name"))
+        reason = _missing_piece_duplicate_reason(name, hero_piece=hero, components=components)
+        if reason or not _style_text_allowed_for_gender(name, target_gender, allow_feminine=allow_feminine):
+            replacement = _fallback_missing_piece_for_direction(
+                out,
+                occasion=occasion,
+                target_gender=target_gender,
+                allow_feminine=allow_feminine,
+            )
+            if replacement:
+                out["missing_piece"] = {
+                    "name": replacement.title(),
+                    "category": _style_category(replacement) or "style piece",
+                    "reason": f"Adds a useful layer to {out.get('archetype') or out.get('title') or 'this look'}.",
+                    "unlocks": [out.get("archetype") or out.get("title") or "Style direction"],
+                }
+            else:
+                out.pop("missing_piece", None)
+            rewritten_fields.append(f"missing_piece:{reason or 'gender'}")
+
+    if rewritten_fields:
+        logger.info(
+            "AHVI_VISUAL_DIRECTION_CONSISTENCY_REWRITTEN title=%r fields=%s components=%s",
+            out.get("title"),
+            rewritten_fields,
+            components,
+        )
+    return out
 
 
 def _normalize_visual_directions(
@@ -1953,6 +2343,53 @@ def _enrich_missing_piece_with_asset(
     return out
 
 
+def _dedupe_missing_piece_against_directions(
+    missing_piece: Dict[str, Any] | None,
+    visual_directions: List[Dict[str, Any]],
+    *,
+    occasion: str = "",
+    target_gender: str = "unknown",
+    allow_feminine: bool = False,
+) -> Dict[str, Any] | None:
+    if not missing_piece:
+        return None
+    name = _asset_text(missing_piece.get("name"))
+    if not name:
+        return None
+    for direction in visual_directions or []:
+        components = _safe_list(direction.get("items") or direction.get("pieces"), limit=8)
+        reason = _missing_piece_duplicate_reason(
+            name,
+            hero_piece=direction.get("hero_piece"),
+            components=components,
+        )
+        if reason:
+            replacement = _fallback_missing_piece_for_direction(
+                direction,
+                occasion=occasion,
+                target_gender=target_gender,
+                allow_feminine=allow_feminine,
+            )
+            if replacement:
+                out = dict(missing_piece)
+                out["name"] = replacement.title()
+                out["category"] = _style_category(replacement) or out.get("category") or "style piece"
+                out["reason"] = out.get("reason") or "Adds a useful missing piece without duplicating the outfit."
+                out.pop("image_url", None)
+                out.pop("imageUrl", None)
+                out.pop("asset_id", None)
+                logger.info(
+                    "AHVI_MISSING_PIECE_DEDUPED old=%r new=%r reason=%s",
+                    name,
+                    replacement,
+                    reason,
+                )
+                return out
+            logger.info("AHVI_MISSING_PIECE_DROPPED_DUPLICATE name=%r reason=%s", name, reason)
+            return None
+    return missing_piece
+
+
 def _build_visual_inspiration_board(
     payload: Dict[str, Any],
     visual_directions: List[Dict[str, Any]],
@@ -2180,6 +2617,20 @@ def _build_response(
         target_gender=asset_gender,
         allow_feminine=allow_feminine_style,
     )
+    missing_piece = _dedupe_missing_piece_against_directions(
+        missing_piece,
+        visual_directions,
+        occasion=str(payload.get("occasion") or occasion or category or query),
+        target_gender=asset_gender,
+        allow_feminine=allow_feminine_style,
+    )
+    if missing_piece and not _asset_text(missing_piece.get("image_url") or missing_piece.get("imageUrl")):
+        missing_piece = _enrich_missing_piece_with_asset(
+            missing_piece,
+            occasion=str(payload.get("occasion") or occasion or category or query),
+            target_gender=asset_gender,
+            allow_feminine=allow_feminine_style,
+        )
     visual_inspiration_board = None
     if final_mode == VISUAL_INSPIRATION:
         visual_inspiration_board = _build_visual_inspiration_board(
