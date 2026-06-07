@@ -233,6 +233,29 @@ _FEMININE_ACCESSORY_TERMS = {
     "bangle",
     "bangles",
 }
+_MALE_BLOCKED_STYLE_TERMS = {
+    "dress",
+    "dresses",
+    "skirt",
+    "skirts",
+    "earring",
+    "earrings",
+    "necklace",
+    "necklaces",
+    "bracelet",
+    "bracelets",
+    "blouse",
+    "blouses",
+    "heel",
+    "heels",
+    "camisole",
+    "camisoles",
+    "gown",
+    "gowns",
+    "lehenga",
+    "saree",
+    "sari",
+}
 _SAFE_ACCESSORY_TERMS = {
     "watch",
     "belt",
@@ -289,6 +312,89 @@ def _prompt_gender_override(query: Any) -> str:
 def _prompt_allows_feminine_accessory(query: Any) -> bool:
     q = f" {_norm(query)} "
     return any(f" {term} " in q for term in _FEMININE_ACCESSORY_TERMS)
+
+
+def _prompt_allows_gendered_feminine_style(query: Any) -> bool:
+    return _prompt_gender_override(query) == "female" or _prompt_allows_feminine_accessory(query)
+
+
+def _contains_male_blocked_style_term(value: Any) -> bool:
+    tokens = set(re.findall(r"[a-z0-9]+", _norm(value)))
+    return bool(tokens.intersection(_MALE_BLOCKED_STYLE_TERMS))
+
+
+def _style_text_allowed_for_gender(value: Any, target_gender: str, *, allow_feminine: bool = False) -> bool:
+    if not _asset_text(value):
+        return False
+    if target_gender in {"male", "unknown", "unisex"} and not allow_feminine:
+        if _contains_male_blocked_style_term(value):
+            return False
+    return True
+
+
+def _filter_style_terms_for_gender(
+    values: List[Any],
+    *,
+    target_gender: str,
+    allow_feminine: bool = False,
+    limit: int = 6,
+) -> List[str]:
+    out: List[str] = []
+    for value in values or []:
+        text = _asset_text(value)
+        if _style_text_allowed_for_gender(text, target_gender, allow_feminine=allow_feminine):
+            out.append(text)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _safe_component_fallback(target_gender: str) -> List[str]:
+    if target_gender == "female":
+        return ["clean top", "tailored bottom", "polished footwear"]
+    return ["clean shirt", "tailored trouser", "polished footwear"]
+
+
+def _sanitize_direction_for_gender(
+    direction: Dict[str, Any],
+    *,
+    target_gender: str,
+    allow_feminine: bool = False,
+) -> Dict[str, Any]:
+    out = dict(direction)
+    pieces = _filter_style_terms_for_gender(
+        _safe_list(out.get("items") or out.get("pieces"), limit=8),
+        target_gender=target_gender,
+        allow_feminine=allow_feminine,
+        limit=6,
+    )
+    if not pieces:
+        pieces = _safe_component_fallback(target_gender)
+    hero = _asset_text(out.get("hero_piece") or out.get("heroPiece"))
+    if not _style_text_allowed_for_gender(hero, target_gender, allow_feminine=allow_feminine):
+        hero = pieces[0] if pieces else ""
+    out["hero_piece"] = hero
+    out["pieces"] = pieces
+    out["items"] = pieces
+    return out
+
+
+def _missing_piece_allowed_for_gender(
+    missing_piece: Dict[str, Any] | None,
+    *,
+    target_gender: str,
+    allow_feminine: bool = False,
+) -> bool:
+    if not missing_piece:
+        return False
+    blob = " ".join(
+        [
+            _asset_text(missing_piece.get("name")),
+            _asset_text(missing_piece.get("category")),
+            " ".join(_safe_list(missing_piece.get("unlocks"), limit=8)),
+        ]
+    )
+    return _style_text_allowed_for_gender(blob, target_gender, allow_feminine=allow_feminine)
 
 
 def _resolve_asset_gender(*, query: Any, user_profile: Any) -> str:
@@ -507,7 +613,11 @@ def _enrich_visual_directions_with_assets(
     occasion_text = _asset_text(occasion)
     enriched: List[Dict[str, Any]] = []
     for direction in visual_directions:
-        out = dict(direction)
+        out = _sanitize_direction_for_gender(
+            dict(direction),
+            target_gender=target_gender,
+            allow_feminine=allow_feminine_accessory,
+        )
         image_url = _asset_text(out.get("image_url") or out.get("imageUrl"))
         if not image_url and assets:
             asset = _best_style_asset(
@@ -1778,15 +1888,46 @@ def _build_missing_piece(payload: Dict[str, Any], reasoning_text: str) -> Dict[s
     return None
 
 
+def _sanitize_missing_piece_for_gender(
+    missing_piece: Dict[str, Any] | None,
+    *,
+    target_gender: str,
+    allow_feminine: bool = False,
+) -> Dict[str, Any] | None:
+    if not missing_piece:
+        return None
+    if not _missing_piece_allowed_for_gender(
+        missing_piece,
+        target_gender=target_gender,
+        allow_feminine=allow_feminine,
+    ):
+        logger.info(
+            "AHVI_MISSING_PIECE_GENDER_FILTERED gender=%s name=%s category=%s",
+            target_gender,
+            _asset_text(missing_piece.get("name")),
+            _asset_text(missing_piece.get("category")),
+        )
+        return None
+    return missing_piece
+
+
 def _enrich_missing_piece_with_asset(
     missing_piece: Dict[str, Any] | None,
     *,
     assets: List[Dict[str, Any]] | None = None,
     occasion: str | None = None,
     target_gender: str = "unknown",
+    allow_feminine: bool = False,
 ) -> Dict[str, Any] | None:
     if not missing_piece:
         return missing_piece
+    missing_piece = _sanitize_missing_piece_for_gender(
+        missing_piece,
+        target_gender=target_gender,
+        allow_feminine=allow_feminine,
+    )
+    if not missing_piece:
+        return None
     out = dict(missing_piece)
     if _asset_text(out.get("image_url") or out.get("imageUrl")):
         return out
@@ -1804,6 +1945,7 @@ def _enrich_missing_piece_with_asset(
         direction=direction,
         occasion=_asset_text(occasion),
         target_gender=target_gender,
+        allow_feminine_accessory=allow_feminine,
     )
     if asset:
         out["image_url"] = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
@@ -1959,6 +2101,7 @@ def _build_response(
         except Exception:  # noqa: BLE001
             pairing_gender = "unknown"
     asset_gender = _resolve_asset_gender(query=query, user_profile=user_profile)
+    allow_feminine_style = _prompt_allows_gendered_feminine_style(query)
     goal = str(payload.get("goal") or _fallback_goal(final_mode, category)).strip()
     impression = str(payload.get("impression") or _fallback_impression(category)).strip()
     atmosphere = str(payload.get("atmosphere") or _fallback_atmosphere(category)).strip()
@@ -2023,7 +2166,7 @@ def _build_response(
         visual_directions,
         occasion=str(payload.get("occasion") or occasion or category or query),
         target_gender=asset_gender,
-        allow_feminine_accessory=_prompt_allows_feminine_accessory(query),
+        allow_feminine_accessory=allow_feminine_style,
     )
     try:
         final_confidence = max(0.0, min(1.0, float(payload.get("confidence", confidence))))
@@ -2035,6 +2178,7 @@ def _build_response(
         _build_missing_piece(payload, missing_piece_reasoning),
         occasion=str(payload.get("occasion") or occasion or category or query),
         target_gender=asset_gender,
+        allow_feminine=allow_feminine_style,
     )
     visual_inspiration_board = None
     if final_mode == VISUAL_INSPIRATION:

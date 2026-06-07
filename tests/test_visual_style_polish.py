@@ -283,6 +283,75 @@ def test_missing_gender_metadata_does_not_leak_feminine_accessories(monkeypatch)
     assert names == ["Canvas Sling"]
 
 
+def test_male_visual_direction_filters_generated_hero_and_components(monkeypatch):
+    monkeypatch.setattr(style_reasoning_engine, "_style_asset_rows", lambda limit=120: [])
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Refined Weekend",
+                "title": "Weekend Ease",
+                "hero_piece": "Floral Dress",
+                "items": ["Floral Dress", "Gold Earrings", "White Heels"],
+                "colors": ["white", "gold"],
+            }
+        ],
+        occasion="coffee date",
+        target_gender="male",
+    )
+
+    blob = " ".join(
+        [
+            directions[0]["hero_piece"],
+            " ".join(directions[0]["items"]),
+            " ".join(directions[0]["pieces"]),
+        ]
+    ).lower()
+    for blocked in ["dress", "earrings", "heels"]:
+        assert blocked not in blob
+    assert directions[0]["items"] == ["clean shirt", "tailored trouser", "polished footwear"]
+
+
+def test_male_missing_piece_filters_gender_incompatible_items(monkeypatch):
+    monkeypatch.setattr(style_reasoning_engine, "_style_asset_rows", lambda limit=120: [])
+
+    filtered = style_reasoning_engine._enrich_missing_piece_with_asset(
+        {
+            "name": "Black Midi Dress",
+            "category": "dress",
+            "reason": "Would complete the look.",
+            "unlocks": ["Coffee Date"],
+        },
+        occasion="coffee date",
+        target_gender="male",
+    )
+
+    assert filtered is None
+
+
+def test_explicit_womens_prompt_allows_gendered_visual_direction(monkeypatch):
+    monkeypatch.setattr(style_reasoning_engine, "_style_asset_rows", lambda limit=120: [])
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Modern Romantic",
+                "title": "Soft Coffee Date",
+                "hero_piece": "Floral Dress",
+                "items": ["Floral Dress", "Gold Earrings", "White Heels"],
+                "colors": ["white", "gold"],
+            }
+        ],
+        occasion="women's coffee date",
+        target_gender="female",
+        allow_feminine_accessory=True,
+    )
+
+    blob = " ".join([directions[0]["hero_piece"], " ".join(directions[0]["items"])]).lower()
+    assert "dress" in blob
+    assert "earrings" in blob
+
+
 def test_unknown_gender_uses_neutral_assets_only(monkeypatch):
     monkeypatch.setattr(
         style_reasoning_engine,
