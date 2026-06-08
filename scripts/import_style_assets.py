@@ -89,32 +89,40 @@ def import_assets(path: Path, *, dry_run: bool = False) -> Dict[str, int]:
         asset_id = str(payload.get("asset_id") or "").strip()
         if not asset_id or not payload.get("name") or not payload.get("image_url"):
             stats["failed"] += 1
-            print(f"skip missing required fields: {row}")
+            print(json.dumps({"event": "AHVI_STYLE_ASSET_IMPORT_SKIPPED", "asset_id": asset_id, "name": payload.get("name", ""), "reason": "missing_required"}))
             continue
         doc_id = _safe_doc_id(asset_id)
         if dry_run:
-            print(f"dry-run upsert style_assets/{doc_id}: {payload['name']}")
+            print(json.dumps({"event": "AHVI_STYLE_ASSET_IMPORT_DRY_RUN", "doc_id": doc_id, "name": payload["name"]}))
             continue
         try:
             proxy.update_document("style_assets", doc_id, payload)
             stats["updated"] += 1
+            print(json.dumps({"event": "AHVI_STYLE_ASSET_IMPORT_UPDATED", "asset_id": asset_id}))
         except AppwriteProxyError:
             try:
                 proxy.create_document("style_assets", payload, document_id=doc_id)
                 stats["created"] += 1
+                print(json.dumps({"event": "AHVI_STYLE_ASSET_IMPORT_CREATED", "asset_id": asset_id}))
             except Exception as exc:  # noqa: BLE001
                 stats["failed"] += 1
-                print(f"failed {asset_id}: {exc}")
+                print(json.dumps({"event": "AHVI_STYLE_ASSET_IMPORT_SKIPPED", "asset_id": asset_id, "reason": str(exc)}))
     return stats
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Import curated AHVI style assets.")
-    parser.add_argument("json_path", type=Path)
+    parser.add_argument("json_path", type=Path, nargs="?", default=None)
+    parser.add_argument("--file", dest="file", type=Path, default=None, help="Alias for json_path.")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    stats = import_assets(args.json_path, dry_run=args.dry_run)
-    print(json.dumps(stats, indent=2, sort_keys=True))
+    path = args.json_path or args.file
+    if path is None:
+        parser.error("provide a JSON path positionally or via --file")
+    print(json.dumps({"event": "AHVI_STYLE_ASSET_IMPORT_STARTED", "path": str(path), "dry_run": args.dry_run}))
+    stats = import_assets(path, dry_run=args.dry_run)
+    event = "AHVI_STYLE_ASSET_IMPORT_DRY_RUN" if args.dry_run else "AHVI_STYLE_ASSET_IMPORT_SUMMARY"
+    print(json.dumps({"event": event, "stats": stats}, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
