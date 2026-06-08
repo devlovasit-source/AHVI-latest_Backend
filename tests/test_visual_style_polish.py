@@ -437,7 +437,7 @@ def test_complete_the_look_fallback_uses_product_like_labels(monkeypatch):
     )
 
     names = [item["name"] for item in directions[0]["complete_the_look"]]
-    assert names == ["Minimal Steel Watch", "Leather Belt", "Canvas Tote"]
+    assert names == ["Brushed Steel Watch", "Dark Brown Leather Belt", "Canvas Tote"]
     assert "Quiet Accent" not in names
 
 
@@ -553,6 +553,41 @@ def test_complete_the_look_varies_across_three_cards(monkeypatch):
     assert len(set(sets)) == 3
 
 
+def test_complete_the_look_varies_by_archetype(monkeypatch):
+    monkeypatch.setattr(style_reasoning_engine, "_style_asset_rows", lambda limit=120: [])
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Quiet Luxury",
+                "title": "Soft Polish",
+                "hero_piece": "Camel Blazer",
+                "items": ["Camel Blazer", "White Shirt", "Stone Trousers"],
+            },
+            {
+                "archetype": "Startup Founder",
+                "title": "Founder Ease",
+                "hero_piece": "Navy Overshirt",
+                "items": ["Navy Overshirt", "White T-Shirt", "Dark Denim"],
+            },
+            {
+                "archetype": "Creative Agency",
+                "title": "Studio Casual",
+                "hero_piece": "Textured Knit Polo",
+                "items": ["Textured Knit Polo", "Khaki Trousers", "Clean Sneakers"],
+            },
+        ],
+        occasion="startup office",
+        target_gender="male",
+    )
+
+    sets = [tuple(item["name"] for item in card["complete_the_look"]) for card in directions]
+    assert len(set(sets)) == 3
+    assert "Leather-Strap Watch" in sets[0]
+    assert "Tech Backpack" in sets[1]
+    assert "Fashion Sneaker" in sets[2]
+
+
 def test_generic_visual_diversity_guard_replaces_repeated_blazer_formula():
     rows = [
         {
@@ -586,6 +621,95 @@ def test_generic_visual_diversity_guard_replaces_repeated_blazer_formula():
     assert len(set(formulas)) == 3
     assert len(set(heroes)) == 3
     assert any("soft" in hero or "shirt" in hero or "utility" in hero for hero in heroes[1:])
+
+
+def test_formula_diversity_guard():
+    rows = [
+        {
+            "title": "Blazer One",
+            "hero_piece": "Navy Blazer",
+            "items": ["Navy Blazer", "White Shirt", "Dark Trousers", "Loafers"],
+            "palette": ["navy", "white", "black"],
+        },
+        {
+            "title": "Blazer Two",
+            "hero_piece": "Blue Blazer",
+            "items": ["Blue Blazer", "White Shirt", "Black Trousers", "Loafers"],
+            "palette": ["navy", "white", "black"],
+        },
+        {
+            "title": "Blazer Three",
+            "hero_piece": "Structured Blazer",
+            "items": ["Structured Blazer", "White Shirt", "Formal Trousers", "Loafers"],
+            "palette": ["navy", "white", "black"],
+        },
+    ]
+
+    directions = style_reasoning_engine._normalize_visual_directions(
+        rows,
+        "visual_inspiration",
+        "startup office",
+    )
+
+    formulas = [style_reasoning_engine._direction_formula_signature(card) for card in directions]
+    assert len(set(formulas)) == 3
+    assert formulas[0] == ("blazer", "trouser")
+    assert ("knit", "tailored_trouser") in formulas
+    assert ("shirt", "wide_leg") in formulas
+
+
+def test_missing_piece_names_not_generic(monkeypatch):
+    monkeypatch.setattr(style_reasoning_engine, "_style_asset_rows", lambda limit=120: [])
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Refined Weekend",
+                "title": "Overshirt Direction",
+                "hero_piece": "White Oxford Shirt",
+                "items": ["White Oxford Shirt", "Stone Chinos", "Dark Brown Penny Loafers"],
+                "missing_piece": {
+                    "name": "Clean Overshirt",
+                    "category": "outerwear",
+                    "reason": "Adds a layer.",
+                },
+            }
+        ],
+        occasion="coffee date",
+        target_gender="male",
+    )
+
+    name = directions[0]["missing_piece"]["name"]
+    lowered = name.lower()
+    assert name == "Olive Cotton Overshirt"
+    assert not any(lowered == word for word in ["clean", "simple", "basic", "neutral", "minimal"])
+
+
+def test_missing_piece_reason_references_board(monkeypatch):
+    monkeypatch.setattr(style_reasoning_engine, "_style_asset_rows", lambda limit=120: [])
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Clean Minimal",
+                "title": "Oxford Ease",
+                "hero_piece": "White Oxford Shirt",
+                "items": ["White Oxford Shirt", "Stone Wide-Leg Trouser", "Black Leather Loafers"],
+                "missing_piece": {
+                    "name": "Neutral Blazer",
+                    "category": "outerwear",
+                    "reason": "A blazer adds structure.",
+                },
+            }
+        ],
+        occasion="startup office",
+        target_gender="male",
+    )
+
+    reason = directions[0]["missing_piece"]["reason"].lower()
+    assert "startup office" in reason
+    assert "wide-leg trouser" in reason
+    assert "clean-shirt direction" in reason
 
 
 def test_generic_diversity_guard_is_gender_independent():

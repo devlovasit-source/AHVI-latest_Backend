@@ -426,11 +426,35 @@ _CATEGORY_CANONICAL = {
 }
 
 _COFFEE_DATE_MISSING_FALLBACKS = [
-    "dark wash jeans",
-    "neutral loafers",
-    "soft overshirt",
-    "clean knit polo",
+    "dark wash straight-leg jeans",
+    "dark brown penny loafers",
+    "olive cotton overshirt",
+    "cream knit polo",
 ]
+
+_GENERAL_MISSING_FALLBACKS = [
+    "olive cotton overshirt",
+    "brushed steel watch",
+    "dark brown penny loafers",
+    "dark brown leather belt",
+]
+
+_GENERIC_MISSING_WORDS = {"clean", "simple", "basic", "neutral", "minimal"}
+
+_SPECIFIC_MISSING_NAMES: Dict[str, List[str]] = {
+    "clean overshirt": ["Olive Cotton Overshirt", "Navy Twill Overshirt", "Charcoal Utility Overshirt"],
+    "soft overshirt": ["Olive Cotton Overshirt", "Navy Twill Overshirt", "Charcoal Utility Overshirt"],
+    "neutral blazer": ["Soft Camel Relaxed Blazer", "Charcoal Double-Breasted Blazer"],
+    "structured blazer": ["Soft Camel Relaxed Blazer", "Charcoal Double-Breasted Blazer"],
+    "neutral loafers": ["Dark Brown Penny Loafers", "Black Leather Loafers"],
+    "simple watch": ["Brushed Steel Watch", "Leather-Strap Watch"],
+    "minimal watch": ["Brushed Steel Watch", "Leather-Strap Watch"],
+    "structured belt": ["Dark Brown Leather Belt", "Cognac Leather Belt"],
+    "clean knit polo": ["Cream Knit Polo", "Navy Knit Polo"],
+    "soft knit sweater": ["Dark Wash Straight-Leg Jeans", "Olive Cotton Overshirt"],
+    "dark wash jeans": ["Dark Wash Straight-Leg Jeans"],
+    "dark wash straight-leg jeans": ["Dark Wash Straight-Leg Jeans"],
+}
 
 
 def _style_tokens(value: Any) -> set[str]:
@@ -480,6 +504,83 @@ def _style_items_similar(a: Any, b: Any) -> bool:
     return _style_similarity(a, b) >= 0.75
 
 
+def _missing_name_is_generic(name: Any) -> bool:
+    tokens = _style_tokens(name)
+    if not tokens:
+        return True
+    return bool(tokens.intersection(_GENERIC_MISSING_WORDS)) and len(tokens) <= 2
+
+
+def _specific_missing_piece_name(
+    candidate: Any,
+    direction: Dict[str, Any],
+    *,
+    occasion: str = "",
+) -> str:
+    raw = _asset_text(candidate)
+    if not raw:
+        return ""
+    norm = _norm(raw)
+    palette = _safe_list(direction.get("palette") or direction.get("colors"), limit=5)
+    palette_blob = " ".join(palette).lower()
+    archetype = _norm(direction.get("archetype"))
+    options = list(_SPECIFIC_MISSING_NAMES.get(norm) or [])
+    if not options:
+        category = _style_category(raw)
+        if category == "outerwear":
+            options = ["Olive Cotton Overshirt", "Navy Twill Overshirt", "Soft Camel Relaxed Blazer"]
+        elif category == "footwear":
+            options = ["Dark Brown Penny Loafers", "Clean White Leather Sneakers"]
+        elif category == "bottom":
+            options = ["Dark Wash Straight-Leg Jeans", "Stone Tailored Chinos"]
+        elif category == "accessory":
+            options = ["Brushed Steel Watch", "Dark Brown Leather Belt"]
+        elif category == "top":
+            options = ["Cream Knit Polo", "White Oxford Shirt"]
+    if not options:
+        return raw.title()
+    preferred = options[0]
+    if any(color in palette_blob for color in ("navy", "blue")):
+        preferred = next((item for item in options if "navy" in item.lower() or "dark wash" in item.lower()), preferred)
+    elif any(color in palette_blob for color in ("camel", "tan", "brown", "tobacco")):
+        preferred = next((item for item in options if any(x in item.lower() for x in ("camel", "brown", "cognac"))), preferred)
+    elif any(color in palette_blob for color in ("charcoal", "black", "grey", "gray")):
+        preferred = next((item for item in options if any(x in item.lower() for x in ("charcoal", "black", "steel"))), preferred)
+    if "quiet luxury" in archetype:
+        preferred = next((item for item in options if any(x in item.lower() for x in ("camel", "steel", "penny"))), preferred)
+    if "coffee" in _norm(occasion):
+        preferred = next(
+            (
+                item
+                for item in options
+                if any(x in item.lower() for x in ("dark wash", "penny", "cotton", "knit"))
+            ),
+            preferred,
+        )
+    return preferred
+
+
+def _missing_piece_reason_for_direction(
+    missing_name: Any,
+    direction: Dict[str, Any],
+    *,
+    occasion: str = "",
+) -> str:
+    name = _asset_text(missing_name) or "This piece"
+    components = _safe_list(direction.get("items") or direction.get("pieces"), limit=6)
+    hero = _asset_text(direction.get("hero_piece")) or (components[0] if components else "the main piece")
+    support = components[1] if len(components) > 1 else (components[0] if components else "the outfit")
+    occ = _asset_text(occasion) or "this plan"
+    formula = _direction_formula_signature(direction)
+    if formula == ("shirt", "wide_leg"):
+        return f"{name} completes the clean-shirt direction for {occ} and balances {support.lower()} already used in this look."
+    if formula in {("blazer", "trouser"), ("blazer", "denim")}:
+        return f"{name} finishes the tailored direction for {occ} without making {hero.lower()} feel too formal."
+    if formula == ("knit", "tailored_trouser"):
+        return f"{name} adds finish to the soft-texture direction and keeps {support.lower()} looking intentional for {occ}."
+    return f"{name} strengthens this {occ} look by supporting {hero.lower()} and making the components feel complete."
+
+
 def _palette_terms(value: Any) -> set[str]:
     values = _safe_list(value, limit=8)
     terms: set[str] = set()
@@ -518,18 +619,35 @@ def _silhouette_tokens(direction: Dict[str, Any]) -> set[str]:
 
 
 def _direction_formula_signature(direction: Dict[str, Any]) -> tuple[str, ...]:
+    components = _safe_list(direction.get("items") or direction.get("pieces"), limit=8)
+    blob = " ".join([_asset_text(direction.get("hero_piece")), *components]).lower()
+    categories = _direction_component_categories(components)
+    has = lambda *terms: any(term in blob for term in terms)
+
+    if has("matching set", "co-ord", "co ord", "coordinated set", "suit set"):
+        return ("matching_set",)
+    if has("dress") and categories.intersection({"outerwear", "accessory"}):
+        return ("dress", "layer")
+    if has("blazer", "jacket") and categories.intersection({"bottom"}):
+        if has("jean", "denim"):
+            return ("blazer", "denim")
+        return ("blazer", "trouser")
+    if has("knit", "sweater", "polo") and categories.intersection({"bottom"}):
+        return ("knit", "tailored_trouser")
+    if has("oxford", "button-down", "button down", "shirt") and categories.intersection({"bottom"}):
+        if has("wide leg", "wide-leg", "wideleg"):
+            return ("shirt", "wide_leg")
+        if has("jean", "denim"):
+            return ("shirt", "denim")
+        return ("shirt", "trouser")
+    if has("overshirt", "utility layer", "shacket") and has("jean", "denim"):
+        return ("overshirt", "denim")
+    if has("tee", "t-shirt", "crew-neck", "crewneck") and categories.intersection({"outerwear"}):
+        return ("tee", "layer")
     hero_role = _style_category(direction.get("hero_piece")) or "hero"
     silhouette = _silhouette_tokens(direction)
-    # Focus on styling formula rather than gendered garment names.
     formula_bits = {hero_role}
-    for bit in (
-        "structured_layer",
-        "texture",
-        "minimal_base",
-        "utility",
-        "loafer_footwear",
-        "sneaker_footwear",
-    ):
+    for bit in ("structured_layer", "texture", "minimal_base", "utility"):
         if bit in silhouette:
             formula_bits.add(bit)
     return tuple(sorted(formula_bits))
@@ -566,19 +684,19 @@ _GENERIC_VISUAL_STRATEGIES: List[Dict[str, Any]] = [
         "title": "Structured Layer",
         "subtitle": "Shape-led polish",
         "archetype": "Structured Ease",
-        "hero_piece": "Lightweight structured layer",
-        "items": ["Lightweight structured layer", "clean base top", "straight-leg bottom", "polished footwear"],
+        "hero_piece": "Unstructured Navy Blazer",
+        "items": ["Unstructured Navy Blazer", "White Crew-Neck T-Shirt", "Tailored Stone Trouser", "Dark Brown Penny Loafers"],
         "palette": ["navy", "white", "tan"],
-        "description": "A structured layer leads the outfit while simple supporting pieces keep it approachable.",
-        "why_it_works": "The layer gives the look shape without making it stiff. Clean supporting pieces keep the overall impression relaxed and intentional.",
+        "description": "A structured layer leads the outfit while the tee and tailored trouser keep it approachable.",
+        "why_it_works": "The layer gives the look shape without making it stiff. The lighter base keeps the overall impression relaxed and intentional.",
         "styling_tip": "Keep the layer open for an easier finish.",
     },
     {
         "title": "Soft Texture",
         "subtitle": "Tactile and easy",
         "archetype": "Textural Ease",
-        "hero_piece": "Soft knit or textured top",
-        "items": ["Soft knit or textured top", "relaxed tailored bottom", "low-profile footwear"],
+        "hero_piece": "Fine-Gauge Knit Polo",
+        "items": ["Fine-Gauge Knit Polo", "Tailored Khaki Trouser", "Clean White Leather Sneakers"],
         "palette": ["cream", "olive", "brown"],
         "description": "Texture becomes the focal point, with quiet separates keeping the outfit grounded.",
         "why_it_works": "A softer hero piece makes the look feel considered without feeling formal. The restrained base keeps the texture from becoming busy.",
@@ -588,19 +706,19 @@ _GENERIC_VISUAL_STRATEGIES: List[Dict[str, Any]] = [
         "title": "Clean Shirt Base",
         "subtitle": "Crisp and minimal",
         "archetype": "Clean Minimal",
-        "hero_piece": "Crisp clean shirt",
-        "items": ["Crisp clean shirt", "minimal straight bottom", "simple footwear"],
+        "hero_piece": "Crisp Oxford Shirt",
+        "items": ["Crisp Oxford Shirt", "Stone Wide-Leg Trouser", "Black Leather Loafers"],
         "palette": ["white", "stone", "charcoal"],
-        "description": "A clean shirt anchors the look, with minimal pieces keeping everything sharp but easy.",
-        "why_it_works": "The shirt creates clarity, while the simple bottom and footwear keep the outfit from feeling overworked.",
+        "description": "A crisp shirt anchors the look, with the wide-leg trouser keeping everything sharp but easy.",
+        "why_it_works": "The shirt creates clarity, while the relaxed trouser shape keeps the outfit from feeling overworked.",
         "styling_tip": "Roll sleeves once if the setting feels relaxed.",
     },
     {
         "title": "Relaxed Utility",
         "subtitle": "Casual polish",
         "archetype": "Modern Utility",
-        "hero_piece": "Relaxed utility layer",
-        "items": ["Relaxed utility layer", "plain base top", "casual tailored bottom", "clean casual footwear"],
+        "hero_piece": "Relaxed Matching Set",
+        "items": ["Relaxed Matching Set", "Plain Ecru Base Top", "Clean White Leather Sneakers"],
         "palette": ["olive", "ecru", "tobacco"],
         "description": "A utility layer adds ease and function while clean basics keep the outfit refined.",
         "why_it_works": "The utility detail makes the look feel practical and current. A simple base keeps it polished rather than rugged.",
@@ -746,12 +864,13 @@ def _fallback_missing_piece_for_direction(
     if "coffee" in _norm(occasion):
         candidates = _COFFEE_DATE_MISSING_FALLBACKS
     else:
-        candidates = ["clean overshirt", "simple watch", "neutral loafers", "structured belt"]
+        candidates = _GENERAL_MISSING_FALLBACKS
     for candidate in candidates:
-        if not _style_text_allowed_for_gender(candidate, target_gender, allow_feminine=allow_feminine):
+        specific = _specific_missing_piece_name(candidate, direction, occasion=occasion)
+        if not _style_text_allowed_for_gender(specific, target_gender, allow_feminine=allow_feminine):
             continue
-        if not _missing_piece_duplicate_reason(candidate, hero_piece=hero, components=components):
-            return candidate
+        if not _missing_piece_duplicate_reason(specific, hero_piece=hero, components=components):
+            return specific
     return ""
 
 
@@ -1044,37 +1163,65 @@ def _default_complete_the_look(
     # these labels stay product-like so the UI never shows abstract placeholders.
     component_blob = " ".join(_safe_list(direction.get("items") or direction.get("pieces"), limit=8)).lower()
     occ = _norm(occasion)
-    if target_gender == "female":
-        pools = [
-            ["Classic Watch", "Structured Handbag", "Delicate Earrings"],
-            ["Slim Bracelet", "Soft Shoulder Bag", "Neutral Flats"],
-            ["Minimal Necklace", "Compact Handbag", "Polished Sandals"],
-        ]
-    elif target_gender == "male":
-        if "funeral" in occ or "memorial" in occ:
-            pools = [["Black Leather Belt", "Formal Black Shoes", "Simple Steel Watch"]]
-        elif "blazer" in component_blob and ("jean" in component_blob or "denim" in component_blob):
-            pools = [["Minimal Steel Watch", "Brown Leather Belt", "Cognac Loafers"]]
-        elif "knit" in component_blob or "sweater" in component_blob:
-            pools = [["Suede Belt", "Clean Sneakers", "Soft Overshirt"]]
-        elif "tee" in component_blob or "t-shirt" in component_blob:
-            pools = [["Casual Watch", "Light Overshirt", "Minimal Sling Bag"]]
-        else:
+    arch = _norm(archetype)
+    formula = _direction_formula_signature(direction)
+
+    if "funeral" in occ or "memorial" in occ:
+        pools = [["Black Leather Belt", "Formal Black Shoes", "Brushed Steel Watch"]]
+    elif target_gender == "female":
+        archetype_pools = {
+            "quiet luxury": [["Leather Top Handle Bag", "Gold Watch", "Cashmere Wrap"]],
+            "modern authority": [["Structured Tote", "Statement Watch", "Pointed Pumps"]],
+            "creative agency": [["Sculptural Earrings", "Fashion Sneaker", "Slouchy Tote"]],
+            "startup founder": [["Tech Tote", "Minimal Watch", "White Leather Sneaker"]],
+        }
+        pools = next((items for key, items in archetype_pools.items() if key in arch), [])
+        if not pools:
             pools = [
-                ["Minimal Steel Watch", "Leather Belt", "Canvas Tote"],
-                ["Leather Strap Watch", "Suede Belt", "Clean Sneakers"],
-                ["Simple Watch", "Casual Jacket", "Minimal Sling Bag"],
+                ["Structured Handbag", "Delicate Earrings", "Block-Heel Sandals"],
+                ["Silk Scarf", "Soft Shoulder Bag", "Neutral Flats"],
+                ["Gold Watch", "Compact Handbag", "Polished Sandals"],
             ]
+    elif target_gender == "male":
+        archetype_pools = {
+            "quiet luxury": [["Leather-Strap Watch", "Dark Brown Penny Loafers", "Cashmere Scarf"]],
+            "modern authority": [["Structured Leather Tote", "Statement Watch", "Black Leather Belt"]],
+            "creative agency": [["Fashion Sneaker", "Canvas Tote", "Textured Overshirt"]],
+            "startup founder": [["Tech Backpack", "Brushed Steel Watch", "Clean White Leather Sneakers"]],
+        }
+        pools = next((items for key, items in archetype_pools.items() if key in arch), [])
+        if not pools:
+            if formula in {("blazer", "denim"), ("blazer", "trouser")}:
+                pools = [
+                    ["Brushed Steel Watch", "Dark Brown Leather Belt", "Dark Brown Penny Loafers"],
+                    ["Leather-Strap Watch", "Cognac Leather Belt", "Structured Messenger Bag"],
+                ]
+            elif formula == ("knit", "tailored_trouser"):
+                pools = [
+                    ["Suede Belt", "Clean White Leather Sneakers", "Olive Cotton Overshirt"],
+                    ["Brushed Steel Watch", "Dark Brown Penny Loafers", "Canvas Tote"],
+                ]
+            elif formula in {("tee", "layer"), ("overshirt", "denim")}:
+                pools = [
+                    ["Casual Field Watch", "Light Cotton Overshirt", "Canvas Sling Bag"],
+                    ["Clean White Leather Sneakers", "Tech Backpack", "Dark Brown Leather Belt"],
+                ]
+            else:
+                pools = [
+                    ["Brushed Steel Watch", "Dark Brown Leather Belt", "Canvas Tote"],
+                    ["Leather-Strap Watch", "Suede Belt", "Clean White Leather Sneakers"],
+                    ["Casual Field Watch", "Structured Messenger Bag", "Olive Cotton Overshirt"],
+                ]
     else:
         pools = [
-            ["Classic Watch", "Canvas Tote", "Leather Belt"],
-            ["Clean Sneakers", "Light Overshirt", "Minimal Bag"],
-            ["Simple Watch", "Neutral Loafers", "Soft Layer"],
+            ["Classic Watch", "Canvas Tote", "Dark Brown Leather Belt"],
+            ["Clean White Leather Sneakers", "Olive Cotton Overshirt", "Compact Crossbody Bag"],
+            ["Brushed Steel Watch", "Dark Brown Penny Loafers", "Soft Layering Scarf"],
         ]
     names = pools[index % len(pools)]
     return [
         {
-            "name": name.title(),
+            "name": name,
             "category": "accessory",
             "image_url": "",
             "reason": f"Finishes {archetype} without crowding the look.",
@@ -1977,23 +2124,38 @@ def _validate_visual_direction_consistency(
     if isinstance(mp, dict) and _asset_text(mp.get("name")):
         name = _asset_text(mp.get("name"))
         reason = _missing_piece_duplicate_reason(name, hero_piece=hero, components=components)
-        if reason or not _style_text_allowed_for_gender(name, target_gender, allow_feminine=allow_feminine):
-            replacement = _fallback_missing_piece_for_direction(
-                out,
-                occasion=occasion,
-                target_gender=target_gender,
-                allow_feminine=allow_feminine,
-            )
+        generic_name = _missing_name_is_generic(name) or _norm(name) in _SPECIFIC_MISSING_NAMES
+        if reason or generic_name or not _style_text_allowed_for_gender(name, target_gender, allow_feminine=allow_feminine):
+            replacement = ""
+            if generic_name:
+                specific_name = _specific_missing_piece_name(name, out, occasion=occasion)
+                if (
+                    specific_name
+                    and _style_text_allowed_for_gender(specific_name, target_gender, allow_feminine=allow_feminine)
+                    and not _missing_piece_duplicate_reason(specific_name, hero_piece=hero, components=components)
+                ):
+                    replacement = specific_name
+            if not replacement:
+                replacement = _fallback_missing_piece_for_direction(
+                    out,
+                    occasion=occasion,
+                    target_gender=target_gender,
+                    allow_feminine=allow_feminine,
+                )
             if replacement:
                 out["missing_piece"] = {
-                    "name": replacement.title(),
+                    "name": replacement,
                     "category": _style_category(replacement) or "style piece",
-                    "reason": f"Adds a useful layer to {out.get('archetype') or out.get('title') or 'this look'}.",
+                    "reason": _missing_piece_reason_for_direction(replacement, out, occasion=occasion),
                     "unlocks": [out.get("archetype") or out.get("title") or "Style direction"],
                 }
             else:
                 out.pop("missing_piece", None)
-            rewritten_fields.append(f"missing_piece:{reason or 'gender'}")
+            rewritten_fields.append(f"missing_piece:{reason or ('generic' if generic_name else 'gender')}")
+        else:
+            mp = dict(mp)
+            mp["reason"] = _missing_piece_reason_for_direction(name, out, occasion=occasion)
+            out["missing_piece"] = mp
 
     if rewritten_fields:
         logger.info(
@@ -2576,9 +2738,9 @@ def _dedupe_missing_piece_against_directions(
             )
             if replacement:
                 out = dict(missing_piece)
-                out["name"] = replacement.title()
+                out["name"] = replacement
                 out["category"] = _style_category(replacement) or out.get("category") or "style piece"
-                out["reason"] = out.get("reason") or "Adds a useful missing piece without duplicating the outfit."
+                out["reason"] = _missing_piece_reason_for_direction(replacement, direction, occasion=occasion)
                 out.pop("image_url", None)
                 out.pop("imageUrl", None)
                 out.pop("asset_id", None)
