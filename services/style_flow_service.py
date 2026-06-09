@@ -510,6 +510,143 @@ def _ahvi_has_core_slots(slot_counts: dict) -> bool:
     )
 
 
+# --- Office/client-meeting board sanitization ------------------------------
+# A single underwear/loungewear/casual item should not torpedo an otherwise
+# usable office outfit. Strip the offending piece before quality rejection.
+
+_OFFICE_OCCASIONS = {
+    "office",
+    "startup_office",
+    "client_meeting",
+    "client meeting",
+    "presentation",
+    "business",
+    "interview",
+    "conference",
+}
+
+_OFFICE_BAD_TOKENS = (
+    "boxer",
+    "underwear",
+    "sleepwear",
+    "loungewear",
+    "lounge",
+    "pyjama",
+    "pajama",
+    "swim shorts",
+    "swim_shorts",
+    "swimshorts",
+    "swim trunk",
+    "gym shorts",
+    "gym_shorts",
+    "gymshorts",
+    "running shorts",
+    "running_shorts",
+    "runningshorts",
+    "flip flop",
+    "flip-flop",
+    "flipflop",
+    "slider",
+    "slides",
+    "slipper",
+    "beach",
+    "pool",
+    " cap",  # leading space avoids false-positive on "captain", "capri"
+    "cap ",
+    "baseballcap",
+    "hat ",
+    " hat",
+    "fedora",
+    "sunhat",
+    "sun hat",
+    "sunglass",  # covers sunglass / sunglasses
+)
+
+
+def _office_occasion_key(occasion: str) -> str:
+    return str(occasion or "").strip().lower().replace(" ", "_")
+
+
+def _is_office_occasion(occasion: str) -> bool:
+    key = _office_occasion_key(occasion)
+    return key in {_office_occasion_key(o) for o in _OFFICE_OCCASIONS}
+
+
+def _is_office_bad_item(item: dict) -> bool:
+    if not isinstance(item, dict):
+        return False
+    blob = _ahvi_item_blob(item)
+    extra_parts: list[str] = []
+    for key in (
+        "sub_category",
+        "subCategory",
+        "use_case",
+        "useCase",
+        "occasion",
+        "occasions",
+        "tags",
+        "style_tags",
+    ):
+        value = item.get(key)
+        if isinstance(value, (list, tuple, set)):
+            extra_parts.extend(str(v or "") for v in value)
+        else:
+            extra_parts.append(str(value or ""))
+    blob = (blob + " " + " ".join(extra_parts)).lower()
+    # Pad with spaces so leading/trailing space tokens (e.g. " cap") match
+    # edge positions instead of being skipped.
+    padded = f" {blob} "
+    return any(token in padded for token in _OFFICE_BAD_TOKENS)
+
+
+def _sanitize_office_board(
+    card: dict, occasion: str
+) -> tuple[dict, list[str]]:
+    """Return (sanitized_card, removed_item_names).
+
+    For office-style occasions, drop items that read as underwear/lounge/
+    swim/beach/cap/sunglasses. Leave non-office occasions untouched.
+    """
+    if not isinstance(card, dict):
+        return card, []
+    if not _is_office_occasion(occasion):
+        return card, []
+    items = card.get("items")
+    if not isinstance(items, list):
+        return card, []
+    kept: list = []
+    removed: list[str] = []
+    for item in items:
+        if isinstance(item, dict) and _is_office_bad_item(item):
+            removed.append(
+                str(item.get("name") or item.get("title") or item.get("id") or "")
+            )
+            continue
+        kept.append(item)
+    if not removed:
+        return card, []
+    sanitized = dict(card)
+    sanitized["items"] = kept
+    return sanitized, removed
+
+
+def _has_minimum_board_slots(card: dict) -> bool:
+    if not isinstance(card, dict):
+        return False
+    items = card.get("items")
+    if not isinstance(items, list):
+        return False
+    counts = _ahvi_slot_counts([i for i in items if isinstance(i, dict)])
+    top_or_outer = int(counts.get("top", 0) or 0) + int(
+        counts.get("outerwear", 0) or 0
+    )
+    return (
+        top_or_outer > 0
+        and int(counts.get("bottom", 0) or 0) > 0
+        and int(counts.get("footwear", 0) or 0) > 0
+    )
+
+
 def _ahvi_missing_core_slots_response(slot_counts: dict) -> dict:
     missing = []
     if int(slot_counts.get("top", 0) or 0) <= 0:
@@ -3883,6 +4020,33 @@ def finalize_style_response_payload(
     for card in cards or []:
         if not isinstance(card, dict):
             continue
+        sanitized_card, removed_items = _sanitize_office_board(card, normalized_occasion)
+        if removed_items:
+            kept_count = len(sanitized_card.get("items") or [])
+            logger.info(
+                "AHVI_BOARD_SANITIZED occasion=%s title=%s removed=%s kept=%d",
+                normalized_occasion,
+                card.get("title"),
+                removed_items,
+                kept_count,
+            )
+            if _has_minimum_board_slots(sanitized_card):
+                card = sanitized_card
+            else:
+                rejected_cards.append((card, "missing_required_slots_after_sanitize"))
+                logger.info(
+                    "ahvi.board_rejected occasion=%s reason=%s title=%s",
+                    normalized_occasion,
+                    "missing_required_slots_after_sanitize",
+                    card.get("title"),
+                )
+                logger.info(
+                    "AHVI_OUTFIT_DROPPED_WEAK_MATCH occasion=%s reason=%s title=%s",
+                    normalized_occasion,
+                    "missing_required_slots_after_sanitize",
+                    card.get("title"),
+                )
+                continue
         v2_reason = _metadata_v2_board_reject(card, normalized_occasion)
         if v2_reason:
             rejected, reason = True, v2_reason
