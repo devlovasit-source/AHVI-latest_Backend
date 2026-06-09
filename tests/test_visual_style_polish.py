@@ -865,6 +865,105 @@ def test_hero_asset_category_matches_hero_piece(monkeypatch):
     assert directions[0]["image_url"] == "https://cdn.test/oxford.png"
 
 
+def test_sweater_hero_rejects_shoe_belt_jeans_and_accessory_images(monkeypatch):
+    monkeypatch.setattr(
+        style_reasoning_engine,
+        "_style_asset_rows",
+        lambda limit=120: [
+            {
+                "asset_id": "shoe",
+                "name": "Brown Loafer",
+                "category": "footwear",
+                "subcategory": "loafer",
+                "image_url": "https://cdn.test/shoe.png",
+                "gender": "unisex",
+                "status": "active",
+            },
+            {
+                "asset_id": "belt",
+                "name": "Leather Belt 04",
+                "category": "accessory",
+                "subcategory": "belt",
+                "image_url": "https://cdn.test/belt.png",
+                "gender": "unisex",
+                "status": "active",
+            },
+            {
+                "asset_id": "jeans",
+                "name": "Dark Wash Jeans",
+                "category": "bottom",
+                "subcategory": "jeans",
+                "image_url": "https://cdn.test/jeans.png",
+                "gender": "unisex",
+                "status": "active",
+            },
+            {
+                "asset_id": "watch",
+                "name": "Steel Watch",
+                "category": "accessory",
+                "subcategory": "watch",
+                "image_url": "https://cdn.test/watch.png",
+                "gender": "unisex",
+                "status": "active",
+            },
+        ],
+    )
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Refined Weekend",
+                "title": "Soft Texture",
+                "hero_piece": "Fine Gauge Knit Sweater",
+                "items": ["Fine Gauge Knit Sweater", "Stone Trouser", "Loafers"],
+                "colors": ["cream", "stone"],
+            }
+        ],
+        occasion="coffee date",
+        target_gender="unknown",
+    )
+
+    assert not directions[0].get("image_url")
+    assert not directions[0].get("asset_id")
+
+
+def test_no_random_fallback_hero_image_when_no_valid_match(monkeypatch):
+    monkeypatch.setattr(
+        style_reasoning_engine,
+        "_style_asset_rows",
+        lambda limit=120: [
+            {
+                "asset_id": "overshirt",
+                "name": "Olive Cotton Overshirt",
+                "category": "outerwear",
+                "subcategory": "overshirt",
+                "image_url": "https://cdn.test/overshirt.png",
+                "archetypes": ["Refined Weekend"],
+                "occasions": ["coffee date"],
+                "tags": ["overshirt"],
+                "gender": "unisex",
+                "status": "active",
+            }
+        ],
+    )
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Refined Weekend",
+                "title": "Soft Texture",
+                "hero_piece": "Fine Gauge Knit Sweater",
+                "items": ["Fine Gauge Knit Sweater", "Stone Trouser", "Loafers"],
+                "colors": ["cream", "stone"],
+            }
+        ],
+        occasion="coffee date",
+        target_gender="unknown",
+    )
+
+    assert not directions[0].get("image_url")
+
+
 def test_accessory_assets_do_not_stack_duplicate_subcategories(monkeypatch):
     monkeypatch.setattr(
         style_reasoning_engine,

@@ -216,7 +216,7 @@ def _asset_category_terms(asset: Dict[str, Any]) -> set[str]:
     ).lower()
     tokens = set(re.findall(r"[a-z0-9]+", text))
     terms: set[str] = set(tokens)
-    if tokens.intersection({"top", "tops", "shirt", "shirts", "oxford", "polo", "tee", "tshirt", "knit", "sweater", "hoodie", "blouse"}):
+    if tokens.intersection({"top", "tops", "shirt", "shirts", "oxford", "polo", "tee", "tshirt", "knit", "knitwear", "sweater", "hoodie", "blouse"}):
         terms.add("top")
     if tokens.intersection({"outerwear", "jacket", "jackets", "blazer", "blazers", "overshirt", "coat", "hoodie"}):
         terms.add("outerwear")
@@ -226,6 +226,8 @@ def _asset_category_terms(asset: Dict[str, Any]) -> set[str]:
         terms.add("footwear")
     if tokens.intersection({"accessory", "accessories", "belt", "watch", "bag", "tote", "sling", "hat", "cap", "sunglasses", "bracelet", "necklace", "earrings", "jewelry", "jewellery"}):
         terms.add("accessory")
+    if tokens.intersection({"loungewear", "shorts"}):
+        terms.add("blocked_hero")
     return terms
 
 
@@ -326,12 +328,15 @@ def _normalize_style_asset(asset: Dict[str, Any]) -> Dict[str, Any]:
     out["subcategory"] = _asset_text(
         out.get("subcategory") or out.get("sub_category") or out.get("subCategory")
     )
+    out["allowed_slots"] = out.get("allowed_slots") or out.get("allowedSlots") or out.get("slots") or []
+    out["avoid_for"] = out.get("avoid_for") or out.get("avoidFor") or []
+    out["style_tags"] = out.get("style_tags") or out.get("styleTags") or []
     gender = _asset_gender(out.get("gender"))
     if gender in {"male", "female", "unisex"}:
         out["gender"] = gender
     if not _asset_text(out.get("status")):
         out["status"] = "active"
-    for key in ("colors", "archetypes", "occasions", "tags"):
+    for key in ("colors", "archetypes", "occasions", "tags", "style_tags", "allowed_slots", "avoid_for"):
         if _asset_text(out.get(key)) and not isinstance(out.get(key), list):
             out[key] = _asset_list(out.get(key))
     return out
@@ -505,11 +510,19 @@ def _hero_asset_allowed(asset: Dict[str, Any], direction: Dict[str, Any]) -> boo
     if not hero_category:
         return True
     asset_terms = _asset_category_terms(asset)
+    if asset_terms.intersection({"blocked_hero"}):
+        return False
     hero_tokens = _style_tokens(hero)
+    if hero_tokens.intersection({"sweater", "knit", "knitwear"}):
+        return bool(asset_terms.intersection({"sweater", "knit", "knitwear"}))
     if hero_tokens.intersection({"shirt", "oxford", "linen", "button", "buttondown"}):
         return bool(asset_terms.intersection({"shirt", "oxford", "linen", "button", "buttondown"}))
     if hero_tokens.intersection({"polo"}):
         return "polo" in asset_terms
+    if hero_tokens.intersection({"overshirt"}):
+        return "overshirt" in asset_terms or "outerwear" in asset_terms
+    if hero_tokens.intersection({"jacket"}):
+        return "jacket" in asset_terms or "outerwear" in asset_terms
     if hero_tokens.intersection({"hoodie", "sweatshirt"}):
         return bool(asset_terms.intersection({"hoodie", "sweatshirt"}))
     if hero_tokens.intersection({"blazer"}):
@@ -1107,10 +1120,38 @@ def _asset_score(
         elif asset_gender == "unisex":
             score += 2
     archetype = _asset_text(direction.get("archetype")).lower()
-    if archetype and archetype in _asset_list(asset.get("archetypes")):
+    asset_archetypes = _asset_list(asset.get("archetypes"))
+    asset_occasions = _asset_list(asset.get("occasions"))
+    asset_style_tags = _asset_list(asset.get("style_tags"))
+    asset_allowed_slots = _asset_list(asset.get("allowed_slots"))
+    asset_avoid_for = _asset_list(asset.get("avoid_for"))
+    if archetype and archetype in asset_archetypes:
         score += 5
-    if occasion and occasion.lower() in _asset_list(asset.get("occasions")):
+    elif archetype and asset_archetypes:
+        score -= 2
+    occasion_norm = _norm(occasion)
+    if occasion_norm and occasion_norm in asset_occasions:
         score += 4
+    elif occasion_norm and asset_occasions:
+        if not any(term and (term in occasion_norm or occasion_norm in term) for term in asset_occasions):
+            score -= 3
+    if occasion_norm and any(term and (term in occasion_norm or occasion_norm in term) for term in asset_avoid_for):
+        score -= 12
+    for tag in asset_style_tags:
+        if tag and (
+            tag in archetype
+            or tag in occasion_norm
+            or tag in direction_terms
+        ):
+            score += 3
+    slot = "accessory" if _style_category(direction.get("hero_piece")) == "accessory" else "hero"
+    if asset_allowed_slots:
+        if slot in asset_allowed_slots or _style_category(direction.get("hero_piece")) in asset_allowed_slots:
+            score += 3
+        elif "hero" in asset_allowed_slots:
+            score += 1
+        else:
+            score -= 5
     for color in _safe_list(direction.get("colors") or direction.get("palette"), limit=6):
         if color.lower() in _asset_list(asset.get("colors")):
             score += 2
@@ -1118,6 +1159,10 @@ def _asset_score(
         if len(token) > 3 and token in blob:
             score += 1
     score += _hero_asset_match_bonus(asset, direction)
+    if any(term in blob for term in ("hat", "cap", "sunglass", "sunglasses")) and any(
+        term in occasion_norm for term in ("coffee", "date")
+    ):
+        score -= 3
     return score
 
 
