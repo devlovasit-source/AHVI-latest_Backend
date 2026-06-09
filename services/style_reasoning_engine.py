@@ -1111,7 +1111,7 @@ def _asset_score(
     score = 0
     if _asset_text(asset.get("status")).lower() not in {"", "active", "published"}:
         score -= 8
-    if _asset_text(asset.get("image_url")):
+    if _asset_text(asset.get("image_url") or asset.get("imageUrl")):
         score += 3
     asset_gender = _asset_gender(asset.get("gender"))
     if target_gender in {"male", "female"}:
@@ -1227,7 +1227,17 @@ def _best_style_assets(
         return []
     candidates.sort(key=lambda pair: pair[0], reverse=True)
     if not accessory_only:
-        return [asset for _, asset in candidates[: max(1, limit)]]
+        selected = candidates[: max(1, limit)]
+        for score, asset in selected:
+            logger.info(
+                "AHVI_HERO_ASSET_SELECTED hero=%r asset=%r category=%r subcategory=%r score=%s",
+                _asset_text(direction.get("hero_piece")),
+                _asset_text(asset.get("name")),
+                _asset_text(asset.get("category")),
+                _asset_text(asset.get("subcategory")),
+                score,
+            )
+        return [asset for _, asset in selected]
 
     selected: List[Dict[str, Any]] = []
     used_groups: set[str] = set()
