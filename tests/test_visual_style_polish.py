@@ -964,6 +964,154 @@ def test_no_random_fallback_hero_image_when_no_valid_match(monkeypatch):
     assert not directions[0].get("image_url")
 
 
+def test_formal_black_pants_do_not_select_outerwear_asset(monkeypatch):
+    monkeypatch.setattr(
+        style_reasoning_engine,
+        "_style_asset_rows",
+        lambda limit=120: [
+            {
+                "asset_id": "denim-jacket",
+                "name": "H&M Mens Denim Jacket 05",
+                "category": "outerwear",
+                "subcategory": "denim jacket",
+                "image_url": "https://cdn.test/denim-jacket.png",
+                "archetypes": ["Modern Professional"],
+                "occasions": ["office"],
+                "tags": ["jacket", "denim"],
+                "gender": "male",
+                "status": "active",
+            }
+        ],
+    )
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Modern Professional",
+                "title": "Formal Base",
+                "hero_piece": "Formal Black Pants",
+                "items": ["Formal Black Pants", "White Shirt", "Black Shoes"],
+                "colors": ["black", "white"],
+            }
+        ],
+        occasion="office",
+        target_gender="male",
+    )
+
+    assert not directions[0].get("image_url")
+
+
+def test_gray_blazer_does_not_select_hoodie_asset(monkeypatch):
+    monkeypatch.setattr(
+        style_reasoning_engine,
+        "_style_asset_rows",
+        lambda limit=120: [
+            {
+                "asset_id": "hoodie",
+                "name": "H&M Mens Oversized Hoodie 10",
+                "category": "top",
+                "subcategory": "hoodie_sweatshirt",
+                "image_url": "https://cdn.test/hoodie.png",
+                "archetypes": ["Modern Professional"],
+                "occasions": ["office"],
+                "tags": ["hoodie", "sweatshirt"],
+                "gender": "male",
+                "status": "active",
+            }
+        ],
+    )
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Modern Professional",
+                "title": "Blazer Direction",
+                "hero_piece": "Gray Blazer",
+                "items": ["Gray Blazer", "White Shirt", "Black Pants"],
+                "colors": ["gray", "white"],
+            }
+        ],
+        occasion="office",
+        target_gender="male",
+    )
+
+    assert not directions[0].get("image_url")
+
+
+def test_navy_twill_overshirt_can_select_overshirt_asset(monkeypatch):
+    monkeypatch.setattr(
+        style_reasoning_engine,
+        "_style_asset_rows",
+        lambda limit=120: [
+            {
+                "asset_id": "overshirt",
+                "name": "Navy Twill Overshirt",
+                "category": "outerwear",
+                "subcategory": "overshirt",
+                "image_url": "https://cdn.test/overshirt.png",
+                "archetypes": ["Refined Weekend"],
+                "occasions": ["coffee date"],
+                "tags": ["overshirt", "jacket"],
+                "gender": "male",
+                "status": "active",
+            }
+        ],
+    )
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Refined Weekend",
+                "title": "Overshirt Direction",
+                "hero_piece": "Navy Twill Overshirt",
+                "items": ["Navy Twill Overshirt", "White Tee", "Dark Jeans"],
+                "colors": ["navy", "white"],
+            }
+        ],
+        occasion="coffee date",
+        target_gender="male",
+    )
+
+    assert directions[0]["image_url"] == "https://cdn.test/overshirt.png"
+
+
+def test_blazer_returns_no_image_when_no_compatible_blazer_asset_exists(monkeypatch):
+    monkeypatch.setattr(
+        style_reasoning_engine,
+        "_style_asset_rows",
+        lambda limit=120: [
+            {
+                "asset_id": "denim-jacket",
+                "name": "H&M Mens Denim Jacket 05",
+                "category": "outerwear",
+                "subcategory": "denim jacket",
+                "image_url": "https://cdn.test/jacket.png",
+                "archetypes": ["Modern Professional"],
+                "occasions": ["office"],
+                "tags": ["jacket"],
+                "gender": "male",
+                "status": "active",
+            }
+        ],
+    )
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Modern Professional",
+                "title": "Blazer Direction",
+                "hero_piece": "Gray Blazer",
+                "items": ["Gray Blazer", "White Shirt", "Black Pants"],
+                "colors": ["gray", "white"],
+            }
+        ],
+        occasion="office",
+        target_gender="male",
+    )
+
+    assert not directions[0].get("image_url")
+
+
 def test_accessory_assets_do_not_stack_duplicate_subcategories(monkeypatch):
     monkeypatch.setattr(
         style_reasoning_engine,

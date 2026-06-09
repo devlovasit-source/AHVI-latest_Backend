@@ -502,10 +502,76 @@ def _style_category(value: Any) -> str:
     return ""
 
 
+def _hero_expected_slot(hero_text: str) -> str | None:
+    text = _norm(hero_text)
+    tokens = _style_tokens(text)
+    if not text:
+        return None
+    if tokens.intersection({"pants", "pant", "trouser", "trousers", "chino", "chinos", "jeans", "jean", "shorts", "short"}):
+        return "bottom"
+    if tokens.intersection({"loafer", "loafers", "sneaker", "sneakers", "boot", "boots", "shoe", "shoes", "footwear"}) or (
+        "oxford" in tokens and tokens.intersection({"shoe", "shoes"})
+    ):
+        return "footwear"
+    if "blazer" in tokens:
+        return "blazer"
+    if tokens.intersection({"jacket", "overshirt", "coat"}):
+        return "outerwear"
+    if tokens.intersection({"shirt", "oxford", "button", "down", "buttondown", "polo", "tee", "tshirt", "t", "knit", "sweater", "hoodie", "sweatshirt"}):
+        return "top"
+    return None
+
+
+def _asset_matches_hero_slot(asset: Dict[str, Any], expected_slot: str | None, hero_text: str) -> bool:
+    if not expected_slot:
+        return True
+    asset_text = " ".join(
+        [
+            _asset_text(asset.get("name")),
+            _asset_text(asset.get("category")),
+            _asset_text(asset.get("subcategory")),
+            " ".join(_asset_list(asset.get("tags"))),
+        ]
+    ).lower()
+    tokens = _style_tokens(asset_text)
+    hero_tokens = _style_tokens(hero_text)
+    has = lambda *terms: bool(tokens.intersection(set(terms)))
+
+    if expected_slot == "bottom":
+        if has("jacket", "outerwear", "overshirt", "coat", "blazer", "hoodie", "sweatshirt"):
+            return False
+        return has("bottom", "bottoms", "trouser", "trousers", "pant", "pants", "chino", "chinos", "jean", "jeans", "denim", "short", "shorts")
+
+    if expected_slot == "blazer":
+        if has("hoodie", "sweatshirt", "overshirt"):
+            return False
+        return "blazer" in tokens
+
+    if expected_slot == "outerwear":
+        if has("hoodie", "sweatshirt") and not hero_tokens.intersection({"hoodie", "sweatshirt"}):
+            return False
+        return has("jacket", "overshirt", "coat", "blazer", "outerwear")
+
+    if expected_slot == "top":
+        if has("hoodie", "sweatshirt") and not hero_tokens.intersection({"hoodie", "sweatshirt"}):
+            return False
+        if has("jacket", "blazer", "overshirt", "outerwear", "coat"):
+            return False
+        return has("top", "shirt", "oxford", "button", "buttondown", "polo", "tee", "tshirt", "knit", "knitwear", "sweater", "hoodie", "sweatshirt")
+
+    if expected_slot == "footwear":
+        return has("shoe", "shoes", "loafer", "loafers", "sneaker", "sneakers", "boot", "boots", "footwear", "oxford")
+
+    return True
+
+
 def _hero_asset_allowed(asset: Dict[str, Any], direction: Dict[str, Any]) -> bool:
     hero = _asset_text(direction.get("hero_piece")) or " ".join(
         _safe_list(direction.get("items") or direction.get("pieces"), limit=1)
     )
+    expected_slot = _hero_expected_slot(hero)
+    if expected_slot and not _asset_matches_hero_slot(asset, expected_slot, hero):
+        return False
     hero_category = _style_category(hero)
     if not hero_category:
         return True
