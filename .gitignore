@@ -32,3 +32,4 @@ local_backend.err
 .env
 env.yaml
 *.log
+data/mens_assets_import/
