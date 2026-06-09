@@ -1,6 +1,7 @@
 import io
 import base64
 import os
+import re
 from typing import Dict, Any
 
 import requests
@@ -168,9 +169,95 @@ class StyleBoardRenderer:
             return "bottom"
         if any(k in text for k in ("watch", "belt", "sunglass", "bag", "necklace", "bracelet", "ring", "scarf")):
             return "accessory"
-        if any(k in text for k in ("top", "shirt", "tee", "tshirt", "polo", "kurta", "blouse", "jacket", "blazer")):
+        if any(k in text for k in ("top", "shirt", "tee", "tshirt", "polo", "kurta", "blouse", "jacket", "blazer", "overshirt", "coat", "hoodie", "sweater", "knit")):
             return "top"
         return "accessory"
+
+    def _norm_text(self, value):
+        return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", str(value or "").lower())).strip()
+
+    def _item_text(self, item):
+        if not isinstance(item, dict):
+            return ""
+        return self._norm_text(
+            " ".join(
+                str(item.get(k) or "")
+                for k in (
+                    "name",
+                    "title",
+                    "label",
+                    "category",
+                    "sub_category",
+                    "subcategory",
+                    "type",
+                    "role",
+                    "slot",
+                )
+            )
+        )
+
+    def _hero_piece_kind(self, hero_piece):
+        text = self._norm_text(hero_piece)
+        tokens = set(text.split())
+        if tokens.intersection({"loafer", "loafers", "sneaker", "sneakers", "boot", "boots", "shoe", "shoes"}) or (
+            "oxford" in tokens and tokens.intersection({"shoe", "shoes"})
+        ):
+            return "footwear"
+        if tokens.intersection({"blazer", "jacket", "overshirt", "coat"}):
+            return "outerwear"
+        if tokens.intersection({"shirt", "oxford", "button", "buttondown", "polo", "tee", "tshirt", "sweater", "knit", "hoodie"}):
+            return "top"
+        if tokens.intersection({"trouser", "trousers", "pant", "pants", "jean", "jeans", "chino", "chinos", "short", "shorts"}):
+            return "bottom"
+        if tokens.intersection({"watch", "belt", "bag", "necklace", "bracelet", "ring", "sunglass", "sunglasses"}):
+            return "accessory"
+        return ""
+
+    def _item_compatible_with_hero_piece(self, item, hero_piece):
+        kind = self._hero_piece_kind(hero_piece)
+        if not kind:
+            return True
+        role = self._item_role(item)
+        text = self._item_text(item)
+        if kind in {"top", "outerwear"}:
+            if role in {"footwear", "accessory", "bottom"}:
+                return False
+            if kind == "outerwear":
+                return any(term in text for term in ("blazer", "jacket", "overshirt", "coat", "outerwear"))
+            return any(term in text for term in ("top", "shirt", "oxford", "button", "polo", "tee", "tshirt", "sweater", "knit", "hoodie"))
+        if kind == "bottom":
+            if role in {"top", "dress", "footwear", "accessory"}:
+                return False
+            return role == "bottom" or any(term in text for term in ("bottom", "trouser", "pant", "jean", "chino", "short"))
+        if kind == "footwear":
+            if role in {"top", "bottom", "dress", "accessory"}:
+                return False
+            return role == "footwear" or any(term in text for term in ("footwear", "shoe", "loafer", "sneaker", "boot", "oxford"))
+        if kind == "accessory":
+            return role == "accessory"
+        return True
+
+    def _find_item_matching_hero_piece(self, items, hero_piece):
+        hero = self._norm_text(hero_piece)
+        if not hero:
+            return None
+        compatible = [
+            item
+            for item in (items or [])
+            if isinstance(item, dict) and self._item_compatible_with_hero_piece(item, hero_piece)
+        ]
+        if not compatible:
+            return None
+        for item in compatible:
+            text = self._item_text(item)
+            if text and (hero in text or text in hero):
+                return item
+        hero_terms = {term for term in hero.split() if len(term) > 2}
+        for item in compatible:
+            text_terms = set(self._item_text(item).split())
+            if hero_terms and hero_terms.intersection(text_terms):
+                return item
+        return compatible[0] if compatible else None
 
     def _build_preset_layout(self, items, preset):
         role_items = {"top": [], "dress": [], "bottom": [], "footwear": [], "accessory": []}
@@ -241,7 +328,22 @@ class StyleBoardRenderer:
 
         hero_id = str(board.get("hero_item_id") or "").strip()
         anchor_id = str(board.get("anchor_item_id") or "").strip()
-        hero = by_id.get(hero_id) or (items[0] if items else None)
+        hero_piece = board.get("hero_piece")
+        explicit_hero = by_id.get(hero_id)
+        if explicit_hero and not self._item_compatible_with_hero_piece(explicit_hero, hero_piece):
+            explicit_hero = None
+        hero = (
+            explicit_hero
+            or self._find_item_matching_hero_piece(items, hero_piece)
+            or next(
+                (
+                    item
+                    for item in (items or [])
+                    if self._item_compatible_with_hero_piece(item, hero_piece)
+                ),
+                None,
+            )
+        )
         anchor = by_id.get(anchor_id)
         supports = []
         accessories = []
