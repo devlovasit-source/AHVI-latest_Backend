@@ -577,7 +577,7 @@ def test_complete_the_look_varies_by_archetype(monkeypatch):
                 "items": ["Textured Knit Polo", "Khaki Trousers", "Clean Sneakers"],
             },
         ],
-        occasion="startup office",
+        occasion="startup event",
         target_gender="male",
     )
 
@@ -1186,6 +1186,73 @@ def test_accessory_assets_do_not_stack_duplicate_subcategories(monkeypatch):
     assert len([name for name in names if "Belt" in name]) <= 1
     assert len([name for name in names if "Hat" in name]) <= 1
     assert len(names) == len(set(names))
+
+
+def test_client_meeting_complete_the_look_filters_bad_accessories():
+    complete = [
+        {"name": "Leather Belt 04", "category": "accessory", "subcategory": "belt"},
+        {"name": "Mens Whitebeanie", "category": "accessory", "subcategory": "beanie"},
+        {"name": "Mens Whitecap", "category": "accessory", "subcategory": "cap"},
+        {"name": "Mens Blacksunglasses", "category": "accessory", "subcategory": "sunglasses"},
+    ]
+
+    filtered = style_reasoning_engine._filter_complete_the_look_for_occasion(
+        complete,
+        "client_meeting",
+        "male",
+    )
+
+    assert [item["name"] for item in filtered] == ["Leather Belt 04"]
+
+
+def test_client_meeting_complete_the_look_allows_professional_finishers():
+    complete = [
+        {"name": "Dark Brown Loafers", "category": "footwear", "subcategory": "loafers"},
+        {"name": "Steel Watch", "category": "accessory", "subcategory": "watch"},
+        {"name": "Leather Laptop Bag", "category": "accessory", "subcategory": "laptop bag"},
+    ]
+
+    filtered = style_reasoning_engine._filter_complete_the_look_for_occasion(
+        complete,
+        "client meeting",
+        "male",
+    )
+
+    assert [item["name"] for item in filtered] == [
+        "Dark Brown Loafers",
+        "Steel Watch",
+        "Leather Laptop Bag",
+    ]
+
+
+def test_coffee_date_complete_the_look_keeps_clean_sneakers():
+    complete = [
+        {"name": "Clean White Sneakers", "category": "footwear", "subcategory": "sneakers"},
+        {"name": "Canvas Tote", "category": "accessory", "subcategory": "bag"},
+    ]
+
+    filtered = style_reasoning_engine._filter_complete_the_look_for_occasion(
+        complete,
+        "coffee date",
+        "male",
+    )
+
+    assert [item["name"] for item in filtered] == ["Clean White Sneakers", "Canvas Tote"]
+
+
+def test_beach_complete_the_look_keeps_sunglasses_and_cap():
+    complete = [
+        {"name": "Black Sunglasses", "category": "accessory", "subcategory": "sunglasses"},
+        {"name": "Cotton Cap", "category": "accessory", "subcategory": "cap"},
+    ]
+
+    filtered = style_reasoning_engine._filter_complete_the_look_for_occasion(
+        complete,
+        "beach dinner",
+        "male",
+    )
+
+    assert [item["name"] for item in filtered] == ["Black Sunglasses", "Cotton Cap"]
 
 
 def test_daily_wear_cards_expose_composition_and_style_dna_metadata():

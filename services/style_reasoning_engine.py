@@ -2152,6 +2152,110 @@ def _default_complete_the_look(
     ]
 
 
+def _complete_item_blob(item: Dict[str, Any]) -> str:
+    return " ".join(
+        [
+            _asset_text(item.get("name") or item.get("title")),
+            _asset_text(item.get("category")),
+            _asset_text(item.get("subcategory") or item.get("sub_category")),
+            " ".join(_safe_list(item.get("tags"), limit=8)),
+        ]
+    ).lower()
+
+
+def _is_work_complete_look_occasion(occasion: Any) -> bool:
+    text = _norm(occasion)
+    return any(
+        term in text
+        for term in (
+            "office",
+            "client meeting",
+            "client",
+            "work",
+            "business",
+            "interview",
+            "presentation",
+            "conference",
+        )
+    )
+
+
+def _work_complete_item_allowed(item: Dict[str, Any]) -> bool:
+    blob = _complete_item_blob(item)
+    reject_terms = (
+        "beanie",
+        "cap",
+        "hat",
+        "sunglass",
+        "sunglasses",
+        "sneaker",
+        "sneakers",
+        "sandal",
+        "sandals",
+        "slide",
+        "slides",
+        "flip flop",
+        "flipflop",
+        "slipper",
+        "slippers",
+        "travel",
+        "grooming",
+        "skincare",
+        "hoodie",
+        "t-shirt",
+        "tshirt",
+    )
+    if any(term in blob for term in reject_terms):
+        return False
+    allowed_terms = (
+        "belt",
+        "watch",
+        "loafer",
+        "loafers",
+        "derby",
+        "monk strap",
+        "monkstrap",
+        "laptop bag",
+        "briefcase",
+        "messenger bag",
+        "messenger",
+    )
+    if any(term in blob for term in allowed_terms):
+        return True
+    if "formal" in blob and any(term in blob for term in ("shoe", "shoes", "footwear")):
+        return True
+    if "oxford" in blob and any(term in blob for term in ("shoe", "shoes", "footwear")):
+        return True
+    return False
+
+
+def _filter_complete_the_look_for_occasion(
+    complete: List[Dict[str, Any]],
+    occasion: Any,
+    target_gender: str = "unknown",
+) -> List[Dict[str, Any]]:
+    if not complete or not _is_work_complete_look_occasion(occasion):
+        return complete or []
+    kept: List[Dict[str, Any]] = []
+    removed: List[str] = []
+    for item in complete:
+        if not isinstance(item, dict):
+            continue
+        if _work_complete_item_allowed(item):
+            kept.append(item)
+        else:
+            removed.append(_asset_text(item.get("name") or item.get("title")) or "unknown")
+    if removed or len(kept) != len(complete):
+        logger.info(
+            "AHVI_COMPLETE_LOOK_FILTERED occasion=%s before=%d after=%d removed=%s",
+            _asset_text(occasion),
+            len(complete),
+            len(kept),
+            ",".join(removed[:8]),
+        )
+    return kept
+
+
 def _enrich_visual_directions_with_assets(
     visual_directions: List[Dict[str, Any]],
     *,
@@ -2218,6 +2322,11 @@ def _enrich_visual_directions_with_assets(
                 target_gender=target_gender,
                 index=idx,
             )
+        complete = _filter_complete_the_look_for_occasion(
+            complete,
+            occasion_text,
+            target_gender,
+        )
         out["complete_the_look"] = complete[:3]
         out = _validate_visual_direction_consistency(
             out,
