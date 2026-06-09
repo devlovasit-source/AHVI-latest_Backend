@@ -774,6 +774,173 @@ def test_visible_placeholder_terms_are_scrubbed():
     assert "polished shoes" in blob
 
 
+def test_internal_occasion_labels_are_scrubbed_with_query_context():
+    payload = {
+        "title": "crisp shirt Base",
+        "subtitle": "social_occasion",
+        "description": "custom_occasion and hybrid_occasion need balance.",
+        "why_it_works": "work_occasion, travel_occasion, and sensitive_occasion are internal labels.",
+    }
+
+    scrubbed = style_reasoning_engine._scrub_visible_style_payload(
+        payload,
+        query="show visual inspiration for coffee date",
+    )
+    blob = " ".join(str(value) for value in scrubbed.values()).lower()
+
+    for leaked in [
+        "social_occasion",
+        "custom_occasion",
+        "hybrid_occasion",
+        "work_occasion",
+        "travel_occasion",
+        "sensitive_occasion",
+        "crisp shirt base",
+    ]:
+        assert leaked not in blob
+    assert scrubbed["title"] == "Classic Tailoring"
+    assert "coffee date" in blob
+    assert "casual outing" in blob
+    assert "work-to-social occasion" in blob
+
+
+def test_hero_asset_category_matches_hero_piece(monkeypatch):
+    monkeypatch.setattr(
+        style_reasoning_engine,
+        "_style_asset_rows",
+        lambda limit=120: [
+            {
+                "asset_id": "hoodie",
+                "name": "Grey Hoodie",
+                "category": "top",
+                "subcategory": "hoodie",
+                "image_url": "https://cdn.test/hoodie.png",
+                "archetypes": ["Classic Tailoring"],
+                "occasions": ["coffee date"],
+                "tags": ["hoodie"],
+                "gender": "unisex",
+                "status": "active",
+            },
+            {
+                "asset_id": "shoe",
+                "name": "Brown Loafer",
+                "category": "footwear",
+                "subcategory": "loafer",
+                "image_url": "https://cdn.test/shoe.png",
+                "archetypes": ["Classic Tailoring"],
+                "occasions": ["coffee date"],
+                "tags": ["loafer"],
+                "gender": "unisex",
+                "status": "active",
+            },
+            {
+                "asset_id": "oxford",
+                "name": "White Oxford Shirt",
+                "category": "top",
+                "subcategory": "oxford shirt",
+                "image_url": "https://cdn.test/oxford.png",
+                "archetypes": ["Classic Tailoring"],
+                "occasions": ["coffee date"],
+                "tags": ["shirt", "oxford"],
+                "gender": "unisex",
+                "status": "active",
+            },
+        ],
+    )
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Classic Tailoring",
+                "title": "Classic Tailoring",
+                "hero_piece": "White Oxford Shirt",
+                "items": ["White Oxford Shirt", "Stone Trouser", "Loafers"],
+                "colors": ["white", "stone"],
+            }
+        ],
+        occasion="coffee date",
+        target_gender="unknown",
+    )
+
+    assert directions[0]["image_url"] == "https://cdn.test/oxford.png"
+
+
+def test_accessory_assets_do_not_stack_duplicate_subcategories(monkeypatch):
+    monkeypatch.setattr(
+        style_reasoning_engine,
+        "_style_asset_rows",
+        lambda limit=120: [
+            {
+                "asset_id": "belt-04",
+                "name": "Leather Belt 04",
+                "category": "accessory",
+                "subcategory": "belt",
+                "image_url": "https://cdn.test/belt04.png",
+                "archetypes": ["Refined Weekend"],
+                "occasions": ["coffee date"],
+                "tags": ["belt"],
+                "gender": "male",
+                "status": "active",
+            },
+            {
+                "asset_id": "belt-05",
+                "name": "Leather Belt 05",
+                "category": "accessory",
+                "subcategory": "belt",
+                "image_url": "https://cdn.test/belt05.png",
+                "archetypes": ["Refined Weekend"],
+                "occasions": ["coffee date"],
+                "tags": ["belt"],
+                "gender": "male",
+                "status": "active",
+            },
+            {
+                "asset_id": "hat-05",
+                "name": "Hat 05",
+                "category": "accessory",
+                "subcategory": "hat",
+                "image_url": "https://cdn.test/hat05.png",
+                "archetypes": ["Refined Weekend"],
+                "occasions": ["coffee date"],
+                "tags": ["hat"],
+                "gender": "male",
+                "status": "active",
+            },
+            {
+                "asset_id": "watch-01",
+                "name": "Steel Watch 01",
+                "category": "accessory",
+                "subcategory": "watch",
+                "image_url": "https://cdn.test/watch01.png",
+                "archetypes": ["Refined Weekend"],
+                "occasions": ["coffee date"],
+                "tags": ["watch"],
+                "gender": "male",
+                "status": "active",
+            },
+        ],
+    )
+
+    directions = style_reasoning_engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Refined Weekend",
+                "title": "Weekend Ease",
+                "hero_piece": "White Oxford Shirt",
+                "items": ["White Oxford Shirt", "Stone Trouser", "Loafers"],
+                "colors": ["white", "stone"],
+            }
+        ],
+        occasion="coffee date",
+        target_gender="male",
+    )
+
+    names = [item["name"] for item in directions[0]["complete_the_look"]]
+    assert len([name for name in names if "Belt" in name]) <= 1
+    assert len([name for name in names if "Hat" in name]) <= 1
+    assert len(names) == len(set(names))
+
+
 def test_daily_wear_cards_expose_composition_and_style_dna_metadata():
     cards = [
         _card(

@@ -205,6 +205,30 @@ def _asset_list(value: Any) -> List[str]:
     return [part.strip().lower() for part in re.split(r"[,|]", text) if part.strip()]
 
 
+def _asset_category_terms(asset: Dict[str, Any]) -> set[str]:
+    text = " ".join(
+        [
+            _asset_text(asset.get("name")),
+            _asset_text(asset.get("category")),
+            _asset_text(asset.get("subcategory")),
+            " ".join(_asset_list(asset.get("tags"))),
+        ]
+    ).lower()
+    tokens = set(re.findall(r"[a-z0-9]+", text))
+    terms: set[str] = set(tokens)
+    if tokens.intersection({"top", "tops", "shirt", "shirts", "oxford", "polo", "tee", "tshirt", "knit", "sweater", "hoodie", "blouse"}):
+        terms.add("top")
+    if tokens.intersection({"outerwear", "jacket", "jackets", "blazer", "blazers", "overshirt", "coat", "hoodie"}):
+        terms.add("outerwear")
+    if tokens.intersection({"bottom", "bottoms", "trouser", "trousers", "pant", "pants", "jean", "jeans", "denim", "chino", "chinos", "skirt"}):
+        terms.add("bottom")
+    if tokens.intersection({"shoe", "shoes", "footwear", "loafer", "loafers", "sneaker", "sneakers", "heel", "heels", "sandal", "sandals", "boot", "boots"}):
+        terms.add("footwear")
+    if tokens.intersection({"accessory", "accessories", "belt", "watch", "bag", "tote", "sling", "hat", "cap", "sunglasses", "bracelet", "necklace", "earrings", "jewelry", "jewellery"}):
+        terms.add("accessory")
+    return terms
+
+
 def _style_asset_rows(limit: int = 120) -> List[Dict[str, Any]]:
     try:
         from services.appwrite_proxy import AppwriteProxy
@@ -471,6 +495,70 @@ def _style_category(value: Any) -> str:
         if tokens.intersection({t.replace("-", "") for t in terms} | terms):
             return category
     return ""
+
+
+def _hero_asset_allowed(asset: Dict[str, Any], direction: Dict[str, Any]) -> bool:
+    hero = _asset_text(direction.get("hero_piece")) or " ".join(
+        _safe_list(direction.get("items") or direction.get("pieces"), limit=1)
+    )
+    hero_category = _style_category(hero)
+    if not hero_category:
+        return True
+    asset_terms = _asset_category_terms(asset)
+    hero_tokens = _style_tokens(hero)
+    if hero_tokens.intersection({"shirt", "oxford", "linen", "button", "buttondown"}):
+        return bool(asset_terms.intersection({"shirt", "oxford", "linen", "button", "buttondown"}))
+    if hero_tokens.intersection({"polo"}):
+        return "polo" in asset_terms
+    if hero_tokens.intersection({"hoodie", "sweatshirt"}):
+        return bool(asset_terms.intersection({"hoodie", "sweatshirt"}))
+    if hero_tokens.intersection({"blazer"}):
+        return "blazer" in asset_terms or "outerwear" in asset_terms
+    if hero_tokens.intersection({"trouser", "trousers", "pant", "pants", "chino", "chinos"}):
+        return bool(asset_terms.intersection({"trouser", "trousers", "pant", "pants", "chino", "chinos", "bottom"}))
+    if hero_tokens.intersection({"jean", "jeans", "denim"}):
+        return bool(asset_terms.intersection({"jean", "jeans", "denim", "bottom"}))
+    if hero_tokens.intersection({"loafer", "loafers"}):
+        return bool(asset_terms.intersection({"loafer", "loafers", "footwear"}))
+    if hero_tokens.intersection({"sneaker", "sneakers"}):
+        return bool(asset_terms.intersection({"sneaker", "sneakers", "footwear"}))
+    if hero_category == "top":
+        return bool(asset_terms.intersection({"top", "outerwear"}))
+    if hero_category == "outerwear":
+        return bool(asset_terms.intersection({"outerwear", "top"}))
+    if hero_category == "bottom":
+        return "bottom" in asset_terms
+    if hero_category == "footwear":
+        return "footwear" in asset_terms
+    if hero_category == "accessory":
+        return "accessory" in asset_terms or "footwear" in asset_terms
+    if hero_category == "dress":
+        return "dress" in asset_terms or "top" in asset_terms
+    return True
+
+
+def _hero_asset_match_bonus(asset: Dict[str, Any], direction: Dict[str, Any]) -> int:
+    hero = _asset_text(direction.get("hero_piece"))
+    if not hero:
+        return 0
+    hero_tokens = {token for token in _style_tokens(hero) if len(token) > 3}
+    asset_blob = " ".join(
+        [
+            _asset_text(asset.get("name")),
+            _asset_text(asset.get("subcategory")),
+            " ".join(_asset_list(asset.get("tags"))),
+        ]
+    ).lower()
+    if not hero_tokens:
+        return 0
+    overlap = sum(1 for token in hero_tokens if token in asset_blob)
+    if _norm(hero) and _norm(hero) in _norm(asset.get("name")):
+        return 12
+    if overlap >= 2:
+        return 8
+    if overlap == 1:
+        return 4
+    return 0
 
 
 def _direction_component_categories(components: List[str]) -> set[str]:
@@ -1029,6 +1117,7 @@ def _asset_score(
     for token in re.findall(r"[a-z0-9]+", direction_terms):
         if len(token) > 3 and token in blob:
             score += 1
+    score += _hero_asset_match_bonus(asset, direction)
     return score
 
 
@@ -1073,12 +1162,18 @@ def _best_style_assets(
             continue
         if not _asset_allowed_for_gender(asset, target_gender):
             continue
-        category_blob = f"{asset.get('category', '')} {asset.get('subcategory', '')}".lower()
-        is_accessory = any(
-            term in category_blob
-            for term in ("accessory", "earring", "necklace", "bracelet", "bag", "sling", "pouch", "bottle", "jewelry", "jewellery")
-        )
+        asset_terms = _asset_category_terms(asset)
+        is_accessory = bool(asset_terms.intersection({"accessory", "footwear"}))
         if accessory_only != is_accessory:
+            continue
+        if not accessory_only and not _hero_asset_allowed(asset, direction):
+            logger.info(
+                "AHVI_HERO_ASSET_REJECTED hero=%r asset=%r category=%r subcategory=%r",
+                direction.get("hero_piece"),
+                asset.get("name"),
+                asset.get("category"),
+                asset.get("subcategory"),
+            )
             continue
         score = _asset_score(asset, direction=direction, occasion=occasion, target_gender=target_gender)
         if score > 0:
@@ -1086,7 +1181,38 @@ def _best_style_assets(
     if not candidates:
         return []
     candidates.sort(key=lambda pair: pair[0], reverse=True)
-    return [asset for _, asset in candidates[: max(1, limit)]]
+    if not accessory_only:
+        return [asset for _, asset in candidates[: max(1, limit)]]
+
+    selected: List[Dict[str, Any]] = []
+    used_groups: set[str] = set()
+    used_subcategories: set[str] = set()
+    for _, asset in candidates:
+        group = _complete_item_group(asset)
+        subcategory = _complete_item_subcategory_key(asset)
+        if group in used_groups:
+            continue
+        if subcategory and subcategory in used_subcategories:
+            continue
+        selected.append(asset)
+        used_groups.add(group)
+        if subcategory:
+            used_subcategories.add(subcategory)
+        if len(selected) >= max(1, limit):
+            break
+    if len(selected) < max(1, limit):
+        for _, asset in candidates:
+            key = _asset_text(asset.get("asset_id") or asset.get("$id") or asset.get("name"))
+            if any(_asset_text(item.get("asset_id") or item.get("$id") or item.get("name")) == key for item in selected):
+                continue
+            group = _complete_item_group(asset)
+            if group in used_groups:
+                continue
+            selected.append(asset)
+            used_groups.add(group)
+            if len(selected) >= max(1, limit):
+                break
+    return selected[: max(1, limit)]
 
 
 def _accessory_asset_to_complete_item(asset: Dict[str, Any], direction: Dict[str, Any]) -> Dict[str, Any]:
@@ -1099,6 +1225,39 @@ def _accessory_asset_to_complete_item(asset: Dict[str, Any], direction: Dict[str
         "reason": "Completes the look with the right level of finish.",
         "unlocks": _safe_list(asset.get("archetypes"), limit=4) or [archetype],
     }
+
+
+def _complete_item_group(item: Dict[str, Any]) -> str:
+    blob = " ".join(
+        [
+            _asset_text(item.get("name")),
+            _asset_text(item.get("category")),
+            _asset_text(item.get("subcategory")),
+            " ".join(_safe_list(item.get("tags"), limit=6)),
+        ]
+    ).lower()
+    if any(term in blob for term in ("belt",)):
+        return "belt"
+    if any(term in blob for term in ("hat", "cap")):
+        return "hat"
+    if any(term in blob for term in ("sunglass", "sunglasses", "shade", "shades")):
+        return "sunglasses"
+    if any(term in blob for term in ("loafer", "sneaker", "shoe", "footwear", "heel", "sandal", "boot")):
+        return "footwear"
+    if any(term in blob for term in ("bracelet", "watch", "bangle", "necklace", "earring", "jewelry", "jewellery", "ring")):
+        return "jewellery_watch"
+    if any(term in blob for term in ("bag", "tote", "sling", "messenger", "pouch", "backpack", "crossbody")):
+        return "bag"
+    if any(term in blob for term in ("overshirt", "jacket", "scarf", "wrap", "layer")):
+        return "layer"
+    return _norm(item.get("subcategory") or item.get("category") or item.get("name")) or "accessory"
+
+
+def _complete_item_subcategory_key(item: Dict[str, Any]) -> str:
+    subcategory = _norm(item.get("subcategory"))
+    if subcategory and subcategory not in {"accessory", "accessories", "fashion", "style"}:
+        return subcategory
+    return _complete_item_group(item)
 
 
 def _complete_item_allowed_for_gender(
@@ -1127,6 +1286,8 @@ def _sanitize_complete_the_look(
 ) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     seen: set[str] = set()
+    seen_groups: set[str] = set()
+    seen_subcategories: set[str] = set()
     for raw in items or []:
         if not isinstance(raw, dict):
             continue
@@ -1138,6 +1299,12 @@ def _sanitize_complete_the_look(
             continue
         item = dict(raw)
         item["name"] = name
+        group = _complete_item_group(item)
+        subcategory = _complete_item_subcategory_key(item)
+        if group in seen_groups:
+            continue
+        if subcategory and subcategory in seen_subcategories:
+            continue
         if not _complete_item_allowed_for_gender(
             item,
             target_gender=target_gender,
@@ -1145,6 +1312,9 @@ def _sanitize_complete_the_look(
         ):
             continue
         seen.add(key)
+        seen_groups.add(group)
+        if subcategory:
+            seen_subcategories.add(subcategory)
         out.append(item)
         if len(out) >= limit:
             break
@@ -2858,6 +3028,10 @@ def _scrub_internal_style_language(text: str) -> str:
 
 
 _VISIBLE_PLACEHOLDER_REPLACEMENTS = [
+    (r"\bcustom_occasion\b", "casual outing"),
+    (r"\bhybrid_occasion\b", "work-to-social occasion"),
+    (r"\bwork_occasion\b", "work setting"),
+    (r"\btravel_occasion\b", "travel day"),
     (r"\bclean shirt\b", "crisp shirt"),
     (r"\bsimple footwear\b", "polished shoes"),
     (r"\bminimal straight bottom\b", "streamlined trouser"),
@@ -2868,27 +3042,31 @@ _VISIBLE_PLACEHOLDER_REPLACEMENTS = [
     (r"\bclean casual footwear\b", "clean casual shoes"),
     (r"\bclean supporting pieces\b", "well-chosen supporting pieces"),
     (r"\bsensitive_occasion\b", "respectful occasion"),
+    (r"\bcrisp shirt\s+base\b", "Classic Tailoring"),
+    (r"\bshirt\s+base\b", "Classic Tailoring"),
     (r"\bstyle piece\b", "wardrobe piece"),
 ]
 
 
-def _scrub_visible_style_text(text: Any) -> str:
+def _scrub_visible_style_text(text: Any, *, query: str = "") -> str:
     out = str(text or "")
     if not out:
         return out
     out = _scrub_internal_style_language(out)
+    social_replacement = "coffee date" if any(term in _norm(query) for term in ("coffee", "date")) else "social outing"
+    out = re.sub(r"\bsocial_occasion\b", social_replacement, out, flags=re.IGNORECASE)
     for pattern, replacement in _VISIBLE_PLACEHOLDER_REPLACEMENTS:
         out = re.sub(pattern, replacement, out, flags=re.IGNORECASE)
     return re.sub(r"\s+", " ", out).strip()
 
 
-def _scrub_visible_style_payload(value: Any) -> Any:
+def _scrub_visible_style_payload(value: Any, *, query: str = "") -> Any:
     if isinstance(value, dict):
-        return {key: _scrub_visible_style_payload(val) for key, val in value.items()}
+        return {key: _scrub_visible_style_payload(val, query=query) for key, val in value.items()}
     if isinstance(value, list):
-        return [_scrub_visible_style_payload(item) for item in value]
+        return [_scrub_visible_style_payload(item, query=query) for item in value]
     if isinstance(value, str):
-        return _scrub_visible_style_text(value)
+        return _scrub_visible_style_text(value, query=query)
     return value
 
 
@@ -3046,17 +3224,17 @@ def _build_response(
             bool(context.get("wardrobe") or context.get("wardrobe_items")),
         )
 
-    polished_advice = _scrub_visible_style_text(polished_advice)
-    confidence_strategy = _scrub_visible_style_text(confidence_strategy)
-    missing_piece_reasoning = _scrub_visible_style_text(missing_piece_reasoning)
-    visual_directions = _scrub_visible_style_payload(visual_directions)
-    missing_piece = _scrub_visible_style_payload(missing_piece) if missing_piece else None
+    polished_advice = _scrub_visible_style_text(polished_advice, query=query)
+    confidence_strategy = _scrub_visible_style_text(confidence_strategy, query=query)
+    missing_piece_reasoning = _scrub_visible_style_text(missing_piece_reasoning, query=query)
+    visual_directions = _scrub_visible_style_payload(visual_directions, query=query)
+    missing_piece = _scrub_visible_style_payload(missing_piece, query=query) if missing_piece else None
     visual_inspiration_board = (
-        _scrub_visible_style_payload(visual_inspiration_board)
+        _scrub_visible_style_payload(visual_inspiration_board, query=query)
         if visual_inspiration_board
         else None
     )
-    what_to_avoid = _scrub_visible_style_payload(what_to_avoid)
+    what_to_avoid = _scrub_visible_style_payload(what_to_avoid, query=query)
 
     return {
         "mode": final_mode,
