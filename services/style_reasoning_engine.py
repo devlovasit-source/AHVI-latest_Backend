@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any, Dict, List
 
@@ -172,6 +173,88 @@ def _extract_pairing_anchor(query: str) -> Dict[str, str]:
         color,
     )
     return {"name": name, "category": category, "color": color}
+
+
+def _extract_anchor_piece(query: str) -> str:
+    q = _norm(_clean_recursive_prompt(query))
+    if not q:
+        return ""
+    anchor = q
+    patterns = (
+        r"\bhow\s+do\s+i\s+pair\s+(?:my\s+|a\s+|an\s+|the\s+)?(.+)",
+        r"\bwhat\s+to\s+pair\s+with\s+(?:my\s+|a\s+|an\s+|the\s+)?(.+)",
+        r"\bwhat\s+goes\s+with\s+(?:my\s+|a\s+|an\s+|the\s+)?(.+)",
+        r"\bhow\s+do\s+i\s+style\s+(?:my\s+|a\s+|an\s+|the\s+)?(.+)",
+        r"\bhow\s+can\s+i\s+wear\s+(?:my\s+|a\s+|an\s+|the\s+)?(.+)",
+        r"\bways\s+to\s+style\s+(?:my\s+|a\s+|an\s+|the\s+)?(.+)",
+        r"\bstyle\s+(?:my\s+|a\s+|an\s+|the\s+)?(.+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, q)
+        if match:
+            anchor = match.group(1).strip()
+            break
+    anchor = re.sub(r"\b(outfit|look|looks|ideas|idea|please|today|casually|formally|well|better)\b", " ", anchor)
+    anchor = re.sub(r"^(my|a|an|the|this|these|those)\s+", "", anchor).strip()
+    words = anchor.split()
+    # Keep the anchor compact: color/adjective + item noun is usually enough.
+    if len(words) > 5:
+        family_index = -1
+        for idx, word in enumerate(words):
+            if _target_family(word):
+                family_index = idx
+        if family_index >= 0:
+            start = max(0, family_index - 3)
+            anchor = " ".join(words[start : family_index + 1])
+    anchor = re.sub(r"\s+", " ", anchor).strip()
+    if anchor and anchor != q:
+        logger.info("AHVI_ANCHOR_EXTRACTED query=%r anchor=%r", query, anchor)
+    return anchor
+
+
+def _hero_too_sentence_like(hero_piece: Any, query: str = "") -> bool:
+    hero = _norm(hero_piece)
+    q = _norm(query)
+    if not hero:
+        return True
+    if q and (hero == q or q in hero or hero in q and len(hero.split()) > 5):
+        return True
+    if len(hero.split()) > 6:
+        return True
+    return any(
+        phrase in f" {hero} "
+        for phrase in (
+            " how do i ",
+            " what to ",
+            " what should ",
+            " pair with ",
+            " goes with ",
+            " outfit for ",
+            " show visual ",
+        )
+    )
+
+
+def _apply_anchor_piece_to_visual_directions(
+    visual_directions: List[Dict[str, Any]],
+    query: str,
+) -> List[Dict[str, Any]]:
+    anchor = _extract_anchor_piece(query)
+    if not anchor or not _target_family(anchor):
+        return visual_directions
+    out: List[Dict[str, Any]] = []
+    for direction in visual_directions or []:
+        item = dict(direction)
+        hero = _asset_text(item.get("hero_piece") or item.get("heroPiece"))
+        if _hero_too_sentence_like(hero, query):
+            item["hero_piece"] = anchor
+            pieces = _safe_list(item.get("items") or item.get("pieces"), limit=6)
+            if pieces and _hero_too_sentence_like(pieces[0], query):
+                pieces[0] = anchor
+                item["items"] = pieces
+                item["pieces"] = pieces
+        out.append(item)
+    return out
 
 
 def _safe_list(value: Any, *, limit: int = 8) -> List[str]:
@@ -687,10 +770,15 @@ _OFFICE_POLICY_OCCASIONS: set[str] = {
     "startup_office",
     "client_meeting",
     "client meeting",
+    "work",
     "presentation",
     "business",
     "interview",
     "conference",
+    "formal",
+    "funeral",
+    "religious",
+    "wedding",
 }
 _COFFEE_DATE_POLICY_OCCASIONS: set[str] = {
     "coffee_date",
@@ -724,6 +812,7 @@ _FAMILY_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("shorts",), "shorts"),
     (("formalshoe", "dressshoe"), "formal_shoe"),
     (("loafer",), "loafer"),
+    (("espadrille", "espadrilles"), "espadrille"),
     (("sneaker",), "sneaker"),
     (("flipflop", "flipflops"), "flip_flops"),
     (("slider", "slides"), "slide"),
@@ -762,6 +851,12 @@ _FAMILY_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
             "adapter",
             "headphone",
             "earbud",
+            "earbuds",
+            "earphone",
+            "earphones",
+            "charger",
+            "phone",
+            "electronics",
         ),
         "travel",
     ),
@@ -806,6 +901,7 @@ _FAMILY_GROUP: dict[str, str] = {
     "gym_shorts": "bottom",
     "formal_shoe": "footwear",
     "loafer": "footwear",
+    "espadrille": "footwear",
     "sneaker": "footwear",
     "sandal": "footwear",
     "slide": "footwear",
@@ -829,6 +925,7 @@ _FAMILY_GROUP: dict[str, str] = {
     "jewellery": "accessory",
     "travel": "travel",
     "grooming": "grooming",
+    "electronics": "electronics",
     "loungewear": "loungewear",
 }
 
@@ -850,6 +947,7 @@ _FAMILY_ALLOWED_FOR_TARGET: dict[str, set[str]] = {
     "shorts": {"shorts"},
     "formal_shoe": {"formal_shoe"},
     "loafer": {"loafer"},
+    "espadrille": {"espadrille"},
     "sneaker": {"sneaker"},
     "belt": {"belt"},
     "watch": {"watch"},
@@ -863,11 +961,13 @@ _OFFICE_CTL_REJECT_FAMILIES: set[str] = {
     "cap",
     "hat",
     "sunglasses",
+    "sneaker",
     "slide",
     "flip_flops",
     "sandal",
     "grooming",
     "travel",
+    "electronics",
     "swim_shorts",
     "gym_shorts",
     "loungewear",
@@ -883,7 +983,7 @@ _OFFICE_CTL_PREFER_FAMILIES: set[str] = {
     "loafer",
     "bag",
 }
-_HERO_FORBIDDEN_GROUPS: set[str] = {"accessory", "travel", "grooming", "loungewear"}
+_HERO_FORBIDDEN_GROUPS: set[str] = {"accessory", "travel", "grooming", "electronics", "loungewear"}
 _COFFEE_DATE_ALLOWED_ACC: set[str] = {"belt", "watch", "loafer", "sneaker", "sunglasses"}
 
 
@@ -899,6 +999,15 @@ def _is_office_occasion_policy(occasion: str) -> bool:
 def _is_coffee_date_policy(occasion: str) -> bool:
     key = _policy_occasion_key(occasion)
     return key in {_policy_occasion_key(o) for o in _COFFEE_DATE_POLICY_OCCASIONS}
+
+
+def _demo_safe_visuals_enabled() -> bool:
+    return str(os.getenv("AHVI_DEMO_SAFE_VISUALS", "true")).strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
 
 
 _MULTI_TOKEN_COMPOUNDS: tuple[tuple[tuple[str, ...], str], ...] = (
@@ -974,10 +1083,20 @@ def _asset_allowed_for_context(
             return False
         if family in {"loungewear", "swim_shorts", "gym_shorts"}:
             return False
+        if _demo_safe_visuals_enabled():
+            if group and group not in {"top", "bottom", "outerwear", "footwear"}:
+                return False
+            if target_family and not family:
+                return False
         if target_family:
             allowed = _FAMILY_ALLOWED_FOR_TARGET.get(target_family)
-            if allowed is not None and family and family not in allowed:
-                return False
+            if allowed is not None:
+                if not family or family not in allowed:
+                    return False
+            elif _demo_safe_visuals_enabled():
+                target_group = _FAMILY_GROUP.get(target_family, "")
+                if target_group and group and target_group != group:
+                    return False
             if target_family == "shirt" and family in {"tshirt", "polo", "hoodie", "sweatshirt"}:
                 return False
             if target_family == "tshirt" and family in {"shirt", "polo", "hoodie", "sweatshirt"}:
@@ -1920,6 +2039,11 @@ def _best_style_assets(
             rejected_total - rejected_logged,
         )
     if not candidates:
+        if not accessory_only and _demo_safe_visuals_enabled():
+            logger.info(
+                "AHVI_HERO_ASSET_NO_SAFE_MATCH hero=%r",
+                _asset_text(direction.get("hero_piece")),
+            )
         return []
     candidates.sort(key=lambda pair: pair[0], reverse=True)
     if not accessory_only:
@@ -2176,6 +2300,10 @@ def _is_work_complete_look_occasion(occasion: Any) -> bool:
             "interview",
             "presentation",
             "conference",
+            "formal",
+            "funeral",
+            "religious",
+            "wedding",
         )
     )
 
@@ -2201,6 +2329,7 @@ def _work_complete_item_allowed(item: Dict[str, Any]) -> bool:
         "travel",
         "grooming",
         "skincare",
+        "electronics",
         "hoodie",
         "t-shirt",
         "tshirt",
@@ -2213,11 +2342,16 @@ def _work_complete_item_allowed(item: Dict[str, Any]) -> bool:
         "loafer",
         "loafers",
         "derby",
+        "formal_shoe",
+        "oxford_shoe",
         "monk strap",
         "monkstrap",
+        "monk_strap",
         "laptop bag",
+        "laptop_bag",
         "briefcase",
         "messenger bag",
+        "messenger_bag",
         "messenger",
     )
     if any(term in blob for term in allowed_terms):
@@ -4039,6 +4173,7 @@ def _build_response(
             category,
             selected_archetypes if final_mode == VISUAL_INSPIRATION else None,
         )
+    visual_directions = _apply_anchor_piece_to_visual_directions(visual_directions, query)
     visual_directions = _enrich_visual_directions_with_assets(
         visual_directions,
         occasion=str(payload.get("occasion") or occasion or category or query),
