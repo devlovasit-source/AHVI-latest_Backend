@@ -672,6 +672,376 @@ def _colors_share_group(a: str, b: str) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------
+# Style asset policy
+# ---------------------------------------------------------------------
+# Central decision layer for what assets are allowed in which placement
+# (hero / complete_the_look / missing_piece) for a given occasion + target
+# text. Every selection path below funnels through ``_asset_allowed_for_context``
+# and ``_asset_context_score`` so we stop accumulating ad-hoc patches for
+# beanie/cap/tshirt/hoodie/sandal mismatches.
+# ---------------------------------------------------------------------
+
+_OFFICE_POLICY_OCCASIONS: set[str] = {
+    "office",
+    "startup_office",
+    "client_meeting",
+    "client meeting",
+    "presentation",
+    "business",
+    "interview",
+    "conference",
+}
+_COFFEE_DATE_POLICY_OCCASIONS: set[str] = {
+    "coffee_date",
+    "coffee date",
+    "first_date",
+    "casual_date",
+}
+
+# Family token rules: longer / compound tokens first so e.g. "buttondown" is
+# matched before "shirt".
+_FAMILY_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("buttondown", "dressshirt", "formalshirt", "oxfordshirt"), "shirt"),
+    (("oxford",), "shirt"),
+    (("tshirt", "tee"), "tshirt"),
+    (("polo",), "polo"),
+    (("hoodie",), "hoodie"),
+    (("sweatshirt",), "sweatshirt"),
+    (("knitwear", "knit", "sweater", "cardigan"), "knit"),
+    (("blazer",), "blazer"),
+    (("overshirt",), "overshirt"),
+    (("jacket",), "jacket"),
+    (("coat",), "coat"),
+    (("kurta", "sherwani", "bandhgala", "waistcoat", "nehrujacket"), "ethnic"),
+    (("jeans", "denim"), "jeans"),
+    (("chino",), "chino"),
+    (("trouser", "pant"), "trouser"),
+    (("cargopants",), "cargo_pants"),
+    (("joggers",), "joggers"),
+    (("swimshorts", "swimtrunk"), "swim_shorts"),
+    (("gymshorts", "runningshorts"), "gym_shorts"),
+    (("shorts",), "shorts"),
+    (("formalshoe", "dressshoe"), "formal_shoe"),
+    (("loafer",), "loafer"),
+    (("sneaker",), "sneaker"),
+    (("flipflop", "flipflops"), "flip_flops"),
+    (("slider", "slides"), "slide"),
+    (("sandal",), "sandal"),
+    (("boot",), "boot"),
+    (("laptopbag",), "laptop_bag"),
+    (("messenger",), "messenger_bag"),
+    (("backpack",), "backpack"),
+    (("duffle", "dufflebag"), "duffle_bag"),
+    (("wallet", "cardcase", "cardholder"), "cardholder"),
+    (("briefcase",), "briefcase"),
+    (("bag", "tote", "crossbody", "sling"), "bag"),
+    (("belt",), "belt"),
+    (("watch",), "watch"),
+    (("sunglass",), "sunglasses"),
+    (("beanie",), "beanie"),
+    (("baseballcap", "trucker"), "cap"),
+    (("cap",), "cap"),
+    (("fedora", "sunhat"), "hat"),
+    (("hat",), "hat"),
+    (("scarf", "muffler"), "scarf"),
+    (("tie",), "tie"),
+    (("necklace", "bracelet", "earring", "ring", "chain", "jewellery", "jewelry"), "jewellery"),
+    (
+        (
+            "powerbank",
+            "neckpillow",
+            "pillow",
+            "suitcase",
+            "luggage",
+            "pouch",
+            "bottle",
+            "tumbler",
+            "keychain",
+            "eyemask",
+            "adapter",
+            "headphone",
+            "earbud",
+        ),
+        "travel",
+    ),
+    (
+        (
+            "skincare",
+            "moisturizer",
+            "serum",
+            "sunscreen",
+            "toiletry",
+            "comb",
+            "razor",
+            "shaver",
+        ),
+        "grooming",
+    ),
+    (("loungewear", "lounge", "pyjama", "pajama"), "loungewear"),
+    # Generic fallback so e.g. "blackshirt" / "whiteshirt" resolve to shirt
+    # once the more-specific tshirt/polo/oxford rules miss.
+    (("shirt",), "shirt"),
+)
+
+_FAMILY_GROUP: dict[str, str] = {
+    "shirt": "top",
+    "tshirt": "top",
+    "polo": "top",
+    "hoodie": "top",
+    "sweatshirt": "top",
+    "knit": "top",
+    "ethnic": "top",
+    "overshirt": "outerwear",
+    "blazer": "outerwear",
+    "jacket": "outerwear",
+    "coat": "outerwear",
+    "jeans": "bottom",
+    "chino": "bottom",
+    "trouser": "bottom",
+    "cargo_pants": "bottom",
+    "joggers": "bottom",
+    "shorts": "bottom",
+    "swim_shorts": "bottom",
+    "gym_shorts": "bottom",
+    "formal_shoe": "footwear",
+    "loafer": "footwear",
+    "sneaker": "footwear",
+    "sandal": "footwear",
+    "slide": "footwear",
+    "flip_flops": "footwear",
+    "boot": "footwear",
+    "belt": "accessory",
+    "watch": "accessory",
+    "bag": "accessory",
+    "laptop_bag": "accessory",
+    "messenger_bag": "accessory",
+    "backpack": "accessory",
+    "duffle_bag": "accessory",
+    "cardholder": "accessory",
+    "briefcase": "accessory",
+    "sunglasses": "accessory",
+    "cap": "accessory",
+    "hat": "accessory",
+    "beanie": "accessory",
+    "scarf": "accessory",
+    "tie": "accessory",
+    "jewellery": "accessory",
+    "travel": "travel",
+    "grooming": "grooming",
+    "loungewear": "loungewear",
+}
+
+# Hero target_family -> set of asset families that are acceptable.
+_FAMILY_ALLOWED_FOR_TARGET: dict[str, set[str]] = {
+    "shirt": {"shirt"},
+    "tshirt": {"tshirt"},
+    "polo": {"polo"},
+    "hoodie": {"hoodie", "sweatshirt"},
+    "sweatshirt": {"sweatshirt", "hoodie"},
+    "knit": {"knit"},
+    "blazer": {"blazer"},
+    "jacket": {"jacket", "overshirt"},
+    "overshirt": {"overshirt", "jacket"},
+    "coat": {"coat", "jacket"},
+    "jeans": {"jeans"},
+    "trouser": {"trouser", "chino"},
+    "chino": {"chino", "trouser"},
+    "shorts": {"shorts"},
+    "formal_shoe": {"formal_shoe"},
+    "loafer": {"loafer"},
+    "sneaker": {"sneaker"},
+    "belt": {"belt"},
+    "watch": {"watch"},
+    "bag": {"bag", "laptop_bag", "messenger_bag", "backpack", "duffle_bag", "briefcase"},
+    "laptop_bag": {"laptop_bag", "messenger_bag", "briefcase", "bag"},
+    "sunglasses": {"sunglasses"},
+}
+
+_OFFICE_CTL_REJECT_FAMILIES: set[str] = {
+    "beanie",
+    "cap",
+    "hat",
+    "sunglasses",
+    "slide",
+    "flip_flops",
+    "sandal",
+    "grooming",
+    "travel",
+    "swim_shorts",
+    "gym_shorts",
+    "loungewear",
+}
+_OFFICE_CTL_PREFER_FAMILIES: set[str] = {
+    "belt",
+    "watch",
+    "laptop_bag",
+    "messenger_bag",
+    "cardholder",
+    "briefcase",
+    "formal_shoe",
+    "loafer",
+    "bag",
+}
+_HERO_FORBIDDEN_GROUPS: set[str] = {"accessory", "travel", "grooming", "loungewear"}
+_COFFEE_DATE_ALLOWED_ACC: set[str] = {"belt", "watch", "loafer", "sneaker", "sunglasses"}
+
+
+def _policy_occasion_key(occasion: str) -> str:
+    return re.sub(r"\s+", "_", str(occasion or "").strip().lower())
+
+
+def _is_office_occasion_policy(occasion: str) -> bool:
+    key = _policy_occasion_key(occasion)
+    return key in {_policy_occasion_key(o) for o in _OFFICE_POLICY_OCCASIONS}
+
+
+def _is_coffee_date_policy(occasion: str) -> bool:
+    key = _policy_occasion_key(occasion)
+    return key in {_policy_occasion_key(o) for o in _COFFEE_DATE_POLICY_OCCASIONS}
+
+
+_MULTI_TOKEN_COMPOUNDS: tuple[tuple[tuple[str, ...], str], ...] = (
+    # (required_token_set, family). All tokens must be present (substring-in-token).
+    (("button", "down"), "shirt"),
+    (("dress", "shirt"), "shirt"),
+    (("formal", "shirt"), "shirt"),
+    (("oxford", "shirt"), "shirt"),
+    (("button", "up"), "shirt"),
+    (("polo", "shirt"), "polo"),
+    (("dress", "shoe"), "formal_shoe"),
+    (("dress", "shoes"), "formal_shoe"),
+    (("formal", "shoe"), "formal_shoe"),
+    (("formal", "shoes"), "formal_shoe"),
+    (("laptop", "bag"), "laptop_bag"),
+    (("messenger", "bag"), "messenger_bag"),
+    (("neck", "pillow"), "travel"),
+    (("eye", "mask"), "travel"),
+    (("water", "bottle"), "travel"),
+    (("sun", "glasses"), "sunglasses"),
+    (("baseball", "cap"), "cap"),
+    (("knit", "wear"), "knit"),
+)
+
+
+def _detect_family(text: Any) -> str:
+    if not text:
+        return ""
+    tokens = _compact_tokens(text)
+    if not tokens:
+        return ""
+    # Multi-token compounds first ("button down", "dress shirt", ...).
+    for needles, family in _MULTI_TOKEN_COMPOUNDS:
+        if all(_tokens_contain(tokens, (n,)) for n in needles):
+            return family
+    # Per-token markers. Tokens are alphanum-only per word so "T-Shirt" is
+    # one token ``tshirt`` while "shirt" + "shirt" never combine into
+    # ``shirtshirt`` (which would otherwise match ``tshirt`` as substring).
+    for markers, family in _FAMILY_RULES:
+        if _tokens_contain(tokens, markers):
+            return family
+    return ""
+
+
+def _asset_family(asset: Dict[str, Any]) -> str:
+    blob = " ".join(
+        [
+            _asset_text(asset.get("name")),
+            _asset_text(asset.get("subcategory")),
+            _asset_text(asset.get("category")),
+            " ".join(_asset_list(asset.get("tags"))),
+        ]
+    )
+    return _detect_family(blob)
+
+
+def _target_family(target_text: str) -> str:
+    return _detect_family(target_text)
+
+
+def _asset_allowed_for_context(
+    asset: Dict[str, Any],
+    *,
+    occasion: str = "",
+    placement: str = "hero",
+    target_text: str = "",
+) -> bool:
+    family = _asset_family(asset)
+    group = _FAMILY_GROUP.get(family, "")
+    target_family = _target_family(target_text)
+    if placement == "hero":
+        if group in _HERO_FORBIDDEN_GROUPS:
+            return False
+        if family in {"loungewear", "swim_shorts", "gym_shorts"}:
+            return False
+        if target_family:
+            allowed = _FAMILY_ALLOWED_FOR_TARGET.get(target_family)
+            if allowed is not None and family and family not in allowed:
+                return False
+            if target_family == "shirt" and family in {"tshirt", "polo", "hoodie", "sweatshirt"}:
+                return False
+            if target_family == "tshirt" and family in {"shirt", "polo", "hoodie", "sweatshirt"}:
+                return False
+            if target_family == "polo" and family in {"shirt", "tshirt", "hoodie", "sweatshirt"}:
+                return False
+            if target_family in {"hoodie", "sweatshirt"} and family in {"shirt", "tshirt", "polo"}:
+                return False
+        return True
+    if placement == "complete":
+        if _is_office_occasion_policy(occasion) and family in _OFFICE_CTL_REJECT_FAMILIES:
+            return False
+        return True
+    if placement == "missing":
+        target_group = _FAMILY_GROUP.get(target_family, "")
+        if target_group == "accessory":
+            return True
+        if group in _HERO_FORBIDDEN_GROUPS and target_group and target_group != group:
+            return False
+        if target_family:
+            allowed = _FAMILY_ALLOWED_FOR_TARGET.get(target_family)
+            if allowed is not None and family and family not in allowed:
+                return False
+        return True
+    return True
+
+
+def _asset_context_score(
+    asset: Dict[str, Any],
+    *,
+    occasion: str = "",
+    placement: str = "hero",
+    target_text: str = "",
+) -> int:
+    family = _asset_family(asset)
+    target_family = _target_family(target_text)
+    bonus = 0
+    if placement == "complete":
+        if _is_office_occasion_policy(occasion):
+            if family in _OFFICE_CTL_PREFER_FAMILIES:
+                bonus += 12
+            if family in _OFFICE_CTL_REJECT_FAMILIES:
+                bonus -= 25
+        if _is_coffee_date_policy(occasion):
+            if family in _COFFEE_DATE_ALLOWED_ACC:
+                bonus += 4
+            if family == "sunglasses" and not any(
+                cue in str(occasion or "").lower() for cue in ("outdoor", "daytime", "park", "beach")
+            ):
+                bonus -= 6
+    if placement in {"hero", "missing"} and target_family:
+        allowed = _FAMILY_ALLOWED_FOR_TARGET.get(target_family, {target_family})
+        if family and family in allowed:
+            bonus += 6
+        elif family:
+            bonus -= 4
+    return bonus
+
+
+# ---------------------------------------------------------------------
+# End style asset policy
+# ---------------------------------------------------------------------
+
+
 def _asset_matches_hero_slot(asset: Dict[str, Any], expected_slot: str | None, hero_text: str) -> bool:
     if not expected_slot:
         return True
@@ -1451,6 +1821,7 @@ def _best_style_asset(
     accessory_only: bool = False,
     target_gender: str = "unknown",
     allow_feminine_accessory: bool = False,
+    placement: str | None = None,
 ) -> Dict[str, Any] | None:
     matches = _best_style_assets(
         assets,
@@ -1460,6 +1831,7 @@ def _best_style_asset(
         target_gender=target_gender,
         allow_feminine_accessory=allow_feminine_accessory,
         limit=1,
+        placement=placement,
     )
     return matches[0] if matches else None
 
@@ -1473,7 +1845,14 @@ def _best_style_assets(
     target_gender: str = "unknown",
     allow_feminine_accessory: bool = False,
     limit: int = 3,
+    placement: str | None = None,
 ) -> List[Dict[str, Any]]:
+    # Resolve placement so the central policy can gate + score correctly.
+    if placement is None:
+        placement = "complete" if accessory_only else "hero"
+    target_text = _asset_text(direction.get("hero_piece")) or " ".join(
+        _safe_list(direction.get("items") or direction.get("pieces"), limit=1)
+    )
     candidates: List[tuple[int, Dict[str, Any]]] = []
     _validate_style_assets([asset for asset in assets if isinstance(asset, dict)])
     reject_log_cap = 5
@@ -1503,7 +1882,34 @@ def _best_style_assets(
                 )
                 rejected_logged += 1
             continue
+        # Central policy gate: blocks accessory/travel/grooming heroes,
+        # enforces target-family match (oxford never picks t-shirt), and
+        # filters office complete_the_look against beanie/cap/sandal etc.
+        if not _asset_allowed_for_context(
+            asset,
+            occasion=occasion,
+            placement=placement,
+            target_text=target_text,
+        ):
+            if not accessory_only:
+                rejected_total += 1
+                if rejected_logged < reject_log_cap:
+                    logger.info(
+                        "AHVI_HERO_ASSET_REJECTED hero=%r asset=%r category=%r subcategory=%r reason=policy",
+                        direction.get("hero_piece"),
+                        asset.get("name"),
+                        asset.get("category"),
+                        asset.get("subcategory"),
+                    )
+                    rejected_logged += 1
+            continue
         score = _asset_score(asset, direction=direction, occasion=occasion, target_gender=target_gender)
+        score += _asset_context_score(
+            asset,
+            occasion=occasion,
+            placement=placement,
+            target_text=target_text,
+        )
         if score > 0:
             candidates.append((score, asset))
     if not accessory_only and rejected_total > reject_log_cap:
@@ -3217,6 +3623,7 @@ def _enrich_missing_piece_with_asset(
         occasion=_asset_text(occasion),
         target_gender=target_gender,
         allow_feminine_accessory=allow_feminine,
+        placement="missing",
     )
     if asset:
         out["image_url"] = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
