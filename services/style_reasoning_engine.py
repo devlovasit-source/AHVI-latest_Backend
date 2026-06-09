@@ -522,6 +522,156 @@ def _hero_expected_slot(hero_text: str) -> str | None:
     return None
 
 
+_SHIRT_COLORS: tuple[str, ...] = (
+    "white",
+    "offwhite",
+    "ivory",
+    "cream",
+    "beige",
+    "tan",
+    "khaki",
+    "olive",
+    "green",
+    "blue",
+    "navy",
+    "lightblue",
+    "skyblue",
+    "black",
+    "charcoal",
+    "grey",
+    "gray",
+    "brown",
+    "lightbrown",
+    "darkbrown",
+    "burgundy",
+    "maroon",
+    "red",
+    "yellow",
+    "pink",
+    "purple",
+)
+_COMPATIBLE_COLOR_GROUPS: tuple[set[str], ...] = (
+    {"blue", "navy", "lightblue", "skyblue"},
+    {"white", "offwhite", "ivory", "cream"},
+    {"beige", "tan", "khaki"},
+    {"grey", "gray", "charcoal"},
+    {"brown", "lightbrown", "darkbrown"},
+    {"burgundy", "maroon", "red"},
+)
+
+
+def _compact_text(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", _norm(value))
+
+
+def _compact_tokens(value: Any) -> list[str]:
+    """Return per-word alphanum-only tokens.
+
+    Splits on whitespace ONLY so hyphenated/embedded forms like ``T-Shirt``
+    collapse into a single token ``tshirt``. This avoids cross-word
+    substring collisions (e.g. ``shirt``+``shirt`` -> ``shirtshirt``
+    falsely matching ``tshirt``)."""
+    text = str(value or "").lower()
+    if not text:
+        return []
+    out: list[str] = []
+    for word in text.split():
+        compact = re.sub(r"[^a-z0-9]+", "", word)
+        if compact:
+            out.append(compact)
+    return out
+
+
+def _full_compact(value: Any) -> str:
+    """All-alphanum lowercase squash. Useful for low-collision compound
+    markers like ``buttondown``/``dressshirt`` where cross-word adjacency
+    rarely produces false positives."""
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+def _tokens_contain(tokens: list[str], needles: tuple[str, ...]) -> bool:
+    for tok in tokens:
+        for needle in needles:
+            if needle in tok:
+                return True
+    return False
+
+
+def _hero_shirt_intent(hero_text: str) -> str | None:
+    """Classify the hero piece intent for top garments.
+
+    Returns one of ``formal_shirt``, ``tshirt``, ``polo``, ``knit`` or
+    ``None`` when no shirt-family intent is detected.
+    """
+    tokens = _compact_tokens(hero_text)
+    if not tokens:
+        return None
+    full = _full_compact(hero_text)
+    has_tshirt = _tokens_contain(tokens, ("tshirt", "tee"))
+    has_polo = _tokens_contain(tokens, ("polo",))
+    has_formal_marker = _tokens_contain(
+        tokens, ("oxford", "buttondown", "dressshirt", "formalshirt", "oxfordshirt")
+    ) or any(marker in full for marker in ("buttondown", "dressshirt", "formalshirt", "oxfordshirt"))
+    has_knit = _tokens_contain(tokens, ("knit", "knitwear", "sweater", "cardigan"))
+    if has_formal_marker:
+        return "formal_shirt"
+    if has_polo and not has_formal_marker:
+        return "polo"
+    if has_tshirt and not has_formal_marker:
+        return "tshirt"
+    if has_knit:
+        return "knit"
+    if _tokens_contain(tokens, ("shirt",)) and not has_tshirt and not has_polo:
+        return "formal_shirt"
+    return None
+
+
+def _asset_shirt_intent(asset_blob: str) -> str | None:
+    tokens = _compact_tokens(asset_blob)
+    if not tokens:
+        return None
+    if _tokens_contain(tokens, ("tshirt", "tee")):
+        return "tshirt"
+    if _tokens_contain(tokens, ("polo",)):
+        return "polo"
+    if _tokens_contain(tokens, ("hoodie", "sweatshirt")):
+        return "casual_pullover"
+    if _tokens_contain(tokens, ("oxford", "buttondown", "dressshirt", "formalshirt")):
+        return "formal_shirt"
+    if _tokens_contain(tokens, ("knit", "knitwear", "sweater", "cardigan")):
+        return "knit"
+    if _tokens_contain(tokens, ("shirt",)):
+        return "formal_shirt"
+    return None
+
+
+def _extract_simple_colors(text: Any) -> set[str]:
+    compact = _compact_text(text)
+    if not compact:
+        return set()
+    found: set[str] = set()
+    for color in _SHIRT_COLORS:
+        if color in compact:
+            found.add(color)
+    # Drop pure substrings overshadowed by a longer color match (e.g. "lightblue" wins over "blue").
+    overshadowed: set[str] = set()
+    for color in found:
+        for other in found:
+            if color != other and color in other and len(color) < len(other):
+                overshadowed.add(color)
+                break
+    return found - overshadowed
+
+
+def _colors_share_group(a: str, b: str) -> bool:
+    if a == b:
+        return True
+    for group in _COMPATIBLE_COLOR_GROUPS:
+        if a in group and b in group:
+            return True
+    return False
+
+
 def _asset_matches_hero_slot(asset: Dict[str, Any], expected_slot: str | None, hero_text: str) -> bool:
     if not expected_slot:
         return True
@@ -553,9 +703,36 @@ def _asset_matches_hero_slot(asset: Dict[str, Any], expected_slot: str | None, h
         return has("jacket", "overshirt", "coat", "blazer", "outerwear")
 
     if expected_slot == "top":
-        if has("hoodie", "sweatshirt") and not hero_tokens.intersection({"hoodie", "sweatshirt"}):
-            return False
         if has("jacket", "blazer", "overshirt", "outerwear", "coat"):
+            return False
+        intent = _hero_shirt_intent(hero_text)
+        asset_intent = _asset_shirt_intent(asset_text)
+        if intent == "formal_shirt":
+            # Block t-shirts/polos/hoodies/sweatshirts from formal shirt heroes.
+            if asset_intent in {"tshirt", "polo", "casual_pullover"}:
+                return False
+            if asset_intent == "formal_shirt":
+                return True
+            # Fallback: accept only assets whose blob clearly reads as a shirt.
+            asset_tokens_compact = _compact_tokens(asset_text)
+            return _tokens_contain(asset_tokens_compact, ("shirt",)) and not _tokens_contain(
+                asset_tokens_compact, ("tshirt", "tee")
+            )
+        if intent == "tshirt":
+            if asset_intent in {"formal_shirt", "polo", "casual_pullover", "knit"}:
+                return False
+            return asset_intent == "tshirt"
+        if intent == "polo":
+            if asset_intent in {"formal_shirt", "tshirt", "casual_pullover"}:
+                return False
+            return asset_intent == "polo"
+        if intent == "knit":
+            if asset_intent in {"tshirt", "polo", "formal_shirt"}:
+                return False
+            return asset_intent in {"knit", "casual_pullover"}
+        # No specific shirt intent → keep prior permissive behaviour but
+        # still reject hoodies/sweatshirts unless hero explicitly asked for them.
+        if has("hoodie", "sweatshirt") and not hero_tokens.intersection({"hoodie", "sweatshirt"}):
             return False
         return has("top", "shirt", "oxford", "button", "buttondown", "polo", "tee", "tshirt", "knit", "knitwear", "sweater", "hoodie", "sweatshirt")
 
@@ -579,12 +756,23 @@ def _hero_asset_allowed(asset: Dict[str, Any], direction: Dict[str, Any]) -> boo
     if asset_terms.intersection({"blocked_hero"}):
         return False
     hero_tokens = _style_tokens(hero)
-    if hero_tokens.intersection({"sweater", "knit", "knitwear"}):
+    # Shirt-family intent: route by intent so polo/tshirt/formal_shirt heroes
+    # don't fall into the wrong branch when both "shirt" and "polo" are
+    # mentioned (e.g. "Cream Polo Shirt").
+    shirt_intent = _hero_shirt_intent(hero)
+    if shirt_intent == "polo":
+        asset_intent = _asset_shirt_intent(_asset_text(asset.get("name")) + " " + _asset_text(asset.get("subcategory")) + " " + " ".join(_asset_list(asset.get("tags"))))
+        return asset_intent == "polo" or "polo" in asset_terms
+    if shirt_intent == "tshirt":
+        asset_intent = _asset_shirt_intent(_asset_text(asset.get("name")) + " " + _asset_text(asset.get("subcategory")) + " " + " ".join(_asset_list(asset.get("tags"))))
+        return asset_intent == "tshirt"
+    if shirt_intent == "knit" or hero_tokens.intersection({"sweater", "knit", "knitwear"}):
         return bool(asset_terms.intersection({"sweater", "knit", "knitwear"}))
-    if hero_tokens.intersection({"shirt", "oxford", "linen", "button", "buttondown"}):
-        return bool(asset_terms.intersection({"shirt", "oxford", "linen", "button", "buttondown"}))
-    if hero_tokens.intersection({"polo"}):
-        return "polo" in asset_terms
+    if shirt_intent == "formal_shirt" or hero_tokens.intersection({"shirt", "oxford", "linen", "button", "buttondown"}):
+        asset_intent = _asset_shirt_intent(_asset_text(asset.get("name")) + " " + _asset_text(asset.get("subcategory")) + " " + " ".join(_asset_list(asset.get("tags"))))
+        if asset_intent in {"tshirt", "polo", "casual_pullover"}:
+            return False
+        return asset_intent == "formal_shirt" or bool(asset_terms.intersection({"shirt", "oxford", "linen", "button", "buttondown"}))
     if hero_tokens.intersection({"overshirt"}):
         return "overshirt" in asset_terms or "outerwear" in asset_terms
     if hero_tokens.intersection({"jacket"}):
@@ -1221,6 +1409,29 @@ def _asset_score(
     for color in _safe_list(direction.get("colors") or direction.get("palette"), limit=6):
         if color.lower() in _asset_list(asset.get("colors")):
             score += 2
+    # Color intent matching: prefer the exact hero color, penalise wildly
+    # different colors. Colors are inferred from hero text + asset blob so
+    # this works even when curated metadata is sparse.
+    hero_colors = _extract_simple_colors(direction.get("hero_piece"))
+    asset_color_blob = " ".join(
+        [
+            _asset_text(asset.get("name")),
+            " ".join(_asset_list(asset.get("colors"))),
+            " ".join(_asset_list(asset.get("tags"))),
+            _asset_text(asset.get("subcategory")),
+        ]
+    )
+    asset_colors = _extract_simple_colors(asset_color_blob)
+    if hero_colors and asset_colors:
+        if hero_colors & asset_colors:
+            score += 10
+        elif any(_colors_share_group(h, a) for h in hero_colors for a in asset_colors):
+            score += 3
+        else:
+            score -= 6
+    elif hero_colors and not asset_colors:
+        # Asset color unknown — small penalty so explicitly-colored peers win.
+        score -= 1
     for token in re.findall(r"[a-z0-9]+", direction_terms):
         if len(token) > 3 and token in blob:
             score += 1
@@ -1265,6 +1476,9 @@ def _best_style_assets(
 ) -> List[Dict[str, Any]]:
     candidates: List[tuple[int, Dict[str, Any]]] = []
     _validate_style_assets([asset for asset in assets if isinstance(asset, dict)])
+    reject_log_cap = 5
+    rejected_logged = 0
+    rejected_total = 0
     for raw_asset in assets:
         asset = dict(raw_asset)
         asset["_allow_feminine_accessory"] = allow_feminine_accessory
@@ -1278,17 +1492,27 @@ def _best_style_assets(
         if accessory_only != is_accessory:
             continue
         if not accessory_only and not _hero_asset_allowed(asset, direction):
-            logger.info(
-                "AHVI_HERO_ASSET_REJECTED hero=%r asset=%r category=%r subcategory=%r",
-                direction.get("hero_piece"),
-                asset.get("name"),
-                asset.get("category"),
-                asset.get("subcategory"),
-            )
+            rejected_total += 1
+            if rejected_logged < reject_log_cap:
+                logger.info(
+                    "AHVI_HERO_ASSET_REJECTED hero=%r asset=%r category=%r subcategory=%r",
+                    direction.get("hero_piece"),
+                    asset.get("name"),
+                    asset.get("category"),
+                    asset.get("subcategory"),
+                )
+                rejected_logged += 1
             continue
         score = _asset_score(asset, direction=direction, occasion=occasion, target_gender=target_gender)
         if score > 0:
             candidates.append((score, asset))
+    if not accessory_only and rejected_total > reject_log_cap:
+        logger.info(
+            "AHVI_HERO_ASSET_REJECTED_SUMMARY hero=%r rejected=%d suppressed=%d",
+            _asset_text(direction.get("hero_piece")),
+            rejected_total,
+            rejected_total - rejected_logged,
+        )
     if not candidates:
         return []
     candidates.sort(key=lambda pair: pair[0], reverse=True)
