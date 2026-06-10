@@ -4065,6 +4065,193 @@ def _scrub_visible_style_payload(value: Any, *, query: str = "") -> Any:
     return value
 
 
+_MALE_FINAL_TEXT_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    (r"\bpointed[\s-]+toe\s+flats\b", "formal shoes"),
+    (r"\bmidi\s+dress(?:es)?\b", "tailored trousers"),
+    (r"\b(?:dress|dresses|gown|gowns|skirt|skirts|saree|sari|lehenga)s?\b", "tailored trousers"),
+    (r"\bblouse(?:s)?\b", "crisp shirt"),
+    (r"\b(?:heel|heels|pump|pumps)\b", "formal shoes"),
+    (r"\bnecklace(?:s)?\b", "watch"),
+    (r"\bearrings?\b", "belt"),
+)
+
+_MALE_FINAL_BLOCKED_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("pointed-toe flats", r"\bpointed[\s-]+toe\s+flats\b"),
+    ("midi dress", r"\bmidi\s+dress(?:es)?\b"),
+    ("dress", r"\bdress(?:es)?\b"),
+    ("gown", r"\bgown(?:s)?\b"),
+    ("skirt", r"\bskirt(?:s)?\b"),
+    ("blouse", r"\bblouse(?:s)?\b"),
+    ("saree", r"\bsaree\b"),
+    ("lehenga", r"\blehenga\b"),
+    ("heels", r"\bheels?\b"),
+    ("pumps", r"\bpumps?\b"),
+    ("necklace", r"\bnecklace(?:s)?\b"),
+    ("earrings", r"\bearrings?\b"),
+)
+
+_MALE_FORMAL_CONTEXT_TERMS = {
+    "business",
+    "client",
+    "conference",
+    "formal",
+    "funeral",
+    "meeting",
+    "office",
+    "presentation",
+    "talk",
+    "wedding",
+}
+
+_GENDER_GUARD_SKIP_KEYS = {
+    "$id",
+    "asset_id",
+    "board_id",
+    "card_id",
+    "id",
+    "image_base64",
+    "image_id",
+    "image_url",
+    "imageUrl",
+    "item_id",
+    "itemId",
+    "url",
+}
+
+
+def _male_final_guard_removed_terms(value: Any) -> List[str]:
+    text = str(value or "")
+    if not text:
+        return []
+    removed: List[str] = []
+    for label, pattern in _MALE_FINAL_BLOCKED_PATTERNS:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            removed.append(label)
+    return removed
+
+
+def _male_formal_context_replacement(context: str = "") -> str:
+    normalized = _norm(context)
+    if any(term in normalized for term in _MALE_FORMAL_CONTEXT_TERMS):
+        return "blazer, crisp shirt, tailored trousers, formal shoes, belt/watch, optional laptop bag"
+    return "crisp shirt, tailored trousers, loafers, belt/watch"
+
+
+def _sanitize_male_final_text(text: Any, *, context: str = "") -> tuple[str, List[str]]:
+    out = str(text or "")
+    if not out:
+        return out, []
+    removed = _male_final_guard_removed_terms(out)
+    if not removed:
+        return out, []
+    formal_context = any(term in _norm(context) for term in _MALE_FORMAL_CONTEXT_TERMS)
+    if formal_context and (len(removed) >= 2 or "," in out):
+        return _male_formal_context_replacement(context), removed
+    for pattern, replacement in _MALE_FINAL_TEXT_REPLACEMENTS:
+        out = re.sub(pattern, replacement, out, flags=re.IGNORECASE)
+    out = re.sub(r"\s+", " ", out).strip()
+    if not out or _male_final_guard_removed_terms(out):
+        out = _male_formal_context_replacement(context)
+    return out, removed
+
+
+def _male_sanitize_item_dict(item: Dict[str, Any], *, context: str) -> tuple[Dict[str, Any], List[str]]:
+    out = dict(item)
+    removed: List[str] = []
+    original_name = out.get("name") or out.get("title") or out.get("label")
+    item_removed = _male_final_guard_removed_terms(original_name)
+    for key, value in list(out.items()):
+        if key in _GENDER_GUARD_SKIP_KEYS:
+            continue
+        sanitized, key_removed = apply_gender_guard_to_final_payload(
+            value,
+            target_gender="male",
+            context=context,
+            log=False,
+        )
+        out[key] = sanitized
+        removed.extend(key_removed)
+    if item_removed:
+        removed.extend(item_removed)
+        lower_name = _norm(original_name)
+        if any(term in lower_name for term in ("necklace", "earring")):
+            replacement_name, role = "belt/watch", "accessory"
+        elif any(term in lower_name for term in ("heel", "pump", "pointed toe flat", "pointed toe flats")):
+            replacement_name, role = "formal shoes", "footwear"
+        elif "blouse" in lower_name:
+            replacement_name, role = "crisp shirt", "top"
+        else:
+            replacement_name, role = "tailored trousers", "bottom"
+        for key in ("name", "title", "label"):
+            if key in out:
+                out[key] = replacement_name
+        for key in ("role", "category", "subcategory", "sub_category", "type"):
+            if key in out:
+                out[key] = role
+    return out, sorted(set(removed))
+
+
+def apply_gender_guard_to_final_payload(
+    value: Any,
+    *,
+    target_gender: str,
+    context: str = "",
+    log: bool = True,
+) -> tuple[Any, List[str]]:
+    """Final visible-output guard for gendered fashion language.
+
+    Asset filters run earlier, but model text and final cards can still carry
+    generated labels. This function is intentionally recursive so callers can
+    apply it to plain text, card lists, or full response payloads.
+    """
+    gender = _asset_gender(target_gender)
+    if gender != "male":
+        return value, []
+    removed: List[str] = []
+    if isinstance(value, dict):
+        if any(_male_final_guard_removed_terms(value.get(k)) for k in ("name", "title", "label")):
+            sanitized, item_removed = _male_sanitize_item_dict(value, context=context)
+            removed.extend(item_removed)
+            out = sanitized
+        else:
+            out = {}
+            for key, val in value.items():
+                if key in _GENDER_GUARD_SKIP_KEYS:
+                    out[key] = val
+                    continue
+                sanitized, key_removed = apply_gender_guard_to_final_payload(
+                    val,
+                    target_gender=gender,
+                    context=context,
+                    log=False,
+                )
+                out[key] = sanitized
+                removed.extend(key_removed)
+    elif isinstance(value, list):
+        out = []
+        for item in value:
+            sanitized, item_removed = apply_gender_guard_to_final_payload(
+                item,
+                target_gender=gender,
+                context=context,
+                log=False,
+            )
+            out.append(sanitized)
+            removed.extend(item_removed)
+    elif isinstance(value, str):
+        out, removed = _sanitize_male_final_text(value, context=context)
+    else:
+        out = value
+    removed = sorted(set(removed))
+    if removed and log:
+        logger.info(
+            "AHVI_GENDER_GUARD_APPLIED gender=male removed=%s context=%s",
+            removed,
+            str(context or "")[:160],
+        )
+    return out, removed
+
+
 def _coerce_emotion(value: Any, category: str | None) -> str:
     emotion = _norm(value)
     if emotion in {"neutral", "excited", "frustrated", "vulnerable", "professional", "social"}:
@@ -4232,7 +4419,7 @@ def _build_response(
     )
     what_to_avoid = _scrub_visible_style_payload(what_to_avoid, query=query)
 
-    return {
+    response = {
         "mode": final_mode,
         "occasion": str(payload.get("occasion") or occasion or "").strip() or None,
         "tone": tone,
@@ -4275,6 +4462,7 @@ def _build_response(
             "emotion_state": emotion_state,
             "confidence": final_confidence,
             "asset_gender": asset_gender,
+            "target_gender": asset_gender,
             "anchor_item": pairing_anchor or None,
             "selected_archetypes": [str(a.get("name") or "").strip() for a in selected_archetypes if isinstance(a, dict)],
             "archetype_reasoning": str(payload.get("archetype_reasoning") or "").strip(),
@@ -4282,6 +4470,12 @@ def _build_response(
             "wardrobe_alignment": str(payload.get("wardrobe_alignment") or "").strip(),
         },
     }
+    guarded, removed = apply_gender_guard_to_final_payload(
+        response,
+        target_gender=asset_gender,
+        context=str(payload.get("occasion") or occasion or category or query),
+    )
+    return guarded
 
 
 def reason(

@@ -4315,7 +4315,7 @@ def finalize_style_response_payload(
         "occasion_score": best_occasion_score,
         "occasion": normalized_occasion,
     }
-    return {
+    response_payload = {
         "cards": cards,
         "style_boards": cards,
         "board_ids": primary_board_id,
@@ -4344,6 +4344,34 @@ def finalize_style_response_payload(
             },
         },
     }
+    try:
+        from services.style_reasoning_engine import (
+            _resolve_asset_gender,
+            apply_gender_guard_to_final_payload,
+        )
+
+        profile_for_gender = _dict(ctx.get("user_profile"))
+        profile_for_gender.update(
+            {
+                k: v
+                for k, v in {
+                    "gender": ctx.get("target_gender") or ctx.get("gender") or style_identity.get("gender"),
+                    "style_gender": ctx.get("style_gender"),
+                    "target_gender": ctx.get("target_gender"),
+                }.items()
+                if v
+            }
+        )
+        target_gender = _resolve_asset_gender(query=query, user_profile=profile_for_gender)
+        guarded_payload, removed = apply_gender_guard_to_final_payload(
+            response_payload,
+            target_gender=target_gender,
+            context=normalized_occasion or query,
+        )
+        return guarded_payload
+    except Exception:
+        logger.warning("style_flow.gender_guard_failed", exc_info=True)
+        return response_payload
 
 
 def build_style_flow_response(
@@ -4808,7 +4836,7 @@ def build_style_flow_response(
         style_intro if cards else "I couldn't build a reliable style board from your wardrobe yet."
     )
     response_message = _clean_editorial_copy(raw_response_message, fallback_message)
-    return {
+    response_payload = {
         "success": bool(cards),
         "message": response_message,
         "board": "style",
@@ -4829,6 +4857,34 @@ def build_style_flow_response(
             },
         },
     }
+    try:
+        from services.style_reasoning_engine import (
+            _resolve_asset_gender,
+            apply_gender_guard_to_final_payload,
+        )
+
+        profile_for_gender = _dict(ctx.get("user_profile"))
+        profile_for_gender.update(
+            {
+                k: v
+                for k, v in {
+                    "gender": ctx.get("target_gender") or ctx.get("gender") or style_identity.get("gender"),
+                    "style_gender": ctx.get("style_gender"),
+                    "target_gender": ctx.get("target_gender"),
+                }.items()
+                if v
+            }
+        )
+        target_gender = _resolve_asset_gender(query=query, user_profile=profile_for_gender)
+        guarded_payload, removed = apply_gender_guard_to_final_payload(
+            response_payload,
+            target_gender=target_gender,
+            context=normalized_occasion or query,
+        )
+        return guarded_payload
+    except Exception:
+        logger.warning("style_flow.gender_guard_failed", exc_info=True)
+        return response_payload
 
 
 # ============================================================================

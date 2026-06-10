@@ -309,6 +309,46 @@ def test_style_response_exposes_additive_board_metadata():
     assert response["data"]["board_metadata"][0]["coherence_score"] is not None
 
 
+def test_male_final_card_payload_sanitizes_feminine_items_and_text():
+    card = {
+        "title": "Tailored Midi Dress",
+        "context": "Tailored Midi Dress, Silk Blouse, Pumps, Necklace, Earrings.",
+        "items": [
+            _item("top-1", "Silk Blouse", "top", "white"),
+            _item("bottom-1", "Midi Dress", "bottom", "black"),
+            _item("shoe-1", "Pointed-Toe Flats", "footwear", "black"),
+            _item("acc-1", "Gold Necklace", "accessory", "gold"),
+        ],
+    }
+
+    response = finalize_style_response_payload(
+        {"cards": [card], "outfits": [], "context": "Wear a dress with pumps and earrings."},
+        user_id="u1",
+        query="conference talk",
+        context={"user_profile": {"gender": "male"}, "occasion": "conference"},
+        style_action="show_closest_option",
+        show_closest_option=True,
+        allow_closest_option=True,
+        closest=True,
+        include_base64=False,
+    )
+
+    blob = str(response).lower()
+    for blocked in [
+        "dress",
+        "midi dress",
+        "blouse",
+        "pumps",
+        "pointed-toe flats",
+        "necklace",
+        "earrings",
+    ]:
+        assert blocked not in blob
+    for expected in ["crisp shirt", "tailored trousers", "formal shoes"]:
+        assert expected in blob
+    assert response["cards"]
+
+
 def test_onboarding_style_preferences_normalize_into_style_identity():
     identity = normalize_style_identity(
         {

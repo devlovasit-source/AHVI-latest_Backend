@@ -804,6 +804,107 @@ def test_internal_occasion_labels_are_scrubbed_with_query_context():
     assert "work-to-social occasion" in blob
 
 
+def test_male_conference_talk_final_text_guard_removes_feminine_terms(monkeypatch):
+    monkeypatch.setattr(style_reasoning_engine, "_style_asset_rows", lambda limit=120: [])
+
+    response = style_reasoning_engine._build_response(
+        query="conference talk",
+        mode=style_reasoning_engine.STYLE_ADVICE,
+        category="conference",
+        tone="professional",
+        formality="formal",
+        occasion="conference",
+        confidence=0.9,
+        user_profile={"gender": "male"},
+        context={},
+        ai_payload={
+            "stylist_reasoning": (
+                "Wear a Tailored Midi Dress with a Silk Blouse, Block-Heel Pumps, "
+                "Pointed-Toe Flats, a Gold Necklace, and Earrings."
+            ),
+            "visual_directions": [
+                {
+                    "title": "Conference Dress",
+                    "hero_piece": "Tailored Midi Dress",
+                    "items": ["Silk Blouse", "Block-Heel Pumps", "Gold Necklace", "Earrings"],
+                    "description": "The dress and heels feel polished.",
+                }
+            ],
+        },
+    )
+
+    blob = str(response).lower()
+    for blocked in [
+        "dress",
+        "midi dress",
+        "blouse",
+        "heels",
+        "pumps",
+        "pointed-toe flats",
+        "necklace",
+        "earrings",
+    ]:
+        assert blocked not in blob
+    for expected in ["blazer", "crisp shirt", "tailored trousers", "formal shoes", "belt/watch"]:
+        assert expected in blob
+    assert response["meta"]["target_gender"] == "male"
+
+
+def test_male_formal_events_final_guard_removes_feminine_terms():
+    payload = {
+        "wedding": "Wear a lehenga with heels, necklace, and earrings.",
+        "funeral": "Choose a black gown, pumps, and a necklace.",
+        "formal": "Try a skirt, silk blouse, and pointed-toe flats.",
+    }
+
+    for context, text in payload.items():
+        sanitized, removed = style_reasoning_engine.apply_gender_guard_to_final_payload(
+            text,
+            target_gender="male",
+            context=context,
+        )
+        blob = sanitized.lower()
+        assert removed
+        for blocked in [
+            "dress",
+            "gown",
+            "skirt",
+            "blouse",
+            "saree",
+            "lehenga",
+            "heels",
+            "pumps",
+            "pointed-toe flats",
+            "necklace",
+            "earrings",
+        ]:
+            assert blocked not in blob
+        assert "tailored trousers" in blob or "formal shoes" in blob
+
+
+def test_female_final_text_path_is_unchanged(monkeypatch):
+    monkeypatch.setattr(style_reasoning_engine, "_style_asset_rows", lambda limit=120: [])
+    text = "Wear a midi dress with a silk blouse, heels, necklace, and earrings."
+
+    response = style_reasoning_engine._build_response(
+        query="conference talk",
+        mode=style_reasoning_engine.STYLE_ADVICE,
+        category="conference",
+        tone="professional",
+        formality="formal",
+        occasion="conference",
+        confidence=0.9,
+        user_profile={"gender": "female"},
+        context={},
+        ai_payload={"stylist_reasoning": text, "visual_directions": []},
+    )
+
+    blob = str(response).lower()
+    for expected in ["midi dress", "blouse", "heels", "necklace", "earrings"]:
+        assert expected in blob
+    assert "gender_guard_removed" not in response["meta"]
+
+
 def test_hero_asset_category_matches_hero_piece(monkeypatch):
     monkeypatch.setattr(
         style_reasoning_engine,
