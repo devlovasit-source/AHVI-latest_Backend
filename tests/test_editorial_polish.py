@@ -220,3 +220,117 @@ def test_build_editorial_cover_handles_empty_directions():
     assert cover["occasion_label"] == "COFFEE DATE"
     assert cover["direction_name"] == "Curated Look"
     assert cover["wardrobe_match_pct"] is None
+
+
+# ---------- Ownership truth ----------
+
+def _wardrobe_set():
+    return [
+        {"id": "w1", "name": "Navy Blazer", "category": "outerwear", "image_url": "https://w/1.png"},
+        {"id": "w2", "name": "White Oxford Shirt", "category": "top"},
+        {"id": "w3", "name": "Grey Trousers", "category": "bottom"},
+        {"id": "w4", "name": "Black Loafer", "category": "footwear"},
+        {"id": "w5", "name": "Steel Wristwatch", "category": "watch"},
+        {"id": "w6", "name": "Apple Charger", "category": "electronics"},
+        {"id": "w7", "name": "Skincare Set", "category": "grooming"},
+        {"id": "w8", "name": "Neck Pillow", "category": "travel"},
+    ]
+
+
+def test_owned_items_picks_real_matches_only():
+    direction = {
+        "items": [
+            "Navy Blazer",
+            "White Shirt",
+            "Grey Trouser",
+            "Black Loafer",
+            "Steel Watch",
+        ],
+        "pieces": [
+            "Navy Blazer",
+            "White Shirt",
+            "Grey Trouser",
+            "Black Loafer",
+            "Steel Watch",
+        ],
+    }
+    polished = engine._apply_editorial_polish(
+        [direction], occasion="conference_talk", wardrobe_items=_wardrobe_set()
+    )[0]
+    names = [o["name"] for o in polished["owned_items"]]
+    assert "Navy Blazer" in names
+    assert "White Oxford Shirt" in names
+    assert "Grey Trousers" in names
+    assert "Steel Wristwatch" in names
+    # Non-fashion items must never appear in the chip list.
+    assert "Apple Charger" not in names
+    assert "Skincare Set" not in names
+    assert "Neck Pillow" not in names
+
+
+def test_owned_count_drives_wardrobe_match_pct():
+    direction = {
+        "items": ["Navy Blazer", "White Shirt", "Grey Trouser", "Black Loafer", "Steel Watch"],
+        "pieces": ["Navy Blazer", "White Shirt", "Grey Trouser", "Black Loafer", "Steel Watch"],
+    }
+    polished = engine._apply_editorial_polish(
+        [direction], occasion="conference_talk", wardrobe_items=_wardrobe_set()
+    )[0]
+    assert polished["total_items"] == 5
+    assert polished["owned_count"] == 5
+    assert polished["wardrobe_match_pct"] == 100
+
+
+def test_owned_items_drops_blocked_categories():
+    direction = {"items": ["Charging Cable", "Neck Pillow", "Sunscreen"], "pieces": ["Charging Cable", "Neck Pillow", "Sunscreen"]}
+    wardrobe = [
+        {"name": "Charging Cable", "category": "electronics"},
+        {"name": "Travel Neck Pillow", "category": "travel"},
+        {"name": "Spf Sunscreen", "category": "skincare"},
+    ]
+    polished = engine._apply_editorial_polish(
+        [direction], occasion="travel", wardrobe_items=wardrobe
+    )[0]
+    assert polished["owned_items"] == []
+    assert polished["owned_count"] == 0
+
+
+def test_owned_items_family_buckets_are_public():
+    direction = {
+        "items": ["Navy Blazer", "Brown Loafer", "Steel Watch", "Brown Messenger Bag"],
+        "pieces": ["Navy Blazer", "Brown Loafer", "Steel Watch", "Brown Messenger Bag"],
+    }
+    wardrobe = [
+        {"name": "Navy Blazer", "category": "outerwear"},
+        {"name": "Brown Loafer", "category": "footwear"},
+        {"name": "Steel Wristwatch", "category": "watch"},
+        {"name": "Brown Messenger Bag", "category": "accessory"},
+    ]
+    polished = engine._apply_editorial_polish(
+        [direction], occasion="client_meeting", wardrobe_items=wardrobe
+    )[0]
+    families = {o["family"] for o in polished["owned_items"]}
+    allowed = {
+        "top",
+        "bottom",
+        "dress",
+        "footwear",
+        "outerwear",
+        "ethnicwear",
+        "accessory",
+        "bag",
+        "watch",
+        "jewellery",
+    }
+    assert families.issubset(allowed), families
+
+
+def test_owned_items_absent_without_wardrobe_signal():
+    direction = {"items": ["Navy Blazer", "Grey Trouser"], "pieces": ["Navy Blazer", "Grey Trouser"]}
+    polished = engine._apply_editorial_polish(
+        [direction], occasion="client_meeting", wardrobe_items=None
+    )[0]
+    assert polished["owned_items"] == []
+    assert polished["owned_count"] == 0
+    # total_items reflects the styled look size even without wardrobe data.
+    assert polished["total_items"] == 2

@@ -695,10 +695,21 @@ def _full_compact(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
 
 
+# Needles that must match a token exactly. Short common substrings like "tee"
+# otherwise false-positive on unrelated words ("steel" contains "tee", "watch"
+# contains "tch", etc.) and pollute family classification.
+_TOKEN_EXACT_ONLY_MARKERS: set[str] = {"tee", "tie", "cap", "ring"}
+
+
 def _tokens_contain(tokens: list[str], needles: tuple[str, ...]) -> bool:
     for tok in tokens:
         for needle in needles:
-            if needle in tok:
+            if not needle:
+                continue
+            if needle in _TOKEN_EXACT_ONLY_MARKERS:
+                if tok == needle:
+                    return True
+            elif needle in tok:
                 return True
     return False
 
@@ -3544,6 +3555,219 @@ def _complete_the_look_copy(
     return f"One piece away from a polished {label}-ready look."
 
 
+# ---- Ownership truth -------------------------------------------------
+# Per-direction owned_items list. Strict fashion-family allowlist so the
+# UI never renders chargers / electronics / misc wardrobe rows as
+# stylist recommendations.
+
+_OWNERSHIP_ALLOWED_FAMILIES: dict[str, str] = {
+    # asset family -> public ownership bucket label.
+    "shirt": "top",
+    "tshirt": "top",
+    "polo": "top",
+    "hoodie": "top",
+    "sweatshirt": "top",
+    "knit": "top",
+    "ethnic": "ethnicwear",
+    "blazer": "outerwear",
+    "jacket": "outerwear",
+    "coat": "outerwear",
+    "overshirt": "outerwear",
+    "jeans": "bottom",
+    "chino": "bottom",
+    "trouser": "bottom",
+    "cargo_pants": "bottom",
+    "joggers": "bottom",
+    "shorts": "bottom",
+    "formal_shoe": "footwear",
+    "loafer": "footwear",
+    "sneaker": "footwear",
+    "sandal": "footwear",
+    "slide": "footwear",
+    "boot": "footwear",
+    "belt": "accessory",
+    "watch": "watch",
+    "bag": "bag",
+    "laptop_bag": "bag",
+    "messenger_bag": "bag",
+    "backpack": "bag",
+    "duffle_bag": "bag",
+    "cardholder": "accessory",
+    "sunglasses": "accessory",
+    "tie": "accessory",
+    "scarf": "accessory",
+    "jewellery": "jewellery",
+}
+
+_OWNERSHIP_BLOCKED_NAME_TOKENS: tuple[str, ...] = (
+    "charger",
+    "cable",
+    "power bank",
+    "powerbank",
+    "headphone",
+    "earbud",
+    "comb",
+    "razor",
+    "toothbrush",
+    "skincare",
+    "moisturizer",
+    "serum",
+    "sunscreen",
+    "toiletry",
+    "adapter",
+    "pillow",
+    "bottle",
+    "tumbler",
+    "eye mask",
+    "eyemask",
+    "first aid",
+    "medicine",
+    "supplement",
+    "pen",
+    "notebook",
+    "book",
+    "stationery",
+    "electronics",
+)
+
+
+def _wardrobe_normalised(wardrobe_items: Any) -> List[Dict[str, Any]]:
+    """Normalise wardrobe rows so per-item ownership checks stay cheap."""
+    if not isinstance(wardrobe_items, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for raw in wardrobe_items:
+        if isinstance(raw, dict):
+            name = _asset_text(raw.get("name") or raw.get("title"))
+            if not name:
+                continue
+            out.append(
+                {
+                    "id": _asset_text(
+                        raw.get("id") or raw.get("$id") or raw.get("asset_id")
+                    ),
+                    "name": name,
+                    "category": _asset_text(
+                        raw.get("category") or raw.get("subcategory")
+                    ),
+                    "tags": [str(t).lower() for t in _asset_list(raw.get("tags"))],
+                    "image_url": _asset_text(
+                        raw.get("image_url") or raw.get("imageUrl")
+                    ),
+                }
+            )
+        elif isinstance(raw, str) and raw.strip():
+            out.append(
+                {
+                    "id": "",
+                    "name": raw.strip(),
+                    "category": "",
+                    "tags": [],
+                    "image_url": "",
+                }
+            )
+    return out
+
+
+def _wardrobe_item_blocked(item: Dict[str, Any]) -> bool:
+    blob = " ".join(
+        [
+            str(item.get("name") or "").lower(),
+            str(item.get("category") or "").lower(),
+            " ".join(item.get("tags") or []),
+        ]
+    )
+    return any(token in blob for token in _OWNERSHIP_BLOCKED_NAME_TOKENS)
+
+
+def _wardrobe_item_family(item: Dict[str, Any]) -> str:
+    family = _detect_family(item.get("name"))
+    if not family:
+        family = _detect_family(item.get("category"))
+    if not family and item.get("tags"):
+        family = _detect_family(" ".join(item.get("tags") or []))
+    return family
+
+
+def _ownership_match(
+    piece_name: str,
+    wardrobe: List[Dict[str, Any]],
+) -> Dict[str, Any] | None:
+    """Return the wardrobe row that best matches a styled piece, or None."""
+    piece_lower = piece_name.lower().strip()
+    if not piece_lower:
+        return None
+    piece_family = _detect_family(piece_name)
+    piece_tokens = {
+        t for t in re.findall(r"[a-z0-9]+", piece_lower) if len(t) >= 4
+    }
+    high_specificity = {
+        "formal_shoe",
+        "loafer",
+        "blazer",
+        "watch",
+        "laptop_bag",
+        "messenger_bag",
+        "tie",
+    }
+    best_family_match: Dict[str, Any] | None = None
+    for row in wardrobe:
+        if _wardrobe_item_blocked(row):
+            continue
+        row_family = _wardrobe_item_family(row)
+        if row_family and row_family not in _OWNERSHIP_ALLOWED_FAMILIES:
+            continue
+        row_name = row["name"].lower()
+        if piece_lower in row_name or row_name in piece_lower:
+            return row
+        if piece_family and row_family == piece_family:
+            row_tokens = {
+                t for t in re.findall(r"[a-z0-9]+", row_name) if len(t) >= 4
+            }
+            if piece_tokens & row_tokens:
+                return row
+            if row_family in high_specificity and best_family_match is None:
+                best_family_match = row
+    return best_family_match
+
+
+def _build_owned_items(
+    direction: Dict[str, Any],
+    wardrobe: List[Dict[str, Any]],
+) -> tuple[List[Dict[str, Any]], int, int]:
+    """Return (owned_items, owned_count, total_items)."""
+    pieces = _safe_list(direction.get("items") or direction.get("pieces"), limit=8)
+    if not pieces:
+        return [], 0, 0
+    seen_ids: set[str] = set()
+    owned: List[Dict[str, Any]] = []
+    for piece in pieces:
+        match = _ownership_match(piece, wardrobe)
+        if not match:
+            continue
+        if _wardrobe_item_blocked(match):
+            continue
+        family = _wardrobe_item_family(match)
+        bucket = _OWNERSHIP_ALLOWED_FAMILIES.get(family)
+        if not bucket:
+            continue
+        identifier = match.get("id") or match["name"].lower()
+        if identifier in seen_ids:
+            continue
+        seen_ids.add(identifier)
+        owned.append(
+            {
+                "id": match.get("id", ""),
+                "name": match["name"],
+                "family": bucket,
+                "category": match.get("category", ""),
+                "image_url": match.get("image_url", ""),
+                "owned": True,
+            }
+        )
+    return owned, len(owned), len(pieces)
+
+
 def _apply_editorial_polish(
     directions: List[Dict[str, Any]],
     *,
@@ -3551,6 +3775,8 @@ def _apply_editorial_polish(
     wardrobe_items: Any,
 ) -> List[Dict[str, Any]]:
     """Decorate each direction with editorial UX fields. Additive only."""
+    normalised_wardrobe = _wardrobe_normalised(wardrobe_items)
+    has_wardrobe_signal = bool(normalised_wardrobe)
     out: List[Dict[str, Any]] = []
     for direction in directions or []:
         if not isinstance(direction, dict):
@@ -3569,7 +3795,17 @@ def _apply_editorial_polish(
         polished["short_note"] = polished["why_it_works"]
         if polished.get("style_note"):
             polished["style_note"] = _two_sentences(polished.get("style_note"), max_chars=120)
-        match_pct = _wardrobe_match_pct(polished, wardrobe_items)
+        # Ownership truth: only real wardrobe matches count.
+        owned_items, owned_count, total_items = _build_owned_items(
+            polished, normalised_wardrobe
+        )
+        polished["owned_items"] = owned_items
+        polished["owned_count"] = owned_count
+        polished["total_items"] = total_items
+        if has_wardrobe_signal and total_items > 0:
+            match_pct = int(round((owned_count / total_items) * 100))
+        else:
+            match_pct = _wardrobe_match_pct(polished, wardrobe_items)
         polished["wardrobe_match_pct"] = match_pct
         polished["badge"] = _editorial_badge(match_pct)
         polished["curated_for"] = _curated_for_for_occasion(occasion)
