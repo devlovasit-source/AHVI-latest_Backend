@@ -1388,3 +1388,80 @@ def test_daily_wear_cards_expose_composition_and_style_dna_metadata():
     assert result[0]["style_metadata"]["daily_composition_notes"]
     assert "Modern Professional" in result[0]["style_dna_alignment"]
     assert result[0]["style_metadata"]["style_dna_alignment"]
+
+
+# ---------- Pairing-anchor extractor guard ----------
+
+import logging as _logging  # noqa: E402
+
+from services.stylist_knowledge_service import (  # noqa: E402
+    classify_style_mode,
+    STYLE_ADVICE,
+    STYLE_PAIRING,
+    WARDROBE_STYLE,
+)
+
+
+def test_extract_pairing_anchor_skips_visual_inspiration_occasion_phrase(caplog):
+    style_reasoning_engine.logger.propagate = True
+    caplog.set_level(_logging.INFO)
+    anchor = style_reasoning_engine._extract_pairing_anchor(
+        "visual inspiration for a conference talk"
+    )
+    assert anchor == {}
+    messages = [r.getMessage() for r in caplog.records]
+    assert any(m.startswith("AHVI_STYLE_ANCHOR_SKIPPED") for m in messages)
+    assert not any(m.startswith("AHVI_STYLE_PAIRING_ANCHOR ") for m in messages)
+
+
+def test_extract_pairing_anchor_skips_bare_occasion_phrase():
+    assert style_reasoning_engine._extract_pairing_anchor("conference talk") == {}
+
+
+def test_extract_pairing_anchor_keeps_real_pairing_anchor():
+    anchor = style_reasoning_engine._extract_pairing_anchor(
+        "what to pair with tan espadrilles"
+    )
+    assert anchor["name"] == "tan espadrilles"
+    assert anchor["color"] == "tan"
+
+
+def test_extract_pairing_anchor_preserves_shopping_chip_anchor():
+    anchor = style_reasoning_engine._extract_pairing_anchor(
+        "show shopping ideas for blue blazer"
+    )
+    assert anchor["name"] == "blue blazer"
+    assert anchor["color"] == "blue"
+    assert anchor["category"] == "outerwear"
+
+
+def test_recursive_prompt_strips_bare_visual_inspiration_prefix():
+    cleaned = style_reasoning_engine._clean_recursive_prompt(
+        "visual inspiration for a conference talk"
+    )
+    assert cleaned == "a conference talk"
+
+
+def test_recursive_prompt_strips_bare_shopping_ideas_prefix():
+    cleaned = style_reasoning_engine._clean_recursive_prompt(
+        "shopping ideas for blue blazer"
+    )
+    assert cleaned == "blue blazer"
+
+
+# ---------- classify_style_mode coverage ----------
+
+def test_conference_talk_classified_as_style_advice():
+    assert classify_style_mode("conference talk") == STYLE_ADVICE
+
+
+def test_keynote_classified_as_style_advice():
+    assert classify_style_mode("keynote") == STYLE_ADVICE
+
+
+def test_use_my_wardrobe_for_client_meeting_remains_wardrobe():
+    assert classify_style_mode("use my wardrobe for client meeting") == WARDROBE_STYLE
+
+
+def test_pair_anchor_still_routes_to_style_pairing():
+    assert classify_style_mode("what to pair with tan espadrilles") == STYLE_PAIRING

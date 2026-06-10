@@ -57,6 +57,7 @@ def _norm(value: Any) -> str:
 
 
 _RECURSIVE_PREFIXES = (
+    # Long forms (chip values) first so they win over the bare suffix forms.
     "show visual inspiration for:",
     "show visual inspiration for",
     "use my wardrobe for:",
@@ -65,6 +66,17 @@ _RECURSIVE_PREFIXES = (
     "find missing pieces for",
     "show shopping ideas for:",
     "show shopping ideas for",
+    # Bare forms — same intents without the leading verb. Cover the typed
+    # variants that bypass chip wrapping (e.g. "visual inspiration for a
+    # conference talk") so downstream extractors see the real tail.
+    "visual inspiration for:",
+    "visual inspiration for",
+    "shopping ideas for:",
+    "shopping ideas for",
+    "missing pieces for:",
+    "missing pieces for",
+    "wardrobe for:",
+    "wardrobe for",
 )
 
 
@@ -146,8 +158,10 @@ _ANCHOR_CATEGORIES = {
 def _extract_pairing_anchor(query: str) -> Dict[str, str]:
     q = _norm(_clean_recursive_prompt(query))
     anchor = q
+    trigger_matched = False
     for trigger in _PAIRING_TRIGGERS:
         if trigger in q:
+            trigger_matched = True
             tail = q.split(trigger, 1)[1].strip()
             if tail:
                 anchor = tail
@@ -164,8 +178,17 @@ def _extract_pairing_anchor(query: str) -> Dict[str, str]:
             category = cat
             break
     name = anchor or "the item"
-    if color and category and category not in name:
-        pass
+    # Guard: if no pairing trigger was found AND the surviving anchor text
+    # doesn't read as a garment (no known family, no anchor color, no anchor
+    # category), the query is occasion / context phrasing — not a real anchor.
+    # Skip rather than poison downstream archetype selection with junk like
+    # "visual inspiration for a conference talk".
+    if not trigger_matched and not category and not color and not _target_family(name):
+        logger.info(
+            "AHVI_STYLE_ANCHOR_SKIPPED reason=no_garment_family text=%r",
+            name,
+        )
+        return {}
     logger.info(
         "AHVI_STYLE_PAIRING_ANCHOR name=%r category=%s color=%s",
         name,
@@ -3725,7 +3748,12 @@ def _gemini_reasoning(
                 style_dna=_uprof.get("style_dna") or _uprof.get("styleDNA"),
                 wardrobe_summary=(style_ctx or {}).get("wardrobe_summary"),
             )
-            _anchor = _extract_pairing_anchor(query)
+            # Only extract a pairing anchor for actual STYLE_PAIRING queries.
+            # For VISUAL_INSPIRATION the query is occasion / mood phrasing
+            # (e.g. "visual inspiration for a conference talk"), not a
+            # garment anchor — passing it as an anchor poisons archetype
+            # selection and emits a misleading AHVI_STYLE_PAIRING_ANCHOR log.
+            _anchor = _extract_pairing_anchor(query) if mode == STYLE_PAIRING else {}
             _dna_raw = _uprof.get("style_dna") or _uprof.get("styleDNA") or {}
             selected_archetypes = select_archetypes(
                 anchor=_anchor,

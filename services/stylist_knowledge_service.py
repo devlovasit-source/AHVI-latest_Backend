@@ -335,6 +335,15 @@ def is_style_advice_request(text: Any) -> bool:
         "workout",
         "today",
         "tomorrow",
+        # Speaking / professional occasions — catches 2-word prompts like
+        # "conference talk" or "keynote" before they fall to LLM fallback.
+        "conference",
+        "conference talk",
+        "presentation",
+        "seminar",
+        "panel discussion",
+        "panel",
+        "keynote",
     )
     if _has_any(q, compact_markers) and _has_any(q, occasionish):
         return True
