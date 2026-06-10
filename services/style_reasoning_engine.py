@@ -3354,6 +3354,258 @@ def _validate_visual_direction_consistency(
     return out
 
 
+# ---------------------------------------------------------------------
+# Editorial UX polish
+# ---------------------------------------------------------------------
+# Backend payload contract for the premium personal-stylist frontend:
+# every visual direction gets a short stylist note, a named direction,
+# a 3-word adjective triad, a wardrobe match %, a recommendation badge
+# and a "complete the look" line. The response also surfaces an
+# editorial_cover summary so the client can render the magazine-style
+# top card without re-deriving anything.
+#
+# Everything here is additive except `_two_sentences`, which caps
+# existing stylist note fields server-side. The underlying AI / styling
+# engine is untouched.
+# ---------------------------------------------------------------------
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _two_sentences(text: Any, *, max_chars: int = 240) -> str:
+    """Trim AI-generated note text to at most two sentences and ~240 chars.
+
+    Returns ``""`` for empty input. Preserves trailing punctuation.
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.split(raw) if s.strip()]
+    if not sentences:
+        return raw[:max_chars].rstrip()
+    short = " ".join(sentences[:2]).strip()
+    if len(short) > max_chars:
+        short = short[:max_chars].rsplit(" ", 1)[0].rstrip(" ,;:-") + "…"
+    return short
+
+
+_DIRECTION_ADJECTIVES: dict[str, list[str]] = {
+    # archetype name (lower) -> 3 adjectives. Falls back to a generic triad.
+    "modern professional": ["Confident", "Structured", "Approachable"],
+    "modern authority": ["Confident", "Structured", "Approachable"],
+    "executive minimalist": ["Clean", "Refined", "Understated"],
+    "creative speaker": ["Modern", "Relaxed", "Tech-Forward"],
+    "smart casual edge": ["Sharp", "Easy", "Versatile"],
+    "refined weekend": ["Relaxed", "Considered", "Polished"],
+    "polished casual": ["Polished", "Easy", "Considered"],
+    "urban minimalist": ["Clean", "Sharp", "Quiet"],
+    "modern utility": ["Practical", "Sharp", "Current"],
+    "quiet luxury": ["Refined", "Understated", "Elevated"],
+    "contemporary classic": ["Timeless", "Tailored", "Composed"],
+    "off-duty tailoring": ["Tailored", "Easy", "Polished"],
+    "italian summer": ["Breezy", "Sunlit", "Polished"],
+    "resort sophisticate": ["Breezy", "Refined", "Sunlit"],
+    "festive modern": ["Celebratory", "Tailored", "Modern"],
+    "modern desi": ["Festive", "Modern", "Rooted"],
+    "boho artisanal": ["Soft", "Crafted", "Earthy"],
+    "structured ease": ["Structured", "Easy", "Considered"],
+    "textural ease": ["Textural", "Relaxed", "Warm"],
+    "clean minimal": ["Clean", "Quiet", "Considered"],
+}
+_DEFAULT_DIRECTION_ADJECTIVES: list[str] = ["Considered", "Modern", "Confident"]
+
+
+_OCCASION_CURATED_FOR: dict[str, list[str]] = {
+    "conference": ["Stage Presence", "Networking", "All-Day Comfort"],
+    "conference_talk": ["Stage Presence", "Networking", "All-Day Comfort"],
+    "presentation": ["Stage Presence", "Composed Energy", "Camera-Ready"],
+    "keynote": ["Stage Presence", "Composed Energy", "All-Day Comfort"],
+    "seminar": ["Quiet Authority", "Networking", "All-Day Comfort"],
+    "panel": ["Quiet Authority", "Networking", "Camera-Ready"],
+    "client_meeting": ["Quiet Authority", "Sharp First Impression", "All-Day Comfort"],
+    "client meeting": ["Quiet Authority", "Sharp First Impression", "All-Day Comfort"],
+    "office": ["Polished Day", "Networking", "Easy Movement"],
+    "startup_office": ["Modern Sharpness", "Camera-Ready", "Comfort"],
+    "interview": ["Sharp First Impression", "Quiet Authority", "Composed Energy"],
+    "coffee_date": ["Effortless Charm", "Considered Touches", "Easy Movement"],
+    "coffee date": ["Effortless Charm", "Considered Touches", "Easy Movement"],
+    "date_night": ["Magnetic Polish", "Considered Touches", "Warmth"],
+    "first_date": ["Effortless Charm", "Considered Touches", "Warmth"],
+    "wedding": ["Celebratory Polish", "Camera-Ready", "All-Day Comfort"],
+    "wedding_guest": ["Celebratory Polish", "Camera-Ready", "All-Day Comfort"],
+    "birthday_party": ["Magnetic Energy", "Camera-Ready", "Movement"],
+    "vacation": ["Sunlit Ease", "Travel-Ready", "Considered Touches"],
+    "airport_travel": ["Travel-Ready", "Easy Layers", "Composed Energy"],
+    "travel": ["Travel-Ready", "Easy Layers", "Composed Energy"],
+    "workout": ["Performance", "Movement", "Recovery-Ready"],
+    "gym": ["Performance", "Movement", "Recovery-Ready"],
+    "beach": ["Sunlit Ease", "Movement", "Cool Comfort"],
+    "casual_day": ["Effortless Energy", "Considered Touches", "Movement"],
+    "weekend": ["Easy Movement", "Considered Touches", "Warmth"],
+}
+_DEFAULT_CURATED_FOR: list[str] = ["Considered Energy", "Comfort", "Confident Presence"]
+
+
+def _occasion_key_for_editorial(occasion: Any) -> str:
+    return re.sub(r"\s+", "_", str(occasion or "").strip().lower())
+
+
+def _occasion_label_for_editorial(occasion: Any) -> str:
+    text = str(occasion or "").strip()
+    if not text:
+        return "Curated Look"
+    cleaned = text.replace("_", " ").strip()
+    return cleaned.upper()
+
+
+def _direction_adjectives_from_archetype(archetype: Any) -> list[str]:
+    key = str(archetype or "").strip().lower()
+    if key in _DIRECTION_ADJECTIVES:
+        return list(_DIRECTION_ADJECTIVES[key])
+    return list(_DEFAULT_DIRECTION_ADJECTIVES)
+
+
+def _curated_for_for_occasion(occasion: Any) -> list[str]:
+    key = _occasion_key_for_editorial(occasion)
+    return list(_OCCASION_CURATED_FOR.get(key, _DEFAULT_CURATED_FOR))
+
+
+def _wardrobe_match_pct(
+    direction: Dict[str, Any],
+    wardrobe_items: Any,
+) -> int | None:
+    """Heuristic ownership %.
+
+    Tokenises each direction item and counts how many appear inside any
+    wardrobe item's name/category/tags. Returns ``None`` when no wardrobe
+    signal is available so the client can choose to hide the badge.
+    """
+    if not isinstance(wardrobe_items, list) or not wardrobe_items:
+        return None
+    items = _safe_list(direction.get("items") or direction.get("pieces"), limit=6)
+    if not items:
+        return None
+    wardrobe_blob = " ".join(
+        " ".join(
+            [
+                _asset_text(w.get("name")) if isinstance(w, dict) else _asset_text(w),
+                _asset_text((w or {}).get("category")) if isinstance(w, dict) else "",
+                " ".join(_asset_list((w or {}).get("tags"))) if isinstance(w, dict) else "",
+            ]
+        )
+        for w in wardrobe_items
+        if w
+    ).lower()
+    if not wardrobe_blob.strip():
+        return None
+    matched = 0
+    for item in items:
+        family = _target_family(item)
+        item_tokens = [t for t in re.findall(r"[a-z0-9]+", str(item).lower()) if len(t) >= 4]
+        if any(tok in wardrobe_blob for tok in item_tokens):
+            matched += 1
+        elif family and family in wardrobe_blob:
+            matched += 1
+    pct = int(round((matched / len(items)) * 100))
+    return max(0, min(100, pct))
+
+
+def _occasion_fit_label(pct: int | None) -> str:
+    if pct is None:
+        return "Strong"
+    if pct >= 85:
+        return "Excellent"
+    if pct >= 60:
+        return "Strong"
+    if pct >= 30:
+        return "Good"
+    return "Inspiring"
+
+
+def _editorial_badge(pct: int | None) -> dict[str, Any]:
+    return {
+        "stars": 5,
+        "label": "Recommended",
+        "occasion_fit": _occasion_fit_label(pct),
+        "wardrobe_match_pct": pct,
+    }
+
+
+def _complete_the_look_copy(
+    missing_piece: Dict[str, Any] | None,
+    occasion: Any,
+) -> str:
+    if not isinstance(missing_piece, dict):
+        return ""
+    name = _asset_text(missing_piece.get("name"))
+    if not name:
+        return ""
+    label = str(occasion or "").replace("_", " ").strip() or "the moment"
+    return f"One piece away from a polished {label}-ready look."
+
+
+def _apply_editorial_polish(
+    directions: List[Dict[str, Any]],
+    *,
+    occasion: Any,
+    wardrobe_items: Any,
+) -> List[Dict[str, Any]]:
+    """Decorate each direction with editorial UX fields. Additive only."""
+    out: List[Dict[str, Any]] = []
+    for direction in directions or []:
+        if not isinstance(direction, dict):
+            out.append(direction)
+            continue
+        polished = dict(direction)
+        archetype = _asset_text(polished.get("archetype")) or _asset_text(polished.get("title"))
+        direction_name = archetype or _asset_text(polished.get("title")) or "Curated Direction"
+        polished["direction_name"] = direction_name
+        polished["adjectives"] = _direction_adjectives_from_archetype(archetype)
+        # Cap stylist notes server-side so the client never renders walls of text.
+        polished["why_it_works"] = _two_sentences(polished.get("why_it_works"))
+        polished["why_this_works"] = _two_sentences(
+            polished.get("why_this_works") or polished.get("why_it_works")
+        )
+        polished["short_note"] = polished["why_it_works"]
+        if polished.get("style_note"):
+            polished["style_note"] = _two_sentences(polished.get("style_note"), max_chars=120)
+        match_pct = _wardrobe_match_pct(polished, wardrobe_items)
+        polished["wardrobe_match_pct"] = match_pct
+        polished["badge"] = _editorial_badge(match_pct)
+        polished["curated_for"] = _curated_for_for_occasion(occasion)
+        polished["complete_the_look_copy"] = _complete_the_look_copy(
+            polished.get("missing_piece"), occasion
+        )
+        out.append(polished)
+    return out
+
+
+def _build_editorial_cover(
+    directions: List[Dict[str, Any]],
+    *,
+    occasion: Any,
+) -> Dict[str, Any]:
+    """Top-of-response magazine cover summary."""
+    label = _occasion_label_for_editorial(occasion)
+    top = next((d for d in directions or [] if isinstance(d, dict)), None) or {}
+    direction_name = _asset_text(top.get("direction_name")) or _asset_text(top.get("archetype")) or _asset_text(top.get("title")) or "Curated Look"
+    match_pcts = [d.get("wardrobe_match_pct") for d in directions or [] if isinstance(d, dict)]
+    match_pcts = [p for p in match_pcts if isinstance(p, int)]
+    match_pct = max(match_pcts) if match_pcts else None
+    return {
+        "occasion_label": label,
+        "direction_name": direction_name,
+        "wardrobe_match_pct": match_pct,
+        "curated_for": _curated_for_for_occasion(occasion),
+        "badge": _editorial_badge(match_pct),
+    }
+
+
+# ---------------------------------------------------------------------
+# End editorial UX polish
+# ---------------------------------------------------------------------
+
+
 def _normalize_visual_directions(
     value: Any,
     mode: str,
@@ -4438,7 +4690,24 @@ def _build_response(
     polished_advice = _scrub_visible_style_text(polished_advice, query=query)
     confidence_strategy = _scrub_visible_style_text(confidence_strategy, query=query)
     missing_piece_reasoning = _scrub_visible_style_text(missing_piece_reasoning, query=query)
+    # Cap long stylist text fields server-side so the editorial UI never
+    # has to render walls of LLM prose.
+    polished_advice = _two_sentences(polished_advice, max_chars=320)
+    confidence_strategy = _two_sentences(confidence_strategy, max_chars=240)
+    missing_piece_reasoning = _two_sentences(missing_piece_reasoning, max_chars=200)
     visual_directions = _scrub_visible_style_payload(visual_directions, query=query)
+    # Editorial polish: add direction_name, adjectives, badge, curated_for,
+    # short_note, complete_the_look_copy. Additive — keeps legacy fields.
+    _wardrobe_for_polish = context.get("wardrobe") or context.get("wardrobe_items")
+    visual_directions = _apply_editorial_polish(
+        visual_directions,
+        occasion=payload.get("occasion") or occasion or category or "",
+        wardrobe_items=_wardrobe_for_polish,
+    )
+    editorial_cover = _build_editorial_cover(
+        visual_directions,
+        occasion=payload.get("occasion") or occasion or category or "",
+    )
     missing_piece = _scrub_visible_style_payload(missing_piece, query=query) if missing_piece else None
     visual_inspiration_board = (
         _scrub_visible_style_payload(visual_inspiration_board, query=query)
@@ -4479,6 +4748,7 @@ def _build_response(
             else _fallback_cta(query)
         ),
         "visual_directions": visual_directions,
+        "editorial_cover": editorial_cover,
         "what_to_avoid": what_to_avoid,
         "meta": {
             "source": "style_reasoning_engine",
