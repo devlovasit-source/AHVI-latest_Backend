@@ -3635,6 +3635,19 @@ def _wardrobe_normalised(wardrobe_items: Any) -> List[Dict[str, Any]]:
     """Normalise wardrobe rows so per-item ownership checks stay cheap."""
     if not isinstance(wardrobe_items, list):
         return []
+    # Shared fashion gate first: keeps this path consistent with
+    # build_style_context / format_wardrobe_for_llm. String-only rows pass
+    # through untouched (handled below) since the sanitizer drops non-dicts.
+    try:
+        from services.wardrobe_sanitizer import is_fashion_item
+
+        wardrobe_items = [
+            raw
+            for raw in wardrobe_items
+            if not isinstance(raw, dict) or is_fashion_item(raw)
+        ]
+    except Exception:  # noqa: BLE001 - never break ownership on import issues
+        pass
     out: List[Dict[str, Any]] = []
     for raw in wardrobe_items:
         if isinstance(raw, dict):

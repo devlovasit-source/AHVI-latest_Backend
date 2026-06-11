@@ -684,6 +684,13 @@ def generate_ai_response(
 
 
 def format_wardrobe_for_llm(items: Optional[List[Dict[str, Any]]]) -> str:
+    # Strip non-fashion rows (chargers, skincare, travel gear) before they
+    # can pollute the prompt and resurface as styling suggestions.
+    from services.wardrobe_sanitizer import sanitize_fashion_wardrobe_items
+
+    items = sanitize_fashion_wardrobe_items(
+        list(items or []), source="format_wardrobe_for_llm"
+    )
     if not items:
         return "Wardrobe is empty."
 

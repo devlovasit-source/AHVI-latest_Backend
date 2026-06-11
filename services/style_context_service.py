@@ -235,10 +235,16 @@ def _image_url(item: Dict[str, Any]) -> str:
 
 
 def _normalize_wardrobe_items(raw_items: Any) -> List[Dict[str, Any]]:
+    # Central choke point: every style flow builds its wardrobe view from
+    # here, so non-fashion rows (chargers, skincare, travel gear) are removed
+    # once and can never leak into prompts, ownership or missing-piece UI.
+    from services.wardrobe_sanitizer import sanitize_fashion_wardrobe_items
+
+    fashion_only = sanitize_fashion_wardrobe_items(
+        _safe_list(raw_items), source="build_style_context"
+    )
     out: List[Dict[str, Any]] = []
-    for it in _safe_list(raw_items):
-        if not isinstance(it, dict):
-            continue
+    for it in fashion_only:
         out.append(
             {
                 "id": str(it.get("id") or it.get("$id") or it.get("item_id") or "").strip(),
@@ -421,9 +427,20 @@ def build_missing_piece_intelligence(
         1 for k in ("has_top", "has_bottom", "has_footwear") if summary.get(k)
     )
     owned_pct = int(round((core_present / 3) * 100)) if total else 0
+    from services.wardrobe_sanitizer import is_fashion_item
+
     cleaned: List[Dict[str, Any]] = []
     for m in missing_items or []:
         if not isinstance(m, dict):
+            continue
+        # Missing pieces are stylist recommendations — a charger or skincare
+        # bottle here is as trust-breaking as in the ownership chips.
+        if not is_fashion_item(m):
+            logger.debug(
+                "AHVI_NON_FASHION_ITEM_REMOVED name=%r category=%r source=missing_piece_intelligence",
+                str(m.get("name") or "")[:60],
+                str(m.get("category") or "")[:40],
+            )
             continue
         cleaned.append(
             {
