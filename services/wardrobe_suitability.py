@@ -9,6 +9,9 @@ logger = logging.getLogger("ahvi.wardrobe_suitability")
 
 PRIVATE_WEAR_ALIASES = {
     "boxer",
+    # Plural forms — alias matching is whole-word, so "Cotton Boxers"
+    # missed the singular alias and previewed as public shorts.
+    "boxers",
     "boxer shorts",
     "briefs",
     "brief",
@@ -24,7 +27,11 @@ PRIVATE_WEAR_ALIASES = {
     "lingerie",
     "sleep shorts",
     "pajama",
+    "pajamas",
     "pyjama",
+    "pyjamas",
+    "nightwear",
+    "sleepwear",
     "lounge shorts",
 }
 

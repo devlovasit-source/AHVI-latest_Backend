@@ -830,6 +830,192 @@ def _try_upload_inline_images(
     return item
 
 
+# ---------------------------------------------------------------------------
+# Preview-stage Gemini metadata validation
+# ---------------------------------------------------------------------------
+# The Metadata Validator agent already runs on the save/persistence flow, but
+# the preview the user sees first was Ollama + local taxonomy only — so a
+# saree could preview as "Accessories" and only get corrected after save.
+# These helpers run the SAME validator (services.agent_metadata_validator)
+# on risky / low-confidence items before the preview is returned.
+
+# Terms whose presence makes the local pipeline unreliable enough to warrant
+# a Gemini pass even at high local confidence.
+_PREVIEW_RISKY_TERMS: tuple[str, ...] = (
+    "saree", "sari", "lehenga", "gown", "dress", "one-piece", "one piece",
+    "boxer", "boxers", "brief", "briefs", "underwear", "innerwear",
+    "pajama", "pajamas", "pyjama", "pyjamas", "nightwear", "sleepwear",
+    "hanger", "mannequin", "mirror", "selfie", "person", "human", "body",
+)
+
+
+def _should_validate_preview_with_gemini(
+    item: Dict[str, Any],
+    vision: Dict[str, Any],
+    raw_label: str,
+    category: str,
+    sub_category: str,
+    confidence: float,
+) -> "tuple[bool, str]":
+    """Returns (should_validate, reason)."""
+    try:
+        from services.agent_metadata_validator import (
+            is_enabled as _metadata_validator_enabled,
+        )
+
+        if not _metadata_validator_enabled():
+            return False, "disabled"
+    except Exception:
+        return False, "disabled"
+    try:
+        threshold = float(
+            os.getenv("AGENT_METADATA_LOW_CONFIDENCE_THRESHOLD", "0.65")
+        )
+    except Exception:
+        threshold = 0.65
+    if confidence < threshold:
+        return True, f"low_confidence:{confidence:.2f}<{threshold:.2f}"
+    blob = " ".join(
+        [
+            str(raw_label or ""),
+            str(item.get("name") or ""),
+            str(vision.get("name") or ""),
+            str(category or ""),
+            str(sub_category or ""),
+        ]
+    ).lower()
+    for term in _PREVIEW_RISKY_TERMS:
+        if term in blob:
+            return True, f"risky_term:{term}"
+    return False, "high_confidence_safe"
+
+
+def _merge_validator_into_preview(
+    detected: Dict[str, Any],
+    validated: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Merge validator output into the preview item.
+
+    Only meaningful values overwrite; image fields and item_id are never
+    touched. The caller re-runs apply_metadata_guard afterwards so
+    privateWear/publicWear/styleEligible stay consistent.
+    """
+    if not isinstance(validated, dict) or not validated:
+        return detected
+    out = dict(detected)
+
+    def _meaningful(value: Any) -> bool:
+        if value is None:
+            return False
+        text = str(value).strip().lower()
+        return text not in {"", "unknown", "none", "null"}
+
+    category = validated.get("category")
+    if _meaningful(category):
+        out["category"] = str(category)
+    subcategory = validated.get("subcategory")
+    if _meaningful(subcategory):
+        out["sub_category"] = str(subcategory)
+        out["subcategory"] = str(subcategory)
+    confidence = validated.get("confidence")
+    if isinstance(confidence, (int, float)) and confidence > 0:
+        out["gemini_confidence"] = float(confidence)
+        out["metadata_confidence"] = float(confidence)
+    allowed = validated.get("allowed_occasions")
+    if isinstance(allowed, list) and allowed and not out.get("occasions"):
+        out["occasions"] = [str(o) for o in allowed if str(o).strip()]
+    blocked = validated.get("blocked_occasions")
+    if isinstance(blocked, list) and blocked:
+        out["excludedContexts"] = [str(o) for o in blocked if str(o).strip()]
+    risk_flags = validated.get("risk_flags")
+    if isinstance(risk_flags, list) and risk_flags:
+        out["risk_flags"] = [str(f) for f in risk_flags if str(f).strip()]
+    formality = validated.get("formality")
+    if _meaningful(formality):
+        out["formality"] = str(formality)
+    style_role = validated.get("style_role")
+    if _meaningful(style_role):
+        out["style_role"] = str(style_role)
+    notes = validated.get("styling_notes")
+    if isinstance(notes, list) and notes:
+        out["metadata_notes"] = [str(n) for n in notes if str(n).strip()]
+    return out
+
+
+async def _apply_preview_metadata_validator(
+    detected: Dict[str, Any],
+    *,
+    user_id: str,
+    vision: Dict[str, Any],
+    raw_label: str,
+) -> "tuple[Dict[str, Any], str]":
+    """Run the existing Gemini metadata validator on a preview item.
+
+    Returns (item, state) where state is used | skipped | disabled | failed.
+    Never raises — a validator failure leaves the local metadata intact.
+    """
+    should, reason = _should_validate_preview_with_gemini(
+        detected,
+        vision,
+        raw_label,
+        str(detected.get("category") or ""),
+        str(detected.get("sub_category") or ""),
+        float(detected.get("confidence") or 0.0),
+    )
+    if not should:
+        state = "disabled" if reason == "disabled" else "skipped"
+        detected["metadata_validator"] = {
+            "used": False,
+            "reason": reason,
+            "confidence": None,
+        }
+        return detected, state
+    try:
+        from services.agent_metadata_validator import validate_wardrobe_metadata
+
+        validated = await validate_wardrobe_metadata(
+            item=detected,
+            user_id=user_id,
+            vision_result=vision,
+            context={
+                "stage": "capture_preview",
+                "raw_label": raw_label,
+                "source": "wardrobe_capture.analyze",
+                "bbox": detected.get("bbox"),
+                "upload_error": detected.get("upload_error"),
+            },
+        )
+        merged = _merge_validator_into_preview(detected, validated)
+        # Re-apply the metadata guard so privateWear/publicWear/styleEligible
+        # are recomputed against the (possibly corrected) category.
+        merged = apply_metadata_guard(merged, source="capture_preview_validator")
+        merged["metadata_validator"] = {
+            "used": True,
+            "reason": reason,
+            "confidence": (validated or {}).get("confidence"),
+        }
+        logger.info(
+            "ahvi.capture_preview.validator_used user_id=%s reason=%s category=%s->%s",
+            user_id,
+            reason,
+            detected.get("category"),
+            merged.get("category"),
+        )
+        return merged, "used"
+    except Exception as exc:  # noqa: BLE001 - preview must never break
+        logger.warning(
+            "ahvi.capture_preview.validator_failed user_id=%s err=%s",
+            user_id,
+            str(exc)[:200],
+        )
+        detected["metadata_validator"] = {
+            "used": False,
+            "reason": f"failed:{str(exc)[:80]}",
+            "confidence": None,
+        }
+        return detected, "failed"
+
+
 @router.post("/analyze")
 async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest):
     started = time.perf_counter()
@@ -860,6 +1046,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         ]
 
     items = []
+    validator_states: list[str] = []
     for item in detected_items:
         item = _try_upload_inline_images(dict(item))
         raw_label = str(item.get("label") or "Item")
@@ -1009,6 +1196,17 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             "image_embedding": embedding,
         }
         detected.update(_infer_style_attributes(detected))
+        # Preview-stage Gemini validation: correct risky / low-confidence
+        # labels (saree→Accessories, one-piece→top, boxers→shorts) BEFORE
+        # the user sees the preview, using the same validator the save flow
+        # already trusts.
+        detected, validator_state = await _apply_preview_metadata_validator(
+            detected,
+            user_id=user_id,
+            vision=vision,
+            raw_label=raw_label,
+        )
+        validator_states.append(validator_state)
         items.append(detected)
 
     if not items:
@@ -1108,6 +1306,15 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             "duplicate_detection": (
                 "ok"
                 if any((i.get("duplicate") or {}).get("checked") for i in items)
+                else "skipped"
+            ),
+            "metadata_validator": (
+                "used"
+                if "used" in validator_states
+                else "failed"
+                if "failed" in validator_states
+                else "disabled"
+                if validator_states and all(s == "disabled" for s in validator_states)
                 else "skipped"
             ),
             "save_to_wardrobe": save_state,
