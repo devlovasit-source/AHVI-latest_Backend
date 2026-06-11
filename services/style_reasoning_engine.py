@@ -821,6 +821,28 @@ _COFFEE_DATE_POLICY_OCCASIONS: set[str] = {
     "casual_date",
 }
 
+# Broader casual/social set that should read relaxed, not office-casual.
+# Reuses the same demote/boost rules as coffee date. Source of truth for
+# "approachable, relaxed, confident" occasions on the visual-board path.
+_CASUAL_SOCIAL_OCCASIONS: set[str] = {
+    "coffee_date",
+    "coffee date",
+    "coffee",
+    "cafe_date",
+    "cafe date",
+    "first_date",
+    "first date",
+    "date",
+    "date_night",
+    "date night",
+    "brunch",
+    "brunch_date",
+    "brunch date",
+    "casual_date",
+    "casual_day",
+    "weekend",
+}
+
 # Family token rules: longer / compound tokens first so e.g. "buttondown" is
 # matched before "shirt".
 _FAMILY_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
@@ -1020,6 +1042,29 @@ _OFFICE_CTL_PREFER_FAMILIES: set[str] = {
 _HERO_FORBIDDEN_GROUPS: set[str] = {"accessory", "travel", "grooming", "electronics", "loungewear"}
 _COFFEE_DATE_ALLOWED_ACC: set[str] = {"belt", "watch", "loafer", "sneaker", "sunglasses"}
 
+# Casual/social demotions (coffee date, first date, brunch, date night).
+# Business/formal pieces read as "office casual" and kill the relaxed mood;
+# beanie/cap are too street for a date. Demoted unless the user explicitly
+# asked for that piece (checked against the hero/target text).
+_CASUAL_SOCIAL_DEMOTE_FAMILIES: set[str] = {
+    "blazer",
+    "coat",
+    "tie",
+    "beanie",
+    "cap",
+}
+# Relaxed-but-considered pieces that should rise for casual/social looks.
+_CASUAL_SOCIAL_BOOST_FAMILIES: set[str] = {
+    "polo",
+    "overshirt",
+    "knit",
+    "chino",
+    "jeans",
+    "loafer",
+    "sneaker",
+    "watch",
+}
+
 
 def _policy_occasion_key(occasion: str) -> str:
     return re.sub(r"\s+", "_", str(occasion or "").strip().lower())
@@ -1033,6 +1078,11 @@ def _is_office_occasion_policy(occasion: str) -> bool:
 def _is_coffee_date_policy(occasion: str) -> bool:
     key = _policy_occasion_key(occasion)
     return key in {_policy_occasion_key(o) for o in _COFFEE_DATE_POLICY_OCCASIONS}
+
+
+def _is_casual_social_policy(occasion: str) -> bool:
+    key = _policy_occasion_key(occasion)
+    return key in {_policy_occasion_key(o) for o in _CASUAL_SOCIAL_OCCASIONS}
 
 
 def _demo_safe_visuals_enabled() -> bool:
@@ -1143,8 +1193,17 @@ def _asset_allowed_for_context(
     if placement == "complete":
         if _is_office_occasion_policy(occasion) and family in _OFFICE_CTL_REJECT_FAMILIES:
             return False
+        # Casual/social: beanie + cap read too street for a date / brunch and
+        # break the "approachable, put-together" mood. Hard-reject them so
+        # they can never enter complete_the_look for these occasions.
+        if _is_casual_social_policy(occasion) and family in {"beanie", "cap"}:
+            return False
         return True
     if placement == "missing":
+        # Casual/social missing pieces must stay on-occasion: never suggest a
+        # beanie or cap to "complete" a coffee date / brunch look.
+        if _is_casual_social_policy(occasion) and family in {"beanie", "cap"}:
+            return False
         target_group = _FAMILY_GROUP.get(target_family, "")
         if target_group == "accessory":
             return True
@@ -1168,6 +1227,19 @@ def _asset_context_score(
     family = _asset_family(asset)
     target_family = _target_family(target_text)
     bonus = 0
+    # Casual/social occasion intelligence (coffee date, first date, brunch,
+    # date night). Demote business/formal pieces + beanie/cap, boost relaxed
+    # pieces — across hero AND complete placements — unless the user
+    # explicitly asked for the demoted piece in their query/hero text.
+    if _is_casual_social_policy(occasion):
+        # User explicitly asked for the demoted piece (e.g. "blazer for a
+        # coffee date") → respect it, skip the demotion.
+        requested_family = _detect_family(f"{target_text} {occasion}")
+        explicitly_requested = bool(family) and family == requested_family
+        if family in _CASUAL_SOCIAL_DEMOTE_FAMILIES and not explicitly_requested:
+            bonus -= 14
+        elif family in _CASUAL_SOCIAL_BOOST_FAMILIES:
+            bonus += 8
     if placement == "complete":
         if _is_office_occasion_policy(occasion):
             if family in _OFFICE_CTL_PREFER_FAMILIES:
@@ -1531,11 +1603,25 @@ def _direction_formula_signature(direction: Dict[str, Any]) -> tuple[str, ...]:
     return tuple(sorted(formula_bits))
 
 
+_STRUCTURED_LAYER_HERO_FAMILIES: set[str] = {"blazer", "jacket", "coat"}
+
+
 def _directions_too_similar(candidate: Dict[str, Any], accepted: Dict[str, Any]) -> tuple[bool, str]:
     hero = _asset_text(candidate.get("hero_piece"))
     accepted_hero = _asset_text(accepted.get("hero_piece"))
     if hero and accepted_hero and _style_items_similar(hero, accepted_hero):
         return True, "same_hero"
+    # Repeated structured-layer hero (blazer/jacket/coat) across directions
+    # reads as "blazer, blazer, blazer" even when the formulas differ. Treat
+    # a second structured-layer hero as a duplicate so the diversity guard
+    # swaps in a distinct, more relaxed direction.
+    hero_family = _detect_family(hero)
+    accepted_hero_family = _detect_family(accepted_hero)
+    if (
+        hero_family in _STRUCTURED_LAYER_HERO_FAMILIES
+        and accepted_hero_family in _STRUCTURED_LAYER_HERO_FAMILIES
+    ):
+        return True, "repeated_structured_layer_hero"
     formula = _direction_formula_signature(candidate)
     accepted_formula = _direction_formula_signature(accepted)
     palette_overlap = _palette_overlap(
@@ -3426,6 +3512,47 @@ _DIRECTION_ADJECTIVES: dict[str, list[str]] = {
 _DEFAULT_DIRECTION_ADJECTIVES: list[str] = ["Considered", "Modern", "Confident"]
 
 
+# Human stylist voice per occasion. Leads each card's short_note so the copy
+# reads like a person, not an LLM. Keyed by normalized occasion; falls back
+# to a neutral confident line. Reuses the same voice intent as
+# ahvi_personality/02_tone/tone_rules.json (relaxed warmth, concise).
+_OCCASION_VOICE: dict[str, str] = {
+    "coffee_date": "Relaxed, approachable, and easy to wear — polished without feeling overdressed.",
+    "coffee": "Relaxed, approachable, and easy to wear — polished without feeling overdressed.",
+    "cafe_date": "Relaxed, approachable, and easy to wear — polished without feeling overdressed.",
+    "first_date": "Warm and approachable, with just enough polish to feel intentional.",
+    "date": "Easy confidence — put-together but never trying too hard.",
+    "date_night": "Quietly magnetic — refined enough for evening, relaxed enough to enjoy it.",
+    "brunch": "Light, easy, and put-together for a slow weekend table.",
+    "brunch_date": "Light, easy, and put-together for a slow weekend table.",
+    "casual_day": "Effortless and comfortable, with a considered finish.",
+    "weekend": "Easy weekend polish — comfortable, considered, unforced.",
+    "client_meeting": "Quiet authority — sharp first impression, comfortable all day.",
+    "office": "Composed and professional, with room to move.",
+    "startup_office": "Modern and sharp without the suit-and-tie stiffness.",
+    "conference": "Confident and credible — sharp enough for the stage, comfortable enough for a full day.",
+    "conference_talk": "Confident and credible — sharp enough for the stage, comfortable enough for a full day.",
+    "presentation": "Composed and camera-ready, with steady presence.",
+    "keynote": "Confident and credible — built to hold the room.",
+    "interview": "Sharp, sincere, and quietly confident.",
+    "wedding": "Celebratory and refined, dressed for the moment without stealing it.",
+    "wedding_guest": "Celebratory and refined, dressed for the moment without stealing it.",
+    "funeral": "Respectful and understated — keeps attention where it belongs.",
+    "vacation": "Sunlit ease — relaxed, breathable, and ready to wander.",
+    "travel": "Comfortable, layered, and ready for a long day in transit.",
+    "airport_travel": "Comfortable, layered, and ready for a long day in transit.",
+    "workout": "Built to move — focused, breathable, recovery-ready.",
+    "gym": "Built to move — focused, breathable, recovery-ready.",
+    "beach": "Cool, breathable, and ready for sand and sun.",
+}
+_DEFAULT_OCCASION_VOICE: str = "Considered and confident, styled to feel like you."
+
+
+def _occasion_voice_note(occasion: Any) -> str:
+    key = _occasion_key_for_editorial(occasion)
+    return _OCCASION_VOICE.get(key, _DEFAULT_OCCASION_VOICE)
+
+
 _OCCASION_CURATED_FOR: dict[str, list[str]] = {
     "conference": ["Stage Presence", "Networking", "All-Day Comfort"],
     "conference_talk": ["Stage Presence", "Networking", "All-Day Comfort"],
@@ -3805,7 +3932,10 @@ def _apply_editorial_polish(
         polished["why_this_works"] = _two_sentences(
             polished.get("why_this_works") or polished.get("why_it_works")
         )
-        polished["short_note"] = polished["why_it_works"]
+        # short_note leads with the human stylist voice for this occasion so
+        # the card never reads like generic LLM prose. The model's reasoning
+        # stays available (capped) in why_it_works for detail.
+        polished["short_note"] = _occasion_voice_note(occasion)
         if polished.get("style_note"):
             polished["style_note"] = _two_sentences(polished.get("style_note"), max_chars=120)
         # Ownership truth: only real wardrobe matches count.

@@ -384,6 +384,26 @@ def classify_style_mode(
         return STYLE_EDUCATION
     if is_style_advice_request(text):
         return STYLE_ADVICE
+    # Date / social occasion catch — runs regardless of sentence length so a
+    # natural-language prompt like "first coffee date at a cafe on Saturday
+    # afternoon" still produces style boards instead of falling to generic
+    # chat. Matches an occasion phrase anywhere in the query.
+    if _has_any(
+        _norm(text),
+        (
+            "coffee date",
+            "cafe date",
+            "café date",
+            "first date",
+            "date night",
+            "dinner date",
+            "brunch date",
+            "lunch date",
+            "coffee catch up",
+            "coffee catchup",
+        ),
+    ):
+        return STYLE_ADVICE
     return ""
 
 

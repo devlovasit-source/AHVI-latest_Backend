@@ -418,6 +418,10 @@ OCCASION_STYLE_RULES.update(
                 "tuxedo", "shiny", "satin", "sequin", "sequins",
                 "embroidered", "embroidery", "festive", "corporate",
                 "boardroom", "office", "client", "statement gold",
+                # Business/formal layers and street caps read as office-casual
+                # or too-dressed for a relaxed coffee date.
+                "blazer", "suit jacket", "suit_jacket", "tie",
+                "business shirt", "beanie", "cap",
             ],
             "preferred_colors": ["white", "blue", "navy", "cream", "olive", "tan", "brown"],
             "avoid_colors": ["gold"],
