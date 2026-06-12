@@ -235,23 +235,82 @@ def _validate_item(raw: Any) -> Optional[Dict[str, Any]]:
     }
 
 
+# Category-aware crop padding. Gemini bboxes hug the garment tightly, which
+# makes maxi dresses lose hems/straps and accessories look cramped. Pads are
+# fractions of the bbox size: (pad_x, pad_top, pad_bottom). Top padding is
+# slightly larger than bottom for tall garments so necklines/straps survive.
+_PAD_TALL_GARMENT = (0.12, 0.16, 0.13)   # dress/saree/lehenga/gown/coat/jacket
+_PAD_TOP_GARMENT = (0.10, 0.12, 0.10)    # top/shirt/kurta/blouse
+_PAD_ACCESSORY = (0.13, 0.13, 0.13)      # bag/footwear/sunglasses/jewelry/watch
+
+_TALL_GARMENT_TERMS = (
+    "dress", "saree", "sari", "lehenga", "gown", "coat", "jacket",
+    "jumpsuit", "maxi", "anarkali", "abaya", "kaftan",
+)
+_TOP_GARMENT_TERMS = (
+    "top", "shirt", "blouse", "kurta", "t-shirt", "tee", "sweater",
+    "hoodie", "cardigan", "tunic",
+)
+_ACCESSORY_TERMS = (
+    "bag", "handbag", "tote", "purse", "clutch", "backpack",
+    "shoe", "sneaker", "sandal", "slipper", "heel", "boot", "footwear",
+    "sunglasses", "glasses", "eyewear", "jewelry", "jewellery",
+    "necklace", "earring", "bracelet", "watch", "belt", "hat", "cap",
+    "scarf", "accessory", "accessories",
+)
+
+
+def _pad_ratios_for_item(
+    name: str = "", category: str = "", sub_category: str = ""
+) -> Tuple[float, float, float]:
+    """Return (pad_x, pad_top, pad_bottom) for the detected item."""
+    blob = " ".join(
+        str(v or "").lower() for v in (name, sub_category, category)
+    )
+
+    def _has(terms: Tuple[str, ...]) -> bool:
+        return any(t in blob for t in terms)
+
+    if _has(_TALL_GARMENT_TERMS):
+        return _PAD_TALL_GARMENT
+    if _has(_TOP_GARMENT_TERMS):
+        return _PAD_TOP_GARMENT
+    if _has(_ACCESSORY_TERMS):
+        return _PAD_ACCESSORY
+    return (BBOX_PAD_RATIO, BBOX_PAD_RATIO, BBOX_PAD_RATIO)
+
+
 def _bbox_to_pixels(
     bbox: Tuple[float, float, float, float],
     width: int,
     height: int,
     pad_ratio: float = BBOX_PAD_RATIO,
+    *,
+    pads: Optional[Tuple[float, float, float]] = None,
 ) -> List[int]:
     xmin, ymin, xmax, ymax = bbox
     x1 = xmin * width
     y1 = ymin * height
     x2 = xmax * width
     y2 = ymax * height
-    pad_x = (x2 - x1) * pad_ratio
-    pad_y = (y2 - y1) * pad_ratio
+    if pads is None:
+        pads = (pad_ratio, pad_ratio, pad_ratio)
+    pad_x_ratio, pad_top_ratio, pad_bottom_ratio = pads
+
+    box_w = x2 - x1
+    box_h = y2 - y1
+    # Tall bbox (e.g. full-length dress shot at an angle): bump top padding a
+    # touch more so straps/neckline are never clipped.
+    if box_w > 0 and box_h > 1.4 * box_w:
+        pad_top_ratio += 0.02
+
+    pad_x = box_w * pad_x_ratio
+    pad_top = box_h * pad_top_ratio
+    pad_bottom = box_h * pad_bottom_ratio
     px1 = max(0, int(round(x1 - pad_x)))
-    py1 = max(0, int(round(y1 - pad_y)))
+    py1 = max(0, int(round(y1 - pad_top)))
     px2 = min(width, int(round(x2 + pad_x)))
-    py2 = min(height, int(round(y2 + pad_y)))
+    py2 = min(height, int(round(y2 + pad_bottom)))
     if px2 <= px1:
         px2 = min(width, px1 + 1)
     if py2 <= py1:
@@ -348,7 +407,16 @@ async def detect_and_crop(
         valid = _validate_item(raw_item)
         if valid is None:
             continue
-        bbox_px = _bbox_to_pixels(tuple(valid["bbox"]), width, height)
+        bbox_px = _bbox_to_pixels(
+            tuple(valid["bbox"]),
+            width,
+            height,
+            pads=_pad_ratios_for_item(
+                name=valid.get("name") or "",
+                category=valid.get("category") or "",
+                sub_category=valid.get("sub_category") or "",
+            ),
+        )
         try:
             crop_bytes = _crop_to_png_bytes(image, bbox_px)
         except Exception as exc:

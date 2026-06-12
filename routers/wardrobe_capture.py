@@ -661,6 +661,23 @@ def _normalize_capture_preview_item(item: Dict[str, Any]) -> Dict[str, Any]:
     return _enforce_preview_taxonomy(normalized)
 
 
+def _strip_internal_preview_fields(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove internal pipeline fields the review screen renders as debug
+    chips (e.g. 'vision:gemini_multi', 'heuristic'). Logic that needs them
+    (validator gating, review-state checks) runs before this point; logs are
+    unaffected.
+    """
+    if not isinstance(item, dict):
+        return item
+    out = dict(item)
+    out.pop("label_source", None)
+    out.pop("metadata_validator", None)
+    reasoning = str(out.get("reasoning") or "")
+    if "heuristic" in reasoning or "vision:gemini_multi" in reasoning:
+        out["reasoning"] = "auto_detected"
+    return out
+
+
 def _vision_extract_attributes(
     masked_url: str, fallback_label: str, image_base64: str = ""
 ) -> Dict[str, Any]:
@@ -1377,6 +1394,9 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
     # Ensures the frontend never sees: Sari→Accessories, polo→Bottoms,
     # one-piece→Tops, or unknowns silently labeled Accessories.
     items = [_normalize_capture_preview_item(item) for item in items if isinstance(item, dict)]
+    # Strip internal pipeline fields so the review screen never shows debug
+    # chips like "vision:gemini_multi" — runs AFTER all logic that reads them.
+    items = [_strip_internal_preview_fields(item) for item in items]
 
     save_result = None
     save_state = "skipped"

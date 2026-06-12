@@ -195,7 +195,102 @@ def test_gemini_multi_preview_keeps_gemini_metadata_not_review_item(monkeypatch)
 
     for item in result["items"]:
         assert item.get("requires_manual_entry") is False, item.get("name")
-        assert str(item.get("label_source") or "").startswith("vision")
+        # Internal pipeline fields are stripped from the response.
+        assert "label_source" not in item
+
+
+# ---------- crop framing: category-aware bbox padding ----------
+
+def test_dress_bbox_expands_and_clamps(monkeypatch):
+    monkeypatch.setenv("ENABLE_GEMINI_MULTI_GARMENT_PREVIEW", "true")
+    dress_json = """
+    [
+      {"name": "Red Maxi Dress", "category": "Dresses", "sub_category": "Maxi Dress", "color": "Red", "confidence": 0.9, "bbox": [0.3, 0.3, 0.5, 0.7]},
+      {"name": "Edge Gown", "category": "Dresses", "sub_category": "Gown", "color": "Blue", "confidence": 0.9, "bbox": [0.0, 0.0, 0.5, 0.98]}
+    ]
+    """
+    monkeypatch.setattr(
+        gmg, "_call_gemini_vision", lambda image_bytes, request_id="": dress_json
+    )
+    image, raw = _test_image(size=(1000, 1000))
+    items = _run(gmg.detect_and_crop(image, raw, request_id="pad1"))
+    assert len(items) == 2
+
+    # Unpadded dress bbox: [300, 300, 500, 700] (200w x 400h, tall ratio 2.0).
+    x1, y1, x2, y2 = items[0]["bbox_px"]
+    assert x1 < 300 and x2 > 500          # horizontal pad applied
+    assert y1 < 300 and y2 > 700          # vertical pad applied
+    assert (300 - y1) > (y2 - 700) - 1    # top pad >= bottom pad
+    assert (300 - y1) >= 0.14 * 400       # tall garment: >= 14% of box height on top
+
+    # Edge gown: padding must clamp to image boundaries.
+    ex1, ey1, ex2, ey2 = items[1]["bbox_px"]
+    assert ex1 >= 0 and ey1 >= 0
+    assert ex2 <= 1000 and ey2 <= 1000
+
+
+def test_accessory_bbox_gets_extra_padding(monkeypatch):
+    monkeypatch.setenv("ENABLE_GEMINI_MULTI_GARMENT_PREVIEW", "true")
+    acc_json = """
+    [
+      {"name": "Sunglasses", "category": "Accessories", "sub_category": "Eyewear", "color": "Black", "confidence": 0.85, "bbox": [0.4, 0.4, 0.6, 0.5]},
+      {"name": "Black Handbag", "category": "Bags", "sub_category": "Handbag", "color": "Black", "confidence": 0.85, "bbox": [0.1, 0.6, 0.3, 0.8]}
+    ]
+    """
+    monkeypatch.setattr(
+        gmg, "_call_gemini_vision", lambda image_bytes, request_id="": acc_json
+    )
+    image, raw = _test_image(size=(1000, 1000))
+    items = _run(gmg.detect_and_crop(image, raw, request_id="pad2"))
+    assert len(items) == 2
+
+    # Sunglasses unpadded: [400, 400, 600, 500] (200w x 100h).
+    # Accessory pad 0.13 > default 0.04: expect ~26px horizontal, ~13px vertical.
+    x1, y1, x2, y2 = items[0]["bbox_px"]
+    assert (400 - x1) >= 0.10 * 200
+    assert (x2 - 600) >= 0.10 * 200
+    assert (400 - y1) >= 0.10 * 100
+    assert (y2 - 500) >= 0.10 * 100
+
+
+def test_invalid_bbox_still_rejected(monkeypatch):
+    monkeypatch.setenv("ENABLE_GEMINI_MULTI_GARMENT_PREVIEW", "true")
+    bad_json = """
+    [
+      {"name": "Ghost Dress", "category": "Dresses", "sub_category": "Dress", "color": "Red", "confidence": 0.9, "bbox": [0.9, 0.9, 0.1, 0.1]},
+      {"name": "No Box Top", "category": "Tops", "sub_category": "Top", "color": "Blue", "confidence": 0.9}
+    ]
+    """
+    monkeypatch.setattr(
+        gmg, "_call_gemini_vision", lambda image_bytes, request_id="": bad_json
+    )
+    image, raw = _test_image(size=(1000, 1000))
+    items = _run(gmg.detect_and_crop(image, raw, request_id="pad3"))
+    assert items == []
+
+
+# ---------- preview response: no internal debug chips ----------
+
+def test_gemini_multi_preview_has_no_internal_debug_fields(monkeypatch):
+    _wire_router_for_gemini(monkeypatch, GOOD_RESULT)
+
+    http_request = _FakeHttpRequest()
+    result = _run(wc.analyze_capture(http_request, _capture_request()))
+
+    assert result["stage_trace"]["detection"] == "gemini_multi_garment"
+    for item in result["items"]:
+        # Internal fields stripped from the response entirely.
+        assert "label_source" not in item
+        assert "metadata_validator" not in item
+        # No internal markers leaking through any visible string value.
+        for key, value in item.items():
+            if isinstance(value, str):
+                assert "vision:gemini_multi" not in value, key
+                assert "heuristic" not in value, key
+        # Useful chips survive.
+        assert str(item.get("category") or "") not in {"", "Needs Review"}
+        assert str(item.get("color_name") or "")
+        assert str(item.get("pattern") or "")
 
 
 # ---------- fast path: preview skips RMBG entirely ----------
@@ -415,7 +510,7 @@ def test_gemini_multi_does_not_change_save_schema(monkeypatch):
     # Required preview/save fields survive on the Gemini path.
     for key in (
         "item_id", "name", "category", "sub_category", "color_code",
-        "color_name", "pattern", "occasions", "confidence", "label_source",
+        "color_name", "pattern", "occasions", "confidence",
         "requires_manual_entry", "reasoning", "bbox", "raw_url", "rawUrl",
         "masked_url", "maskedUrl", "normalized_url", "normalizedUrl",
         "image_url", "imageUrl", "raw_image_base64", "masked_image_base64",
