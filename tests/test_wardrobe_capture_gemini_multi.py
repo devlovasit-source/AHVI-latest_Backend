@@ -440,6 +440,55 @@ def test_save_selected_survives_rmbg_failure(monkeypatch):
     assert saved.get("preview_cutout_pending") is False
 
 
+def test_save_selected_prefers_each_item_crop_over_shared_collage_url(monkeypatch):
+    crop_by_id = {
+        "dress-1": b"DRESS_CROP",
+        "bag-1": b"BAG_CROP",
+        "sandals-1": b"SANDALS_CROP",
+        "sunglasses-1": b"SUNGLASSES_CROP",
+    }
+    shared_collage_url = "https://r2.test/original-collage.png"
+    items = []
+    for item_id, crop in crop_by_id.items():
+        encoded = base64.b64encode(crop).decode("utf-8")
+        items.append(
+            {
+                "item_id": item_id,
+                "name": item_id.split("-", 1)[0].title(),
+                "category": "Dresses" if item_id.startswith("dress") else "Accessories",
+                "raw_image_base64": encoded,
+                "masked_image_base64": encoded,
+                "image_url": shared_collage_url,
+                "masked_url": shared_collage_url,
+            }
+        )
+
+    persisted = _wire_save_selected(monkeypatch, lambda data: data)
+    request = wc.SaveSelectedRequest(
+        user_id="u1",
+        selected_item_ids=list(crop_by_id),
+        detected_items=items,
+    )
+
+    result = wc.save_selected(_FakeHttpRequest(), request)
+
+    assert result["success"] is True
+    calls_by_id = {call["file_id"]: call for call in _FakeR2Upload.last_calls}
+    assert set(calls_by_id) == set(crop_by_id)
+    for item_id, crop in crop_by_id.items():
+        assert calls_by_id[item_id]["raw"] == crop
+        assert calls_by_id[item_id]["masked"] == crop
+
+    saved_by_id = {
+        item["item_id"]: item for item in persisted["detected_items"]
+    }
+    dress = saved_by_id["dress-1"]
+    assert dress["masked_url"] == "https://r2.test/dress-1_masked.png"
+    assert dress["image_url"] == "https://r2.test/dress-1_norm.png"
+    assert dress["image_url"] != shared_collage_url
+    assert dress["_save_image_source"] == "inline_crop_upload"
+
+
 # ---------- end-to-end: saree taxonomy enforced for Gemini items ----------
 
 def test_gemini_multi_saree_taxonomy_enforced(monkeypatch):

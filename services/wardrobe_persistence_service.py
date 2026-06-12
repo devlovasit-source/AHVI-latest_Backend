@@ -15,6 +15,8 @@ from services.wardrobe_taxonomy import normalize as _taxonomy_normalize
 from services.wardrobe_intelligence_service import enrich_wardrobe_item
 from services.wardrobe_suitability import apply_metadata_guard
 
+logger = logging.getLogger("ahvi.wardrobe_persistence")
+
 # =========================
 # ENV CONFIG
 # =========================
@@ -767,6 +769,25 @@ def persist_selected_items(
                 continue
 
             item = apply_metadata_guard(item, source="persist_selected_items")
+            image_source = _safe_text(item.get("_save_image_source"))
+            if not image_source:
+                if normalized_url:
+                    image_source = "normalized_url"
+                elif masked_url:
+                    image_source = "masked_url"
+                elif raw_url:
+                    image_source = "raw_url"
+                else:
+                    image_source = "missing"
+            logger.info(
+                "ahvi.capture.save_item name=%s image_source=%s raw_present=%s "
+                "masked_present=%s masked_url=%s",
+                item.get("name") or item.get("label") or item_id,
+                image_source,
+                bool(item.get("raw_image_base64")),
+                bool(item.get("masked_image_base64")),
+                masked_url,
+            )
             doc = _build_appwrite_doc(
                 user_id=user_id,
                 file_id=file_id,

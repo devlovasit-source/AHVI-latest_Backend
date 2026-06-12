@@ -809,7 +809,10 @@ def _decode_inline_image(value: Any) -> bytes:
 
 
 def _try_upload_inline_images(
-    item: Dict[str, Any], *, allow_fast_mode_skip: bool = True
+    item: Dict[str, Any],
+    *,
+    allow_fast_mode_skip: bool = True,
+    prefer_inline: bool = False,
 ) -> Dict[str, Any]:
     if allow_fast_mode_skip and _env_enabled("WARDROBE_CAPTURE_FAST_MODE", "true"):
         item["upload_error"] = (
@@ -817,12 +820,21 @@ def _try_upload_inline_images(
         ).strip("; ")
         return item
 
-    if item.get("masked_url"):
+    if item.get("masked_url") and not prefer_inline:
         return item
 
     raw_bytes = _decode_inline_image(item.get("raw_image_base64"))
     masked_bytes = _decode_inline_image(item.get("masked_image_base64"))
     if not raw_bytes or not masked_bytes:
+        item["_save_image_source"] = (
+            "masked_url"
+            if item.get("masked_url")
+            else "image_url"
+            if item.get("image_url") or item.get("imageUrl")
+            else "raw_url"
+            if item.get("raw_url") or item.get("rawUrl")
+            else "missing"
+        )
         return item
 
     try:
@@ -847,8 +859,10 @@ def _try_upload_inline_images(
         item["raw_file_name"] = upload.get("raw_file_name")
         item["masked_file_name"] = upload.get("masked_file_name")
         item["normalized_file_name"] = upload.get("normalized_file_name")
+        item["_save_image_source"] = "inline_crop_upload"
     except Exception as exc:
         item["upload_error"] = str(exc)
+        item["_save_image_source"] = "existing_url_after_inline_upload_failure"
     return item
 
 
@@ -1896,7 +1910,11 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         )
 
         try:
-            item = _try_upload_inline_images(item, allow_fast_mode_skip=False)
+            item = _try_upload_inline_images(
+                item,
+                allow_fast_mode_skip=False,
+                prefer_inline=True,
+            )
         except Exception as exc:
             item["upload_error"] = str(exc)
 
