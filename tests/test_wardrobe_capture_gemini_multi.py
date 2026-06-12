@@ -198,6 +198,153 @@ def test_gemini_multi_preview_keeps_gemini_metadata_not_review_item(monkeypatch)
         assert str(item.get("label_source") or "").startswith("vision")
 
 
+# ---------- fast path: preview skips RMBG entirely ----------
+
+def test_gemini_multi_preview_skips_rmbg(monkeypatch):
+    calls = {"count": 0}
+
+    async def _counting_bg(data: bytes) -> bytes:
+        calls["count"] += 1
+        return data
+
+    monkeypatch.setenv("ENABLE_GEMINI_MULTI_GARMENT_PREVIEW", "true")
+    monkeypatch.setattr(
+        gmg, "_call_gemini_vision", lambda image_bytes, request_id="": GOOD_RESULT
+    )
+    monkeypatch.setattr(wc, "remove_bg_bytes", _counting_bg)
+    monkeypatch.setattr(wc, "_find_upload_duplicate", _no_duplicate)
+
+    http_request = _FakeHttpRequest()
+    result = _run(wc.analyze_capture(http_request, _capture_request()))
+
+    assert result["stage_trace"]["detection"] == "gemini_multi_garment"
+    assert result["count"] == 4
+    assert calls["count"] == 0
+    for item in result["items"]:
+        assert item.get("preview_cutout_pending") is True
+
+
+def test_gemini_multi_preview_returns_raw_crops_fast(monkeypatch):
+    _wire_router_for_gemini(monkeypatch, GOOD_RESULT)
+
+    http_request = _FakeHttpRequest()
+    result = _run(wc.analyze_capture(http_request, _capture_request()))
+
+    assert result["stage_trace"]["detection"] == "gemini_multi_garment"
+    assert result["count"] == 4
+    for item in result["items"]:
+        raw_b64 = str(item.get("raw_image_base64") or "")
+        assert raw_b64
+        # Fast path: raw crop doubles as the preview cutout.
+        assert item.get("masked_image_base64") == raw_b64
+        assert str(item.get("name") or "").lower() not in {"", "item", "review item"}
+        assert str(item.get("category") or "") not in {"", "Needs Review"}
+
+
+# ---------- save-selected: deferred RMBG cleanup ----------
+
+class _FakeR2Upload:
+    last_calls: list = []
+
+    def upload_wardrobe_images(self, *, file_id, raw_image_bytes, masked_image_bytes):
+        _FakeR2Upload.last_calls.append(
+            {"file_id": file_id, "raw": raw_image_bytes, "masked": masked_image_bytes}
+        )
+        return {
+            "raw_image_url": f"https://r2.test/{file_id}_raw.png",
+            "masked_image_url": f"https://r2.test/{file_id}_masked.png",
+            "normalized_image_url": f"https://r2.test/{file_id}_norm.png",
+            "raw_file_name": f"{file_id}_raw.png",
+            "masked_file_name": f"{file_id}_masked.png",
+            "normalized_file_name": f"{file_id}_norm.png",
+        }
+
+
+def _gemini_preview_save_item(item_id: str, name: str = "Red Dress"):
+    _, raw = _test_image()
+    raw_b64 = base64.b64encode(raw).decode("utf-8")
+    return {
+        "item_id": item_id,
+        "name": name,
+        "category": "Dresses",
+        "sub_category": "Dress",
+        "label_source": "vision:gemini_multi",
+        "preview_cutout_pending": True,
+        "raw_image_base64": raw_b64,
+        "masked_image_base64": raw_b64,
+        "upload_error": "",
+    }
+
+
+def _wire_save_selected(monkeypatch, bg_fn):
+    monkeypatch.setattr(wc, "remove_bg_bytes", bg_fn)
+    monkeypatch.setattr(wc, "R2Storage", _FakeR2Upload)
+    _FakeR2Upload.last_calls = []
+    persisted = {}
+
+    def _fake_persist(*, user_id, selected_item_ids, detected_items):
+        persisted["user_id"] = user_id
+        persisted["selected_item_ids"] = list(selected_item_ids)
+        persisted["detected_items"] = [dict(i) for i in detected_items]
+        return {"success": True, "saved_count": len(selected_item_ids), "errors": []}
+
+    monkeypatch.setattr(wc, "persist_selected_items", _fake_persist)
+    return persisted
+
+
+def test_save_selected_runs_rmbg_for_gemini_multi_items(monkeypatch):
+    calls = {"count": 0}
+    cleaned = b"CLEANED_PNG_BYTES"
+
+    async def _bg(data: bytes) -> bytes:
+        calls["count"] += 1
+        return cleaned
+
+    persisted = _wire_save_selected(monkeypatch, _bg)
+
+    items = [_gemini_preview_save_item("id-1"), _gemini_preview_save_item("id-2", "Blue Bag")]
+    request = wc.SaveSelectedRequest(
+        user_id="u1",
+        selected_item_ids=["id-1", "id-2"],
+        detected_items=items,
+    )
+    result = wc.save_selected(_FakeHttpRequest(), request)
+
+    assert result["success"] is True
+    assert calls["count"] == 2
+    assert len(_FakeR2Upload.last_calls) == 2
+    for call in _FakeR2Upload.last_calls:
+        assert call["masked"] == cleaned
+
+    for saved in persisted["detected_items"]:
+        assert saved.get("masked_url"), saved.get("item_id")
+        assert saved.get("preview_cutout_pending") is False
+
+
+def test_save_selected_survives_rmbg_failure(monkeypatch):
+    async def _failing_bg(data: bytes) -> bytes:
+        raise RuntimeError("rmbg service down")
+
+    persisted = _wire_save_selected(monkeypatch, _failing_bg)
+
+    items = [_gemini_preview_save_item("id-1")]
+    request = wc.SaveSelectedRequest(
+        user_id="u1",
+        selected_item_ids=["id-1"],
+        detected_items=items,
+    )
+    result = wc.save_selected(_FakeHttpRequest(), request)
+
+    # Save must not fail; raw crop is uploaded as the cutout.
+    assert result["success"] is True
+    assert len(_FakeR2Upload.last_calls) == 1
+    call = _FakeR2Upload.last_calls[0]
+    assert call["masked"] == call["raw"]
+    saved = persisted["detected_items"][0]
+    assert saved.get("image_url")
+    assert saved.get("preview_cutout_pending") is False
+
+
 # ---------- end-to-end: saree taxonomy enforced for Gemini items ----------
 
 def test_gemini_multi_saree_taxonomy_enforced(monkeypatch):

@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import io
 import logging
@@ -877,7 +878,13 @@ def _should_validate_preview_with_gemini(
         )
     except Exception:
         threshold = 0.65
-    if confidence < threshold:
+    # Trusted Gemini multi-garment metadata: skip the low-confidence trigger
+    # (Gemini already classified the crop) but keep the risky/private-wear
+    # term check below so saree/boxers/sleepwear still get the full pass.
+    gemini_trusted = (
+        str(item.get("label_source") or "") == "vision:gemini_multi"
+    )
+    if confidence < threshold and not gemini_trusted:
         return True, f"low_confidence:{confidence:.2f}<{threshold:.2f}"
     blob = " ".join(
         [
@@ -1060,10 +1067,14 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             )
             for g in gemini_multi_items:
                 crop_bytes = g.get("crop_bytes") or b""
-                try:
-                    masked_bytes = await remove_bg_bytes(crop_bytes)
-                except Exception:
-                    masked_bytes = crop_bytes
+                # Fast path: no RMBG at preview time. The raw crop doubles as
+                # the preview cutout; save-selected runs the real cleanup for
+                # the items the user actually keeps.
+                crop_b64 = (
+                    base64.b64encode(crop_bytes).decode("utf-8")
+                    if crop_bytes
+                    else ""
+                )
                 detected_items.append(
                     {
                         "item_id": str(uuid.uuid4()),
@@ -1077,20 +1088,18 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                         "gemini_category": g.get("category") or "",
                         "gemini_sub_category": g.get("sub_category") or "",
                         "gemini_color": g.get("color") or "",
+                        "preview_cutout_pending": True,
                         "bbox": g.get("bbox_px") or [],
-                        "raw_image_base64": (
-                            base64.b64encode(crop_bytes).decode("utf-8")
-                            if crop_bytes
-                            else ""
-                        ),
-                        "masked_image_base64": (
-                            base64.b64encode(masked_bytes).decode("utf-8")
-                            if masked_bytes
-                            else ""
-                        ),
+                        "raw_image_base64": crop_b64,
+                        "masked_image_base64": crop_b64,
                         "upload_error": "",
                     }
                 )
+            logger.info(
+                "ahvi.capture.preview_fast_path detection_state=gemini_multi_garment items=%d request_id=%s",
+                len(detected_items),
+                request_id,
+            )
         elif gemini_multi_items:
             logger.info(
                 "ahvi.capture.gemini_multi.fallback reason=insufficient_items count=%d request_id=%s",
@@ -1137,7 +1146,28 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         # Sync helpers — offload so the event loop is free under concurrency.
         import asyncio as _asyncio
 
-        if _env_enabled("WARDROBE_CAPTURE_VISION_ENRICHMENT", "false"):
+        gemini_trusted = (
+            item.get("source") == "gemini_multi"
+            and bool(str(item.get("gemini_category") or "").strip())
+        )
+        if gemini_trusted:
+            # Gemini multi-garment already produced trusted metadata for this
+            # crop — use it directly as the vision signal and skip the
+            # per-crop Ollama enrichment call entirely. Deterministic
+            # taxonomy + suitability guards still run downstream.
+            vision = {
+                "name": str(item.get("gemini_name") or raw_label),
+                "category": str(item.get("gemini_category") or ""),
+                "sub_category": str(item.get("gemini_sub_category") or ""),
+                "pattern": "plain",
+                "color_name": str(item.get("gemini_color") or ""),
+                "occasions": [],
+                "label_source": "vision:gemini_multi",
+                "requires_manual_entry": False,
+                "confidence": float(item.get("score") or 0.8),
+                "reasoning": "gemini_multi_garment_detection",
+            }
+        elif _env_enabled("WARDROBE_CAPTURE_VISION_ENRICHMENT", "false"):
             vision = await _asyncio.to_thread(
                 _vision_extract_attributes,
                 str(item.get("masked_url") or ""),
@@ -1147,17 +1177,16 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         else:
             vision = _vision_extract_attributes("", raw_label, "")
 
-        # Gemini multi-garment already produced trusted metadata for this
-        # crop. When per-crop vision enrichment did not run (or returned a
-        # heuristic), use the Gemini fields as the vision signal so the item
-        # keeps its name/category instead of degrading to "Review item".
-        if item.get("source") == "gemini_multi" and not str(
-            vision.get("label_source") or ""
-        ).startswith("vision"):
+        # Gemini item without a usable category (edge case): keep at least
+        # the Gemini name/color as vision signal when enrichment was
+        # heuristic, so the item does not degrade to "Review item".
+        if (
+            not gemini_trusted
+            and item.get("source") == "gemini_multi"
+            and not str(vision.get("label_source") or "").startswith("vision")
+        ):
             if item.get("gemini_name"):
                 vision["name"] = str(item["gemini_name"])
-            if item.get("gemini_category"):
-                vision["category"] = str(item["gemini_category"])
             if item.get("gemini_sub_category"):
                 vision["sub_category"] = str(item["gemini_sub_category"])
             if item.get("gemini_color"):
@@ -1247,6 +1276,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             "occasions": vision.get("occasions") or [],
             "confidence": confidence,
             "label_source": label_source,
+            "preview_cutout_pending": bool(item.get("preview_cutout_pending")),
             "requires_manual_entry": requires_manual_entry,
             "reasoning": vision.get("reasoning")
             or f"hybrid_detection+{label_source}",
@@ -1719,13 +1749,110 @@ async def analyze_capture_batch(
     }
 
 
+def _needs_save_rmbg_cleanup(item: Dict[str, Any]) -> bool:
+    """Gemini multi preview returned a raw crop without RMBG — clean it now."""
+    if not isinstance(item, dict):
+        return False
+    if not bool(item.get("preview_cutout_pending")):
+        return False
+    if item.get("masked_url") or item.get("maskedUrl"):
+        return False
+    return bool(str(item.get("raw_image_base64") or "").strip())
+
+
+async def _save_rmbg_cleanup(items: List[Dict[str, Any]]) -> "tuple[int, int]":
+    """Run RMBG on raw crops concurrently. Mutates items in place.
+
+    On failure the raw crop stays as the cutout so the upload + save flow
+    proceeds with the raw image — save must never fail because of RMBG.
+    """
+    sem = asyncio.Semaphore(
+        max(1, int(os.getenv("WARDROBE_SAVE_RMBG_PARALLELISM", "3")))
+    )
+
+    async def _one(item: Dict[str, Any]) -> bool:
+        raw_bytes = _decode_inline_image(item.get("raw_image_base64"))
+        if not raw_bytes:
+            item["preview_cutout_pending"] = False
+            return False
+        try:
+            async with sem:
+                masked_bytes = await remove_bg_bytes(raw_bytes)
+            if masked_bytes:
+                item["masked_image_base64"] = base64.b64encode(
+                    masked_bytes
+                ).decode("utf-8")
+            item["preview_cutout_pending"] = False
+            return True
+        except Exception as exc:
+            logger.warning(
+                "ahvi.capture.save_rmbg_cleanup.item_failed item_id=%s err=%s",
+                item.get("item_id"),
+                str(exc)[:120],
+            )
+            # Raw crop stays as the cutout — save proceeds with raw image.
+            item["preview_cutout_pending"] = False
+            return False
+
+    results = await asyncio.gather(*[_one(i) for i in items])
+    success = sum(1 for r in results if r)
+    return success, len(results) - success
+
+
+def _run_save_rmbg_cleanup_sync(items: List[Dict[str, Any]]) -> "tuple[int, int]":
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_save_rmbg_cleanup(items))
+    # Called from within a running loop (shouldn't happen for the sync
+    # endpoint, but stay safe): run in a dedicated thread.
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, _save_rmbg_cleanup(items)).result()
+
+
 @router.post("/save-selected")
 def save_selected(http_request: Request, request: SaveSelectedRequest):
     user_id = _effective_user_id(http_request, request.user_id)
 
     max_selectable = 6
     selected_item_ids = list(request.selected_item_ids or [])[:max_selectable]
-    detected_items = list(request.detected_items or [])
+    detected_items = [
+        dict(i) if isinstance(i, dict) else i
+        for i in (request.detected_items or [])
+    ]
+
+    # Deferred RMBG cleanup for Gemini multi fast-path previews: the preview
+    # returned raw crops; clean only the items the user actually selected.
+    selected_set = {str(x).strip() for x in selected_item_ids if str(x or "").strip()}
+    cleanup_items = [
+        i
+        for i in detected_items
+        if isinstance(i, dict)
+        and _needs_save_rmbg_cleanup(i)
+        and (not selected_set or str(i.get("item_id") or "").strip() in selected_set)
+    ]
+    if cleanup_items:
+        logger.info(
+            "ahvi.capture.save_rmbg_cleanup.start selected=%d", len(cleanup_items)
+        )
+        cleanup_started = time.perf_counter()
+        try:
+            cleanup_ok, cleanup_failed = _run_save_rmbg_cleanup_sync(cleanup_items)
+        except Exception as exc:  # noqa: BLE001 - save must never fail on RMBG
+            cleanup_ok, cleanup_failed = 0, len(cleanup_items)
+            for i in cleanup_items:
+                i["preview_cutout_pending"] = False
+            logger.warning(
+                "ahvi.capture.save_rmbg_cleanup.batch_failed err=%s", str(exc)[:120]
+            )
+        logger.info(
+            "ahvi.capture.save_rmbg_cleanup.done success=%d failed=%d elapsed_ms=%d",
+            cleanup_ok,
+            cleanup_failed,
+            int((time.perf_counter() - cleanup_started) * 1000),
+        )
 
     normalized_items: List[Dict[str, Any]] = []
     upload_fixed = 0
