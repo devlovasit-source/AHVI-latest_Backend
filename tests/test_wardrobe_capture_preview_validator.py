@@ -164,8 +164,10 @@ def test_validator_failure_does_not_break_preview(monkeypatch):
         )
     )
     assert state == "failed"
-    # Local metadata intact.
-    assert merged["category"] == "Accessories"
+    # Deterministic taxonomy guard still corrects known garments (saree
+    # name) even when Gemini is unavailable — preview never depends on it.
+    assert merged["category"] == "Dresses"
+    assert merged["sub_category"] == "Saree"
     assert merged["item_id"] == "itm_123"
     assert merged["metadata_validator"]["used"] is False
 
@@ -219,3 +221,82 @@ def test_sleepwear_preview_private_wear():
     normalized = wc._normalize_capture_preview_item(item)
     assert normalized.get("privateWear") is True
     assert normalized.get("styleEligible") is False
+
+
+# ---------- deterministic taxonomy guard wins over validator failures ----------
+
+def test_saree_preview_normalizes_to_dresses_even_when_validator_empty(monkeypatch):
+    monkeypatch.setenv("ENABLE_AGENT_METADATA_VALIDATOR", "true")
+
+    async def _empty(item, user_id=None, vision_result=None, context=None):
+        return {}
+
+    import services.agent_metadata_validator as v
+
+    monkeypatch.setattr(v, "validate_wardrobe_metadata", _empty)
+    # Mirror the production log: Ollama → Indian Wear / Saree, validator empty.
+    item = _preview_item(
+        name="Red Saree", category="Indian Wear", sub_category="Saree"
+    )
+    merged, state = _run(
+        wc._apply_preview_metadata_validator(
+            item,
+            user_id="u1",
+            vision={"name": "Saree", "category": "Indian Wear"},
+            raw_label="Red Saree",
+        )
+    )
+    assert state == "used"
+    assert merged["category"] == "Dresses"
+    assert merged["sub_category"] == "Saree"
+    assert merged["subcategory"] == "Saree"
+    assert merged["privateWear"] is False
+    assert merged["publicWear"] is True
+    assert merged["styleEligible"] is True
+
+
+def test_validator_empty_response_does_not_override_known_taxonomy(monkeypatch):
+    monkeypatch.setenv("ENABLE_AGENT_METADATA_VALIDATOR", "true")
+
+    async def _empty(item, user_id=None, vision_result=None, context=None):
+        return {}
+
+    import services.agent_metadata_validator as v
+
+    monkeypatch.setattr(v, "validate_wardrobe_metadata", _empty)
+    item = _preview_item(
+        name="Pink Lehenga", category="Traditional", sub_category="Lehenga"
+    )
+    merged, _ = _run(
+        wc._apply_preview_metadata_validator(
+            item, user_id="u1", vision={}, raw_label="Pink Lehenga"
+        )
+    )
+    assert merged["category"] == "Dresses"
+    assert merged["sub_category"] == "Lehenga"
+    assert merged["publicWear"] is True
+    assert merged["styleEligible"] is True
+
+
+def test_boxers_preview_private_even_when_vision_says_shorts():
+    # Ollama mislabels boxer briefs as casual shorts; deterministic guard
+    # forces Innerwear regardless of validator availability.
+    item = _preview_item(
+        name="Cotton Boxers", category="Bottoms", sub_category="Shorts"
+    )
+    normalized = wc._normalize_capture_preview_item(item)
+    assert normalized["category"] == "Innerwear"
+    assert normalized["privateWear"] is True
+    assert normalized["publicWear"] is False
+    assert normalized["styleEligible"] is False
+
+
+def test_one_piece_preview_dress_even_when_vision_says_top():
+    item = _preview_item(
+        name="Black One-Piece Dress", category="Tops", sub_category="Top"
+    )
+    normalized = wc._normalize_capture_preview_item(item)
+    assert normalized["category"] == "Dresses"
+    assert "one-piece" in str(normalized["sub_category"]).lower()
+    assert normalized["publicWear"] is True
+    assert normalized["styleEligible"] is True

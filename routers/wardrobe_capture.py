@@ -35,8 +35,10 @@ from services.wardrobe_suitability import apply_metadata_guard
 from services.wardrobe_taxonomy import (
     normalize_item as _taxonomy_normalize_item,
     build_review_card as _taxonomy_review_card,
+    enforce_preview_taxonomy as _enforce_preview_taxonomy,
 )
 from prompts.core_prompts import WARDROBE_CAPTURE_PROMPT
+from services import gemini_multi_garment_detector as _gemini_multi
 
 router = APIRouter(prefix="/api/wardrobe/capture", tags=["wardrobe-capture"])
 wardrobe_router = APIRouter(prefix="/api/wardrobe", tags=["wardrobe"])
@@ -655,7 +657,7 @@ def _normalize_capture_preview_item(item: Dict[str, Any]) -> Dict[str, Any]:
     ):
         normalized["requires_manual_entry"] = False
         normalized["needs_review"] = False
-    return normalized
+    return _enforce_preview_taxonomy(normalized)
 
 
 def _vision_extract_attributes(
@@ -740,7 +742,9 @@ def _vision_extract_attributes(
     except Exception:
         logger.exception("vision item enrichment failed; falling back to heuristic")
 
-    return apply_metadata_guard(base, source="vision_extract")
+    return _enforce_preview_taxonomy(
+        apply_metadata_guard(base, source="vision_extract")
+    )
 
 
 async def _full_image_fallback_item(
@@ -969,7 +973,7 @@ async def _apply_preview_metadata_validator(
             "reason": reason,
             "confidence": None,
         }
-        return detected, state
+        return _enforce_preview_taxonomy(detected), state
     try:
         from services.agent_metadata_validator import validate_wardrobe_metadata
 
@@ -989,6 +993,8 @@ async def _apply_preview_metadata_validator(
         # Re-apply the metadata guard so privateWear/publicWear/styleEligible
         # are recomputed against the (possibly corrected) category.
         merged = apply_metadata_guard(merged, source="capture_preview_validator")
+        # Deterministic taxonomy override wins over an empty/failed validator.
+        merged = _enforce_preview_taxonomy(merged)
         merged["metadata_validator"] = {
             "used": True,
             "reason": reason,
@@ -1013,7 +1019,7 @@ async def _apply_preview_metadata_validator(
             "reason": f"failed:{str(exc)[:80]}",
             "confidence": None,
         }
-        return detected, "failed"
+        return _enforce_preview_taxonomy(detected), "failed"
 
 
 @router.post("/analyze")
@@ -1024,20 +1030,86 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
     source_bytes = _bytes_from_image_base64(request.image_base64)
 
     detection_state = "single_garment_demo"
-    if str(
-        os.getenv("WARDROBE_CAPTURE_SINGLE_GARMENT_MODE", "false")
-    ).strip().lower() in {"1", "true", "yes", "on"}:
-        detected_items = [
-            await _full_image_fallback_item(image, source_bytes, "single_garment_mode")
-        ]
-    else:
+    request_id = str(getattr(http_request.state, "request_id", "") or "")
+
+    # --- Gemini multi-garment preview (MVP) -------------------------------
+    # Runs BEFORE the existing single-garment fallback. Only takes over when
+    # it returns 2+ valid items; any failure falls through to the existing
+    # flow below, unchanged.
+    detected_items: list = []
+    if _gemini_multi.is_enabled():
         try:
-            detected_items = await run_hybrid_detection(image)
-        except Exception as e:
-            detection_state = f"fallback:{e}"
+            gemini_multi_items = await _gemini_multi.detect_and_crop(
+                image, source_bytes, request_id=request_id
+            )
+        except Exception as exc:
+            logger.info(
+                "ahvi.capture.gemini_multi.fallback reason=exception:%s request_id=%s",
+                exc,
+                request_id,
+            )
+            gemini_multi_items = []
+
+        if len(gemini_multi_items) >= _gemini_multi.MIN_VALID_ITEMS:
+            detection_state = "gemini_multi_garment"
+            logger.info(
+                "ahvi.capture.gemini_multi.result request_id=%s count=%d labels=%s",
+                request_id,
+                len(gemini_multi_items),
+                [g.get("name") for g in gemini_multi_items],
+            )
+            for g in gemini_multi_items:
+                crop_bytes = g.get("crop_bytes") or b""
+                try:
+                    masked_bytes = await remove_bg_bytes(crop_bytes)
+                except Exception:
+                    masked_bytes = crop_bytes
+                detected_items.append(
+                    {
+                        "item_id": str(uuid.uuid4()),
+                        "label": g.get("name") or "Item",
+                        "score": g.get("confidence") or 0.8,
+                        "bbox": g.get("bbox_px") or [],
+                        "raw_image_base64": (
+                            base64.b64encode(crop_bytes).decode("utf-8")
+                            if crop_bytes
+                            else ""
+                        ),
+                        "masked_image_base64": (
+                            base64.b64encode(masked_bytes).decode("utf-8")
+                            if masked_bytes
+                            else ""
+                        ),
+                        "upload_error": "",
+                    }
+                )
+        elif gemini_multi_items:
+            logger.info(
+                "ahvi.capture.gemini_multi.fallback reason=insufficient_items count=%d request_id=%s",
+                len(gemini_multi_items),
+                request_id,
+            )
+        else:
+            logger.info(
+                "ahvi.capture.gemini_multi.fallback reason=no_valid_items request_id=%s",
+                request_id,
+            )
+
+    if not detected_items:
+        if str(
+            os.getenv("WARDROBE_CAPTURE_SINGLE_GARMENT_MODE", "false")
+        ).strip().lower() in {"1", "true", "yes", "on"}:
             detected_items = [
-                await _full_image_fallback_item(image, source_bytes, str(e))
+                await _full_image_fallback_item(image, source_bytes, "single_garment_mode")
             ]
+        else:
+            try:
+                detected_items = await run_hybrid_detection(image)
+            except Exception as e:
+                detection_state = f"fallback:{e}"
+                detected_items = [
+                    await _full_image_fallback_item(image, source_bytes, str(e))
+                ]
 
     if not detected_items:
         detection_state = "fallback:no_detection"

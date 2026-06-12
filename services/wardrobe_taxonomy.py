@@ -345,10 +345,81 @@ def build_review_card(image_url: str = "", image_base64: str = "", reason: str =
     }
 
 
+# ---------------------------------------------------------------------------
+# Deterministic preview taxonomy guard
+# ---------------------------------------------------------------------------
+# Runs AFTER Ollama vision, AFTER Gemini preview validator merge, and AFTER
+# _normalize_capture_preview_item so well-known garments never depend on
+# Gemini being available to land in the correct category. Wins over the
+# default_metadata() fallback ("Traditional"/"Accessories") that older
+# heuristics produced.
+
+_PREVIEW_TEXT_FIELDS = (
+    "name", "label", "title",
+    "sub_category", "subcategory", "subCategory",
+    "category",
+)
+
+
+def _preview_blob(item: Dict[str, Any]) -> str:
+    return " ".join(str(item.get(f) or "") for f in _PREVIEW_TEXT_FIELDS).lower()
+
+
+def _has_token(blob: str, *tokens: str) -> bool:
+    return any(re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", blob) for t in tokens)
+
+
+def enforce_preview_taxonomy(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Deterministic taxonomy + suitability override for known garments.
+
+    Saree/sari, lehenga, one-piece, boxers/briefs/underwear, and
+    pajama/sleepwear are hard-coded so the preview is correct even if
+    Ollama mislabels them and Gemini is unavailable.
+    """
+    if not isinstance(item, dict):
+        return item
+    blob = _preview_blob(item)
+    out = dict(item)
+
+    def _public(cat: str, sub: str) -> Dict[str, Any]:
+        out["category"] = cat
+        out["sub_category"] = sub
+        out["subcategory"] = sub
+        out["subCategory"] = sub
+        out["privateWear"] = False
+        out["publicWear"] = True
+        out["styleEligible"] = True
+        return out
+
+    def _private(cat: str) -> Dict[str, Any]:
+        out["category"] = cat
+        out["privateWear"] = True
+        out["publicWear"] = False
+        out["styleEligible"] = False
+        return out
+
+    if _has_token(blob, "saree", "sari", "sarees", "saris"):
+        return _public("Dresses", "Saree")
+    if _has_token(blob, "lehenga", "lehengas"):
+        return _public("Dresses", "Lehenga")
+    if "one-piece" in blob or "one piece" in blob:
+        return _public("Dresses", "One-piece Dress")
+    if _has_token(
+        blob, "boxer", "boxers", "brief", "briefs", "underwear", "innerwear"
+    ):
+        return _private("Innerwear")
+    if _has_token(
+        blob, "pajama", "pajamas", "pyjama", "pyjamas", "nightwear", "sleepwear"
+    ):
+        return _private("Sleepwear")
+    return out
+
+
 __all__ = [
     "CATEGORIES",
     "normalize",
     "normalize_item",
     "display_name",
     "build_review_card",
+    "enforce_preview_taxonomy",
 ]
