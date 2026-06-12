@@ -1069,6 +1069,14 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                         "item_id": str(uuid.uuid4()),
                         "label": g.get("name") or "Item",
                         "score": g.get("confidence") or 0.8,
+                        # Carry Gemini metadata through so the per-item loop
+                        # below does not rebuild it from heuristics and land
+                        # the item in Needs Review / "Review item".
+                        "source": "gemini_multi",
+                        "gemini_name": g.get("name") or "",
+                        "gemini_category": g.get("category") or "",
+                        "gemini_sub_category": g.get("sub_category") or "",
+                        "gemini_color": g.get("color") or "",
                         "bbox": g.get("bbox_px") or [],
                         "raw_image_base64": (
                             base64.b64encode(crop_bytes).decode("utf-8")
@@ -1138,6 +1146,27 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             )
         else:
             vision = _vision_extract_attributes("", raw_label, "")
+
+        # Gemini multi-garment already produced trusted metadata for this
+        # crop. When per-crop vision enrichment did not run (or returned a
+        # heuristic), use the Gemini fields as the vision signal so the item
+        # keeps its name/category instead of degrading to "Review item".
+        if item.get("source") == "gemini_multi" and not str(
+            vision.get("label_source") or ""
+        ).startswith("vision"):
+            if item.get("gemini_name"):
+                vision["name"] = str(item["gemini_name"])
+            if item.get("gemini_category"):
+                vision["category"] = str(item["gemini_category"])
+            if item.get("gemini_sub_category"):
+                vision["sub_category"] = str(item["gemini_sub_category"])
+            if item.get("gemini_color"):
+                vision["color_name"] = str(item["gemini_color"])
+            vision["label_source"] = "vision:gemini_multi"
+            vision["requires_manual_entry"] = False
+            vision["confidence"] = float(item.get("score") or 0.8)
+            vision["reasoning"] = "gemini_multi_garment_detection"
+
         category, sub_category, category_corrected = _guardrail_category(
             raw_label=raw_label,
             vision_name=str(vision.get("name") or ""),
@@ -1341,6 +1370,14 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             raise HTTPException(status_code=503, detail=f"Wardrobe save failed: {exc}")
 
     elapsed_ms = int((time.perf_counter() - started) * 1000)
+    logger.info(
+        "ahvi.capture.preview_final request_id=%s items=%d names=%s categories=%s detection_state=%s",
+        request_id,
+        len(items),
+        [i.get("name") for i in items],
+        [i.get("category") for i in items],
+        detection_state,
+    )
     logger.info(
         "ahvi.capture_analyze user_id=%s items=%s elapsed_ms=%s fast_mode=%s vision_enrichment=%s",
         user_id,

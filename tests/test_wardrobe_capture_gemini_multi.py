@@ -165,6 +165,39 @@ def test_gemini_multi_invalid_json_router_falls_back_to_existing_flow(monkeypatc
     assert result["count"] >= 1
 
 
+# ---------- end-to-end: Gemini metadata survives into the preview ----------
+
+def test_gemini_multi_preview_keeps_gemini_metadata_not_review_item(monkeypatch):
+    """4 detected items must reach the preview with Gemini names/categories,
+    not degrade to the manual 'Review item' card."""
+    _wire_router_for_gemini(monkeypatch, GOOD_RESULT)
+
+    http_request = _FakeHttpRequest()
+    request = _capture_request()
+    result = _run(wc.analyze_capture(http_request, request))
+
+    assert result["stage_trace"]["detection"] == "gemini_multi_garment"
+    assert result["count"] == 4
+
+    names = [str(i.get("name") or "") for i in result["items"]]
+    categories = [str(i.get("category") or "") for i in result["items"]]
+
+    for name in names:
+        assert name.lower() not in {"", "item", "review item", "needs review"}, names
+    for category in categories:
+        assert category not in {"", "Needs Review"}, categories
+
+    assert {"Dresses", "Bags", "Accessories", "Footwear"} <= set(categories)
+    assert any("dress" in n.lower() for n in names)
+    assert any("handbag" in n.lower() or "bag" in n.lower() for n in names)
+    assert any("sunglasses" in n.lower() for n in names)
+    assert any("sneaker" in n.lower() for n in names)
+
+    for item in result["items"]:
+        assert item.get("requires_manual_entry") is False, item.get("name")
+        assert str(item.get("label_source") or "").startswith("vision")
+
+
 # ---------- end-to-end: saree taxonomy enforced for Gemini items ----------
 
 def test_gemini_multi_saree_taxonomy_enforced(monkeypatch):
