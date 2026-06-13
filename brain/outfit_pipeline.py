@@ -979,8 +979,15 @@ def _semantic_retrieval(
             return [], {}
 
         fetch_started = _time.perf_counter()
-        results = qdrant_service.semantic_retrieve(
-            query_vector, user_id=user_id, limit=_SEMANTIC_RETRIEVAL_LIMIT
+        # search_similar is the live retrieval method; semantic_retrieve was
+        # removed and every call threw AttributeError (then wasted the encode).
+        # score_threshold=0.0 preserves the old top-N recall — ranking happens
+        # downstream.
+        results = qdrant_service.search_similar(
+            query_vector,
+            user_id=user_id,
+            limit=_SEMANTIC_RETRIEVAL_LIMIT,
+            score_threshold=0.0,
         )
         fetch_ms = round((_time.perf_counter() - fetch_started) * 1000, 1)
 
@@ -1028,11 +1035,12 @@ async def _semantic_retrieval_async(
             return [], {}
 
         # Run the Qdrant fetch in a thread too — qdrant-client is sync.
+        # Lambda keeps limit as a kwarg; search_similar's 3rd positional is
+        # `category`, so passing 40 positionally would mis-bind.
         results = await asyncio.to_thread(
-            qdrant_service.semantic_retrieve,
-            query_vector,
-            user_id,
-            40,
+            lambda: qdrant_service.search_similar(
+                query_vector, user_id, limit=40, score_threshold=0.0
+            )
         )
         return _semantic_results_to_wardrobe(results)
     except Exception:
