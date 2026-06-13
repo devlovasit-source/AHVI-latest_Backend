@@ -13,6 +13,7 @@ from brain.engines.calendar_runtime import run_calendar_runtime
 from services.calendar_service import (
     calendar_event_to_runtime_input,
     create_calendar_event,
+    enrich_event_with_intelligence,
     delete_calendar_event,
     get_calendar_event,
     list_calendar_events,
@@ -112,8 +113,10 @@ def _text_to_event(req: CalendarTextRequest) -> CalendarEventInput:
 @router.post("/events")
 def create_event(req: CalendarEventCreateRequest, user=Depends(get_current_user)):
     try:
-        event = create_calendar_event(_user_id(user), req.model_dump(exclude_none=True))
-        return {"success": True, "event": event}
+        uid = _user_id(user)
+        event = create_calendar_event(uid, req.model_dump(exclude_none=True))
+        extras = enrich_event_with_intelligence(uid, event)
+        return {"success": True, "event": event, **extras}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:
@@ -129,8 +132,10 @@ def create_event_from_text(req: CalendarPlanTextCreateRequest, user=Depends(get_
             category=req.category,
             timezone_name=req.timezone or "Asia/Kolkata",
         )
-        event = create_calendar_event(_user_id(user), payload)
-        return {"success": True, "event": event}
+        uid = _user_id(user)
+        event = create_calendar_event(uid, payload)
+        extras = enrich_event_with_intelligence(uid, event)
+        return {"success": True, "event": event, **extras}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception:

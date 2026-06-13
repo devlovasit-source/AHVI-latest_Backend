@@ -129,7 +129,9 @@ class NotificationStore:
             data = {
                 "userId": uid,
                 "eventId": eid,
-                "status": _safe_text(r.get("status") or "pending"),
+                # Default scheduled (not pending) so the dispatch task, which
+                # only picks status=="scheduled", can actually send them.
+                "status": _safe_text(r.get("status") or "scheduled"),
                 "priority": _safe_text(r.get("priority") or "normal"),
                 "toneProfile": _safe_text(r.get("toneProfile") or ""),
                 "offsetMinutes": int(r.get("offsetMinutes") or 0),

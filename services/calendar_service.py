@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -356,3 +357,139 @@ def calendar_event_to_runtime_input(event: Dict[str, Any]) -> Dict[str, Any]:
         "notes": row.get("description") or None,
         "dressCode": row.get("dress_code") or None,
     }
+
+
+def _calendar_intelligence_enabled() -> bool:
+    return str(
+        os.getenv("ENABLE_CALENDAR_INTELLIGENCE_SYNC", "false")
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def enrich_event_with_intelligence(
+    user_id: str, event: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Run calendar runtime INLINE (no Celery), schedule reminders, and stash
+    a lightweight blob on the event metadata.
+
+    Gated by ENABLE_CALENDAR_INTELLIGENCE_SYNC (default off). NEVER raises —
+    calendar event creation must not fail because intelligence failed. Returns
+    extras for the API response, or {} when disabled / on any error.
+    """
+    if not _calendar_intelligence_enabled():
+        return {}
+    event_id = _safe_str(event.get("id") or event.get("$id"))
+    logger.info(
+        "ahvi.calendar_intelligence.start user_id=%s event_id=%s",
+        user_id,
+        event_id,
+    )
+    try:
+        from models.calendar_models import CalendarEventInput
+        from brain.engines.calendar_runtime import run_calendar_runtime
+        from services.notification_store import notification_store
+
+        runtime_input = CalendarEventInput(**calendar_event_to_runtime_input(event))
+        result = run_calendar_runtime(runtime_input, user_id=user_id)
+
+        checklist = (
+            result.checklistBundle.model_dump() if result.checklistBundle else None
+        )
+        predictive = result.predictiveOutput
+        outfit_prompt = (
+            predictive.outfitPrompt.model_dump()
+            if predictive and predictive.outfitPrompt
+            else None
+        )
+        buffer_plan = (
+            predictive.bufferPlan.model_dump()
+            if predictive and predictive.bufferPlan
+            else None
+        )
+        packing_list = list(predictive.packingList or []) if predictive else []
+        reminders = [r.model_dump() for r in (result.reminders or [])]
+
+        # Schedule reminders with status=scheduled so the dispatch task can
+        # pick them up. Non-fatal.
+        scheduled = 0
+        if reminders and event_id:
+            for r in reminders:
+                r["status"] = "scheduled"
+            try:
+                out = notification_store.schedule_reminders(
+                    user_id=user_id,
+                    event_id=event_id,
+                    reminders=reminders,
+                    source="calendar",
+                )
+                scheduled = int((out or {}).get("scheduled") or 0)
+            except Exception as exc:
+                logger.warning(
+                    "ahvi.calendar_reminders.failed event_id=%s err=%s",
+                    event_id,
+                    exc,
+                )
+        logger.info(
+            "ahvi.calendar_reminders.scheduled count=%d event_id=%s",
+            scheduled,
+            event_id,
+        )
+
+        outfit_trigger = None
+        if outfit_prompt:
+            outfit_trigger = {
+                "event_id": event_id,
+                "occasion": result.classifiedEvent.subtype,
+                "style_mode": outfit_prompt.get("styleMode") or "auto",
+                "status": "pending",
+            }
+
+        extras = {
+            "event_type": result.classifiedEvent.subtype,
+            "event_group": result.classifiedEvent.group,
+            "checklist_bundle": checklist,
+            "packing_list": packing_list,
+            "buffer_plan": buffer_plan,
+            "outfit_prompt": outfit_prompt,
+            "plan_outfit": outfit_trigger,
+            "reminders": reminders,
+        }
+
+        # Persist a lightweight blob onto the event's existing metadata JSON
+        # string field (no schema change). Non-fatal.
+        if event_id:
+            try:
+                meta = _metadata_from_string(event.get("metadata"))
+                meta["calendar_intelligence"] = {
+                    "event_type": extras["event_type"],
+                    "checklist_bundle": checklist,
+                    "outfit_prompt": outfit_prompt,
+                    "plan_outfit": outfit_trigger,
+                    "reminder_count": len(reminders),
+                }
+                AppwriteProxy().update_document(
+                    CALENDAR_RESOURCE,
+                    event_id,
+                    {"metadata": _metadata_to_string(meta)},
+                )
+            except Exception as exc:
+                logger.warning(
+                    "ahvi.calendar_intelligence.persist_failed event_id=%s err=%s",
+                    event_id,
+                    exc,
+                )
+
+        logger.info(
+            "ahvi.calendar_intelligence.done user_id=%s event_id=%s reminders=%d",
+            user_id,
+            event_id,
+            len(reminders),
+        )
+        return extras
+    except Exception as exc:
+        logger.warning(
+            "ahvi.calendar_intelligence.failed user_id=%s event_id=%s err=%s",
+            user_id,
+            event_id,
+            exc,
+        )
+        return {}
