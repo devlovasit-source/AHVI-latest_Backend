@@ -312,6 +312,14 @@ def reject_board_for_occasion(board: dict, occasion: str) -> Tuple[bool, str]:
             "swim",
             "swimwear",
             "tank top",
+            # Casual headwear has no place in office / client / board meetings.
+            # "beanie" is a safe substring (matches "whitebeanie"); multi-word
+            # terms avoid false hits like "capsule" / "escape".
+            "beanie",
+            "snapback",
+            "baseball cap",
+            "bucket hat",
+            "skull cap",
         ]
         for word in forbidden:
             if word in blob:
@@ -359,6 +367,11 @@ def reject_board_for_occasion(board: dict, occasion: str) -> Tuple[bool, str]:
             "slippers",
             "hoodie",
             "tank top",
+            "beanie",
+            "snapback",
+            "baseball cap",
+            "bucket hat",
+            "skull cap",
         ]
         for word in forbidden:
             if word in blob:
@@ -1395,7 +1408,11 @@ def filter_and_guard_outfits(
     guarded.sort(key=lambda x: float(x.get("score") or 0), reverse=True)
     pre_diversity_count = len(guarded)
     guarded = _apply_bottom_reuse_cooldown(guarded)
-    guarded = _enforce_outfit_diversity(guarded, min_keep=6)
+    # min_keep=1: keep every genuinely-distinct look but NEVER pad the carousel
+    # with near-duplicates (same top+bottom, swapped shoe/accessory). A thin
+    # wardrobe now shows fewer strong looks instead of 6 repeated ones. Refill
+    # only triggers to avoid an empty carousel.
+    guarded = _enforce_outfit_diversity(guarded, min_keep=1)
     logger.info(
         "outfit_quality_guard.summary occ=%s accepted_before_diversity=%d after_diversity=%d rejected_reasons=%s",
         intent or "",

@@ -72,6 +72,23 @@ def test_office_rejects_prohibited(occasion, bad):
     assert rejected is True, f"{bad} should be blocked for {occasion}"
 
 
+@pytest.mark.parametrize("occasion", ["client meeting tomorrow", "board meeting", "office"])
+def test_office_rejects_casual_headwear(occasion):
+    rejected, reason = reject_board_for_occasion(
+        _board("Mens Whitebeanie", "Crisp Oxford Shirt"), occasion
+    )
+    assert rejected is True, f"beanie should be blocked for {occasion}"
+    assert "beanie" in reason
+
+
+def test_wedding_rejects_casual_headwear():
+    rejected, reason = reject_board_for_occasion(
+        _board("Snapback Cap", "Silk Kurta"), "cousin wedding"
+    )
+    assert rejected is True
+    assert reason.startswith("wedding_forbidden_")
+
+
 def test_office_allows_proper_attire():
     rejected, _ = reject_board_for_occasion(
         _board("White Oxford Shirt", "Charcoal Trousers", "Leather Loafers"),
