@@ -3757,8 +3757,48 @@ def _ahvi_pipe_item_tokens(item):
     return set(_ahvi_pipe_tokens(blob))
 
 
+_AHVI_PIPE_PRIVATE_TOKENS = {
+    "boxer", "boxers", "brief", "briefs", "underwear", "undergarment",
+    "innerwear", "slipper", "slippers", "pajama", "pajamas", "pyjama",
+    "pyjamas", "sleepwear", "nightwear", "loungewear", "lounge",
+}
+# Only when the user explicitly asks for a private/lounge/sleep context do we
+# allow these items through.
+_AHVI_PIPE_PRIVATE_REQUEST_TERMS = {
+    "pajama", "pyjama", "lounge", "loungewear", "sleep", "sleepwear",
+    "nightwear", "bed", "home", "relax",
+}
+# A "boxer fit shirt" is a top, not underwear — never gate top slots.
+_AHVI_PIPE_TOP_TOKENS = {
+    "shirt", "tshirt", "tee", "top", "tops", "blouse", "kurta", "polo",
+    "sweater", "hoodie",
+}
+
+
+def _ahvi_pipe_private_wear_blocked(item, context):
+    """Deterministic occasion safety: block private/lounge/sleepwear bottoms
+    and footwear unless the user's query explicitly asks for that context.
+    Applies regardless of gender. Never gates top/shirt slots."""
+    if not isinstance(item, dict):
+        return False
+    tokens = set(_ahvi_pipe_item_tokens(item))
+    if not tokens.intersection(_AHVI_PIPE_PRIVATE_TOKENS):
+        return False
+    role = str(item.get("type") or item.get("role") or item.get("category") or "").lower()
+    if role in {"top", "tops", "shirt", "shirts"} or tokens.intersection(_AHVI_PIPE_TOP_TOKENS):
+        return False
+    query = str((context or {}).get("query") or "").lower()
+    if any(term in query for term in _AHVI_PIPE_PRIVATE_REQUEST_TERMS):
+        return False
+    return True
+
+
 def _ahvi_pipe_item_allowed(item, context):
     if not isinstance(item, dict):
+        return False
+
+    # Occasion-aware private/lounge safety runs first, for every gender.
+    if _ahvi_pipe_private_wear_blocked(item, context):
         return False
 
     if _ahvi_pipe_context_gender(context) != "male":

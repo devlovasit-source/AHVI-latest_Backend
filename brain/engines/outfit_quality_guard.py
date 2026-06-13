@@ -148,7 +148,14 @@ def normalize_occasion(occasion: Any) -> str:
         return "travel"
     if any(w in text for w in ["temple_modest", "temple", "mandir", "pooja", "puja", "religious", "shrine", "darshan"]):
         return "temple_modest"
-    if any(w in text for w in ["wedding", "reception", "ceremony", "event"]):
+    if any(
+        w in text
+        for w in [
+            "wedding", "reception", "ceremony", "event", "engagement",
+            "sangeet", "haldi", "mehendi", "mehndi", "baraat", "nikah",
+            "shaadi", "roka", "varmala",
+        ]
+    ):
         return "wedding"
     if any(w in text for w in ["daily", "today"]):
         return "daily"
@@ -278,10 +285,84 @@ def reject_board_for_occasion(board: dict, occasion: str) -> Tuple[bool, str]:
             "shiny",
             "satin",
             "glossy",
+            # Always-on deterministic safety: never let casual/private/gym
+            # wear reach an office / client-meeting / board-meeting board.
+            "boxer",
+            "boxers",
+            "brief",
+            "briefs",
+            "underwear",
+            "track pant",
+            "track pants",
+            "trackpant",
+            "sweatpant",
+            "sweatpants",
+            "joggers",
+            "gym",
+            "gymwear",
+            "activewear",
+            "athleisure",
+            "jersey",
+            "sleepwear",
+            "pajama",
+            "pyjama",
+            "nightwear",
+            "crocs",
+            "beachwear",
+            "swim",
+            "swimwear",
+            "tank top",
         ]
         for word in forbidden:
             if word in blob:
                 return True, f"office_forbidden_{word.strip()}"
+
+    if occasion == "wedding":
+        # Deterministic wedding/formal-event safety. Always on — independent of
+        # any LLM or agent_orchestration payload. Blocks casual, private, gym,
+        # beach, and sloppy footwear from wedding/engagement/sangeet/haldi
+        # boards.
+        forbidden = [
+            "boxer",
+            "boxers",
+            "brief",
+            "briefs",
+            "underwear",
+            "innerwear",
+            "track pant",
+            "track pants",
+            "trackpant",
+            "sweatpant",
+            "sweatpants",
+            "joggers",
+            "gym",
+            "gymwear",
+            "activewear",
+            "athleisure",
+            "jersey",
+            "sleepwear",
+            "pajama",
+            "pyjama",
+            "nightwear",
+            "shorts",
+            "gym shorts",
+            "running shorts",
+            "beachwear",
+            "swim",
+            "swimwear",
+            "crocs",
+            "flip flop",
+            "flip-flop",
+            "slider",
+            "sliders",
+            "slipper",
+            "slippers",
+            "hoodie",
+            "tank top",
+        ]
+        for word in forbidden:
+            if word in blob:
+                return True, f"wedding_forbidden_{word.strip().replace(' ', '_')}"
 
     if occasion == "temple_modest":
         forbidden = [
