@@ -92,6 +92,7 @@ _OCCASION_TOKENS: Dict[str, set] = {
         "pitch",
         "investor",
         "boardroom",
+        "conference",
     },
     "client_dinner": {"client_dinner"},
     "office_meeting": {"office_meeting"},
@@ -112,6 +113,7 @@ _OCCASION_TOKENS: Dict[str, set] = {
         "corporate",
         "deskwork",
         "wfh",
+        "networking",
     },
     "date_night": {
         "date_night",
@@ -176,17 +178,117 @@ _OCCASION_PRIORITY: List[str] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Compound occasion pre-resolver
+# ---------------------------------------------------------------------------
+# Compound prompts ("X after Y", "X then Y") used to collapse to the single
+# highest-PRIORITY family — which could pick the wrong, less-formal half
+# (e.g. "wedding reception after work" -> office). This deterministic
+# pre-resolver detects a connector + 2+ occasion families and instead picks
+# the highest social/formality-risk event. Single-occasion prompts (no
+# connector) are never touched, so existing behavior is preserved exactly.
+
+_CONNECTOR_RE = re.compile(
+    r"\b(after|afterwards|afterward|before|then|later|plus|post|followed\s+by|and\s+then)\b"
+)
+
+# Higher = wins a compound. Funeral/wedding/professional outrank
+# beach/pool/gym/travel. gym/swimming/beach only win when sole occasion
+# (no connector -> never reach here).
+_OCCASION_FORMALITY: Dict[str, int] = {
+    "funeral": 100,
+    "wedding": 92,
+    "wedding_guest": 92,
+    "temple_modest": 88,
+    "client_presentation": 82,
+    "client_meeting": 80,
+    "client_dinner": 80,
+    "office_meeting": 72,
+    "office": 70,
+    "cocktail": 66,
+    "date_night": 60,
+    "beach_dinner": 60,
+    "casual_dinner": 58,
+    "team_dinner": 58,
+    "first_date": 58,
+    "party": 50,
+    "rave": 48,
+    "brunch": 46,
+    "coffee_date": 42,
+    "casual": 40,
+    "daily": 38,
+    "travel": 30,
+    "beach": 25,
+    "swimming": 20,
+    "basketball_game": 12,
+    "workout": 10,
+    "capsule": -1,  # special engine — never compound-override
+}
+
+
+def _has_connector(query: Any) -> bool:
+    return bool(_CONNECTOR_RE.search(str(query or "").lower()))
+
+
+def _detect_families(tokens: set) -> List[str]:
+    """All occasion families whose tokens fire, in priority order, deduped."""
+    families: List[str] = []
+    for occ in _OCCASION_PRIORITY:
+        if tokens & _OCCASION_TOKENS.get(occ, set()) and occ not in families:
+            families.append(occ)
+    return families
+
+
+def detect_compound_context(query: Any) -> Optional[Dict[str, Any]]:
+    """Return compound metadata when the prompt spans 2+ events via a
+    connector, else None. Higher-formality event is primary."""
+    tokens = set(tokenize(query))
+    if not tokens or not _has_connector(query):
+        return None
+    families = [f for f in _detect_families(tokens) if f != "capsule"]
+    if len(families) < 2:
+        return None
+    ranked = sorted(
+        families, key=lambda f: _OCCASION_FORMALITY.get(f, 0), reverse=True
+    )
+    return {
+        "is_compound": True,
+        "primary_occasion": ranked[0],
+        "secondary_occasion": ranked[1],
+        "transition_required": True,
+        "compound_reason": "Selected the higher-formality destination event.",
+        "compound_note": (
+            "Since this needs to work across both events, AHVI is "
+            "prioritizing the more polished setting."
+        ),
+    }
+
+
 def detect_occasion_from_tokens(query: Any) -> Tuple[str, List[str]]:
-    """Return (occasion, matched_tokens). Empty occasion means unknown."""
+    """Return (occasion, matched_tokens). Empty occasion means unknown.
+
+    Compound prompts (connector + 2+ families) resolve to the highest
+    formality-risk family. All other prompts keep the original
+    first-match-by-priority behavior unchanged.
+    """
     tokens = set(tokenize(query))
     if not tokens:
         return "", []
-    for occ in _OCCASION_PRIORITY:
-        wanted = _OCCASION_TOKENS.get(occ, set())
-        hit = tokens & wanted
-        if hit:
-            return occ, sorted(hit)
-    return "", []
+
+    first = next(
+        (occ for occ in _OCCASION_PRIORITY if tokens & _OCCASION_TOKENS.get(occ, set())),
+        None,
+    )
+    if first is None:
+        return "", []
+
+    if first != "capsule" and _has_connector(query):
+        families = [f for f in _detect_families(tokens) if f != "capsule"]
+        if len(families) >= 2:
+            winner = max(families, key=lambda f: _OCCASION_FORMALITY.get(f, 0))
+            return winner, sorted(tokens & _OCCASION_TOKENS.get(winner, set()))
+
+    return first, sorted(tokens & _OCCASION_TOKENS.get(first, set()))
 
 
 _ARCHETYPE_ALIASES: Dict[str, str] = {
@@ -786,6 +888,20 @@ def build_brief(
             "matched_tokens": matched_tokens,
         },
     }
+
+    # Compound occasion metadata (deterministic). Frontend/copy may read this;
+    # no frontend change required. occasion above already resolved to the
+    # higher-formality event via detect_occasion_from_tokens.
+    compound = detect_compound_context(query)
+    if compound:
+        brief["compound"] = compound
+        brief["is_compound"] = True
+        logger.info(
+            "style_brief.compound primary=%s secondary=%s occasion=%s",
+            compound["primary_occasion"],
+            compound["secondary_occasion"],
+            brief["occasion"],
+        )
 
     logger.info(
         "style_brief.created occasion=%s sub_intent=%s chosen_from=%s tokens=%s "
