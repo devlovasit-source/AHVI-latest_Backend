@@ -40,6 +40,7 @@ from services.wardrobe_taxonomy import (
 )
 from prompts.core_prompts import WARDROBE_CAPTURE_PROMPT
 from services import gemini_multi_garment_detector as _gemini_multi
+from services.wardrobe_intelligence_service import enrich_wardrobe_item
 
 router = APIRouter(prefix="/api/wardrobe/capture", tags=["wardrobe-capture"])
 wardrobe_router = APIRouter(prefix="/api/wardrobe", tags=["wardrobe"])
@@ -315,6 +316,19 @@ def _guardrail_category(
         str(v or "").lower()
         for v in [raw_label, vision_name, vision_sub_category, fallback_sub_category]
     )
+    # Ethnic menswear Gemini/Ollama often misfiles as shirt/jacket/"royal
+    # attire". Pin the unambiguous ones to Outerwear (a canonical category).
+    # saree/lehenga/kurta intentionally excluded — handled elsewhere.
+    _ETHNIC_OUTERWEAR = {
+        "sherwani": "Sherwani",
+        "bandhgala": "Bandhgala",
+        "nehru": "Nehru Jacket",
+    }
+    _incoming_cat = str(vision_category or fallback_category or "").strip().title()
+    for _key, _sub in _ETHNIC_OUTERWEAR.items():
+        if _key in primary_text:
+            return "Outerwear", _sub, _incoming_cat != "Outerwear"
+
     category_text = str(vision_category or fallback_category or "").lower()
     category = str(vision_category or fallback_category or "Item").strip().title()
     sub_category = str(
@@ -1670,6 +1684,89 @@ def _ahvi_doc_belongs_to_user(doc: Dict[str, Any], user_id: str) -> bool:
         return True
 
     return owner == str(user_id or "").strip()
+
+
+# Deterministic complementary categories — picks real items, never invents.
+_WORKS_WITH_CATEGORIES = {
+    "tops": ["Bottoms", "Outerwear", "Footwear"],
+    "bottoms": ["Tops", "Outerwear", "Footwear"],
+    "dresses": ["Outerwear", "Footwear", "Bags"],
+    "outerwear": ["Tops", "Bottoms", "Footwear"],
+    "footwear": ["Tops", "Bottoms", "Dresses"],
+    "bags": ["Dresses", "Tops", "Outerwear"],
+}
+
+
+@wardrobe_router.get("/{item_id}/works-with")
+def get_works_with(item_id: str, http_request: Request):
+    """Pairing suggestions drawn from the user's ACTUAL saved wardrobe."""
+    user_id = _effective_user_id(http_request, "")
+    doc = _ahvi_fetch_outfit_doc(item_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if not _ahvi_doc_belongs_to_user(doc, user_id):
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    cat = str(doc.get("category") or "").strip().lower()
+    want = {c.lower() for c in _WORKS_WITH_CATEGORIES.get(cat, [])}
+
+    matches: List[Dict[str, Any]] = []
+    try:
+        docs = AppwriteProxy().list_documents("outfits", user_id=user_id, limit=100)
+        rows = docs if isinstance(docs, list) else (docs or {}).get("documents", [])
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            rid = _ahvi_item_doc_id(row)
+            if not rid or rid == item_id:
+                continue
+            rcat = str(row.get("category") or "").strip().lower()
+            if want and rcat not in want:
+                continue
+            matches.append({
+                "item_id": rid,
+                "name": row.get("name") or row.get("sub_category") or row.get("category"),
+                "category": row.get("category"),
+                "image_url": row.get("masked_url") or row.get("image_url") or row.get("normalized_url"),
+            })
+    except Exception as exc:
+        logger.warning("works_with lookup failed user_id=%s err=%s", user_id, exc)
+
+    return {"matches": matches[:6], "count": len(matches)}
+
+
+@wardrobe_router.get("/{item_id}/best-for")
+def get_best_for(item_id: str, http_request: Request):
+    """Occasions from real item metadata affinity; generic fallback only when empty."""
+    user_id = _effective_user_id(http_request, "")
+    doc = _ahvi_fetch_outfit_doc(item_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if not _ahvi_doc_belongs_to_user(doc, user_id):
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    occ_map = {
+        "office": "Office", "date": "Dinner", "coffee_run": "Coffee Date",
+        "gym": "Gym", "beach": "Beach", "daily": "Everyday Wear",
+        "cocktail": "Cocktail", "business_formal": "Formal",
+    }
+
+    meta = {}
+    try:
+        meta = enrich_wardrobe_item(doc) or {}
+    except Exception as exc:
+        logger.warning("best_for enrich failed user_id=%s err=%s", user_id, exc)
+
+    def _disp(o):
+        return occ_map.get(str(o), str(o).replace("_", " ").title())
+
+    best_for = [_disp(o) for o in (meta.get("occasion_affinity") or [])]
+    avoid = [_disp(o) for o in (meta.get("avoid_for") or [])]
+
+    if not best_for:  # fallback ONLY when item metadata yields nothing
+        best_for = ["Everyday Wear"]
+
+    return {"best_for": best_for[:3], "avoid": avoid[:3]}
 
 
 @router.post("/analyze-batch")
