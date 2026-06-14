@@ -1950,54 +1950,13 @@ def _festive_missing_piece_replacement(
 ) -> Dict[str, Any] | None:
     if _visual_occasion_family(occasion) != "indian_festive":
         return None
-    occasion_text = _norm(occasion)
-    if "haldi" in occasion_text:
-        candidates = ("Ethnic Mojari Footwear", "Ivory Churidar", "Festive Brooch")
-    elif "sangeet" in occasion_text:
-        candidates = ("Embroidered Nehru Jacket", "Mojari or Jutti", "Festive Brooch")
-    else:
-        candidates = ("Mojari or Jutti", "Embroidered Nehru Jacket", "Festive Brooch")
-    safe_direction = direction if isinstance(direction, dict) else {}
-    components = _safe_list(
-        safe_direction.get("items") or safe_direction.get("pieces"),
-        limit=8,
-    )
-    hero = _asset_text(safe_direction.get("hero_piece"))
-    for name in candidates:
-        if not _style_text_allowed_for_gender(
-            name,
-            target_gender,
-            allow_feminine=allow_feminine,
-        ):
-            continue
-        if safe_direction and _missing_piece_duplicate_reason(
-            name,
-            hero_piece=hero,
-            components=components,
-        ):
-            continue
-        category = _style_category(name)
-        if not category:
-            if any(term in name.lower() for term in ("mojari", "jutti", "footwear")):
-                category = "footwear"
-            elif any(term in name.lower() for term in ("nehru", "jacket")):
-                category = "outerwear"
-            else:
-                category = "accessory"
-        return {
-            "name": name,
-            "category": category,
-            "reason": _missing_piece_reason_for_direction(
-                name,
-                safe_direction,
-                occasion=_asset_text(occasion),
-            ),
-            "unlocks": [
-                _asset_text(safe_direction.get("archetype") or safe_direction.get("title"))
-                or "Festive styling"
-            ],
-        }
-    return None
+    del direction, target_gender, allow_feminine
+    return {
+        "name": "Ethnic Footwear",
+        "category": "Footwear",
+        "reason": "Completes the festive kurta look while staying comfortable for rituals.",
+        "unlocks": ["Festive styling"],
+    }
 
 
 def _palette_terms(value: Any) -> set[str]:
@@ -2992,6 +2951,90 @@ def _work_complete_item_allowed(item: Dict[str, Any]) -> bool:
     return False
 
 
+_FESTIVE_SAFE_SUPPORT_TERMS: tuple[str, ...] = (
+    "mojari",
+    "jutti",
+    "kolhapuri",
+    "ethnic sandal",
+    "formal ethnic footwear",
+    "ethnic footwear",
+    "sherwani",
+    "bandhgala",
+    "nehru jacket",
+    "kurta set",
+    "stole",
+    "dupatta",
+    "brooch",
+    "pocket square",
+    "festive watch",
+    "subtle ring",
+)
+_FESTIVE_UNSAFE_SUPPORT_TERMS: tuple[str, ...] = (
+    "cap",
+    "beanie",
+    "sneaker",
+    "trainer",
+    "running",
+    "runnig",
+    "nike",
+    "boot",
+    "duffle",
+    "duffel",
+    "backpack",
+    "laptop bag",
+    "wallet",
+    "sunglass",
+    "aviator",
+    "overshirt",
+    "relaxed shirt",
+    "oxford",
+    "polo",
+    "hoodie",
+    "sweatshirt",
+    "denim",
+    "jeans",
+    "flip flop",
+    "slipper",
+)
+
+
+def _safe_visual_support_assets(
+    items: Any,
+    occasion_family: str,
+    query: Any = "",
+    direction: Dict[str, Any] | None = None,
+) -> List[Dict[str, Any]]:
+    rows = [dict(item) for item in (items or []) if isinstance(item, dict)]
+    if occasion_family != "indian_festive":
+        return rows
+    kept: List[Dict[str, Any]] = []
+    dropped: List[str] = []
+    for item in rows:
+        name = _asset_text(item.get("name") or item.get("title")) or "unknown"
+        blob = _asset_policy_blob(item)
+        cap_like = bool(
+            re.search(r"\bca\b", blob)
+            and _FAMILY_GROUP.get(_asset_family(item)) == "accessory"
+        )
+        explicitly_unsafe = cap_like or any(term in blob for term in _FESTIVE_UNSAFE_SUPPORT_TERMS)
+        clearly_safe = any(term in blob for term in _FESTIVE_SAFE_SUPPORT_TERMS)
+        if "suede blue shoe" in blob and not any(
+            term in blob for term in ("ethnic", "formal loafer", "mojari", "jutti")
+        ):
+            explicitly_unsafe = True
+        if clearly_safe and not explicitly_unsafe:
+            kept.append(item)
+        else:
+            dropped.append(name)
+    logger.info(
+        "AHVI_SUPPORT_ASSET_SUPPRESSED family=%s dropped=%s kept=%s",
+        occasion_family,
+        dropped[:12],
+        [_asset_text(item.get("name") or item.get("title")) for item in kept[:12]],
+    )
+    return kept
+
+
 def _filter_complete_the_look_for_occasion(
     complete: List[Dict[str, Any]],
     occasion: Any,
@@ -3134,6 +3177,12 @@ def _enrich_visual_directions_with_assets(
             complete,
             occasion_text,
             target_gender,
+        )
+        complete = _safe_visual_support_assets(
+            complete,
+            _visual_occasion_family(occasion_text, out.get("hero_piece")),
+            occasion_text,
+            out,
         )
         out["complete_the_look"] = complete[:3]
         out = _validate_visual_direction_consistency(
@@ -5241,6 +5290,22 @@ def _enrich_missing_piece_with_asset(
     if not missing_piece:
         return None
     out = dict(missing_piece)
+    occasion_family = _visual_occasion_family(occasion, out.get("name"))
+    if occasion_family == "indian_festive" and not _safe_visual_support_assets(
+        [out],
+        occasion_family,
+        occasion,
+        {"hero_piece": out.get("name")},
+    ):
+        replacement = _festive_missing_piece_replacement(occasion)
+        logger.info(
+            "AHVI_ASSET_GUARD occasion=%s family=%s blocked=%s selected=%s",
+            _asset_text(occasion),
+            occasion_family,
+            [_asset_text(out.get("name")) or "unknown"],
+            [_asset_text(replacement.get("name"))] if replacement else [],
+        )
+        return replacement
     block_reason = _occasion_asset_block_reason(
         out,
         occasion=_asset_text(occasion),
@@ -5262,7 +5327,7 @@ def _enrich_missing_piece_with_asset(
         )
         if not replacement:
             return None
-        out = replacement
+        return replacement
     if _asset_text(out.get("image_url") or out.get("imageUrl")):
         return out
     rows = assets if isinstance(assets, list) else _style_asset_rows()

@@ -316,9 +316,11 @@ def test_haldi_bad_missing_piece_is_replaced_with_festive_piece():
         target_gender="male",
     )
     assert missing is not None
-    assert missing["name"] == "Ethnic Mojari Footwear"
-    assert missing["category"] == "footwear"
+    assert missing["name"] == "Ethnic Footwear"
+    assert missing["category"] == "Footwear"
     assert "comfortable for rituals" in missing["reason"]
+    assert "image_url" not in missing
+    assert "asset_id" not in missing
 
 
 def test_haldi_visual_direction_filters_bad_support_and_missing_piece(monkeypatch):
@@ -371,7 +373,7 @@ def test_haldi_visual_direction_filters_bad_support_and_missing_piece(monkeypatc
     for blocked in ("beanie", "cap", "sneaker", "overshirt", "oxford", "polo", "wallet", "derby"):
         assert blocked not in support_names
     assert any(term in support_names for term in ("brooch", "mojari"))
-    assert card["missing_piece"]["name"] == "Ethnic Mojari Footwear"
+    assert card["missing_piece"]["name"] == "Ethnic Footwear"
 
 
 def test_wedding_guard_allows_ethnic_assets_and_blocks_office_support():
@@ -500,3 +502,75 @@ def test_editorial_polish_and_cover_clean_all_direction_titles():
     assert card["direction_name"] == "Vibrant Celebration"
     cover = engine._build_editorial_cover(polished, occasion="Haldi")
     assert cover["direction_name"] == "Vibrant Celebration"
+
+
+def test_cousin_wedding_suppresses_emergency_support_leaks():
+    items = [
+        _asset("Nike Running Shoes", category="footwear", subcategory="sneaker"),
+        _asset("Blue Duffle Bag", category="accessory", subcategory="duffle_bag"),
+        _asset("Blue Cap", category="accessory", subcategory="cap"),
+        _asset("Suede Blue Shoe", category="footwear", subcategory="shoe"),
+        _asset("Gold Festive Brooch", category="accessory", subcategory="brooch"),
+    ]
+    safe = engine._safe_visual_support_assets(
+        items,
+        "indian_festive",
+        "cousin wedding",
+        {"hero_piece": "Ivory Kurta"},
+    )
+    assert [item["name"] for item in safe] == ["Gold Festive Brooch"]
+
+
+def test_haldi_strict_support_allowlist_drops_weak_accessories():
+    items = [
+        _asset("Leather Flip Flops", category="footwear", subcategory="flip_flops"),
+        _asset("Gold Aviators", category="accessory", subcategory="aviators"),
+        _asset("Western Wallet", category="accessory", subcategory="wallet"),
+    ]
+    assert engine._safe_visual_support_assets(
+        items,
+        "indian_festive",
+        "Haldi",
+        {"hero_piece": "Yellow Kurta"},
+    ) == []
+
+
+def test_unsafe_festive_missing_piece_is_text_only_even_with_assets():
+    missing = engine._enrich_missing_piece_with_asset(
+        {
+            "name": "Nike Running Shoes",
+            "category": "footwear",
+            "reason": "Adds comfort.",
+            "image_url": "https://cdn/nike.png",
+        },
+        assets=[
+            _asset(
+                "Maroon Mojari",
+                category="footwear",
+                subcategory="mojari",
+                tags=["ethnic"],
+            )
+        ],
+        occasion="cousin wedding",
+        target_gender="male",
+    )
+    assert missing == {
+        "name": "Ethnic Footwear",
+        "category": "Footwear",
+        "reason": "Completes the festive kurta look while staying comfortable for rituals.",
+        "unlocks": ["Festive styling"],
+    }
+
+
+def test_airport_strict_support_suppression_is_not_applied():
+    items = [
+        _asset("Clean Sneakers", category="footwear", subcategory="sneaker"),
+        _asset("Travel Duffle Bag", category="accessory", subcategory="duffle_bag"),
+    ]
+    safe = engine._safe_visual_support_assets(
+        items,
+        "travel",
+        "airport outfit",
+        {"hero_piece": "Travel Overshirt"},
+    )
+    assert [item["name"] for item in safe] == ["Clean Sneakers", "Travel Duffle Bag"]
