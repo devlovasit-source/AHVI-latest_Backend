@@ -603,3 +603,56 @@ def test_direction_title_cleans_repeated_wedding_social_labels():
     assert engine._clean_direction_title(
         "wedding social occasion social_occasion cousin wedding"
     ) == "Cousin Wedding"
+
+
+def test_festive_kurta_hero_rejects_nehru_jacket_image():
+    direction = {
+        "hero_piece": "Marigold Yellow Cotton Kurta",
+        "items": ["Marigold Yellow Cotton Kurta", "Ivory Churidar"],
+    }
+    nehru = _asset(
+        "Maroon Nehru Jacket",
+        category="ethnic",
+        subcategory="nehru_jacket",
+        tags=["festive"],
+    )
+    kurta = _asset(
+        "Marigold Yellow Kurta",
+        category="ethnic",
+        subcategory="kurta",
+        tags=["festive", "haldi"],
+    )
+    assert not engine._hero_asset_allowed(nehru, direction, "Haldi wedding")
+    assert engine._hero_asset_allowed(kurta, direction, "Haldi wedding")
+
+
+def test_preattached_wrong_festive_hero_image_is_replaced(monkeypatch):
+    nehru = _asset(
+        "Maroon Nehru Jacket",
+        category="ethnic",
+        subcategory="nehru_jacket",
+        tags=["festive"],
+    )
+    kurta = _asset(
+        "Marigold Yellow Kurta",
+        category="ethnic",
+        subcategory="kurta",
+        tags=["festive", "haldi"],
+    )
+    monkeypatch.setattr(engine, "_style_asset_rows", lambda limit=120: [nehru, kurta])
+    directions = engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "title": "Vibrant Classic",
+                "archetype": "Festive Heritage",
+                "hero_piece": "Marigold Yellow Cotton Kurta",
+                "items": ["Marigold Yellow Cotton Kurta", "Ivory Churidar"],
+                "image_url": nehru["image_url"],
+                "asset_id": nehru["asset_id"],
+            }
+        ],
+        occasion="Haldi wedding",
+        target_gender="male",
+    )
+    assert directions[0]["asset_id"] == kurta["asset_id"]
+    assert directions[0]["image_url"] == kurta["image_url"]

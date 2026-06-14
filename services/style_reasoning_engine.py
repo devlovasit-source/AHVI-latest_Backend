@@ -1409,6 +1409,25 @@ def _is_ethnic_asset(asset: Dict[str, Any]) -> bool:
     return any(t in blob for t in ("kurta", "sherwani", "bandhgala", "festive", "nehru"))
 
 
+def _ethnic_garment_subtype(value: Any) -> str:
+    text = str(value or "").lower().replace("_", " ").replace("-", " ")
+    if "nehru" in text:
+        return "nehru_jacket"
+    if "bandhgala" in text:
+        return "bandhgala"
+    if "sherwani" in text:
+        return "sherwani"
+    if "kurta set" in text or "kurtaset" in text:
+        return "kurta_set"
+    if "kurta" in text:
+        return "kurta"
+    return ""
+
+
+def _ethnic_asset_subtype(asset: Dict[str, Any]) -> str:
+    return _ethnic_garment_subtype(_asset_policy_blob(asset))
+
+
 def _demo_safe_visuals_enabled() -> bool:
     return str(os.getenv("AHVI_DEMO_SAFE_VISUALS", "true")).strip().lower() not in {
         "0",
@@ -1736,15 +1755,22 @@ def _asset_matches_hero_slot(asset: Dict[str, Any], expected_slot: str | None, h
 def _hero_asset_allowed(
     asset: Dict[str, Any], direction: Dict[str, Any], occasion: str = ""
 ) -> bool:
-    # Wedding/festive: the LLM direction's hero is usually Western ("Gray
-    # Blazer"), so the family gate below would reject in-pool ethnic pieces
-    # (kurta/bandhgala/sherwani) before they can be scored. Let ethnic assets
-    # through for wedding occasions so they compete; scoring then ranks them.
-    if _visual_occasion_family(occasion) == "indian_festive" and _is_ethnic_asset(asset):
-        return True
     hero = _asset_text(direction.get("hero_piece")) or " ".join(
         _safe_list(direction.get("items") or direction.get("pieces"), limit=1)
     )
+    # Wedding/festive: the LLM direction's hero is usually Western ("Gray
+    # Blazer"), so the family gate below would reject in-pool ethnic pieces
+    # (kurta/bandhgala/sherwani) before they can be scored. Let ethnic assets
+    # through for wedding occasions so they compete. When the hero already
+    # names an ethnic garment, keep the image paired to that exact subtype.
+    if _visual_occasion_family(occasion) == "indian_festive" and _is_ethnic_asset(asset):
+        hero_subtype = _ethnic_garment_subtype(hero)
+        asset_subtype = _ethnic_asset_subtype(asset)
+        if hero_subtype:
+            if hero_subtype == "kurta_set":
+                return asset_subtype in {"kurta_set", "kurta"}
+            return asset_subtype == hero_subtype
+        return True
     expected_slot = _hero_expected_slot(hero)
     if expected_slot and not _asset_matches_hero_slot(asset, expected_slot, hero):
         return False
@@ -3118,11 +3144,14 @@ def _enrich_visual_directions_with_assets(
                 ),
                 None,
             )
-            if attached_asset and not _asset_allowed_for_context(
-                attached_asset,
-                occasion=occasion_text,
-                placement="hero",
-                target_text=_asset_text(out.get("hero_piece")),
+            if attached_asset and (
+                not _asset_allowed_for_context(
+                    attached_asset,
+                    occasion=occasion_text,
+                    placement="hero",
+                    target_text=_asset_text(out.get("hero_piece")),
+                )
+                or not _hero_asset_allowed(attached_asset, out, occasion_text)
             ):
                 logger.info(
                     "AHVI_ASSET_GUARD occasion=%s family=%s blocked=%s selected=[]",
