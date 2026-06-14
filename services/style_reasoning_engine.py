@@ -1230,8 +1230,12 @@ def _visual_occasion_family(occasion: Any, target_text: Any = "") -> str:
             "marriage",
             "reception",
             "engagement",
+            "festival",
             "festive",
             "traditional",
+            "puja",
+            "pooja",
+            "ethnic event",
             "kurta",
             "sherwani",
             "bandhgala",
@@ -2184,6 +2188,133 @@ def _apply_generic_visual_diversity(
                 _direction_formula_signature(candidate),
             )
     return diversified
+
+
+_FESTIVE_BOARD_ALLOWED_TERMS: tuple[str, ...] = (
+    "kurta",
+    "kurta set",
+    "nehru jacket",
+    "bandhgala",
+    "sherwani",
+    "churidar",
+    "ethnic trouser",
+    "ethnic pant",
+    "jutti",
+    "mojari",
+    "kolhapuri",
+    "ethnic sandal",
+    "festive sandal",
+    "indo western",
+    "indowestern",
+)
+_FESTIVE_BOARD_DISALLOWED_TERMS: tuple[str, ...] = (
+    "oxford shirt",
+    "oxford",
+    "polo",
+    "basic tee",
+    "t shirt",
+    "tshirt",
+    "hoodie",
+    "sweatshirt",
+    "sneaker",
+    "running shoe",
+    "business loafer",
+    "loafer",
+    "jeans",
+    "denim",
+)
+
+
+def _festive_direction_compatibility(direction: Dict[str, Any]) -> float:
+    hero = _asset_text(direction.get("hero_piece"))
+    components = _safe_list(direction.get("items") or direction.get("pieces"), limit=8)
+    core = [hero, *components]
+    core = list(dict.fromkeys(item for item in core if item))
+    if not core:
+        return 0.0
+    safe_count = 0
+    for item in core:
+        blob = item.lower().replace("_", " ").replace("-", " ")
+        if any(term in blob for term in _FESTIVE_BOARD_DISALLOWED_TERMS):
+            return 0.0
+        if any(term in blob for term in _FESTIVE_BOARD_ALLOWED_TERMS):
+            safe_count += 1
+        else:
+            return 0.0
+    hero_blob = hero.lower().replace("_", " ").replace("-", " ")
+    if not any(term in hero_blob for term in _FESTIVE_BOARD_ALLOWED_TERMS):
+        return 0.0
+    return safe_count / max(1, len(core))
+
+
+def _festive_visual_direction_replacements() -> List[Dict[str, Any]]:
+    return [
+        {
+            "title": "Vibrant Celebration",
+            "archetype": "Vibrant Celebration",
+            "hero_piece": "Marigold Yellow Kurta",
+            "items": ["Marigold Yellow Kurta", "Ivory Churidar", "Gold Juttis"],
+            "pieces": ["Marigold Yellow Kurta", "Ivory Churidar", "Gold Juttis"],
+            "palette": ["marigold yellow", "ivory", "gold"],
+            "colors": ["marigold yellow", "ivory", "gold"],
+            "description": "A bright kurta with traditional separates keeps the celebration festive and comfortable.",
+            "why_it_works": "The kurta leads with color while the churidar and juttis keep the silhouette culturally grounded.",
+            "style_note": "Keep the fabric breathable and the finishing details restrained.",
+        },
+        {
+            "title": "Festive Heritage",
+            "archetype": "Festive Heritage",
+            "hero_piece": "Embroidered Nehru Jacket",
+            "items": ["Embroidered Nehru Jacket", "Cream Kurta Set", "Brown Mojaris"],
+            "pieces": ["Embroidered Nehru Jacket", "Cream Kurta Set", "Brown Mojaris"],
+            "palette": ["cream", "maroon", "brown"],
+            "colors": ["cream", "maroon", "brown"],
+            "description": "A Nehru jacket adds festive structure over a comfortable traditional base.",
+            "why_it_works": "The jacket creates ceremony-ready polish while the kurta set and mojaris preserve ease.",
+            "style_note": "Let one embroidered layer carry the detail.",
+        },
+        {
+            "title": "Refined Traditional",
+            "archetype": "Refined Traditional",
+            "hero_piece": "Navy Bandhgala",
+            "items": ["Navy Bandhgala", "Ivory Ethnic Trousers", "Black Mojaris"],
+            "pieces": ["Navy Bandhgala", "Ivory Ethnic Trousers", "Black Mojaris"],
+            "palette": ["navy", "ivory", "black"],
+            "colors": ["navy", "ivory", "black"],
+            "description": "A clean bandhgala direction brings formal festive polish without western businesswear.",
+            "why_it_works": "The bandhgala gives structure while ethnic trousers and mojaris keep the occasion language consistent.",
+            "style_note": "Keep accessories minimal so the tailoring remains the focus.",
+        },
+    ]
+
+
+def _enforce_festive_visual_directions(
+    directions: List[Dict[str, Any]],
+    *,
+    occasion: Any,
+) -> List[Dict[str, Any]]:
+    if _visual_occasion_family(occasion) != "indian_festive":
+        return directions
+    replacements = _festive_visual_direction_replacements()
+    guarded: List[Dict[str, Any]] = []
+    for index, direction in enumerate(directions or []):
+        score = _festive_direction_compatibility(direction)
+        if score < 1.0:
+            replacement = dict(replacements[index % len(replacements)])
+            logger.info(
+                "AHVI_FESTIVE_BOARD_REPLACED occasion=%s index=%d hero=%r compatibility=%.2f replacement=%r",
+                _asset_text(occasion),
+                index,
+                _asset_text(direction.get("hero_piece")),
+                score,
+                replacement.get("hero_piece"),
+            )
+            guarded.append(replacement)
+        else:
+            guarded.append(direction)
+    while len(guarded) < 3:
+        guarded.append(dict(replacements[len(guarded) % len(replacements)]))
+    return guarded[:3]
 
 
 def _component_blob(components: List[str]) -> str:
@@ -5960,6 +6091,10 @@ def _build_response(
             selected_archetypes if final_mode == VISUAL_INSPIRATION else None,
         )
     visual_directions = _apply_anchor_piece_to_visual_directions(visual_directions, query)
+    visual_directions = _enforce_festive_visual_directions(
+        visual_directions,
+        occasion=asset_occasion,
+    )
     visual_directions = _enrich_visual_directions_with_assets(
         visual_directions,
         occasion=asset_occasion,

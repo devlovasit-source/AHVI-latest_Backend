@@ -656,3 +656,64 @@ def test_preattached_wrong_festive_hero_image_is_replaced(monkeypatch):
     )
     assert directions[0]["asset_id"] == kurta["asset_id"]
     assert directions[0]["image_url"] == kurta["image_url"]
+
+
+def test_festive_board_gate_replaces_western_casual_directions():
+    leaking = [
+        {
+            "title": "Soft Polish",
+            "hero_piece": "Fine-Gauge Knit Polo",
+            "items": ["Fine-Gauge Knit Polo", "Straight Trousers", "Black Loafers"],
+        },
+        {
+            "title": "Relaxed Oxford",
+            "hero_piece": "Oxford Shirt",
+            "items": ["Oxford Shirt", "Chinos", "White Sneakers"],
+        },
+        {
+            "title": "Easy Classic",
+            "hero_piece": "Basic Tee",
+            "items": ["Basic Tee", "Denim Jeans", "Running Shoes"],
+        },
+    ]
+    blocked = (
+        "oxford",
+        "polo",
+        "basic tee",
+        "hoodie",
+        "sweatshirt",
+        "sneaker",
+        "running shoe",
+        "loafer",
+        "jeans",
+        "denim",
+    )
+    for occasion in ("haldi", "mehendi", "wedding_guest", "festival"):
+        guarded = engine._enforce_festive_visual_directions(
+            leaking,
+            occasion=occasion,
+        )
+        assert len(guarded) == 3
+        for direction in guarded:
+            hero = direction["hero_piece"].lower()
+            blob = " ".join(direction["items"]).lower()
+            assert any(
+                term in hero
+                for term in ("kurta", "nehru jacket", "bandhgala", "sherwani")
+            )
+            assert not any(term in f"{hero} {blob}" for term in blocked)
+            assert engine._festive_direction_compatibility(direction) == 1.0
+
+
+def test_festive_board_gate_preserves_valid_ethnic_direction():
+    valid = {
+        "title": "Wedding Day Ease",
+        "hero_piece": "Ivory Kurta Set",
+        "items": ["Ivory Kurta Set", "Cream Churidar", "Brown Mojaris"],
+    }
+    guarded = engine._enforce_festive_visual_directions(
+        [valid],
+        occasion="ethnic_event",
+    )
+    assert guarded[0] is valid
+    assert guarded[0]["hero_piece"] == "Ivory Kurta Set"
