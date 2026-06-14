@@ -1143,6 +1143,59 @@ def _stable_item_key(item: Dict[str, Any]) -> str:
     )
 
 
+_OUTERWEAR_TERMS = {
+    "blazer", "jacket", "coat", "overcoat", "trench", "overshirt",
+    "cardigan", "sherwani", "bandhgala", "nehru",
+}
+
+
+def _outerwear_of(outfit: Dict[str, Any]) -> Dict[str, Any]:
+    """The layer the UI shows as hero above the shirt (blazer/jacket/...)."""
+    explicit = outfit.get("outerwear")
+    if isinstance(explicit, dict) and explicit:
+        return explicit
+    for item in outfit.get("items") or []:
+        if isinstance(item, dict) and _has_any(_item_text(item), _OUTERWEAR_TERMS):
+            return item
+    return {}
+
+
+def _visible_hero(outfit: Dict[str, Any]) -> Dict[str, Any]:
+    """Match the UI hero order exactly: dress > outerwear > top.
+
+    The old diversity keyed on top+bottom, so two boards sharing the same
+    blazer-as-hero but different shirts looked 'distinct' to the backend
+    while the UI showed the same hero. This makes diversity see what the
+    user sees.
+    """
+    dress = outfit.get("dress") if isinstance(outfit.get("dress"), dict) else {}
+    if not dress:
+        for item in outfit.get("items") or []:
+            if isinstance(item, dict) and _role_from_item(item) == "dress":
+                dress = item
+                break
+    if dress:
+        return dress
+    outer = _outerwear_of(outfit)
+    if outer:
+        return outer
+    top, _b, _f, _a = _extract_outfit_slots(outfit)
+    return top if isinstance(top, dict) else {}
+
+
+def _item_has_image(item: Dict[str, Any]) -> bool:
+    if not isinstance(item, dict):
+        return False
+    for k in (
+        "masked_url", "maskedUrl", "image_url", "imageUrl", "normalized_url",
+        "normalizedUrl", "url", "raw_url", "rawUrl", "raw_image_base64",
+        "masked_image_base64",
+    ):
+        if str(item.get(k) or "").strip():
+            return True
+    return False
+
+
 def _enforce_outfit_diversity(
     outfits: List[Dict[str, Any]],
     *,
@@ -1151,8 +1204,10 @@ def _enforce_outfit_diversity(
     """Reject look-alike boards before they reach the carousel.
 
     Rules:
+      - same VISIBLE hero (dress > outerwear > top) → only the best kept
       - same top+bottom pair → only the highest-scoring instance kept
-      - same dress → only the highest-scoring instance kept
+      - a hero whose image is missing is demoted (no placeholder hero) when
+        an image-backed alternative exists
       - shoe-only / accessory-only swaps are not new looks
       - same bottom appears at most twice across the deck
     """
@@ -1165,14 +1220,42 @@ def _enforce_outfit_diversity(
 
     seen_pair: set[str] = set()
     seen_dress: set[str] = set()
+    seen_hero: set[str] = set()
     bottom_count: Dict[str, int] = {}
     surviving: List[Dict[str, Any]] = []
     skipped: List[Tuple[Dict[str, Any], str]] = []
+    hero_freq: Counter[str] = Counter()
+
+    # Only demote image-less heroes when an image-backed alternative exists.
+    # If the whole deck lacks images (bad data / tests), don't collapse it.
+    any_image_hero = any(
+        _item_has_image(_visible_hero(o)) for o in sorted_outfits
+    )
 
     for outfit in sorted_outfits:
         top, bottom, footwear, _ = _extract_outfit_slots(outfit)
         top_key = _stable_item_key(top)
         bottom_key = _stable_item_key(bottom)
+
+        hero = _visible_hero(outfit)
+        hero_key = _stable_item_key(hero)
+        hero_has_image = _item_has_image(hero)
+        if hero_key:
+            hero_freq[hero_key] += 1
+
+        # Phase 2: never lead with a placeholder. Demote an image-less hero so
+        # it only surfaces if nothing image-backed remains — but only when the
+        # deck actually has an image-backed alternative.
+        if hero_key and not hero_has_image and any_image_hero:
+            skipped.append((outfit, "no_image_hero"))
+            continue
+
+        # Phase 1: the same visible hero must not repeat while alternatives
+        # exist. Highest-scoring instance of each hero wins.
+        if hero_key and hero_key in seen_hero:
+            skipped.append((outfit, "duplicate_visible_hero"))
+            continue
+
         dress_key = _stable_item_key(outfit.get("dress") or {})
         if not dress_key:
             # Treat any item with role=dress inside items[] as a dress slot.
@@ -1186,12 +1269,19 @@ def _enforce_outfit_diversity(
                 skipped.append((outfit, "duplicate_dress"))
                 continue
             seen_dress.add(dress_key)
+            if hero_key:
+                seen_hero.add(hero_key)
             surviving.append(outfit)
             continue
 
-        pair_key = f"{top_key}|{bottom_key}" if top_key and bottom_key else ""
+        # Include the visible hero: a different blazer/jacket over the same
+        # shirt+pants is a genuinely different look, so it must not be
+        # collapsed by the top+bottom rule.
+        pair_key = (
+            f"{hero_key}|{top_key}|{bottom_key}" if top_key and bottom_key else ""
+        )
         if pair_key and pair_key in seen_pair:
-            # Same top+bottom already present — shoe/accessory variation only.
+            # Same hero + top + bottom — shoe/accessory variation only.
             skipped.append((outfit, "duplicate_top_bottom"))
             continue
         if bottom_key:
@@ -1202,17 +1292,35 @@ def _enforce_outfit_diversity(
             bottom_count[bottom_key] = used + 1
         if pair_key:
             seen_pair.add(pair_key)
+        if hero_key:
+            seen_hero.add(hero_key)
 
         surviving.append(outfit)
+
+    # Visibility for debugging the "same hero on every board" symptom.
+    logger.info(
+        "outfit_quality_guard.visible_hero kept=%d hero_frequency=%s",
+        len(surviving),
+        dict(hero_freq.most_common(8)),
+    )
 
     strict_count = len(surviving)
     if len(surviving) < min_keep and skipped:
         # Keep quality strict, but don't let similarity-only rules starve
-        # the carousel when the wardrobe has limited bottoms/layers. Refill
-        # with the highest-scoring guarded outfits, allowing shoe/accessory
-        # variations only after all truly distinct looks are exhausted.
+        # the carousel. Refill with image-backed, non-placeholder boards
+        # first; a placeholder hero is the last resort.
+        refill_priority = {
+            "duplicate_visible_hero": 0,
+            "duplicate_dress": 0,
+            "duplicate_top_bottom": 1,
+            "bottom_reuse_cap": 2,
+            "no_image_hero": 9,  # last — avoid a placeholder hero if possible
+        }
+        ordered_skips = sorted(
+            skipped, key=lambda pair: refill_priority.get(pair[1], 5)
+        )
         selected_ids = {id(outfit) for outfit in surviving}
-        for outfit, reason in skipped:
+        for outfit, reason in ordered_skips:
             if len(surviving) >= min_keep:
                 break
             if id(outfit) in selected_ids:
