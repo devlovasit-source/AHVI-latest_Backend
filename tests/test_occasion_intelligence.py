@@ -158,3 +158,147 @@ def test_missing_piece_is_occasion_aware():
     )
     names = [a["name"] for a in selected]
     assert "Grey Beanie" not in names
+
+
+# ---------- P0 occasion-safe visual assets ----------
+
+def test_haldi_guard_blocks_western_casual_assets_and_prefers_kurta():
+    assets = [
+        _asset("Wool Beanie", category="accessory", subcategory="beanie"),
+        _asset("Baseball Cap", category="accessory", subcategory="baseball_cap"),
+        _asset("White Sneaker", category="footwear", subcategory="sneaker"),
+        _asset("Blue Oxford Shirt", category="top", subcategory="oxford_shirt"),
+        _asset("Cream Polo", category="top", subcategory="polo"),
+        _asset(
+            "Marigold Yellow Kurta",
+            category="ethnic",
+            subcategory="kurta",
+            tags=["festive", "haldi"],
+            colors=["yellow"],
+        ),
+    ]
+    direction = {
+        "hero_piece": "Festive Kurta",
+        "items": ["Festive Kurta"],
+        "archetype": "Vibrant Comfort",
+    }
+    selected = engine._best_style_assets(
+        assets,
+        direction=direction,
+        occasion="haldi wedding",
+        target_gender="male",
+        placement="hero",
+        limit=3,
+    )
+    assert [item["name"] for item in selected] == ["Marigold Yellow Kurta"]
+    for blocked in assets[:-1]:
+        assert not engine._asset_allowed_for_context(
+            blocked,
+            occasion="haldi wedding",
+            placement="complete",
+            target_text="Festive Kurta",
+        )
+
+
+def test_wedding_guard_blocks_cap_beanie_and_sneaker():
+    for asset in (
+        _asset("Dad Cap", category="accessory", subcategory="cap"),
+        _asset("Black Beanie", category="accessory", subcategory="beanie"),
+        _asset("Running Sneaker", category="footwear", subcategory="sneaker"),
+    ):
+        assert not engine._asset_allowed_for_context(
+            asset,
+            occasion="cousin wedding",
+            placement="complete",
+            target_text="Bandhgala",
+        )
+
+
+def test_airport_beanie_requires_cold_context():
+    beanie = _asset("Wool Beanie", category="accessory", subcategory="beanie")
+    assert not engine._asset_allowed_for_context(
+        beanie,
+        occasion="airport outfit",
+        placement="complete",
+        target_text="travel layers",
+    )
+    assert engine._asset_allowed_for_context(
+        beanie,
+        occasion="airport outfit in cold winter weather",
+        placement="complete",
+        target_text="travel layers",
+    )
+
+
+def test_conference_guard_blocks_casual_assets():
+    for asset in (
+        _asset("Beanie", category="accessory", subcategory="beanie"),
+        _asset("Baseball Cap", category="accessory", subcategory="cap"),
+        _asset("Gym Shorts", category="bottom", subcategory="gym_shorts"),
+        _asset("Athletic Sneakers", category="footwear", subcategory="sneaker"),
+    ):
+        assert not engine._asset_allowed_for_context(
+            asset,
+            occasion="conference presentation",
+            placement="complete",
+            target_text="Modern Professional",
+        )
+
+
+def test_christian_wedding_allows_western_formal_but_blocks_casual_assets():
+    blazer = _asset("Navy Blazer", category="outerwear", subcategory="blazer")
+    oxford = _asset("White Oxford Shirt", category="top", subcategory="oxford_shirt")
+    assert engine._asset_allowed_for_context(
+        blazer,
+        occasion="christian wedding",
+        placement="hero",
+        target_text="Navy Blazer",
+    )
+    assert engine._asset_allowed_for_context(
+        oxford,
+        occasion="christian wedding",
+        placement="hero",
+        target_text="White Oxford Shirt",
+    )
+    for asset in (
+        _asset("Beanie", category="accessory", subcategory="beanie"),
+        _asset("Baseball Cap", category="accessory", subcategory="cap"),
+        _asset("Running Sneaker", category="footwear", subcategory="sneaker"),
+    ):
+        assert not engine._asset_allowed_for_context(
+            asset,
+            occasion="christian wedding",
+            placement="complete",
+            target_text="Church Formal",
+        )
+
+
+def test_haldi_and_airport_cards_have_distinct_contextual_copy():
+    directions = [
+        {
+            "archetype": name,
+            "title": name,
+            "hero_piece": hero,
+            "items": [hero],
+            "pieces": [hero],
+        }
+        for name, hero in (
+            ("Vibrant Comfort", "Yellow Kurta"),
+            ("Wedding Day Ease", "Ivory Kurta Set"),
+            ("Festive Heritage", "Nehru Jacket"),
+        )
+    ]
+    for occasion, query in (
+        ("wedding", "Haldi"),
+        ("airport_travel", "airport outfit"),
+    ):
+        polished = engine._apply_editorial_polish(
+            directions,
+            occasion=occasion,
+            wardrobe_items=None,
+            context_text=query,
+        )
+        notes = [item["short_note"] for item in polished]
+        assert len(set(notes)) == 3
+        assert all(len(note.split()) <= 18 for note in notes)
+        assert all(note != engine._DEFAULT_OCCASION_VOICE for note in notes)

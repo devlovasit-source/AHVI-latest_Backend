@@ -954,6 +954,7 @@ _FAMILY_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("gymshorts", "runningshorts"), "gym_shorts"),
     (("shorts",), "shorts"),
     (("formalshoe", "dressshoe"), "formal_shoe"),
+    (("mojari", "jutti"), "formal_shoe"),
     (("loafer",), "loafer"),
     (("espadrille", "espadrilles"), "espadrille"),
     (("sneaker",), "sneaker"),
@@ -1183,6 +1184,187 @@ def _is_wedding_occasion_policy(occasion: str) -> bool:
     return any(term in text for term in _WEDDING_OCCASION_TERMS)
 
 
+def _visual_occasion_family(occasion: Any, target_text: Any = "") -> str:
+    text = f"{occasion or ''} {target_text or ''}".lower().replace("_", " ")
+    if any(
+        term in text
+        for term in (
+            "christian wedding",
+            "christian marriage",
+            "church wedding",
+            "church marriage",
+            "cathedral wedding",
+            "western formal wedding",
+        )
+    ):
+        return "christian_wedding"
+    if any(term in text for term in ("funeral", "memorial", "condolence", "wake service")):
+        return "funeral"
+    if any(
+        term in text
+        for term in (
+            "conference",
+            "presentation",
+            "keynote",
+            "client meeting",
+            "business meeting",
+            "networking",
+            "panel talk",
+        )
+    ):
+        return "conference"
+    if any(term in text for term in ("airport", "air travel", "flight", "travel day", "in transit")):
+        return "travel"
+    if any(
+        term in text
+        for term in (
+            "haldi",
+            "mehendi",
+            "mehndi",
+            "sangeet",
+            "shaadi",
+            "wedding",
+            "marriage",
+            "reception",
+            "engagement",
+            "festive",
+            "traditional",
+            "kurta",
+            "sherwani",
+            "bandhgala",
+            "ethnic",
+        )
+    ):
+        return "indian_festive"
+    return ""
+
+
+def _asset_policy_blob(asset: Dict[str, Any]) -> str:
+    return " ".join(
+        [
+            _asset_text(asset.get("name")),
+            _asset_text(asset.get("category")),
+            _asset_text(asset.get("subcategory")),
+            " ".join(_asset_list(asset.get("tags"))),
+            " ".join(_asset_list(asset.get("style_tags"))),
+            " ".join(_asset_list(asset.get("archetypes"))),
+            " ".join(_asset_list(asset.get("occasions"))),
+            " ".join(_asset_list(asset.get("colors"))),
+        ]
+    ).lower().replace("_", " ")
+
+
+def _occasion_asset_block_reason(
+    asset: Dict[str, Any],
+    *,
+    occasion: str = "",
+    placement: str = "hero",
+    target_text: str = "",
+) -> str:
+    family = _asset_family(asset)
+    blob = _asset_policy_blob(asset)
+    context = f"{occasion or ''} {target_text or ''}".lower().replace("_", " ")
+    occasion_family = _visual_occasion_family(occasion, target_text)
+    outdoor = any(term in context for term in ("beach", "outdoor", "daytime", "sunny", "park"))
+    cold = any(term in context for term in ("cold", "winter", "snow", "freezing", "chilly"))
+    business_travel = any(
+        term in context for term in ("business travel", "work trip", "client", "conference")
+    )
+    comfort_requested = any(
+        term in context for term in ("comfort", "comfortable", "mobility", "orthopedic")
+    )
+
+    if occasion_family == "indian_festive":
+        if family in {
+            "beanie",
+            "cap",
+            "hat",
+            "hoodie",
+            "sweatshirt",
+            "gym_shorts",
+            "shorts",
+            "sneaker",
+            "polo",
+            "backpack",
+            "laptop_bag",
+            "messenger_bag",
+            "briefcase",
+            "belt",
+        }:
+            return family
+        if family == "sunglasses" and not outdoor:
+            return "sunglasses_without_outdoor_context"
+        if family == "shirt" and any(
+            term in blob for term in ("oxford", "office", "western", "formal shirt", "button down")
+        ):
+            return "western_office_shirt"
+        if family == "tshirt" and "graphic" in blob:
+            return "graphic_tshirt"
+        if family == "sandal" and not any(
+            term in blob for term in ("ethnic", "festive", "formal", "kolhapuri")
+        ):
+            return "casual_sandal"
+
+    if occasion_family == "christian_wedding":
+        if family in {
+            "beanie",
+            "cap",
+            "hat",
+            "hoodie",
+            "sweatshirt",
+            "gym_shorts",
+            "shorts",
+            "sneaker",
+        }:
+            return family
+        if family == "sunglasses" and not outdoor:
+            return "sunglasses_without_outdoor_context"
+
+    if occasion_family == "funeral":
+        if family in {"beanie", "cap", "hat", "hoodie", "sweatshirt", "gym_shorts", "shorts"}:
+            return family
+        if family == "sunglasses":
+            return "sunglasses"
+        if family == "sneaker" and not comfort_requested:
+            return "sneaker_without_comfort_context"
+        if any(
+            term in blob
+            for term in (
+                "bright",
+                "festive",
+                "party",
+                "neon",
+                "yellow",
+                "orange",
+                "pink",
+                "gold",
+                "sequin",
+            )
+        ):
+            return "bright_or_festive"
+
+    if occasion_family == "travel":
+        if family == "beanie" and not cold:
+            return "beanie_without_cold_context"
+        if family == "blazer" and not business_travel:
+            return "blazer_without_business_context"
+
+    if occasion_family == "conference":
+        if family in {
+            "beanie",
+            "cap",
+            "hat",
+            "hoodie",
+            "sweatshirt",
+            "gym_shorts",
+            "shorts",
+            "sneaker",
+            "sunglasses",
+        }:
+            return family
+    return ""
+
+
 _ETHNIC_SUBCATS = {
     "kurta", "kurta_set", "kurtaset", "sherwani", "bandhgala", "bandhgalaset",
     "nehrujacket", "nehru_jacket", "waistcoat", "indowestern", "indo_western",
@@ -1284,6 +1466,13 @@ def _asset_allowed_for_context(
     family = _asset_family(asset)
     group = _FAMILY_GROUP.get(family, "")
     target_family = _target_family(target_text)
+    if _occasion_asset_block_reason(
+        asset,
+        occasion=occasion,
+        placement=placement,
+        target_text=target_text,
+    ):
+        return False
     if placement == "hero":
         if group in _HERO_FORBIDDEN_GROUPS:
             return False
@@ -1348,15 +1537,52 @@ def _asset_context_score(
 ) -> int:
     family = _asset_family(asset)
     target_family = _target_family(target_text)
+    occasion_family = _visual_occasion_family(occasion, target_text)
+    blob = _asset_policy_blob(asset)
     bonus = 0
     # Wedding/festive intelligence: strongly prefer ethnic/festive heroes and
     # demote plain Western office formals so a wedding board stops looking like
     # an office board. Scoped to wedding occasions only.
-    if _is_wedding_occasion_policy(occasion):
+    if occasion_family == "indian_festive":
         if _is_ethnic_asset(asset):
             bonus += 30
         elif placement == "hero" and family in {"blazer", "shirt", "polo"}:
             bonus -= 12
+    if occasion_family == "indian_festive":
+        if _is_ethnic_asset(asset):
+            bonus += 20
+        if any(term in blob for term in ("kurta", "sherwani", "bandhgala", "nehru jacket")):
+            bonus += 16
+        if any(term in blob for term in ("mojari", "jutti", "ethnic sandal", "kolhapuri")):
+            bonus += 18
+        if any(
+            color in blob
+            for color in ("cream", "gold", "yellow", "maroon", "ivory", "beige", "navy")
+        ):
+            bonus += 6
+    elif occasion_family == "christian_wedding":
+        if family in {"blazer", "shirt", "trouser", "formal_shoe", "loafer", "tie", "watch"}:
+            bonus += 16
+    elif occasion_family == "funeral":
+        if family in {"blazer", "shirt", "trouser", "formal_shoe", "loafer", "watch"}:
+            bonus += 14
+        if any(color in blob for color in ("black", "charcoal", "navy")):
+            bonus += 10
+    elif occasion_family == "travel":
+        if family in {
+            "sneaker",
+            "loafer",
+            "trouser",
+            "chino",
+            "overshirt",
+            "jacket",
+            "backpack",
+            "duffle_bag",
+        }:
+            bonus += 12
+    elif occasion_family == "conference":
+        if family in {"blazer", "shirt", "trouser", "formal_shoe", "loafer", "belt", "watch"}:
+            bonus += 16
     # Casual/social occasion intelligence (coffee date, first date, brunch,
     # date night). Demote business/formal pieces + beanie/cap, boost relaxed
     # pieces — across hero AND complete placements — unless the user
@@ -1474,7 +1700,7 @@ def _hero_asset_allowed(
     # Blazer"), so the family gate below would reject in-pool ethnic pieces
     # (kurta/bandhgala/sherwani) before they can be scored. Let ethnic assets
     # through for wedding occasions so they compete; scoring then ranks them.
-    if _is_wedding_occasion_policy(occasion) and _is_ethnic_asset(asset):
+    if _visual_occasion_family(occasion) == "indian_festive" and _is_ethnic_asset(asset):
         return True
     hero = _asset_text(direction.get("hero_piece")) or " ".join(
         _safe_list(direction.get("items") or direction.get("pieces"), limit=1)
@@ -2235,6 +2461,7 @@ def _best_style_assets(
     reject_log_cap = 5
     rejected_logged = 0
     rejected_total = 0
+    occasion_blocked: List[str] = []
     for raw_asset in assets:
         asset = dict(raw_asset)
         asset["_allow_feminine_accessory"] = allow_feminine_accessory
@@ -2258,6 +2485,17 @@ def _best_style_assets(
                     asset.get("subcategory"),
                 )
                 rejected_logged += 1
+            continue
+        block_reason = _occasion_asset_block_reason(
+            asset,
+            occasion=occasion,
+            placement=placement,
+            target_text=target_text,
+        )
+        if block_reason:
+            occasion_blocked.append(
+                f"{_asset_text(asset.get('name')) or 'unknown'}:{block_reason}"
+            )
             continue
         # Central policy gate: blocks accessory/travel/grooming heroes,
         # enforces target-family match (oxford never picks t-shirt), and
@@ -2297,6 +2535,12 @@ def _best_style_assets(
             rejected_total - rejected_logged,
         )
     if not candidates:
+        logger.info(
+            "AHVI_ASSET_GUARD occasion=%s family=%s blocked=%s selected=[]",
+            _asset_text(occasion),
+            _visual_occasion_family(occasion, target_text) or "general",
+            occasion_blocked[:8],
+        )
         if not accessory_only and _demo_safe_visuals_enabled():
             logger.info(
                 "AHVI_HERO_ASSET_NO_SAFE_MATCH hero=%r",
@@ -2306,6 +2550,13 @@ def _best_style_assets(
     candidates.sort(key=lambda pair: pair[0], reverse=True)
     if not accessory_only:
         selected = candidates[: max(1, limit)]
+        logger.info(
+            "AHVI_ASSET_GUARD occasion=%s family=%s blocked=%s selected=%s",
+            _asset_text(occasion),
+            _visual_occasion_family(occasion, target_text) or "general",
+            occasion_blocked[:8],
+            [_asset_text(asset.get("name")) for _, asset in selected],
+        )
         for score, asset in selected:
             logger.info(
                 "AHVI_HERO_ASSET_SELECTED hero=%r asset=%r category=%r subcategory=%r score=%s",
@@ -2345,6 +2596,13 @@ def _best_style_assets(
             used_groups.add(group)
             if len(selected) >= max(1, limit):
                 break
+    logger.info(
+        "AHVI_ASSET_GUARD occasion=%s family=%s blocked=%s selected=%s",
+        _asset_text(occasion),
+        _visual_occasion_family(occasion, target_text) or "general",
+        occasion_blocked[:8],
+        [_asset_text(asset.get("name")) for asset in selected[: max(1, limit)]],
+    )
     return selected[: max(1, limit)]
 
 
@@ -2626,17 +2884,30 @@ def _filter_complete_the_look_for_occasion(
     occasion: Any,
     target_gender: str = "unknown",
 ) -> List[Dict[str, Any]]:
-    if not complete or not _is_work_complete_look_occasion(occasion):
+    if not complete:
         return complete or []
     kept: List[Dict[str, Any]] = []
     removed: List[str] = []
     for item in complete:
         if not isinstance(item, dict):
             continue
-        if _work_complete_item_allowed(item):
-            kept.append(item)
-        else:
+        block_reason = _occasion_asset_block_reason(
+            item,
+            occasion=_asset_text(occasion),
+            placement="complete",
+            target_text=_asset_text(item.get("name") or item.get("title")),
+        )
+        if block_reason:
             removed.append(_asset_text(item.get("name") or item.get("title")) or "unknown")
+            continue
+        if (
+            _visual_occasion_family(occasion) != "indian_festive"
+            and _is_work_complete_look_occasion(occasion)
+            and not _work_complete_item_allowed(item)
+        ):
+            removed.append(_asset_text(item.get("name") or item.get("title")) or "unknown")
+            continue
+        kept.append(item)
     if removed or len(kept) != len(complete):
         logger.info(
             "AHVI_COMPLETE_LOOK_FILTERED occasion=%s before=%d after=%d removed=%s",
@@ -2667,6 +2938,38 @@ def _enrich_visual_directions_with_assets(
             allow_feminine=allow_feminine_accessory,
         )
         image_url = _asset_text(out.get("image_url") or out.get("imageUrl"))
+        if image_url and assets:
+            attached_asset_id = _asset_text(out.get("asset_id"))
+            attached_asset = next(
+                (
+                    asset
+                    for asset in assets
+                    if (
+                        attached_asset_id
+                        and _asset_text(asset.get("asset_id") or asset.get("$id"))
+                        == attached_asset_id
+                    )
+                    or _asset_text(asset.get("image_url") or asset.get("imageUrl"))
+                    == image_url
+                ),
+                None,
+            )
+            if attached_asset and not _asset_allowed_for_context(
+                attached_asset,
+                occasion=occasion_text,
+                placement="hero",
+                target_text=_asset_text(out.get("hero_piece")),
+            ):
+                logger.info(
+                    "AHVI_ASSET_GUARD occasion=%s family=%s blocked=%s selected=[]",
+                    occasion_text,
+                    _visual_occasion_family(occasion_text, out.get("hero_piece")) or "general",
+                    [_asset_text(attached_asset.get("name"))],
+                )
+                out.pop("image_url", None)
+                out.pop("imageUrl", None)
+                out.pop("asset_id", None)
+                image_url = ""
         if not image_url and assets:
             asset = _best_style_asset(
                 assets,
@@ -3718,6 +4021,73 @@ def _occasion_voice_note(occasion: Any) -> str:
     return _OCCASION_VOICE.get(key, _DEFAULT_OCCASION_VOICE)
 
 
+def _limit_words(text: Any, limit: int = 18) -> str:
+    words = str(text or "").strip().split()
+    return " ".join(words[:limit]).strip()
+
+
+def _direction_short_note(
+    direction: Dict[str, Any],
+    *,
+    occasion: Any,
+    context_text: Any = "",
+    index: int = 0,
+) -> str:
+    family = _visual_occasion_family(occasion, context_text)
+    hero = _asset_text(direction.get("hero_piece"))
+    archetype = _asset_text(direction.get("archetype") or direction.get("title"))
+    templates: dict[str, tuple[str, ...]] = {
+        "indian_festive": (
+            f"Bright, breathable, and festive around {hero or 'traditional tailoring'}, with enough ease for rituals.",
+            "Traditional polish with celebratory color, kept light enough for a long ceremony.",
+            "Festive texture and confident color create presence without overpowering the celebration.",
+        ),
+        "christian_wedding": (
+            "Ceremony-ready tailoring that feels celebratory, respectful, and comfortable through the reception.",
+            "Classic wedding polish with a lighter touch for photographs, greetings, and a long celebration.",
+            "Refined formal layers keep the mood special without competing with the wedding party.",
+        ),
+        "funeral": (
+            "Respectful and understated, with quiet structure and minimal detail.",
+            "Dark, composed layers keep the focus on the occasion and remain comfortable.",
+            "Simple formal pieces create a dignified look without drawing unnecessary attention.",
+        ),
+        "travel": (
+            "Comfort-first layers that still look sharp when you arrive.",
+            "Easy movement, practical layers, and polished footwear carry this through a long travel day.",
+            "Relaxed structure keeps the outfit comfortable in transit and composed at arrival.",
+        ),
+        "conference": (
+            "Confident structure for the room, relaxed enough for long networking hours.",
+            "Professional lines and comfortable finishing details keep the focus on your presentation.",
+            "Confident, credible tailoring that stays comfortable from the first session through networking.",
+        ),
+    }
+    if family in templates:
+        return _limit_words(templates[family][index % len(templates[family])])
+    occasion_key = _occasion_key_for_editorial(occasion)
+    if occasion_key in {"coffee_date", "coffee", "cafe_date", "first_date", "date"}:
+        coffee_notes = (
+            "Easy, polished, and approachable without looking over-planned.",
+            "Relaxed proportions and considered details make this feel natural, warm, and put-together.",
+            "Quiet polish keeps the look confident while leaving room for an easy conversation.",
+        )
+        return _limit_words(coffee_notes[index % len(coffee_notes)])
+    known_note = _occasion_voice_note(occasion)
+    if known_note != _DEFAULT_OCCASION_VOICE:
+        variants = (
+            known_note,
+            f"{archetype or 'This direction'} keeps the look purposeful, comfortable, and right for the occasion.",
+            f"{hero or 'The hero piece'} gives this direction a distinct, occasion-ready point of view.",
+        )
+        return _limit_words(variants[index % len(variants)])
+    if occasion_key or str(context_text or "").strip():
+        return _limit_words(
+            f"{archetype or 'This direction'} uses {hero or 'considered pieces'} for a clear, occasion-aware point of view."
+        )
+    return _limit_words(_DEFAULT_OCCASION_VOICE)
+
+
 _OCCASION_CURATED_FOR: dict[str, list[str]] = {
     "conference": ["Stage Presence", "Networking", "All-Day Comfort"],
     "conference_talk": ["Stage Presence", "Networking", "All-Day Comfort"],
@@ -4078,12 +4448,14 @@ def _apply_editorial_polish(
     *,
     occasion: Any,
     wardrobe_items: Any,
+    context_text: Any = "",
 ) -> List[Dict[str, Any]]:
     """Decorate each direction with editorial UX fields. Additive only."""
     normalised_wardrobe = _wardrobe_normalised(wardrobe_items)
     has_wardrobe_signal = bool(normalised_wardrobe)
     out: List[Dict[str, Any]] = []
-    for direction in directions or []:
+    used_notes: set[str] = set()
+    for index, direction in enumerate(directions or []):
         if not isinstance(direction, dict):
             out.append(direction)
             continue
@@ -4100,7 +4472,20 @@ def _apply_editorial_polish(
         # short_note leads with the human stylist voice for this occasion so
         # the card never reads like generic LLM prose. The model's reasoning
         # stays available (capped) in why_it_works for detail.
-        polished["short_note"] = _occasion_voice_note(occasion)
+        short_note = _direction_short_note(
+            polished,
+            occasion=occasion,
+            context_text=context_text,
+            index=index,
+        )
+        if short_note in used_notes:
+            short_note = _limit_words(
+                f"{direction_name} gives this board its own practical, occasion-ready character."
+            )
+        used_notes.add(short_note)
+        polished["short_note"] = short_note
+        if _asset_text(polished.get("description")) == _DEFAULT_OCCASION_VOICE:
+            polished["description"] = short_note
         if polished.get("style_note"):
             polished["style_note"] = _two_sentences(polished.get("style_note"), max_chars=120)
         # Ownership truth: only real wardrobe matches count.
@@ -4688,6 +5073,20 @@ def _enrich_missing_piece_with_asset(
     if not missing_piece:
         return None
     out = dict(missing_piece)
+    block_reason = _occasion_asset_block_reason(
+        out,
+        occasion=_asset_text(occasion),
+        placement="missing",
+        target_text=_asset_text(out.get("name") or out.get("category")),
+    )
+    if block_reason:
+        logger.info(
+            "AHVI_ASSET_GUARD occasion=%s family=%s blocked=%s selected=[]",
+            _asset_text(occasion),
+            _visual_occasion_family(occasion, out.get("name")) or "general",
+            [f"{_asset_text(out.get('name')) or 'unknown'}:{block_reason}"],
+        )
+        return None
     if _asset_text(out.get("image_url") or out.get("imageUrl")):
         return out
     rows = assets if isinstance(assets, list) else _style_asset_rows()
@@ -5181,6 +5580,19 @@ def _build_response(
             pairing_gender = "unknown"
     asset_gender = _resolve_asset_gender(query=query, user_profile=user_profile)
     allow_feminine_style = _prompt_allows_gendered_feminine_style(query)
+    asset_occasion = " ".join(
+        dict.fromkeys(
+            str(value).strip()
+            for value in (
+                (context or {}).get("occasion"),
+                payload.get("occasion"),
+                occasion,
+                category,
+                query,
+            )
+            if str(value or "").strip()
+        )
+    )
     goal = str(payload.get("goal") or _fallback_goal(final_mode, category)).strip()
     impression = str(payload.get("impression") or _fallback_impression(category)).strip()
     atmosphere = str(payload.get("atmosphere") or _fallback_atmosphere(category)).strip()
@@ -5244,7 +5656,7 @@ def _build_response(
     visual_directions = _apply_anchor_piece_to_visual_directions(visual_directions, query)
     visual_directions = _enrich_visual_directions_with_assets(
         visual_directions,
-        occasion=str(payload.get("occasion") or occasion or category or query),
+        occasion=asset_occasion,
         target_gender=asset_gender,
         allow_feminine_accessory=allow_feminine_style,
     )
@@ -5256,21 +5668,21 @@ def _build_response(
     what_to_avoid = _safe_list(payload.get("what_to_avoid"), limit=6)
     missing_piece = _enrich_missing_piece_with_asset(
         _build_missing_piece(payload, missing_piece_reasoning),
-        occasion=str(payload.get("occasion") or occasion or category or query),
+        occasion=asset_occasion,
         target_gender=asset_gender,
         allow_feminine=allow_feminine_style,
     )
     missing_piece = _dedupe_missing_piece_against_directions(
         missing_piece,
         visual_directions,
-        occasion=str(payload.get("occasion") or occasion or category or query),
+        occasion=asset_occasion,
         target_gender=asset_gender,
         allow_feminine=allow_feminine_style,
     )
     if missing_piece and not _asset_text(missing_piece.get("image_url") or missing_piece.get("imageUrl")):
         missing_piece = _enrich_missing_piece_with_asset(
             missing_piece,
-            occasion=str(payload.get("occasion") or occasion or category or query),
+            occasion=asset_occasion,
             target_gender=asset_gender,
             allow_feminine=allow_feminine_style,
         )
@@ -5304,6 +5716,7 @@ def _build_response(
         visual_directions,
         occasion=payload.get("occasion") or occasion or category or "",
         wardrobe_items=_wardrobe_for_polish,
+        context_text=query,
     )
     editorial_cover = _build_editorial_cover(
         visual_directions,
