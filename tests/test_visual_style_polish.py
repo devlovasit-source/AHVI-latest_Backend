@@ -1465,3 +1465,53 @@ def test_use_my_wardrobe_for_client_meeting_remains_wardrobe():
 
 def test_pair_anchor_still_routes_to_style_pairing():
     assert classify_style_mode("what to pair with tan espadrilles") == STYLE_PAIRING
+
+
+def test_style_asset_rows_pages_and_deduplicates_later_assets(monkeypatch):
+    from services import appwrite_proxy
+    from services import style_reasoning_engine as engine
+
+    rows = [
+        {
+            "$id": f"asset-{index}",
+            "name": f"Style asset {index}",
+            "category": "top",
+            "image_url": f"https://example.com/{index}.jpg",
+            "gender": "unisex",
+            "status": "active",
+        }
+        for index in range(205)
+    ]
+    rows[201] = {
+        "$id": "kurta-late-page",
+        "name": "Ivory Festive Kurta",
+        "category": "ethnic",
+        "subcategory": "kurta",
+        "image_url": "https://example.com/kurta.jpg",
+        "gender": "male",
+        "status": "active",
+    }
+    rows.insert(100, dict(rows[99]))
+    calls = []
+
+    class FakeProxy:
+        def list_documents(self, resource, *, limit, offset, return_meta):
+            calls.append((resource, limit, offset, return_meta))
+            page = rows[offset : offset + limit]
+            return {
+                "documents": page,
+                "meta": {
+                    "has_more": offset + len(page) < len(rows),
+                    "next_offset": offset + len(page),
+                },
+            }
+
+    monkeypatch.setattr(appwrite_proxy, "AppwriteProxy", FakeProxy)
+
+    assets = engine._style_asset_rows(limit=300)
+    asset_ids = [asset["asset_id"] for asset in assets]
+
+    assert len(calls) == 3
+    assert [offset for _, _, offset, _ in calls] == [0, 100, 200]
+    assert "kurta-late-page" in asset_ids
+    assert len(asset_ids) == len(set(asset_ids))

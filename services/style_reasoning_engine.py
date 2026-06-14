@@ -337,13 +337,64 @@ def _asset_category_terms(asset: Dict[str, Any]) -> set[str]:
     return terms
 
 
-def _style_asset_rows(limit: int = 120) -> List[Dict[str, Any]]:
+def _style_asset_rows(limit: int = 300) -> List[Dict[str, Any]]:
     try:
         from services.appwrite_proxy import AppwriteProxy
 
-        rows = AppwriteProxy().list_documents("style_assets", limit=limit)
-        cleaned = [_normalize_style_asset(row) for row in rows if isinstance(row, dict)]
+        target = max(1, min(int(limit), 300))
+        proxy = AppwriteProxy()
+        rows: List[Dict[str, Any]] = []
+        offset = 0
+        pages = 0
+        while len(rows) < target:
+            page_limit = min(100, target - len(rows))
+            page = proxy.list_documents(
+                "style_assets",
+                limit=page_limit,
+                offset=offset,
+                return_meta=True,
+            )
+            if isinstance(page, dict):
+                page_rows = page.get("documents") or []
+                meta = page.get("meta") if isinstance(page.get("meta"), dict) else {}
+            else:
+                page_rows = page if isinstance(page, list) else []
+                meta = {}
+            page_rows = [row for row in page_rows if isinstance(row, dict)]
+            if not page_rows:
+                break
+            rows.extend(page_rows)
+            pages += 1
+            offset += len(page_rows)
+            if meta and not meta.get("has_more"):
+                break
+            if not meta and len(page_rows) < page_limit:
+                break
+
+        cleaned: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in rows:
+            asset = _normalize_style_asset(row)
+            key = _asset_text(
+                asset.get("asset_id")
+                or asset.get("$id")
+                or asset.get("id")
+                or asset.get("name")
+            ).lower()
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            cleaned.append(asset)
+            if len(cleaned) >= target:
+                break
         _validate_style_assets(cleaned)
+        logger.info(
+            "AHVI_STYLE_ASSETS_LOADED rows=%s pages=%s requested=%s",
+            len(cleaned),
+            pages,
+            target,
+        )
         return cleaned
     except Exception as exc:  # noqa: BLE001
         logger.info("AHVI_STYLE_ASSETS_UNAVAILABLE err=%s", str(exc)[:120])

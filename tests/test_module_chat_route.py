@@ -125,6 +125,41 @@ def _fake_style_pairing_json(prompt, **kwargs):
     )
 
 
+def _fake_visual_first_reasoning(*, query, intent, context, **kwargs):
+    mode = str(intent.get("intent") if isinstance(intent, dict) else intent)
+    assert mode == "visual_inspiration"
+    transition = context.get("multi_event") if isinstance(context, dict) else None
+    directions = [
+        {
+            "title": f"Direction {index}",
+            "archetype": f"Archetype {index}",
+            "description": "A complete image-backed style direction.",
+            "pieces": ["shirt", "trousers", "shoes"],
+            "image_url": f"https://example.com/look-{index}.jpg",
+            "asset_id": f"asset-{index}",
+            "complete_the_look": [],
+        }
+        for index in range(1, 4)
+    ]
+    return {
+        "mode": "visual_inspiration",
+        "occasion": context.get("occasion") if isinstance(context, dict) else "",
+        "advice": "Three visual directions to start from.",
+        "visual_directions": directions,
+        "visual_inspiration_board": {"title": "Visual inspiration", "directions": directions},
+        "transition_plan": transition if isinstance(transition, dict) else None,
+        "is_transition": bool(transition),
+        "cta": [
+            {
+                "label": "Use my wardrobe",
+                "value": f"Use my wardrobe for: {query}",
+            }
+        ],
+        "should_generate_board": False,
+        "should_use_wardrobe": False,
+    }
+
+
 def test_interpreted_occasion_does_not_reclarify():
     assert chat._needs_style_clarification("Office", "office") is False
     assert chat._needs_style_clarification("Casual office wear", "office") is False
@@ -404,6 +439,148 @@ def test_text_chat_visual_inspiration_returns_direction_cards(monkeypatch):
     assert all(direction.get("archetype") for direction in body["data"]["visual_directions"])
     assert len([card for card in body["cards"] if card["type"] == "visual_direction"]) == 3
     assert all(card.get("archetype") for card in body["cards"] if card["type"] == "visual_direction")
+
+
+def test_visual_first_toggle_routes_open_style_prompts_to_image_cards(monkeypatch):
+    monkeypatch.setenv("STYLE_DEFAULT_VISUAL_INSPIRATION", "true")
+    monkeypatch.setattr(chat.style_reasoning_engine, "reason", _fake_visual_first_reasoning)
+    monkeypatch.setattr(
+        chat,
+        "_demo_style_board_payload",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("visual-first prompts must not hit wardrobe generation")
+        ),
+    )
+    client = _text_chat_client_with_user()
+
+    prompts = (
+        "cousin wedding",
+        "conference talk and cocktails",
+        "client meeting tomorrow",
+        "coffee date",
+        "gym then brunch",
+        "airport outfit",
+    )
+    for prompt in prompts:
+        response = client.post(
+            "/api/text",
+            json={
+                "module_context": "style",
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        )
+        body = response.json()
+        direction_cards = [
+            card for card in body.get("cards", []) if card.get("type") == "visual_direction"
+        ]
+
+        assert response.status_code == 200, body
+        assert body["intent"] == "visual_inspiration"
+        assert body["meta"]["style_mode"] == "visual_inspiration"
+        assert len(body["data"]["visual_directions"]) == 3
+        assert len(direction_cards) == 3
+        assert all(card.get("image_url") and card.get("asset_id") for card in direction_cards)
+        if prompt in {"conference talk and cocktails", "gym then brunch"}:
+            assert body["data"]["is_transition"] is True
+            assert body["data"]["transition_plan"]
+
+
+def test_visual_first_toggle_applies_to_module_chat(monkeypatch):
+    monkeypatch.setenv("STYLE_DEFAULT_VISUAL_INSPIRATION", "true")
+    monkeypatch.setattr(chat.style_reasoning_engine, "reason", _fake_visual_first_reasoning)
+    monkeypatch.setattr(
+        chat,
+        "_demo_style_board_payload",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("module style prompt must use visual inspiration")
+        ),
+    )
+    app = FastAPI()
+    app.include_router(chat.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/chat/module-chat",
+        json={
+            "module": "style",
+            "message": "cousin wedding",
+            "history": [],
+            "context_data": {},
+            "user_profile": {},
+        },
+    )
+    body = response.json()
+
+    assert response.status_code == 200, body
+    assert body["intent"] == "visual_inspiration"
+    assert len([card for card in body["cards"] if card["type"] == "visual_direction"]) == 3
+
+
+def test_visual_first_toggle_preserves_explicit_wardrobe_actions(monkeypatch):
+    monkeypatch.setenv("STYLE_DEFAULT_VISUAL_INSPIRATION", "true")
+    captured = []
+
+    def fake_style_payload(user_id, query_text, request_wardrobe, user_profile=None, **kwargs):
+        captured.append((query_text, kwargs.get("style_action")))
+        return {
+            "success": True,
+            "type": "cards",
+            "message": "Wardrobe style board ready.",
+            "cards": [{"id": "look-1", "items": []}],
+            "style_boards": [{"id": "look-1", "items": []}],
+            "chips": [],
+            "data": {"outfits": [{"id": "look-1"}]},
+            "meta": {"mode": "style_flow_service_adapter_v1"},
+        }
+
+    monkeypatch.setattr(chat, "_demo_style_board_payload", fake_style_payload)
+    monkeypatch.setattr(
+        chat.style_reasoning_engine,
+        "reason",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("explicit wardrobe actions must skip inspiration reasoning")
+        ),
+    )
+    client = _text_chat_client_with_user()
+
+    for prompt in (
+        "Use my wardrobe for: coffee date",
+        "Show wardrobe matches for: coffee date",
+        "Build from my wardrobe for: coffee date",
+    ):
+        response = client.post(
+            "/api/text",
+            json={
+                "module_context": "style",
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        )
+        body = response.json()
+        assert response.status_code == 200, body
+        assert body["data"]["intent"] == "wardrobe_style"
+        assert body["meta"]["forced_pipeline"] == "outfit_pipeline"
+
+    assert [action for _, action in captured] == ["use_wardrobe"] * 3
+
+
+def test_visual_first_toggle_excludes_non_generation_style_modes(monkeypatch):
+    monkeypatch.setenv("STYLE_DEFAULT_VISUAL_INSPIRATION", "true")
+
+    excluded = {
+        "What colors suit warm skin?": "color_advice",
+        "What is smart casual?": "style_education",
+        "What to pair with a white shirt?": "style_pairing",
+        "Find missing pieces for this look": "shopping_assist",
+    }
+    for prompt, intent in excluded.items():
+        assert (
+            chat._should_default_visual_inspiration(
+                prompt,
+                intent=intent,
+                module_context="style",
+            )
+            is False
+        )
 
 
 def test_text_chat_explicit_wardrobe_style_still_hits_style_service(monkeypatch):

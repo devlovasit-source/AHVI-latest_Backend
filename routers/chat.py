@@ -1833,6 +1833,8 @@ def _is_use_wardrobe_action(*, action: Any = "", prompt: str = "") -> bool:
     return action_key in {
         "use_wardrobe",
         "use_my_wardrobe",
+        "show_wardrobe_matches",
+        "build_from_my_wardrobe",
         "from_my_wardrobe",
         "with_my_clothes",
         "from_my_closet",
@@ -1840,6 +1842,8 @@ def _is_use_wardrobe_action(*, action: Any = "", prompt: str = "") -> bool:
         (
             "use my wardrobe",
             "use wardrobe",
+            "show wardrobe matches",
+            "build from my wardrobe",
             "from my wardrobe",
             "with my clothes",
             "from my closet",
@@ -1850,7 +1854,7 @@ def _is_use_wardrobe_action(*, action: Any = "", prompt: str = "") -> bool:
 def _wardrobe_action_prompt(prompt: str) -> str:
     text = str(prompt or "").strip()
     cleaned = re.sub(
-        r"^\s*(use\s+my\s+wardrobe|use\s+wardrobe|from\s+my\s+wardrobe|with\s+my\s+clothes|from\s+my\s+closet)\s*(for|with)?\s*:?\s*",
+        r"^\s*(use\s+my\s+wardrobe|use\s+wardrobe|show\s+wardrobe\s+matches|build\s+from\s+my\s+wardrobe|from\s+my\s+wardrobe|with\s+my\s+clothes|from\s+my\s+closet)\s*(for|with)?\s*:?\s*",
         "",
         text,
         flags=re.IGNORECASE,
@@ -1865,6 +1869,89 @@ def _wardrobe_action_prompt(prompt: str) -> str:
     if re.search(r"\b(use my wardrobe|from my wardrobe|with my clothes|from my closet)\b", base, re.I):
         return base
     return f"Use my wardrobe for {base}"
+
+
+def _style_default_visual_inspiration_enabled() -> bool:
+    return os.getenv("STYLE_DEFAULT_VISUAL_INSPIRATION", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _should_default_visual_inspiration(
+    query: str,
+    *,
+    intent: str = "",
+    module_context: str = "",
+    style_action: str = "",
+    multi_event: Optional[Dict[str, Any]] = None,
+) -> bool:
+    if not _style_default_visual_inspiration_enabled():
+        return False
+
+    module = str(module_context or "").strip().lower()
+    action_key = _normalize_action_key(style_action)
+    if (
+        module in {"wardrobe", "closet"}
+        or _is_use_wardrobe_action(action=style_action, prompt=query)
+        or is_wardrobe_style_request(query, module_context=module)
+    ):
+        return False
+
+    if action_key in {
+        "more_options",
+        "more_looks",
+        "next_best_options",
+        "show_closest_option",
+        "closest_option",
+        "retry",
+        "find_missing_pieces",
+        "find_missing_piece",
+        "shopping_assist",
+    }:
+        return False
+
+    resolved_mode = str(intent or "").strip().lower()
+    if resolved_mode not in STYLE_MODES:
+        resolved_mode = classify_style_mode(
+            query,
+            module_context=module,
+            style_action=style_action,
+        )
+    if resolved_mode in {
+        WARDROBE_STYLE,
+        SHOPPING_ASSIST,
+        COLOR_BODY_ADVICE,
+        STYLE_EDUCATION,
+        STYLE_PAIRING,
+        "body_proportion_advice",
+        "color_advice",
+        "occasion_advice",
+    }:
+        return False
+
+    if multi_event:
+        return True
+    if resolved_mode in {
+        STYLE_ADVICE,
+        VISUAL_INSPIRATION,
+        "daily_outfit",
+        "occasion_outfit",
+        "explore_styles",
+    }:
+        return True
+
+    occasion = _ahvi_style_occasion(query)
+    return (
+        module in {"style", "daily_wear"}
+        and (
+            _is_explicit_style_request(query, module)
+            or _is_style_priority_query(query)
+            or occasion != "today"
+        )
+    )
 
 
 def _style_curation_brief(query_text: str, occasion: str) -> Dict[str, Any]:
@@ -3552,6 +3639,49 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
             or request.context_data.get("wardrobe")
             or request.context.get("wardrobe")
         )
+        module_intent_row = detect_intent(user_message)
+        module_intent = str(module_intent_row.get("intent") or "general").strip().lower()
+        visual_first = _should_default_visual_inspiration(
+            user_message,
+            intent=module_intent,
+            module_context=module,
+            multi_event=merged_context.get("multi_event")
+            if isinstance(merged_context.get("multi_event"), dict)
+            else None,
+        )
+        wardrobe_override = _is_use_wardrobe_action(prompt=user_message) or module in {
+            "wardrobe",
+            "closet",
+        }
+        selected_mode = VISUAL_INSPIRATION if visual_first else WARDROBE_STYLE
+        logger.info(
+            "AHVI_VISUAL_FIRST_ROUTE endpoint=module_chat toggle=%s selected_mode=%s intent=%s occasion=%s wardrobe_override=%s",
+            _style_default_visual_inspiration_enabled(),
+            selected_mode,
+            module_intent,
+            _ahvi_style_occasion(user_message),
+            wardrobe_override,
+        )
+        if visual_first:
+            reasoning = style_reasoning_engine.reason(
+                query=user_message,
+                intent={"intent": VISUAL_INSPIRATION, "confidence": 0.95},
+                user_profile=profile,
+                context={
+                    **merged_context,
+                    "module_context": module,
+                    "user_id": user_id,
+                    "occasion": _ahvi_style_occasion(user_message),
+                    "wardrobe": wardrobe if isinstance(wardrobe, list) else [],
+                    "style_action": VISUAL_INSPIRATION,
+                },
+            )
+            return _style_reasoning_chat_response(
+                reasoning,
+                user_message,
+                module,
+                wardrobe=wardrobe if isinstance(wardrobe, list) else [],
+            )
         style_payload = _demo_style_board_payload(
             user_id=user_id or str(profile.get("user_id") or profile.get("$id") or ""),
             query_text=user_message,
@@ -3976,7 +4106,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
     )
     profile_ms = round((time.perf_counter() - profile_started) * 1000, 2)
 
-    # ROUTE PRIORITY (P0): multi_event_style > wardrobe_style > missing_pieces
+    # ROUTE PRIORITY (P0): explicit wardrobe > multi_event_style > missing_pieces
     # > visual_inspiration > style_advice > plan_pack > birthday_workflow.
     # A multi-event style prompt ("office meeting then birthday party") must
     # never be hijacked by the plan_pack / birthday workflow below.
@@ -3986,7 +4116,14 @@ def text_chat(request: TextChatRequest, http_request: Request):
         _multi_event_route = _detect_me(user_input)
     except Exception:  # noqa: BLE001
         _multi_event_route = None
-    if _multi_event_route:
+    _early_wardrobe_override = _is_use_wardrobe_action(
+        action=request.action or request.style_action,
+        prompt=user_input,
+    ) or is_wardrobe_style_request(
+        user_input,
+        module_context=request.module_context or "",
+    )
+    if _multi_event_route and not _early_wardrobe_override:
         logger.info(
             "AHVI_ROUTE_PRIORITY_APPLIED winner=multi_event_style sub_occasions=%s style_strategy=%s",
             _multi_event_route.get("sub_occasions"),
@@ -4059,10 +4196,24 @@ def text_chat(request: TextChatRequest, http_request: Request):
 
     # Multi-event style: force the stylist reasoning path even when the prompt
     # has no explicit "outfit" word ("office meeting then birthday party").
-    if _multi_event_route:
+    if _multi_event_route and not _early_wardrobe_override:
+        _me_visual_first = _should_default_visual_inspiration(
+            user_input,
+            intent=STYLE_ADVICE,
+            module_context=request.module_context or "",
+            style_action=request.style_action or request.action or "",
+            multi_event=_multi_event_route,
+        )
+        _me_mode = VISUAL_INSPIRATION if _me_visual_first else STYLE_ADVICE
+        logger.info(
+            "AHVI_VISUAL_FIRST_ROUTE endpoint=text toggle=%s selected_mode=%s intent=multi_event_style occasion=multi_event wardrobe_override=%s",
+            _style_default_visual_inspiration_enabled(),
+            _me_mode,
+            _early_wardrobe_override,
+        )
         _me_reasoning = style_reasoning_engine.reason(
             query=user_input,
-            intent={"intent": "style_advice", "confidence": 0.9},
+            intent={"intent": _me_mode, "confidence": 0.9},
             user_profile=effective_user_profile,
             context={
                 "module_context": request.module_context or "",
@@ -4072,6 +4223,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 "multi_event": _multi_event_route,
                 "sub_occasions": _multi_event_route.get("sub_occasions"),
                 "style_strategy": _multi_event_route.get("style_strategy"),
+                "style_action": _me_mode if _me_visual_first else "",
             },
         )
         logger.info(
@@ -4337,6 +4489,30 @@ def text_chat(request: TextChatRequest, http_request: Request):
         module_context=request.module_context or "",
         style_action=style_action,
     )
+    visual_first = _should_default_visual_inspiration(
+        english_input,
+        intent=style_mode or intent,
+        module_context=request.module_context or "",
+        style_action=style_action,
+    )
+    wardrobe_override = _is_use_wardrobe_action(
+        action=request.action or request.style_action,
+        prompt=english_input,
+    )
+    selected_mode = VISUAL_INSPIRATION if visual_first else style_mode
+    logger.info(
+        "AHVI_VISUAL_FIRST_ROUTE endpoint=text toggle=%s selected_mode=%s intent=%s occasion=%s wardrobe_override=%s",
+        _style_default_visual_inspiration_enabled(),
+        selected_mode,
+        intent,
+        _ahvi_style_occasion(english_input),
+        wardrobe_override,
+    )
+    reasoning_intent = (
+        {"intent": VISUAL_INSPIRATION, "confidence": 0.95}
+        if visual_first
+        else intent_row
+    )
     _mem = request.current_memory if isinstance(request.current_memory, dict) else {}
     _last_style_context = _mem.get("last_style_context") if isinstance(_mem.get("last_style_context"), dict) else {}
     if _last_style_context.get("last_style_mode") == "style_pairing":
@@ -4348,11 +4524,11 @@ def text_chat(request: TextChatRequest, http_request: Request):
         )
     reasoning = style_reasoning_engine.reason(
         query=english_input,
-        intent=intent_row,
+        intent=reasoning_intent,
         user_profile=effective_user_profile,
         context={
             "module_context": request.module_context or "",
-            "style_action": style_action,
+            "style_action": VISUAL_INSPIRATION if visual_first else style_action,
             "show_closest_option": closest_requested,
             # Real situational data for the Stylist Brain V2 context builder.
             "user_id": user_id,
