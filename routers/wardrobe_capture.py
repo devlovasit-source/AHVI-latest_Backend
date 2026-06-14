@@ -1916,7 +1916,7 @@ def _needs_save_rmbg_cleanup(item: Dict[str, Any]) -> bool:
 async def _save_rmbg_cleanup(items: List[Dict[str, Any]]) -> "tuple[int, int]":
     """Run RMBG on selected raw crops and retain the crop on failure."""
     sem = asyncio.Semaphore(
-        max(1, int(os.getenv("WARDROBE_SAVE_RMBG_PARALLELISM", "3")))
+        max(1, int(os.getenv("WARDROBE_SAVE_RMBG_PARALLELISM", "6")))
     )
 
     async def _one(item: Dict[str, Any]) -> bool:

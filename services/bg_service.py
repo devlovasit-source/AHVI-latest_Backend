@@ -151,6 +151,10 @@ async def remove_bg_bytes(image_bytes: bytes) -> bytes:
                 print("[RMBG ERROR]", res.text[:300])
         except Exception as e:
             print("[RMBG EXCEPTION]", e)
+        # The dedicated RMBG service is authoritative in production. Do not
+        # add another 30-90 seconds of Hugging Face retries to save-selected;
+        # callers already fail open to the original crop.
+        return image_bytes
 
     if not HF_TOKEN:
         print("[BG] HF token missing")
