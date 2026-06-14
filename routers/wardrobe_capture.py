@@ -851,6 +851,12 @@ def _try_upload_inline_images(
         )
         return item
 
+    original_image_url = item.get("image_url") or item.get("imageUrl")
+    preserve_original_image_url = bool(original_image_url) and (
+        item.get("source") == "gemini_multi"
+        or item.get("label_source") == "vision:gemini_multi"
+    )
+
     try:
         file_id = str(item.get("item_id") or uuid.uuid4())
         upload = R2Storage().upload_wardrobe_images(
@@ -860,15 +866,23 @@ def _try_upload_inline_images(
         )
         item["item_id"] = file_id
         item["raw_url"] = upload.get("raw_image_url")
+        item["rawUrl"] = item.get("raw_url")
         item["masked_url"] = upload.get("masked_image_url")
+        item["maskedUrl"] = item.get("masked_url")
         item["normalized_url"] = (
             upload.get("normalized_image_url")
             or upload.get("normalized_url")
             or upload.get("image_url")
             or upload.get("masked_image_url")
         )
-        item["image_url"] = item.get("normalized_url") or item.get("masked_url") or item.get("raw_url")
+        processed_image_url = (
+            item.get("normalized_url") or item.get("masked_url") or item.get("raw_url")
+        )
+        item["image_url"] = (
+            original_image_url if preserve_original_image_url else processed_image_url
+        )
         item["imageUrl"] = item.get("image_url")
+        item["processed_image_url"] = processed_image_url
         item["normalizedUrl"] = item.get("normalized_url")
         item["raw_file_name"] = upload.get("raw_file_name")
         item["masked_file_name"] = upload.get("masked_file_name")
@@ -1884,19 +1898,23 @@ def _needs_save_rmbg_cleanup(item: Dict[str, Any]) -> bool:
     """Gemini multi preview returned a raw crop without RMBG — clean it now."""
     if not isinstance(item, dict):
         return False
-    if not bool(item.get("preview_cutout_pending")):
+    is_gemini_crop = (
+        bool(item.get("preview_cutout_pending"))
+        or item.get("source") == "gemini_multi"
+        or item.get("label_source") == "vision:gemini_multi"
+    )
+    if not is_gemini_crop:
         return False
-    if item.get("masked_url") or item.get("maskedUrl"):
+    if (
+        item.get("imageStatus") == "rmbg_complete"
+        or item.get("image_status") == "rmbg_complete"
+    ):
         return False
     return bool(str(item.get("raw_image_base64") or "").strip())
 
 
 async def _save_rmbg_cleanup(items: List[Dict[str, Any]]) -> "tuple[int, int]":
-    """Run RMBG on raw crops concurrently. Mutates items in place.
-
-    On failure the raw crop stays as the cutout so the upload + save flow
-    proceeds with the raw image — save must never fail because of RMBG.
-    """
+    """Run RMBG on selected raw crops and retain the crop on failure."""
     sem = asyncio.Semaphore(
         max(1, int(os.getenv("WARDROBE_SAVE_RMBG_PARALLELISM", "3")))
     )
@@ -1905,24 +1923,46 @@ async def _save_rmbg_cleanup(items: List[Dict[str, Any]]) -> "tuple[int, int]":
         raw_bytes = _decode_inline_image(item.get("raw_image_base64"))
         if not raw_bytes:
             item["preview_cutout_pending"] = False
+            item["imageStatus"] = "rmbg_failed"
+            item["image_status"] = "rmbg_failed"
+            item["_rmbg_failure_reason"] = "missing_raw_crop"
             return False
+
+        logger.info(
+            "ahvi.capture.save_selected.rmbg_start item_id=%s name=%s category=%s",
+            item.get("item_id"),
+            item.get("name") or item.get("label"),
+            item.get("category"),
+        )
         try:
             async with sem:
                 masked_bytes = await remove_bg_bytes(raw_bytes)
-            if masked_bytes:
-                item["masked_image_base64"] = base64.b64encode(
-                    masked_bytes
-                ).decode("utf-8")
+            if not masked_bytes:
+                raise RuntimeError("rmbg_returned_empty_image")
+            if masked_bytes == raw_bytes:
+                raise RuntimeError("rmbg_returned_original_crop")
+
+            item["masked_image_base64"] = (
+                "data:image/png;base64,"
+                + base64.b64encode(masked_bytes).decode("utf-8")
+            )
             item["preview_cutout_pending"] = False
+            item["imageStatus"] = "rmbg_complete"
+            item["image_status"] = "rmbg_complete"
+            item.pop("_rmbg_failure_reason", None)
             return True
         except Exception as exc:
-            logger.warning(
-                "ahvi.capture.save_rmbg_cleanup.item_failed item_id=%s err=%s",
-                item.get("item_id"),
-                str(exc)[:120],
-            )
-            # Raw crop stays as the cutout — save proceeds with raw image.
+            reason = str(exc)[:160] or exc.__class__.__name__
+            item["masked_image_base64"] = item.get("raw_image_base64")
             item["preview_cutout_pending"] = False
+            item["imageStatus"] = "rmbg_failed"
+            item["image_status"] = "rmbg_failed"
+            item["_rmbg_failure_reason"] = reason
+            logger.warning(
+                "ahvi.capture.save_selected.rmbg_failed item_id=%s reason=%s",
+                item.get("item_id"),
+                reason,
+            )
             return False
 
     results = await asyncio.gather(*[_one(i) for i in items])
@@ -1964,26 +2004,22 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         and _needs_save_rmbg_cleanup(i)
         and (not selected_set or str(i.get("item_id") or "").strip() in selected_set)
     ]
+    cleanup_ok = 0
+    cleanup_failed = 0
     if cleanup_items:
-        logger.info(
-            "ahvi.capture.save_rmbg_cleanup.start selected=%d", len(cleanup_items)
-        )
-        cleanup_started = time.perf_counter()
         try:
             cleanup_ok, cleanup_failed = _run_save_rmbg_cleanup_sync(cleanup_items)
         except Exception as exc:  # noqa: BLE001 - save must never fail on RMBG
             cleanup_ok, cleanup_failed = 0, len(cleanup_items)
             for i in cleanup_items:
                 i["preview_cutout_pending"] = False
+                i["imageStatus"] = "rmbg_failed"
+                i["image_status"] = "rmbg_failed"
+                i["_rmbg_failure_reason"] = str(exc)[:160]
             logger.warning(
-                "ahvi.capture.save_rmbg_cleanup.batch_failed err=%s", str(exc)[:120]
+                "ahvi.capture.save_selected.rmbg_failed item_id=batch reason=%s",
+                str(exc)[:160],
             )
-        logger.info(
-            "ahvi.capture.save_rmbg_cleanup.done success=%d failed=%d elapsed_ms=%d",
-            cleanup_ok,
-            cleanup_failed,
-            int((time.perf_counter() - cleanup_started) * 1000),
-        )
 
     normalized_items: List[Dict[str, Any]] = []
     upload_fixed = 0
@@ -2015,6 +2051,27 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         except Exception as exc:
             item["upload_error"] = str(exc)
 
+        if item.get("imageStatus") == "rmbg_complete":
+            if item.get("masked_url"):
+                item["maskedUrl"] = item.get("masked_url")
+                logger.info(
+                    "ahvi.capture.save_selected.rmbg_complete item_id=%s masked_url=%s",
+                    item.get("item_id"),
+                    item.get("masked_url"),
+                )
+            else:
+                reason = str(item.get("upload_error") or "masked_upload_failed")[:160]
+                item["imageStatus"] = "rmbg_failed"
+                item["image_status"] = "rmbg_failed"
+                item["_rmbg_failure_reason"] = reason
+                cleanup_ok = max(0, cleanup_ok - 1)
+                cleanup_failed += 1
+                logger.warning(
+                    "ahvi.capture.save_selected.rmbg_failed item_id=%s reason=%s",
+                    item.get("item_id"),
+                    reason,
+                )
+
         has_url = bool(
             item.get("raw_url")
             or item.get("rawUrl")
@@ -2029,6 +2086,19 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
             upload_fixed += 1
 
         normalized_items.append(apply_metadata_guard(item, source="save_selected_request"))
+
+    selected_total = (
+        len(selected_set)
+        if selected_set
+        else sum(1 for item in detected_items if isinstance(item, dict))
+    )
+    logger.info(
+        "ahvi.capture.save_selected.rmbg_summary total=%d success=%d failed=%d skipped=%d",
+        selected_total,
+        cleanup_ok,
+        cleanup_failed,
+        max(0, selected_total - len(cleanup_items)),
+    )
 
     result = persist_selected_items(
         user_id=user_id,

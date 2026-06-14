@@ -413,6 +413,9 @@ def test_save_selected_runs_rmbg_for_gemini_multi_items(monkeypatch):
 
     for saved in persisted["detected_items"]:
         assert saved.get("masked_url"), saved.get("item_id")
+        assert saved.get("maskedUrl") == saved.get("masked_url")
+        assert saved.get("imageStatus") == "rmbg_complete"
+        assert saved.get("image_status") == "rmbg_complete"
         assert saved.get("preview_cutout_pending") is False
 
 
@@ -437,6 +440,8 @@ def test_save_selected_survives_rmbg_failure(monkeypatch):
     assert call["masked"] == call["raw"]
     saved = persisted["detected_items"][0]
     assert saved.get("image_url")
+    assert saved.get("imageStatus") == "rmbg_failed"
+    assert saved.get("image_status") == "rmbg_failed"
     assert saved.get("preview_cutout_pending") is False
 
 
