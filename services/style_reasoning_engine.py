@@ -940,6 +940,7 @@ _FAMILY_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("hoodie",), "hoodie"),
     (("sweatshirt",), "sweatshirt"),
     (("knitwear", "knit", "sweater", "cardigan"), "knit"),
+    (("brooch", "pocketsquare", "stole", "dupatta"), "festive_accessory"),
     (("blazer",), "blazer"),
     (("overshirt",), "overshirt"),
     (("jacket",), "jacket"),
@@ -1067,6 +1068,7 @@ _FAMILY_GROUP: dict[str, str] = {
     "scarf": "accessory",
     "tie": "accessory",
     "jewellery": "accessory",
+    "festive_accessory": "accessory",
     "travel": "travel",
     "grooming": "grooming",
     "electronics": "electronics",
@@ -1281,14 +1283,22 @@ def _occasion_asset_block_reason(
             "hat",
             "hoodie",
             "sweatshirt",
+            "knit",
+            "overshirt",
+            "jacket",
+            "blazer",
+            "tshirt",
+            "jeans",
             "gym_shorts",
             "shorts",
             "sneaker",
             "polo",
+            "loafer",
             "backpack",
             "laptop_bag",
             "messenger_bag",
             "briefcase",
+            "cardholder",
             "belt",
         }:
             return family
@@ -1298,8 +1308,16 @@ def _occasion_asset_block_reason(
             term in blob for term in ("oxford", "office", "western", "formal shirt", "button down")
         ):
             return "western_office_shirt"
+        if family == "formal_shoe" and not any(
+            term in blob for term in ("mojari", "jutti", "ethnic", "kolhapuri")
+        ):
+            return "western_formal_shoe"
         if family == "tshirt" and "graphic" in blob:
             return "graphic_tshirt"
+        if family == "jewellery" and not any(
+            term in blob for term in ("festive", "traditional", "brooch", "ring")
+        ):
+            return "generic_jewellery"
         if family == "sandal" and not any(
             term in blob for term in ("ethnic", "festive", "formal", "kolhapuri")
         ):
@@ -1418,6 +1436,8 @@ _MULTI_TOKEN_COMPOUNDS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("sun", "glasses"), "sunglasses"),
     (("baseball", "cap"), "cap"),
     (("knit", "wear"), "knit"),
+    (("nehru", "jacket"), "ethnic"),
+    (("pocket", "square"), "festive_accessory"),
 )
 
 
@@ -1555,9 +1575,25 @@ def _asset_context_score(
             bonus += 16
         if any(term in blob for term in ("mojari", "jutti", "ethnic sandal", "kolhapuri")):
             bonus += 18
+        if family == "festive_accessory" or any(
+            term in blob for term in ("brooch", "pocket square", "festive watch", "festive ring")
+        ):
+            bonus += 14
         if any(
             color in blob
-            for color in ("cream", "gold", "yellow", "maroon", "ivory", "beige", "navy")
+            for color in (
+                "cream",
+                "ivory",
+                "gold",
+                "mustard",
+                "marigold",
+                "yellow",
+                "red",
+                "maroon",
+                "green",
+                "beige",
+                "navy",
+            )
         ):
             bonus += 6
     elif occasion_family == "christian_wedding":
@@ -1881,6 +1917,13 @@ def _missing_piece_reason_for_direction(
     occasion: str = "",
 ) -> str:
     name = _asset_text(missing_name) or "This piece"
+    if _visual_occasion_family(occasion, name) == "indian_festive":
+        occasion_text = _norm(occasion)
+        if "haldi" in occasion_text:
+            return "Completes the festive kurta look while staying comfortable for rituals."
+        if "sangeet" in occasion_text:
+            return "Adds festive structure while keeping movement easy."
+        return "Adds traditional polish without making the outfit feel heavy."
     components = _safe_list(direction.get("items") or direction.get("pieces"), limit=6)
     hero = _asset_text(direction.get("hero_piece")) or (components[0] if components else "the main piece")
     support = components[1] if len(components) > 1 else (components[0] if components else "the outfit")
@@ -1893,6 +1936,65 @@ def _missing_piece_reason_for_direction(
     if formula == ("knit", "tailored_trouser"):
         return f"{name} adds finish to the soft-texture direction and keeps {support.lower()} looking intentional for {occ}."
     return f"{name} strengthens this {occ} look by supporting {hero.lower()} and making the components feel complete."
+
+
+def _festive_missing_piece_replacement(
+    occasion: Any,
+    direction: Dict[str, Any] | None = None,
+    *,
+    target_gender: str = "unknown",
+    allow_feminine: bool = False,
+) -> Dict[str, Any] | None:
+    if _visual_occasion_family(occasion) != "indian_festive":
+        return None
+    occasion_text = _norm(occasion)
+    if "haldi" in occasion_text:
+        candidates = ("Ethnic Mojari Footwear", "Ivory Churidar", "Festive Brooch")
+    elif "sangeet" in occasion_text:
+        candidates = ("Embroidered Nehru Jacket", "Mojari or Jutti", "Festive Brooch")
+    else:
+        candidates = ("Mojari or Jutti", "Embroidered Nehru Jacket", "Festive Brooch")
+    safe_direction = direction if isinstance(direction, dict) else {}
+    components = _safe_list(
+        safe_direction.get("items") or safe_direction.get("pieces"),
+        limit=8,
+    )
+    hero = _asset_text(safe_direction.get("hero_piece"))
+    for name in candidates:
+        if not _style_text_allowed_for_gender(
+            name,
+            target_gender,
+            allow_feminine=allow_feminine,
+        ):
+            continue
+        if safe_direction and _missing_piece_duplicate_reason(
+            name,
+            hero_piece=hero,
+            components=components,
+        ):
+            continue
+        category = _style_category(name)
+        if not category:
+            if any(term in name.lower() for term in ("mojari", "jutti", "footwear")):
+                category = "footwear"
+            elif any(term in name.lower() for term in ("nehru", "jacket")):
+                category = "outerwear"
+            else:
+                category = "accessory"
+        return {
+            "name": name,
+            "category": category,
+            "reason": _missing_piece_reason_for_direction(
+                name,
+                safe_direction,
+                occasion=_asset_text(occasion),
+            ),
+            "unlocks": [
+                _asset_text(safe_direction.get("archetype") or safe_direction.get("title"))
+                or "Festive styling"
+            ],
+        }
+    return None
 
 
 def _palette_terms(value: Any) -> set[str]:
@@ -2187,6 +2289,14 @@ def _fallback_missing_piece_for_direction(
     target_gender: str = "unknown",
     allow_feminine: bool = False,
 ) -> str:
+    festive = _festive_missing_piece_replacement(
+        occasion,
+        direction,
+        target_gender=target_gender,
+        allow_feminine=allow_feminine,
+    )
+    if festive:
+        return _asset_text(festive.get("name"))
     components = _safe_list(direction.get("items") or direction.get("pieces"), limit=6)
     hero = _asset_text(direction.get("hero_piece"))
     if "coffee" in _norm(occasion):
@@ -3877,9 +3987,33 @@ def _validate_visual_direction_consistency(
         name = _asset_text(mp.get("name"))
         reason = _missing_piece_duplicate_reason(name, hero_piece=hero, components=components)
         generic_name = _missing_name_is_generic(name) or _norm(name) in _SPECIFIC_MISSING_NAMES
-        if reason or generic_name or not _style_text_allowed_for_gender(name, target_gender, allow_feminine=allow_feminine):
+        occasion_block = _occasion_asset_block_reason(
+            mp,
+            occasion=occasion,
+            placement="missing",
+            target_text=name,
+        )
+        if (
+            reason
+            or generic_name
+            or occasion_block
+            or not _style_text_allowed_for_gender(
+                name,
+                target_gender,
+                allow_feminine=allow_feminine,
+            )
+        ):
             replacement = ""
-            if generic_name:
+            festive_replacement = _festive_missing_piece_replacement(
+                occasion,
+                out,
+                target_gender=target_gender,
+                allow_feminine=allow_feminine,
+            )
+            if festive_replacement:
+                out["missing_piece"] = festive_replacement
+                replacement = _asset_text(festive_replacement.get("name"))
+            elif generic_name:
                 specific_name = _specific_missing_piece_name(name, out, occasion=occasion)
                 if (
                     specific_name
@@ -3894,16 +4028,18 @@ def _validate_visual_direction_consistency(
                     target_gender=target_gender,
                     allow_feminine=allow_feminine,
                 )
-            if replacement:
+            if replacement and not festive_replacement:
                 out["missing_piece"] = {
                     "name": replacement,
                     "category": _style_category(replacement) or "style piece",
                     "reason": _missing_piece_reason_for_direction(replacement, out, occasion=occasion),
                     "unlocks": [out.get("archetype") or out.get("title") or "Style direction"],
                 }
-            else:
+            elif not replacement:
                 out.pop("missing_piece", None)
-            rewritten_fields.append(f"missing_piece:{reason or ('generic' if generic_name else 'gender')}")
+            rewritten_fields.append(
+                f"missing_piece:{occasion_block or reason or ('generic' if generic_name else 'gender')}"
+            )
         else:
             mp = dict(mp)
             mp["reason"] = _missing_piece_reason_for_direction(name, out, occasion=occasion)
@@ -5080,13 +5216,21 @@ def _enrich_missing_piece_with_asset(
         target_text=_asset_text(out.get("name") or out.get("category")),
     )
     if block_reason:
+        replacement = _festive_missing_piece_replacement(
+            occasion,
+            target_gender=target_gender,
+            allow_feminine=allow_feminine,
+        )
         logger.info(
-            "AHVI_ASSET_GUARD occasion=%s family=%s blocked=%s selected=[]",
+            "AHVI_ASSET_GUARD occasion=%s family=%s blocked=%s selected=%s",
             _asset_text(occasion),
             _visual_occasion_family(occasion, out.get("name")) or "general",
             [f"{_asset_text(out.get('name')) or 'unknown'}:{block_reason}"],
+            [_asset_text(replacement.get("name"))] if replacement else [],
         )
-        return None
+        if not replacement:
+            return None
+        out = replacement
     if _asset_text(out.get("image_url") or out.get("imageUrl")):
         return out
     rows = assets if isinstance(assets, list) else _style_asset_rows()
@@ -5286,10 +5430,25 @@ def _scrub_visible_style_text(text: Any, *, query: str = "") -> str:
     if not out:
         return out
     out = _scrub_internal_style_language(out)
+    festive_context = _visual_occasion_family(query) == "indian_festive"
+    if festive_context and out.strip() == _DEFAULT_OCCASION_VOICE:
+        return "Completes the festive kurta look while staying comfortable for rituals."
     social_replacement = "coffee date" if any(term in _norm(query) for term in ("coffee", "date")) else "social outing"
     out = re.sub(r"\bsocial_occasion\b", social_replacement, out, flags=re.IGNORECASE)
+    out = re.sub(
+        r"\bcustom_occasion\b",
+        "festive ceremony" if festive_context else "casual outing",
+        out,
+        flags=re.IGNORECASE,
+    )
     for pattern, replacement in _VISIBLE_PLACEHOLDER_REPLACEMENTS:
         out = re.sub(pattern, replacement, out, flags=re.IGNORECASE)
+    if festive_context and re.search(
+        r"\b(?:wedding\s+)?haldi ceremony\s+(?:festive ceremony\s+)?(?:casual outing\s+)?haldi look\b",
+        out,
+        flags=re.IGNORECASE,
+    ):
+        out = "Completes the festive kurta look while staying comfortable for rituals."
     return re.sub(r"\s+", " ", out).strip()
 
 

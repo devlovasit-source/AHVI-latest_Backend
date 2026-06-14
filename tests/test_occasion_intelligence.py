@@ -302,3 +302,130 @@ def test_haldi_and_airport_cards_have_distinct_contextual_copy():
         assert len(set(notes)) == 3
         assert all(len(note.split()) <= 18 for note in notes)
         assert all(note != engine._DEFAULT_OCCASION_VOICE for note in notes)
+
+
+def test_haldi_bad_missing_piece_is_replaced_with_festive_piece():
+    missing = engine._enrich_missing_piece_with_asset(
+        {
+            "name": "Olive Cotton Overshirt",
+            "category": "outerwear",
+            "reason": "Adds a useful layer.",
+        },
+        assets=[],
+        occasion="wedding Haldi",
+        target_gender="male",
+    )
+    assert missing is not None
+    assert missing["name"] == "Ethnic Mojari Footwear"
+    assert missing["category"] == "footwear"
+    assert "comfortable for rituals" in missing["reason"]
+
+
+def test_haldi_visual_direction_filters_bad_support_and_missing_piece(monkeypatch):
+    assets = [
+        _asset("Black Beanie", category="accessory", subcategory="beanie"),
+        _asset("Baseball Cap", category="accessory", subcategory="cap"),
+        _asset("Running Sneakers", category="footwear", subcategory="sneaker"),
+        _asset("Office Derby Shoes", category="footwear", subcategory="formal_shoe"),
+        _asset("Western Wallet", category="accessory", subcategory="wallet"),
+        _asset(
+            "Gold Festive Brooch",
+            category="accessory",
+            subcategory="brooch",
+            tags=["festive", "traditional"],
+            colors=["gold"],
+        ),
+        _asset(
+            "Maroon Mojari",
+            category="footwear",
+            subcategory="mojari",
+            tags=["ethnic", "festive"],
+            colors=["maroon"],
+        ),
+    ]
+    monkeypatch.setattr(engine, "_style_asset_rows", lambda limit=120: assets)
+    directions = engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Festive Heritage",
+                "title": "Festive Heritage",
+                "hero_piece": "Marigold Kurta",
+                "items": ["Marigold Kurta", "Ivory Churidar"],
+                "complete_the_look": [
+                    {"name": "Olive Cotton Overshirt", "category": "outerwear"},
+                    {"name": "Blue Oxford Shirt", "category": "top"},
+                    {"name": "Cream Polo", "category": "top"},
+                ],
+                "missing_piece": {
+                    "name": "Olive Cotton Overshirt",
+                    "category": "outerwear",
+                    "reason": "Adds a layer.",
+                },
+            }
+        ],
+        occasion="wedding Haldi",
+        target_gender="male",
+    )
+    card = directions[0]
+    support_names = " ".join(item["name"] for item in card["complete_the_look"]).lower()
+    for blocked in ("beanie", "cap", "sneaker", "overshirt", "oxford", "polo", "wallet", "derby"):
+        assert blocked not in support_names
+    assert any(term in support_names for term in ("brooch", "mojari"))
+    assert card["missing_piece"]["name"] == "Ethnic Mojari Footwear"
+
+
+def test_wedding_guard_allows_ethnic_assets_and_blocks_office_support():
+    allowed = (
+        _asset("Ivory Kurta", category="ethnic", subcategory="kurta"),
+        _asset("Navy Sherwani", category="ethnic", subcategory="sherwani"),
+        _asset("Maroon Bandhgala", category="ethnic", subcategory="bandhgala"),
+        _asset("Gold Jutti", category="footwear", subcategory="jutti", tags=["ethnic"]),
+        _asset("Brown Mojari", category="footwear", subcategory="mojari", tags=["ethnic"]),
+    )
+    blocked = (
+        _asset("Baseball Cap", category="accessory", subcategory="cap"),
+        _asset("Wool Beanie", category="accessory", subcategory="beanie"),
+        _asset("Running Sneakers", category="footwear", subcategory="sneaker"),
+        _asset("Office Wallet", category="accessory", subcategory="wallet"),
+    )
+    assert all(
+        engine._asset_allowed_for_context(
+            asset,
+            occasion="cousin wedding",
+            placement="complete" if asset["category"] != "ethnic" else "hero",
+            target_text="Festive Heritage",
+        )
+        for asset in allowed
+    )
+    assert all(
+        not engine._asset_allowed_for_context(
+            asset,
+            occasion="cousin wedding",
+            placement="complete",
+            target_text="Festive Heritage",
+        )
+        for asset in blocked
+    )
+
+
+def test_airport_policy_still_allows_sneakers_and_bag():
+    for asset in (
+        _asset("Clean Sneakers", category="footwear", subcategory="sneaker"),
+        _asset("Travel Backpack", category="accessory", subcategory="backpack"),
+    ):
+        assert engine._asset_allowed_for_context(
+            asset,
+            occasion="airport outfit",
+            placement="complete",
+            target_text="travel layers",
+        )
+
+
+def test_festive_copy_scrubber_removes_malformed_internal_phrase():
+    malformed = "wedding Haldi Ceremony custom_occasion casual outing haldi look"
+    scrubbed = engine._scrub_visible_style_text(malformed, query="Haldi")
+    lowered = scrubbed.lower()
+    assert scrubbed == "Completes the festive kurta look while staying comfortable for rituals."
+    assert "custom occasion" not in lowered
+    assert "casual outing" not in lowered
+    assert scrubbed != engine._DEFAULT_OCCASION_VOICE
