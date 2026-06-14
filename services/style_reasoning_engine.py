@@ -337,11 +337,17 @@ def _asset_category_terms(asset: Dict[str, Any]) -> set[str]:
     return terms
 
 
-def _style_asset_rows(limit: int = 300) -> List[Dict[str, Any]]:
+_STYLE_ASSET_LOAD_LIMIT = max(300, int(os.getenv("AHVI_STYLE_ASSET_LIMIT", "700")))
+
+
+def _style_asset_rows(limit: int = 0) -> List[Dict[str, Any]]:
     try:
         from services.appwrite_proxy import AppwriteProxy
 
-        target = max(1, min(int(limit), 300))
+        # Catalog grew past 300 once women assets were imported (~500+). The
+        # old hard cap of 300 dropped later pages (the ethnic/festive ones),
+        # so wedding boards never saw sarees/lehengas. Tunable via env.
+        target = max(1, min(int(limit or _STYLE_ASSET_LOAD_LIMIT), _STYLE_ASSET_LOAD_LIMIT))
         proxy = AppwriteProxy()
         rows: List[Dict[str, Any]] = []
         offset = 0
