@@ -112,6 +112,32 @@ _EVENT_LEXICON = (
     ("airport", ("travel", "travel")),
 )
 
+# Higher = higher social/formality risk → leads the styling for a compound
+# prompt. The style_reasoning prompt reads sub_occasions in order, so the
+# dominant event must come first. gym/sports only lead when they're the only
+# event (single-occasion prompts never reach detect_multi_event).
+_EVENT_FORMALITY: Dict[str, int] = {
+    "funeral": 100,
+    "wedding": 92, "reception": 92, "ceremony": 90,
+    "client_presentation": 82, "client_meeting": 80, "interview": 80,
+    "conference": 80, "office_meeting": 72, "office": 70, "work": 70,
+    "date": 66, "drinks": 64,
+    "team_dinner": 60, "dinner": 60, "brunch": 56, "lunch": 56,
+    "concert": 52, "birthday_party": 50, "house_party": 50, "party": 50,
+    "movie": 46,
+    "travel": 30,
+    "basketball_game": 14, "football_game": 14, "soccer_game": 14,
+    "cricket_match": 14, "tennis_match": 14, "sports_game": 14,
+    "workout": 10, "yoga": 10, "run": 10, "sports_practice": 10,
+}
+
+
+def _dominant_occasion(sub_occasions: List[str]) -> str:
+    if not sub_occasions:
+        return ""
+    return max(sub_occasions, key=lambda o: _EVENT_FORMALITY.get(o, 40))
+
+
 _TIME_RE = re.compile(r"\b(\d{1,2})\s*(?::\s*(\d{2}))?\s*([ap])\.?m\.?\b", re.IGNORECASE)
 
 
@@ -170,21 +196,29 @@ def detect_multi_event(query: Any) -> Optional[Dict[str, Any]]:
     categories = [cat for _, _, cat in kept]
     if len(sub_occasions) < 2:
         return None
-    # Explicit "date" wins only if the user actually said date.
+    # time_sequence keeps the real chronological order (as written).
     times = _extract_times(raw)
     time_sequence = [
         {"event": sub_occasions[i], "time": times[i] if i < len(times) else None}
         for i in range(len(sub_occasions))
     ]
+    # Lead the styling with the higher-formality event. The reasoning prompt
+    # reads sub_occasions in order, so a gym/sports event no longer steers a
+    # "gym then brunch" look toward athleisure. Chronology preserved in
+    # time_sequence above.
+    dominant = _dominant_occasion(sub_occasions)
+    ordered = [dominant] + [o for o in sub_occasions if o != dominant]
     result = {
         "occasion": "multi_event",
-        "sub_occasions": sub_occasions,
+        "sub_occasions": ordered,
+        "dominant_occasion": dominant,
         "style_strategy": _strategy_for(categories),
         "time_sequence": time_sequence,
     }
     logger.info(
-        "AHVI_MULTI_EVENT_DETECTED sub_occasions=%s style_strategy=%s",
-        sub_occasions,
+        "AHVI_MULTI_EVENT_DETECTED sub_occasions=%s dominant=%s style_strategy=%s",
+        ordered,
+        dominant,
         result["style_strategy"],
     )
     return result
