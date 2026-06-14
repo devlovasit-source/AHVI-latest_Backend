@@ -671,16 +671,23 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
 
     if _has_any(
         "what to pair with",
+        "what pairs with",
+        "what pairs best with",
+        "what pairs",
+        "what works with",
         "what goes with",
         "how to style",
         "how do i style",
+        "how do i wear",
         "ways to wear",
         "ways to style",
         "how can i wear",
         "what matches",
+        "what should i wear with",
         "style this",
         "pair this with",
         "pair with",
+        "wear with",
     ):
         return {"intent": STYLE_PAIRING, "slots": slots, "confidence": 0.9}
 

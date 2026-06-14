@@ -461,6 +461,25 @@ _SAFE_ACCESSORY_TERMS = {
     "bottle",
     "overshirt",
 }
+# Male-only garments to strip from a FEMALE persona (symmetric to the
+# feminine block above). Kept tight to genuinely male-coded ethnic pieces —
+# "kurta"/"jutti" are unisex (kurti/jutti for women) and stay allowed.
+# Matched as substrings so multi-word terms ("nehru jacket") are caught.
+_FEMALE_BLOCKED_STYLE_TERMS = (
+    "sherwani",
+    "nehru jacket",
+    "bandhgala",
+    "bandi vest",
+    "achkan",
+    "pathani",
+    "kurta pajama",
+    "kurta pyjama",
+    "kurta pajamas",
+    "dhoti",
+    "lungi",
+    "mojari",
+    "safari suit",
+)
 
 
 def _asset_gender(value: Any) -> str:
@@ -541,11 +560,22 @@ def _contains_male_blocked_style_term(value: Any) -> bool:
     return bool(tokens.intersection(_MALE_BLOCKED_STYLE_TERMS))
 
 
+def _contains_female_blocked_style_term(value: Any) -> bool:
+    blob = _norm(value)
+    return any(term in blob for term in _FEMALE_BLOCKED_STYLE_TERMS)
+
+
 def _style_text_allowed_for_gender(value: Any, target_gender: str, *, allow_feminine: bool = False) -> bool:
     if not _asset_text(value):
         return False
     if target_gender in {"male", "unknown", "unisex"} and not allow_feminine:
         if _contains_male_blocked_style_term(value):
+            return False
+    # Symmetric: strip male-only garments (sherwani, nehru jacket, ...) from a
+    # female persona so gender-neutral archetypes carrying male-coded ethnic
+    # items don't leak into women's directions.
+    if target_gender == "female":
+        if _contains_female_blocked_style_term(value):
             return False
     return True
 
@@ -3098,17 +3128,32 @@ def _build_reasoning_prompt(
     style_ctx = style_ctx or {}
     persona = persona or {}
     archetypes = archetypes or []
+    # Resolve a single gender context for every generation branch so archetype
+    # and advice prompts enforce it consistently (prompt override > profile).
+    target_gender = _resolve_asset_gender(query=query, user_profile=user_profile)
     anchor = _extract_pairing_anchor(query) if mode == STYLE_PAIRING else {}
     if mode == STYLE_PAIRING:
         import json as _json
 
-        gender = str(persona.get("gender_profile") or "unknown")
+        gender = str(persona.get("gender_profile") or target_gender or "unknown")
         archetype_names = [a.get("name") for a in archetypes if isinstance(a, dict)]
+        # Gender-filter the archetype item hints fed to the model so a female
+        # persona never receives male-only ethnic pieces (sherwani, nehru
+        # jacket, ...) — and vice-versa for feminine-only items on a male.
+        _allow_fem = target_gender == "female" or _prompt_allows_gendered_feminine_style(query)
+
+        def _gender_items(items):
+            return [
+                _asset_text(it)
+                for it in (items or [])
+                if _style_text_allowed_for_gender(it, target_gender, allow_feminine=_allow_fem)
+            ]
+
         _arch_compact = [
             {
                 "name": a.get("name"),
                 "impression": a.get("impression"),
-                "preferred_items": a.get("preferred_items"),
+                "preferred_items": _gender_items(a.get("preferred_items")),
                 "avoid_items": a.get("avoid_items"),
                 "palette": a.get("palette"),
             }
@@ -3164,9 +3209,12 @@ Rules:
   (set route.archetype to that archetype's exact name). Use evocative titles,
   never "Option 1" / "Casual Look".
 - Persona gender = {gender}. If male: NEVER suggest skirts, dresses, camisoles,
-  heels, or feminine-only silhouettes (unless the user explicitly asked). If
-  female: feminine routes allowed, still respect style DNA. If unknown: keep
-  items gender-neutral (trousers, denim, chinos, shirts, polos, knitwear,
+  heels, sarees, lehengas, or feminine-only silhouettes (unless the user
+  explicitly asked). If female: feminine routes allowed, but NEVER suggest
+  male-only garments (sherwani, nehru jacket, bandhgala, dhoti, kurta-pajama,
+  mojari); use female ethnic equivalents (lehenga, saree, anarkali, kurti,
+  salwar) instead, and still respect style DNA. If unknown: keep items
+  gender-neutral (trousers, denim, chinos, shirts, polos, knitwear,
   overshirts, jackets, sneakers, loafers, boots).
 - Do not mention gender unless relevant. Never assume beyond persona context.
 - persona_fit_reason: one line on why this route suits THIS user.
@@ -3294,6 +3342,15 @@ Writing rules for stylist_reasoning:
 - KEEP IT SHORT: 35-60 words for a normal occasion, max 70 for multi-event.
   No markdown, no headings, no "**Core:**" / "**Presentation Layer:**" labels,
   no bullet lists. One tight paragraph.
+
+Gender context (obey for every piece, palette, and missing_piece): persona
+gender = {target_gender}. If male: NEVER suggest skirts, dresses, blouses,
+heels, sarees, lehengas, or feminine-only silhouettes unless the user
+explicitly asked. If female: feminine pieces allowed, but NEVER suggest
+male-only garments (sherwani, nehru jacket, bandhgala, dhoti, kurta-pajama,
+mojari) — use female ethnic equivalents (lehenga, saree, anarkali, kurti,
+salwar). If unknown: keep every piece gender-neutral. Do not mention gender
+unless relevant.
 
 Wardrobe grounding: if the style context shows wardrobe_available with items,
 do NOT describe a garment as owned ("wear your suit") unless that garment
@@ -4111,17 +4168,30 @@ def _normalize_visual_directions(
             arch_name = str(arch.get("name") or "").strip()
             if arch_name:
                 raw_archetype = str((source or {}).get("archetype") or "").strip() if isinstance(source, dict) else ""
-                direction["archetype"] = arch_name
-                direction["impression"] = ", ".join(str(x) for x in (arch.get("impression") or []) if str(x).strip())
-                direction["style_keywords"] = [str(x) for x in (arch.get("style_keywords") or []) if str(x).strip()][:5]
+                # Preserve a meaningful generated archetype (e.g. Gemini returns
+                # "Church Formal"). Only fall back to the library archetype when
+                # the model gave us nothing usable. Blindly overwriting collapsed
+                # varied directions into the same handful of library labels.
+                keep_generated = bool(raw_archetype) and _norm(raw_archetype) not in {
+                    "general", "default", "none", "unknown", "n/a",
+                }
+                applied = raw_archetype if keep_generated else arch_name
+                direction["archetype"] = applied
+                # Enrich from the library archetype only where the generated
+                # direction is missing fields — don't clobber good model output.
+                if not direction.get("impression"):
+                    direction["impression"] = ", ".join(str(x) for x in (arch.get("impression") or []) if str(x).strip())
+                if not direction.get("style_keywords"):
+                    direction["style_keywords"] = [str(x) for x in (arch.get("style_keywords") or []) if str(x).strip()][:5]
                 if not direction.get("palette"):
                     direction["palette"] = [str(x) for x in (arch.get("palette") or []) if str(x).strip()][:5]
                 direction["why_this_works"] = direction.get("why_it_works") or direction.get("style_note") or ""
                 logger.info(
-                    "AHVI_VISUAL_ARCHETYPE_APPLIED index=%d requested=%r applied=%r title=%r",
+                    "AHVI_VISUAL_ARCHETYPE_APPLIED index=%d requested=%r applied=%r kept_generated=%s title=%r",
                     idx,
                     raw_archetype,
-                    arch_name,
+                    applied,
+                    keep_generated,
                     direction.get("title"),
                 )
         out.append(direction)
@@ -4494,15 +4564,17 @@ def _gemini_reasoning(
             # selection and emits a misleading AHVI_STYLE_PAIRING_ANCHOR log.
             _anchor = _extract_pairing_anchor(query) if mode == STYLE_PAIRING else {}
             _dna_raw = _uprof.get("style_dna") or _uprof.get("styleDNA") or {}
+            _gender = _resolve_asset_gender(query=query, user_profile=_uprof)
             selected_archetypes = select_archetypes(
                 anchor=_anchor,
                 occasion=str(context.get("occasion") or category or ""),
                 style_keywords=persona.get("style_dna") or [],
                 style_dna=_dna_raw if isinstance(_dna_raw, dict) else {},
+                gender=_gender,
             )
             logger.info(
                 "AHVI_PERSONAL_STYLIST_CONTEXT_BUILT gender=%s archetypes=%s",
-                persona.get("gender_profile"), [a.get("name") for a in selected_archetypes],
+                _gender, [a.get("name") for a in selected_archetypes],
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("ahvi.pairing_persona_failed err=%s", str(exc)[:140])

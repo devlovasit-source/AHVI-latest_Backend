@@ -144,16 +144,23 @@ def is_style_pairing_request(text: Any) -> bool:
         q,
         (
             "what to pair with",
+            "what pairs with",
+            "what pairs best with",
+            "what pairs",
+            "what works with",
             "what goes with",
             "how to style",
             "how do i style",
+            "how do i wear",
             "ways to wear",
             "ways to style",
             "how can i wear",
             "what matches",
+            "what should i wear with",
             "style this",
             "pair this with",
             "pair with",
+            "wear with",
         ),
     )
 
@@ -1141,7 +1148,127 @@ ARCHETYPE_LIBRARY = [
      "best_for": ["dinner", "smart casual", "evening"], "preferred_items": ["fine knit", "tailored trousers", "loafers", "overshirt"],
      "avoid_items": ["overdone layering"], "palette": ["stone", "navy", "brown"], "gender_fit": "neutral",
      "style_keywords": ["effortless", "refined", "minimal"]},
+
+    # --- Festive / ethnic / ceremony archetypes -------------------------------
+    # Added so cultural occasions (haldi, mehendi, sangeet, reception, church
+    # wedding, temple, funeral) have real candidates instead of collapsing onto
+    # the Western list-head (Quiet Luxury / Creative Executive / Modern Professional).
+    {"name": "Festive Heritage", "impression": ["celebratory", "rooted"], "formality": 7,
+     "best_for": ["wedding", "reception", "sangeet", "festive", "diwali"], "preferred_items": ["bandhgala", "silk kurta", "nehru jacket", "embroidered jacket", "mojari"],
+     "avoid_items": ["western suit", "sneakers"], "palette": ["maroon", "gold", "ivory", "deep green"], "gender_fit": "neutral",
+     "style_keywords": ["festive", "ethnic", "heritage", "traditional"]},
+    {"name": "Refined Traditional", "impression": ["understated", "elegant"], "formality": 6,
+     "best_for": ["wedding", "engagement", "temple", "festive", "puja"], "preferred_items": ["linen kurta", "nehru jacket", "tailored kurta", "churidar", "loafers"],
+     "avoid_items": ["loud sequins", "athleisure"], "palette": ["ivory", "sand", "muted gold", "sage"], "gender_fit": "neutral",
+     "style_keywords": ["traditional", "ethnic", "understated", "refined"]},
+    {"name": "Celebration Kurta", "impression": ["warm", "approachable"], "formality": 5,
+     "best_for": ["haldi", "mehendi", "festive", "daytime celebration", "puja"], "preferred_items": ["cotton kurta", "kurta pajama", "printed kurta", "kolhapuri sandals"],
+     "avoid_items": ["heavy embroidery", "dark suiting"], "palette": ["yellow", "ochre", "white", "coral"], "gender_fit": "neutral",
+     "style_keywords": ["festive", "daytime", "kurta", "ethnic", "relaxed"]},
+    {"name": "Sunlit Traditional", "impression": ["fresh", "celebratory"], "formality": 5,
+     "best_for": ["haldi", "mehendi", "daytime", "garden", "festive"], "preferred_items": ["light kurta", "linen kurta", "bandi vest", "mojari", "kolhapuri sandals"],
+     "avoid_items": ["heavy layers", "dark palette"], "palette": ["marigold", "ivory", "mint", "peach"], "gender_fit": "neutral",
+     "style_keywords": ["daytime", "festive", "bright", "ethnic"]},
+    {"name": "Wedding Day Ease", "impression": ["composed", "celebratory"], "formality": 6,
+     "best_for": ["wedding", "reception", "festive", "guest"], "preferred_items": ["silk kurta", "nehru jacket", "tailored trousers", "loafers", "embroidered stole"],
+     "avoid_items": ["casual tee", "sportswear"], "palette": ["champagne", "navy", "wine", "gold"], "gender_fit": "neutral",
+     "style_keywords": ["wedding", "festive", "guest", "elevated"]},
+    {"name": "Sangeet Statement", "impression": ["expressive", "festive"], "formality": 6,
+     "best_for": ["sangeet", "reception", "party", "evening", "festive"], "preferred_items": ["embroidered jacket", "velvet bandi", "silk kurta", "loafers"],
+     "avoid_items": ["plain office wear"], "palette": ["emerald", "wine", "ink", "gold"], "gender_fit": "neutral",
+     "style_keywords": ["festive", "statement", "evening", "ethnic"]},
+    {"name": "Church Formal", "impression": ["dignified", "polished"], "formality": 8,
+     "best_for": ["church wedding", "christian wedding", "ceremony", "formal"], "preferred_items": ["two-piece suit", "crisp shirt", "tie", "oxfords", "pocket square"],
+     "avoid_items": ["denim", "sneakers", "loud print"], "palette": ["navy", "charcoal", "white", "burgundy"], "gender_fit": "neutral",
+     "style_keywords": ["formal", "ceremony", "suit", "classic"]},
+    {"name": "Understated Elegance", "impression": ["refined", "quiet"], "formality": 8,
+     "best_for": ["ceremony", "funeral", "formal", "church wedding"], "preferred_items": ["dark suit", "fine shirt", "leather oxfords", "tie"],
+     "avoid_items": ["bright color", "casual fabric"], "palette": ["charcoal", "black", "slate", "white"], "gender_fit": "neutral",
+     "style_keywords": ["formal", "restrained", "elegant", "ceremony"]},
+    {"name": "Modern Gentleman", "impression": ["sharp", "warm"], "formality": 7,
+     "best_for": ["christian wedding", "ceremony", "evening", "guest"], "preferred_items": ["soft-tailored suit", "knit tie", "loafers", "fine shirt"],
+     "avoid_items": ["sportswear", "heavy logos"], "palette": ["navy", "sage", "tan", "white"], "gender_fit": "neutral",
+     "style_keywords": ["formal", "modern", "ceremony", "tailored"]},
+    {"name": "Temple Modest", "impression": ["calm", "respectful"], "formality": 5,
+     "best_for": ["temple", "puja", "modest", "daytime", "festive"], "preferred_items": ["cotton kurta", "linen shirt", "churidar", "loafers", "mojari"],
+     "avoid_items": ["shorts", "sleeveless", "loud print"], "palette": ["white", "ivory", "saffron", "sand"], "gender_fit": "neutral",
+     "style_keywords": ["modest", "temple", "traditional", "covered"]},
 ]
+
+# Occasion-family resolver: maps a raw or canonical occasion string to a family
+# whose candidate archetype pool is ranked first. This is what stops the
+# substring-zero-score collapse — without a family hit every archetype scored 0
+# and Python's stable sort handed back the list head every time.
+_OCCASION_FAMILY_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    # Order matters: more specific cultural cues win over the generic "wedding".
+    (("christian wedding", "church wedding", "church", "cathedral", "white wedding"), "christian_ceremony"),
+    (("funeral", "memorial", "condolence", "prayer meeting"), "somber_formal"),
+    (("temple", "puja", "pooja", "mandir", "darshan"), "temple_modest"),
+    (("haldi", "mehendi", "mehndi"), "festive_daytime"),
+    (("sangeet", "cocktail sangeet"), "festive_evening"),
+    (("reception", "engagement", "roka", "wedding", "shaadi", "baraat",
+      "diwali", "eid", "navratri", "festive", "festival", "ethnic"), "festive_general"),
+    # Western occasion families — also pooled so they draw from intentional
+    # candidates instead of falling to seeded-tiebreak noise when no keyword
+    # substring matches (e.g. "conference", "date night" scored 0 everywhere).
+    (("conference", "seminar", "keynote", "presentation", "interview", "client meeting",
+      "business meeting", "office meeting", "boardroom", "office", "work"), "professional"),
+    (("date", "romantic", "dinner date", "anniversary"), "evening_date"),
+    (("party", "club", "cocktail", "night out", "nightout", "celebration drinks"), "social_party"),
+    (("beach", "resort", "vacation", "holiday", "poolside"), "resort_summer"),
+    (("travel", "airport", "trip", "commute"), "travel_easy"),
+    (("brunch", "coffee", "weekend", "casual", "daily", "everyday"), "relaxed_casual"),
+)
+
+# Each family lists its candidate archetypes in priority order. Members are
+# boosted above the rest of the library; ties inside the pool break by an
+# occasion-seeded hash so different occasions don't all collapse to one head.
+_FAMILY_ARCHETYPE_POOL: Dict[str, tuple[str, ...]] = {
+    "festive_daytime": ("Sunlit Traditional", "Celebration Kurta", "Refined Traditional",
+                        "Festive Heritage", "Wedding Day Ease"),
+    "festive_evening": ("Sangeet Statement", "Festive Heritage", "Wedding Day Ease",
+                        "Refined Traditional", "Celebration Kurta"),
+    "festive_general": ("Festive Heritage", "Refined Traditional", "Wedding Day Ease",
+                        "Celebration Kurta", "Sangeet Statement", "Sunlit Traditional"),
+    "christian_ceremony": ("Church Formal", "Modern Gentleman", "Understated Elegance",
+                           "Contemporary Classic", "Modern Professional"),
+    "somber_formal": ("Understated Elegance", "Quiet Luxury", "Contemporary Classic",
+                      "Modern Professional"),
+    "temple_modest": ("Temple Modest", "Refined Traditional", "Celebration Kurta",
+                      "Sunlit Traditional"),
+    "professional": ("Modern Professional", "Approachable Executive", "Relaxed Executive",
+                     "Contemporary Classic", "Soft Power"),
+    "evening_date": ("Modern Romantic", "Smart Casual Edge", "Effortless Sophistication",
+                     "Power Casual", "Gallery Night"),
+    "social_party": ("Monochrome Dressing", "Gallery Night", "Smart Casual Edge",
+                     "Power Casual", "Off-Duty Tailoring"),
+    "resort_summer": ("Italian Summer", "Resort Sophisticate", "Coastal Minimalist",
+                      "Elevated Essentials"),
+    "travel_easy": ("Travel Uniform", "Urban Minimalist", "Scandinavian Minimalist",
+                    "Elevated Essentials"),
+    "relaxed_casual": ("Refined Weekend", "Elevated Essentials", "Polished Casual",
+                       "Creative Casual", "Weekend Explorer"),
+}
+
+_ARCHETYPE_BY_NAME = {a["name"]: a for a in ARCHETYPE_LIBRARY}
+
+
+def _resolve_occasion_family(occasion: str) -> str:
+    """Map an occasion string (raw 'haldi' or canonical 'wedding') to a family
+    key with a candidate archetype pool. Returns '' when no cultural/ceremony
+    family applies (the Western library handles those via normal scoring)."""
+    o = _norm(occasion)
+    if not o:
+        return ""
+    for needles, family in _OCCASION_FAMILY_RULES:
+        if any(n in o for n in needles):
+            return family
+    return ""
+
+
+def _occasion_pool(occasion: str) -> tuple[str, ...]:
+    family = _resolve_occasion_family(occasion)
+    return _FAMILY_ARCHETYPE_POOL.get(family, ())
 
 # Feminine-only items to strip for a male persona (unless explicitly asked).
 FEMININE_ONLY_ITEMS = (
@@ -1194,11 +1321,35 @@ def _archetype_score(arch, *, anchor_blob, occasion, style_keywords, formality_h
     return score
 
 
+def _tiebreak_seed(occasion: str, name: str) -> int:
+    """Deterministic, occasion-seeded tiebreak. Replaces list-order tie-breaking
+    so equal-scoring archetypes don't always collapse to the library head."""
+    import hashlib
+    h = hashlib.md5(f"{_norm(occasion)}|{_norm(name)}".encode("utf-8")).hexdigest()
+    return int(h[:8], 16)
+
+
+def _archetype_allowed_for_gender(arch: Dict[str, Any], gender: str) -> bool:
+    """Drop archetypes whose gender_fit conflicts with a known persona gender.
+    Neutral archetypes always pass; unknown gender disables the filter."""
+    g = _norm(gender)
+    if g not in {"male", "female"}:
+        return True
+    fit = _norm(arch.get("gender_fit") or "neutral")
+    return fit in {"", "neutral", "unisex", g}
+
+
 def select_archetypes(*, anchor=None, occasion="", style_keywords=None,
-                      formality_hint=0, style_dna=None, limit=5):
-    """Select 4-5 best archetypes. Library is gender-neutral; persona filtering
-    happens at the item level. style_dna re-ranks so the same anchor produces
-    different routes for minimalist vs creative users."""
+                      formality_hint=0, style_dna=None, gender="unknown", limit=5):
+    """Select 4-5 best archetypes.
+
+    occasion -> occasion family -> candidate archetype pool -> ranked.
+    A resolved family pool (e.g. haldi -> festive_daytime) is ranked first so
+    cultural occasions stop collapsing onto the Western list head. style_dna
+    re-ranks within that so the same occasion still personalises per user.
+    gender enforces persona context — archetypes whose gender_fit conflicts
+    are dropped before ranking.
+    """
     anchor = anchor or {}
     anchor_blob = " ".join(
         str(anchor.get(k) or "") for k in ("name", "category", "color")
@@ -1207,15 +1358,34 @@ def select_archetypes(*, anchor=None, occasion="", style_keywords=None,
     kws = [k for k in (style_keywords or []) if k]
     dna = style_dna if isinstance(style_dna, dict) else {}
     has_dna = bool(dna.get("aesthetics") or dna.get("style_archetypes") or dna.get("preferred_palette") or dna.get("silhouettes"))
-    ranked = sorted(
-        ARCHETYPE_LIBRARY,
-        key=lambda a: _archetype_score(
+
+    candidates = [a for a in ARCHETYPE_LIBRARY if _archetype_allowed_for_gender(a, gender)]
+    pool = _occasion_pool(occasion)
+    pool_rank = {name: i for i, name in enumerate(pool)}
+
+    def _sort_key(a):
+        name = a.get("name") or ""
+        base = _archetype_score(
             a, anchor_blob=anchor_blob, occasion=occ, style_keywords=kws,
             formality_hint=formality_hint, style_dna=dna,
-        ),
-        reverse=True,
-    )
+        )
+        in_pool = name in pool_rank
+        # Pool members first (priority order), then DNA/occasion score, then a
+        # deterministic seeded tiebreak — never raw list order.
+        return (
+            0 if in_pool else 1,
+            pool_rank.get(name, 0),
+            -base,
+            _tiebreak_seed(occ, name),
+        )
+
+    ranked = sorted(candidates, key=_sort_key)
     chosen = ranked[: max(4, min(int(limit), 5))]
+    if pool:
+        _archetype_logger.info(
+            "AHVI_ARCHETYPE_FAMILY occasion=%s family=%s pool=%s",
+            occ, _resolve_occasion_family(occasion), list(pool),
+        )
     if has_dna:
         _archetype_logger.info("AHVI_STYLE_DNA_APPLIED aesthetics=%s palette=%s", dna.get("aesthetics") or dna.get("style_archetypes"), dna.get("preferred_palette") or dna.get("preferred_colors"))
         _archetype_logger.info("AHVI_ARCHETYPE_RERANKED names=%s", [a["name"] for a in chosen])
