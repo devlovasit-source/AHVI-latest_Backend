@@ -1136,6 +1136,41 @@ def _is_casual_social_policy(occasion: str) -> bool:
     return key in {_policy_occasion_key(o) for o in _CASUAL_SOCIAL_OCCASIONS}
 
 
+_WEDDING_OCCASION_TERMS = (
+    "wedding", "reception", "sangeet", "haldi", "mehendi", "mehndi",
+    "engagement", "baraat", "shaadi", "nikah", "festive", "varmala", "roka",
+)
+
+
+def _is_wedding_occasion_policy(occasion: str) -> bool:
+    text = str(occasion or "").lower().replace("_", " ")
+    return any(term in text for term in _WEDDING_OCCASION_TERMS)
+
+
+_ETHNIC_SUBCATS = {
+    "kurta", "kurta_set", "kurtaset", "sherwani", "bandhgala", "bandhgalaset",
+    "nehrujacket", "nehru_jacket", "waistcoat", "indowestern", "indo_western",
+    "achkan", "ethnic",
+}
+
+
+def _is_ethnic_asset(asset: Dict[str, Any]) -> bool:
+    if not isinstance(asset, dict):
+        return False
+    cat = _asset_text(asset.get("category")).lower()
+    sub = _asset_text(asset.get("subcategory")).lower().replace(" ", "_")
+    if cat == "ethnic":
+        return True
+    if sub in _ETHNIC_SUBCATS:
+        return True
+    blob = (
+        _asset_text(asset.get("name")).lower()
+        + " "
+        + " ".join(_asset_list(asset.get("tags"))).lower()
+    )
+    return any(t in blob for t in ("kurta", "sherwani", "bandhgala", "festive", "nehru"))
+
+
 def _demo_safe_visuals_enabled() -> bool:
     return str(os.getenv("AHVI_DEMO_SAFE_VISUALS", "true")).strip().lower() not in {
         "0",
@@ -1278,6 +1313,14 @@ def _asset_context_score(
     family = _asset_family(asset)
     target_family = _target_family(target_text)
     bonus = 0
+    # Wedding/festive intelligence: strongly prefer ethnic/festive heroes and
+    # demote plain Western office formals so a wedding board stops looking like
+    # an office board. Scoped to wedding occasions only.
+    if _is_wedding_occasion_policy(occasion):
+        if _is_ethnic_asset(asset):
+            bonus += 30
+        elif placement == "hero" and family in {"blazer", "shirt", "polo"}:
+            bonus -= 12
     # Casual/social occasion intelligence (coffee date, first date, brunch,
     # date night). Demote business/formal pieces + beanie/cap, boost relaxed
     # pieces — across hero AND complete placements — unless the user
@@ -1388,7 +1431,15 @@ def _asset_matches_hero_slot(asset: Dict[str, Any], expected_slot: str | None, h
     return True
 
 
-def _hero_asset_allowed(asset: Dict[str, Any], direction: Dict[str, Any]) -> bool:
+def _hero_asset_allowed(
+    asset: Dict[str, Any], direction: Dict[str, Any], occasion: str = ""
+) -> bool:
+    # Wedding/festive: the LLM direction's hero is usually Western ("Gray
+    # Blazer"), so the family gate below would reject in-pool ethnic pieces
+    # (kurta/bandhgala/sherwani) before they can be scored. Let ethnic assets
+    # through for wedding occasions so they compete; scoring then ranks them.
+    if _is_wedding_occasion_policy(occasion) and _is_ethnic_asset(asset):
+        return True
     hero = _asset_text(direction.get("hero_piece")) or " ".join(
         _safe_list(direction.get("items") or direction.get("pieces"), limit=1)
     )
@@ -2160,7 +2211,7 @@ def _best_style_assets(
         is_accessory = bool(asset_terms.intersection({"accessory", "footwear"}))
         if accessory_only != is_accessory:
             continue
-        if not accessory_only and not _hero_asset_allowed(asset, direction):
+        if not accessory_only and not _hero_asset_allowed(asset, direction, occasion):
             rejected_total += 1
             if rejected_logged < reject_log_cap:
                 logger.info(
