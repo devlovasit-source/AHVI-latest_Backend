@@ -1506,8 +1506,22 @@ def _ahvi_style_occasion(query_text):
         return "beach"
     if any(k in q for k in ["gym", "workout", "fitness", "training", "yoga"]):
         return "workout"
-    if any(k in q for k in ["wedding", "reception", "ceremony", "sangeet"]):
+    if any(
+        k in q
+        for k in [
+            # Indian wedding + festive ceremonies → wedding occasion so the
+            # ethnic/festive asset boost + men's festive text guard fire.
+            "wedding", "reception", "ceremony", "sangeet", "haldi", "mehendi",
+            "mehndi", "engagement", "shaadi", "baraat", "roka", "nikah",
+            "varmala", "diwali", "eid", "navratri", "holi", "pongal", "onam",
+            "festive", "festival",
+        ]
+    ):
         return "wedding"
+    if any(k in q for k in ["funeral", "memorial", "condolence", "wake"]):
+        return "funeral"
+    if any(k in q for k in ["temple", "mandir", "puja", "pooja", "darshan", "shrine"]):
+        return "temple_modest"
     if any(k in q for k in ["date", "dinner", "night"]):
         return "date night"
     # Office ONLY on explicit work signals — never as a generic-daily fallback.

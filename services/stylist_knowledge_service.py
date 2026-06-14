@@ -344,6 +344,33 @@ def is_style_advice_request(text: Any) -> bool:
         "panel discussion",
         "panel",
         "keynote",
+        # Indian wedding / cultural / festive ceremonies — bare 1-2 word
+        # prompts ("Haldi", "Sangeet", "Diwali party") must reach the visual
+        # stylist path, not general chat.
+        "haldi",
+        "mehendi",
+        "mehndi",
+        "sangeet",
+        "engagement",
+        "reception",
+        "shaadi",
+        "baraat",
+        "roka",
+        "nikah",
+        "diwali",
+        "eid",
+        "navratri",
+        "holi",
+        "pongal",
+        "onam",
+        "festive",
+        "festival",
+        "puja",
+        "pooja",
+        "mandir",
+        "darshan",
+        "memorial",
+        "condolence",
     )
     if _has_any(q, compact_markers) and _has_any(q, occasionish):
         return True
