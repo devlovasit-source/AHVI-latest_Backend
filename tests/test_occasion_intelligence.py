@@ -429,3 +429,74 @@ def test_festive_copy_scrubber_removes_malformed_internal_phrase():
     assert "custom occasion" not in lowered
     assert "casual outing" not in lowered
     assert scrubbed != engine._DEFAULT_OCCASION_VOICE
+
+
+def test_haldi_support_blocks_flip_flops_boots_relaxed_shirt_aviators_and_wallet():
+    blocked_assets = (
+        _asset("Leather Flip Flops", category="footwear", subcategory="flip_flops"),
+        _asset("Brown Suede Boots", category="footwear", subcategory="boots"),
+        _asset("Relaxed Linen Shirt", category="top", subcategory="shirt"),
+        _asset("Gold Aviators", category="accessory", subcategory="aviators"),
+        _asset("Western Wallet", category="accessory", subcategory="wallet"),
+    )
+    for asset in blocked_assets:
+        assert not engine._asset_allowed_for_context(
+            asset,
+            occasion="Haldi wedding",
+            placement="complete",
+            target_text="Festive Heritage",
+        )
+
+
+def test_haldi_returns_fewer_support_items_when_only_bad_options_exist(monkeypatch):
+    monkeypatch.setattr(engine, "_style_asset_rows", lambda limit=120: [])
+    directions = engine._enrich_visual_directions_with_assets(
+        [
+            {
+                "archetype": "Festive Heritage",
+                "title": "Festive Heritage",
+                "hero_piece": "Yellow Kurta",
+                "items": ["Yellow Kurta", "Ivory Churidar"],
+                "complete_the_look": [
+                    {"name": "Leather Flip Flops", "category": "footwear"},
+                    {"name": "Brown Suede Boots", "category": "footwear"},
+                    {"name": "Gold Aviators", "category": "accessory"},
+                ],
+            }
+        ],
+        occasion="Haldi wedding",
+        target_gender="male",
+    )
+    assert directions[0]["complete_the_look"] == []
+
+
+def test_clean_direction_title_repairs_celebn_and_internal_occasion_labels():
+    assert engine._clean_direction_title("Vibrant Celebn") == "Vibrant Celebration"
+    assert engine._clean_direction_title("Celebn Kurta") == "Celebration Kurta"
+    assert (
+        engine._clean_direction_title("wedding Haldi Ceremony custom occasion")
+        == "Haldi Ceremony"
+    )
+    assert "custom" not in engine._clean_direction_title("Festive custom_occasion").lower()
+
+
+def test_editorial_polish_and_cover_clean_all_direction_titles():
+    polished = engine._apply_editorial_polish(
+        [
+            {
+                "title": "Celebn Kurta",
+                "archetype": "Vibrant Celebn",
+                "hero_piece": "Yellow Kurta",
+                "items": ["Yellow Kurta", "Ivory Churidar"],
+            }
+        ],
+        occasion="Haldi",
+        wardrobe_items=None,
+        context_text="Haldi",
+    )
+    card = polished[0]
+    assert card["title"] == "Celebration Kurta"
+    assert card["archetype"] == "Vibrant Celebration"
+    assert card["direction_name"] == "Vibrant Celebration"
+    cover = engine._build_editorial_cover(polished, occasion="Haldi")
+    assert cover["direction_name"] == "Vibrant Celebration"

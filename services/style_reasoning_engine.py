@@ -972,7 +972,7 @@ _FAMILY_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("bag", "tote", "crossbody", "sling"), "bag"),
     (("belt",), "belt"),
     (("watch",), "watch"),
-    (("sunglass",), "sunglasses"),
+    (("sunglass", "aviator"), "sunglasses"),
     (("beanie",), "beanie"),
     (("baseballcap", "trucker"), "cap"),
     (("cap",), "cap"),
@@ -1292,6 +1292,9 @@ def _occasion_asset_block_reason(
             "gym_shorts",
             "shorts",
             "sneaker",
+            "flip_flops",
+            "slide",
+            "boot",
             "polo",
             "loafer",
             "backpack",
@@ -1304,10 +1307,8 @@ def _occasion_asset_block_reason(
             return family
         if family == "sunglasses" and not outdoor:
             return "sunglasses_without_outdoor_context"
-        if family == "shirt" and any(
-            term in blob for term in ("oxford", "office", "western", "formal shirt", "button down")
-        ):
-            return "western_office_shirt"
+        if family == "shirt":
+            return "western_or_relaxed_shirt"
         if family == "formal_shoe" and not any(
             term in blob for term in ("mojari", "jutti", "ethnic", "kolhapuri")
         ):
@@ -1315,11 +1316,11 @@ def _occasion_asset_block_reason(
         if family == "tshirt" and "graphic" in blob:
             return "graphic_tshirt"
         if family == "jewellery" and not any(
-            term in blob for term in ("festive", "traditional", "brooch", "ring")
+            term in blob for term in ("festive", "traditional", "brooch", "subtle ring")
         ):
             return "generic_jewellery"
         if family == "sandal" and not any(
-            term in blob for term in ("ethnic", "festive", "formal", "kolhapuri")
+            term in blob for term in ("ethnic", "festive", "kolhapuri")
         ):
             return "casual_sandal"
 
@@ -1428,6 +1429,8 @@ _MULTI_TOKEN_COMPOUNDS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("dress", "shoes"), "formal_shoe"),
     (("formal", "shoe"), "formal_shoe"),
     (("formal", "shoes"), "formal_shoe"),
+    (("flip", "flop"), "flip_flops"),
+    (("flip", "flops"), "flip_flops"),
     (("laptop", "bag"), "laptop_bag"),
     (("messenger", "bag"), "messenger_bag"),
     (("neck", "pillow"), "travel"),
@@ -3856,6 +3859,20 @@ User query: {query}
 """
 
 
+def _clean_direction_title(title: Any) -> str:
+    text = re.sub(r"\s+", " ", str(title or "").replace("_", " ")).strip(" -:|")
+    if not text:
+        return ""
+    text = re.sub(r"\bCelebn\b", "Celebration", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bcustom occasion\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip(" -:|")
+    if re.search(r"\bwedding\s+haldi ceremony\b", text, flags=re.IGNORECASE):
+        return "Haldi Ceremony"
+    if re.fullmatch(r"haldi ceremony(?:\s+haldi)?", text, flags=re.IGNORECASE):
+        return "Haldi Ceremony"
+    return text
+
+
 def _normalize_direction(value: Any, fallback: Dict[str, Any]) -> Dict[str, Any]:
     item = dict(value) if isinstance(value, dict) else {}
     pieces = _safe_list(item.get("pieces") or item.get("items") or fallback.get("pieces"), limit=6)
@@ -3873,9 +3890,13 @@ def _normalize_direction(value: Any, fallback: Dict[str, Any]) -> Dict[str, Any]
         or (pieces[0] if pieces else "")
     ).strip()
     return {
-        "title": str(item.get("title") or fallback.get("title") or "Style Direction").strip(),
+        "title": _clean_direction_title(
+            item.get("title") or fallback.get("title") or "Style Direction"
+        ),
         "subtitle": str(item.get("subtitle") or item.get("style_direction") or item.get("styleDirection") or "").strip(),
-        "archetype": str(item.get("archetype") or fallback.get("archetype") or "").strip(),
+        "archetype": _clean_direction_title(
+            item.get("archetype") or fallback.get("archetype") or ""
+        ),
         "impression": str(item.get("impression") or fallback.get("impression") or "").strip(),
         "strategy": str(item.get("strategy") or fallback.get("strategy") or "").strip(),
         "description": str(item.get("description") or fallback.get("description") or "").strip(),
@@ -4596,8 +4617,12 @@ def _apply_editorial_polish(
             out.append(direction)
             continue
         polished = dict(direction)
-        archetype = _asset_text(polished.get("archetype")) or _asset_text(polished.get("title"))
-        direction_name = archetype or _asset_text(polished.get("title")) or "Curated Direction"
+        polished["title"] = _clean_direction_title(polished.get("title"))
+        polished["archetype"] = _clean_direction_title(polished.get("archetype"))
+        archetype = polished["archetype"] or polished["title"]
+        direction_name = _clean_direction_title(
+            archetype or polished["title"] or "Curated Direction"
+        )
         polished["direction_name"] = direction_name
         polished["adjectives"] = _direction_adjectives_from_archetype(archetype)
         # Cap stylist notes server-side so the client never renders walls of text.
@@ -4653,7 +4678,12 @@ def _build_editorial_cover(
     """Top-of-response magazine cover summary."""
     label = _occasion_label_for_editorial(occasion)
     top = next((d for d in directions or [] if isinstance(d, dict)), None) or {}
-    direction_name = _asset_text(top.get("direction_name")) or _asset_text(top.get("archetype")) or _asset_text(top.get("title")) or "Curated Look"
+    direction_name = _clean_direction_title(
+        top.get("direction_name")
+        or top.get("archetype")
+        or top.get("title")
+        or "Curated Look"
+    )
     match_pcts = [d.get("wardrobe_match_pct") for d in directions or [] if isinstance(d, dict)]
     match_pcts = [p for p in match_pcts if isinstance(p, int)]
     match_pct = max(match_pcts) if match_pcts else None
@@ -4696,7 +4726,9 @@ def _normalize_visual_directions(
                 keep_generated = bool(raw_archetype) and _norm(raw_archetype) not in {
                     "general", "default", "none", "unknown", "n/a",
                 }
-                applied = raw_archetype if keep_generated else arch_name
+                applied = _clean_direction_title(
+                    raw_archetype if keep_generated else arch_name
+                )
                 direction["archetype"] = applied
                 # Enrich from the library archetype only where the generated
                 # direction is missing fields — don't clobber good model output.
