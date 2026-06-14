@@ -205,6 +205,26 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
             clean_data = {k: v for k, v in data.items() if k not in optional_keys}
             res = post(clean_data)
 
+    if res.status_code == 409:
+        # save-selected can be retried by the client after a slow RMBG/upload
+        # response. Keep the stable item id and make the operation idempotent
+        # instead of reporting an already-saved wardrobe item as a failure.
+        update_url = (
+            f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
+            f"/collections/{APPWRITE_COLLECTION_ID}/documents/{document_id}"
+        )
+        res = requests.patch(
+            update_url,
+            json={"data": data},
+            headers=HEADERS,
+            timeout=20,
+        )
+        logger.info(
+            "ahvi.wardrobe.save_retry_upsert item_id=%s status=%s",
+            document_id,
+            res.status_code,
+        )
+
     if res.status_code not in (200, 201):
         raise RuntimeError(f"Appwrite error: {res.status_code} {res.text}")
 
