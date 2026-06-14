@@ -1511,10 +1511,10 @@ def _ahvi_style_occasion(query_text):
         for k in [
             # Indian wedding + festive ceremonies → wedding occasion so the
             # ethnic/festive asset boost + men's festive text guard fire.
-            "wedding", "reception", "ceremony", "sangeet", "haldi", "mehendi",
-            "mehndi", "engagement", "shaadi", "baraat", "roka", "nikah",
-            "varmala", "diwali", "eid", "navratri", "holi", "pongal", "onam",
-            "festive", "festival",
+            "wedding", "marriage", "matrimony", "reception", "ceremony",
+            "sangeet", "haldi", "mehendi", "mehndi", "engagement", "shaadi",
+            "baraat", "roka", "nikah", "varmala", "diwali", "eid", "navratri",
+            "holi", "pongal", "onam", "festive", "festival",
         ]
     ):
         return "wedding"
