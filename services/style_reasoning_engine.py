@@ -4833,13 +4833,23 @@ def _scrub_visible_style_payload(value: Any, *, query: str = "") -> Any:
 
 
 _MALE_FINAL_TEXT_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    # Multiword first.
     (r"\bpointed[\s-]+toe\s+flats\b", "formal shoes"),
     (r"\bmidi\s+dress(?:es)?\b", "tailored trousers"),
+    (r"\bsoft\s+waves\b", "clean grooming"),
+    (r"\bdewy\s+makeup\b", "fresh grooming"),
+    (r"\bmaang[\s-]?tikka\b", "a watch"),
     (r"\b(?:dress|dresses|gown|gowns|skirt|skirts|saree|sari|lehenga)s?\b", "tailored trousers"),
     (r"\bblouse(?:s)?\b", "crisp shirt"),
-    (r"\b(?:heel|heels|pump|pumps)\b", "formal shoes"),
+    (r"\b(?:heel|heels|pump|pumps|stiletto|stilettos|wedges)\b", "formal shoes"),
     (r"\bnecklace(?:s)?\b", "watch"),
     (r"\bearrings?\b", "belt"),
+    (r"\bbangles?\b", "a watch"),
+    (r"\b(?:jhumkas?|mangalsutra|payal|anklets?)\b", "a watch"),
+    (r"\bdupatta\b", "a pocket square"),
+    (r"\bclutch(?:es)?\b", "a sleek bag"),
+    (r"\b(?:kurti|anarkali|choli|sharara|gharara|salwar)s?\b", "a kurta"),
+    (r"\b(?:makeup|lipstick|mascara|eyeliner|kajal|kohl|bindi)\b", "clean grooming"),
 )
 
 _MALE_FINAL_BLOCKED_PATTERNS: tuple[tuple[str, str], ...] = (
@@ -4855,6 +4865,14 @@ _MALE_FINAL_BLOCKED_PATTERNS: tuple[tuple[str, str], ...] = (
     ("pumps", r"\bpumps?\b"),
     ("necklace", r"\bnecklace(?:s)?\b"),
     ("earrings", r"\bearrings?\b"),
+    ("bangles", r"\bbangles?\b"),
+    ("makeup", r"\b(?:makeup|lipstick|mascara|eyeliner|kajal|kohl|bindi)\b"),
+    ("soft waves", r"\bsoft\s+waves\b"),
+    ("dewy makeup", r"\bdewy\s+makeup\b"),
+    ("dupatta", r"\bdupatta\b"),
+    ("clutch", r"\bclutch(?:es)?\b"),
+    ("kurti", r"\b(?:kurti|anarkali|choli|sharara|gharara|salwar)s?\b"),
+    ("jhumka", r"\b(?:jhumkas?|mangalsutra|payal|anklets?|maang[\s-]?tikka)\b"),
 )
 
 _MALE_FORMAL_CONTEXT_TERMS = {
@@ -4868,6 +4886,21 @@ _MALE_FORMAL_CONTEXT_TERMS = {
     "presentation",
     "talk",
     "wedding",
+}
+
+# Festive/ethnic contexts get a men's ethnic template instead of a blazer one.
+_MALE_FESTIVE_CONTEXT_TERMS = {
+    "haldi",
+    "sangeet",
+    "mehendi",
+    "mehndi",
+    "festive",
+    "reception",
+    "engagement",
+    "diwali",
+    "baraat",
+    "wedding",
+    "shaadi",
 }
 
 _GENDER_GUARD_SKIP_KEYS = {
@@ -4899,6 +4932,12 @@ def _male_final_guard_removed_terms(value: Any) -> List[str]:
 
 def _male_formal_context_replacement(context: str = "") -> str:
     normalized = _norm(context)
+    # Festive takes precedence over generic formal (a haldi is not a boardroom).
+    if any(term in normalized for term in _MALE_FESTIVE_CONTEXT_TERMS):
+        return (
+            "a marigold or ivory kurta with a Nehru jacket, churidar or "
+            "tailored trousers, juttis, finished with a watch and pocket square"
+        )
     if any(term in normalized for term in _MALE_FORMAL_CONTEXT_TERMS):
         return "blazer, crisp shirt, tailored trousers, formal shoes, belt/watch, optional laptop bag"
     return "crisp shirt, tailored trousers, loafers, belt/watch"
@@ -4911,7 +4950,10 @@ def _sanitize_male_final_text(text: Any, *, context: str = "") -> tuple[str, Lis
     removed = _male_final_guard_removed_terms(out)
     if not removed:
         return out, []
-    formal_context = any(term in _norm(context) for term in _MALE_FORMAL_CONTEXT_TERMS)
+    formal_context = any(
+        term in _norm(context)
+        for term in (_MALE_FORMAL_CONTEXT_TERMS | _MALE_FESTIVE_CONTEXT_TERMS)
+    )
     if formal_context and (len(removed) >= 2 or "," in out):
         return _male_formal_context_replacement(context), removed
     for pattern, replacement in _MALE_FINAL_TEXT_REPLACEMENTS:
