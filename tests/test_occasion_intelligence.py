@@ -535,7 +535,7 @@ def test_haldi_strict_support_allowlist_drops_weak_accessories():
     ) == []
 
 
-def test_unsafe_festive_missing_piece_uses_only_safe_festive_image():
+def test_unsafe_festive_missing_piece_is_always_text_only():
     missing = engine._enrich_missing_piece_with_asset(
         {
             "name": "Nike Running Shoes",
@@ -559,8 +559,8 @@ def test_unsafe_festive_missing_piece_uses_only_safe_festive_image():
     assert missing["reason"] == (
         "Completes the festive kurta look while staying comfortable for rituals."
     )
-    assert missing["image_url"] == "https://cdn/Maroon Mojari.png"
-    assert missing["asset_id"] == "maroon_mojari"
+    assert "image_url" not in missing
+    assert "asset_id" not in missing
 
 
 def test_unsafe_festive_missing_piece_stays_text_only_without_safe_image():

@@ -5283,55 +5283,6 @@ def _sanitize_missing_piece_for_gender(
     return missing_piece
 
 
-def _attach_safe_festive_missing_piece_image(
-    replacement: Dict[str, Any],
-    assets: Any,
-    *,
-    occasion: Any,
-    target_gender: str,
-    allow_feminine: bool,
-) -> Dict[str, Any]:
-    out = dict(replacement)
-    safe_assets = _safe_visual_support_assets(
-        assets or [],
-        "indian_festive",
-        occasion,
-        {"hero_piece": out.get("name")},
-    )
-    footwear_assets = [
-        asset
-        for asset in safe_assets
-        if any(
-            term in _asset_policy_blob(asset)
-            for term in (
-                "mojari",
-                "jutti",
-                "kolhapuri",
-                "ethnic sandal",
-                "formal ethnic footwear",
-                "ethnic footwear",
-            )
-        )
-        and _asset_allowed_for_gender(asset, target_gender)
-        and _asset_text(asset.get("image_url") or asset.get("imageUrl"))
-    ]
-    if not footwear_assets:
-        return out
-    del allow_feminine
-    asset = max(
-        footwear_assets,
-        key=lambda candidate: _asset_context_score(
-            candidate,
-            occasion=_asset_text(occasion),
-            placement="missing",
-            target_text="Ethnic Footwear",
-        ),
-    )
-    out["image_url"] = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
-    out["asset_id"] = _asset_text(asset.get("asset_id") or asset.get("$id"))
-    return out
-
-
 def _enrich_missing_piece_with_asset(
     missing_piece: Dict[str, Any] | None,
     *,
@@ -5358,15 +5309,6 @@ def _enrich_missing_piece_with_asset(
         {"hero_piece": out.get("name")},
     ):
         replacement = _festive_missing_piece_replacement(occasion)
-        rows = assets if isinstance(assets, list) else _style_asset_rows()
-        if replacement:
-            replacement = _attach_safe_festive_missing_piece_image(
-                replacement,
-                rows,
-                occasion=occasion,
-                target_gender=target_gender,
-                allow_feminine=allow_feminine,
-            )
         logger.info(
             "AHVI_ASSET_GUARD occasion=%s family=%s blocked=%s selected=%s",
             _asset_text(occasion),
@@ -5401,14 +5343,6 @@ def _enrich_missing_piece_with_asset(
         )
         if not replacement:
             return None
-        rows = assets if isinstance(assets, list) else _style_asset_rows()
-        replacement = _attach_safe_festive_missing_piece_image(
-            replacement,
-            rows,
-            occasion=occasion,
-            target_gender=target_gender,
-            allow_feminine=allow_feminine,
-        )
         logger.info(
             "AHVI_MISSING_PIECE_REPLACED family=%s original=%s replacement=Ethnic Footwear",
             _visual_occasion_family(occasion, out.get("name")) or "general",
