@@ -535,7 +535,7 @@ def test_haldi_strict_support_allowlist_drops_weak_accessories():
     ) == []
 
 
-def test_unsafe_festive_missing_piece_is_text_only_even_with_assets():
+def test_unsafe_festive_missing_piece_uses_only_safe_festive_image():
     missing = engine._enrich_missing_piece_with_asset(
         {
             "name": "Nike Running Shoes",
@@ -552,6 +552,29 @@ def test_unsafe_festive_missing_piece_is_text_only_even_with_assets():
             )
         ],
         occasion="cousin wedding",
+        target_gender="male",
+    )
+    assert missing["name"] == "Ethnic Footwear"
+    assert missing["category"] == "Footwear"
+    assert missing["reason"] == (
+        "Completes the festive kurta look while staying comfortable for rituals."
+    )
+    assert missing["image_url"] == "https://cdn/Maroon Mojari.png"
+    assert missing["asset_id"] == "maroon_mojari"
+
+
+def test_unsafe_festive_missing_piece_stays_text_only_without_safe_image():
+    missing = engine._enrich_missing_piece_with_asset(
+        {
+            "name": "Blue Duffle Bag",
+            "category": "accessory",
+            "reason": "Adds storage.",
+            "image_url": "https://cdn/duffle.png",
+        },
+        assets=[
+            _asset("Nike Running Shoes", category="footwear", subcategory="sneaker")
+        ],
+        occasion="nikah wedding",
         target_gender="male",
     )
     assert missing == {
@@ -574,3 +597,9 @@ def test_airport_strict_support_suppression_is_not_applied():
         {"hero_piece": "Travel Overshirt"},
     )
     assert [item["name"] for item in safe] == ["Clean Sneakers", "Travel Duffle Bag"]
+
+
+def test_direction_title_cleans_repeated_wedding_social_labels():
+    assert engine._clean_direction_title(
+        "wedding social occasion social_occasion cousin wedding"
+    ) == "Cousin Wedding"

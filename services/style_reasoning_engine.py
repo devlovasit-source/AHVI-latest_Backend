@@ -1225,6 +1225,7 @@ def _visual_occasion_family(occasion: Any, target_text: Any = "") -> str:
             "mehndi",
             "sangeet",
             "shaadi",
+            "nikah",
             "wedding",
             "marriage",
             "reception",
@@ -2972,16 +2973,21 @@ _FESTIVE_SAFE_SUPPORT_TERMS: tuple[str, ...] = (
 _FESTIVE_UNSAFE_SUPPORT_TERMS: tuple[str, ...] = (
     "cap",
     "beanie",
+    "bucket hat",
+    "baseball cap",
+    "snapback",
     "sneaker",
     "trainer",
     "running",
     "runnig",
     "nike",
+    "athletic",
     "boot",
     "duffle",
     "duffel",
     "backpack",
     "laptop bag",
+    "messenger bag",
     "wallet",
     "sunglass",
     "aviator",
@@ -2995,6 +3001,8 @@ _FESTIVE_UNSAFE_SUPPORT_TERMS: tuple[str, ...] = (
     "jeans",
     "flip flop",
     "slipper",
+    "suede blue shoe",
+    "casual shoe",
 )
 
 
@@ -3914,7 +3922,10 @@ def _clean_direction_title(title: Any) -> str:
         return ""
     text = re.sub(r"\bCelebn\b", "Celebration", text, flags=re.IGNORECASE)
     text = re.sub(r"\bcustom occasion\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bsocial occasion\b", "", text, flags=re.IGNORECASE)
     text = re.sub(r"\s+", " ", text).strip(" -:|")
+    if re.search(r"\bwedding\b.*\bcousin wedding\b", text, flags=re.IGNORECASE):
+        return "Cousin Wedding"
     if re.search(r"\bwedding\s+haldi ceremony\b", text, flags=re.IGNORECASE):
         return "Haldi Ceremony"
     if re.fullmatch(r"haldi ceremony(?:\s+haldi)?", text, flags=re.IGNORECASE):
@@ -5272,6 +5283,55 @@ def _sanitize_missing_piece_for_gender(
     return missing_piece
 
 
+def _attach_safe_festive_missing_piece_image(
+    replacement: Dict[str, Any],
+    assets: Any,
+    *,
+    occasion: Any,
+    target_gender: str,
+    allow_feminine: bool,
+) -> Dict[str, Any]:
+    out = dict(replacement)
+    safe_assets = _safe_visual_support_assets(
+        assets or [],
+        "indian_festive",
+        occasion,
+        {"hero_piece": out.get("name")},
+    )
+    footwear_assets = [
+        asset
+        for asset in safe_assets
+        if any(
+            term in _asset_policy_blob(asset)
+            for term in (
+                "mojari",
+                "jutti",
+                "kolhapuri",
+                "ethnic sandal",
+                "formal ethnic footwear",
+                "ethnic footwear",
+            )
+        )
+        and _asset_allowed_for_gender(asset, target_gender)
+        and _asset_text(asset.get("image_url") or asset.get("imageUrl"))
+    ]
+    if not footwear_assets:
+        return out
+    del allow_feminine
+    asset = max(
+        footwear_assets,
+        key=lambda candidate: _asset_context_score(
+            candidate,
+            occasion=_asset_text(occasion),
+            placement="missing",
+            target_text="Ethnic Footwear",
+        ),
+    )
+    out["image_url"] = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
+    out["asset_id"] = _asset_text(asset.get("asset_id") or asset.get("$id"))
+    return out
+
+
 def _enrich_missing_piece_with_asset(
     missing_piece: Dict[str, Any] | None,
     *,
@@ -5298,12 +5358,26 @@ def _enrich_missing_piece_with_asset(
         {"hero_piece": out.get("name")},
     ):
         replacement = _festive_missing_piece_replacement(occasion)
+        rows = assets if isinstance(assets, list) else _style_asset_rows()
+        if replacement:
+            replacement = _attach_safe_festive_missing_piece_image(
+                replacement,
+                rows,
+                occasion=occasion,
+                target_gender=target_gender,
+                allow_feminine=allow_feminine,
+            )
         logger.info(
             "AHVI_ASSET_GUARD occasion=%s family=%s blocked=%s selected=%s",
             _asset_text(occasion),
             occasion_family,
             [_asset_text(out.get("name")) or "unknown"],
             [_asset_text(replacement.get("name"))] if replacement else [],
+        )
+        logger.info(
+            "AHVI_MISSING_PIECE_REPLACED family=%s original=%s replacement=Ethnic Footwear",
+            occasion_family,
+            _asset_text(out.get("name")) or "unknown",
         )
         return replacement
     block_reason = _occasion_asset_block_reason(
@@ -5327,6 +5401,19 @@ def _enrich_missing_piece_with_asset(
         )
         if not replacement:
             return None
+        rows = assets if isinstance(assets, list) else _style_asset_rows()
+        replacement = _attach_safe_festive_missing_piece_image(
+            replacement,
+            rows,
+            occasion=occasion,
+            target_gender=target_gender,
+            allow_feminine=allow_feminine,
+        )
+        logger.info(
+            "AHVI_MISSING_PIECE_REPLACED family=%s original=%s replacement=Ethnic Footwear",
+            _visual_occasion_family(occasion, out.get("name")) or "general",
+            _asset_text(out.get("name")) or "unknown",
+        )
         return replacement
     if _asset_text(out.get("image_url") or out.get("imageUrl")):
         return out
