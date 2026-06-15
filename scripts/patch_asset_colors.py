@@ -28,18 +28,34 @@ os.environ.setdefault("R2_LOAD_LOCAL_ENV", "true")
 _COLOR_TOKENS = [
     "lightblue", "lightgreen", "lightbrown", "darkblue", "darkgreen",
     "navyblue", "offwhite", "navy", "black", "white", "blue", "grey", "gray",
-    "brown", "green", "olive", "khaki", "beige", "cream", "red", "yellow",
-    "orange", "pink", "purple", "tan", "maroon", "marron", "burgundy", "gold",
-    "silver", "lavender", "lilac", "peach", "chili", "rust", "wine", "teal",
+    "brown", "brwon", "green", "olive", "khaki", "beige", "cream", "red",
+    "yellow", "orange", "pink", "purple", "tan", "maroon", "marron",
+    "burgundy", "burgendy", "gold", "silver", "lavender", "lilac", "peach",
+    "chili", "rust", "wine", "teal",
 ]
-_COLOR_CANON = {"marron": "maroon", "gray": "grey", "chili": "red"}
+# Misspelling / synonym canonicalization.
+_COLOR_CANON = {
+    "marron": "maroon",
+    "brwon": "brown",
+    "burgendy": "burgundy",
+    "gray": "grey",
+    "chili": "red",
+}
 
 
 def _infer_colors(*texts: Any) -> List[str]:
-    compact = re.sub(r"[^a-z0-9]", "", " ".join(str(t or "") for t in texts).lower())
+    """Infer colour tokens from asset text using word-boundary matching.
+
+    A colour matches a whole word ("Tape red") or the start of a concatenated
+    slug token ("blackbackpack", "yellowkurtaset", "brwonjeans") — but NOT a
+    colour buried inside an unrelated word ("tailoRED", "tapeRED", "tailoREDshorts").
+    Separators (_, -, /) are collapsed to spaces first so asset_id slug parts
+    become matchable word boundaries.
+    """
+    blob = re.sub(r"[^a-z0-9]+", " ", " ".join(str(t or "") for t in texts).lower())
     found: List[str] = []
     for c in _COLOR_TOKENS:
-        if c in compact:
+        if re.search(r"\b" + re.escape(c), blob):
             canon = _COLOR_CANON.get(c, c)
             if canon not in found:
                 found.append(canon)
