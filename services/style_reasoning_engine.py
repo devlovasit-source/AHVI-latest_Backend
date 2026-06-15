@@ -439,6 +439,12 @@ _MALE_BLOCKED_STYLE_TERMS = {
     "heels",
     "camisole",
     "camisoles",
+    "crop",
+    "bralette",
+    "bralettes",
+    "corset",
+    "corsets",
+    "bandeau",
     "gown",
     "gowns",
     "lehenga",
@@ -4820,6 +4826,372 @@ def _build_owned_items(
     return owned, len(owned), len(pieces)
 
 
+# ---------------------------------------------------------------------------
+# Shared Style Brain — post-LLM visual guard (Phase C).
+# Gated by STYLE_SHARED_BRAIN (default OFF). Reuses the wardrobe path's pure
+# occasion guard + the existing gender sanitizer, and adds a small color-clash
+# strip and a weather-aware headwear strip. Never returns empty directions.
+# ---------------------------------------------------------------------------
+
+_WINTER_HEADWEAR: tuple[str, ...] = (
+    "beanie",
+    "wool hat",
+    "woolen hat",
+    "knit cap",
+    "knit hat",
+    "knitted hat",
+    "skull cap",
+    "earmuff",
+    "ear muff",
+    "balaclava",
+    "ushanka",
+)
+
+_COLD_TOKENS: tuple[str, ...] = (
+    "cold",
+    "snow",
+    "winter",
+    "freezing",
+    "chilly",
+    "frost",
+    "sleet",
+)
+
+
+def _shared_brain_enabled() -> bool:
+    """Single feature-flag gate. Default OFF so production is unchanged until
+    ops opt in via ``STYLE_SHARED_BRAIN=true``."""
+    return os.getenv("STYLE_SHARED_BRAIN", "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _weather_is_cold(weather: Any) -> bool:
+    """True only when we have positive evidence of cold weather. Absent or
+    ambiguous weather is treated as NOT cold (so winter headwear is stripped)."""
+    if not weather:
+        return False
+    if isinstance(weather, str):
+        return any(t in weather.lower() for t in _COLD_TOKENS)
+    if isinstance(weather, dict):
+        blob = " ".join(
+            str(weather.get(k) or "")
+            for k in ("condition", "summary", "description", "weather")
+        ).lower()
+        if any(t in blob for t in _COLD_TOKENS):
+            return True
+        for k in ("temp_c", "temperature", "temp", "feels_like_c"):
+            v = weather.get(k)
+            if v is None:
+                continue
+            try:
+                if float(v) <= 12.0:
+                    return True
+            except (TypeError, ValueError):
+                continue
+    return False
+
+
+def _direction_dominant_color(direction: Dict[str, Any]) -> str:
+    palette = _safe_list(direction.get("palette") or direction.get("colors"), limit=6)
+    for entry in palette:
+        c = str(entry or "").strip().lower()
+        if c:
+            return c
+    hero_colors = _extract_simple_colors(direction.get("hero_piece"))
+    return next(iter(hero_colors), "")
+
+
+def _strip_color_clashes(direction: Dict[str, Any], stats: Dict[str, int]) -> Dict[str, Any]:
+    """Drop palette entries and supporting assets that clash with the
+    direction's dominant color. Assets with no color are skipped (logged) so
+    the guard degrades safely on uncolored metadata."""
+    try:
+        from brain.engines.styling.color_compatibility import colors_clash
+    except Exception:  # noqa: BLE001
+        return direction
+
+    out = dict(direction)
+    dominant = _direction_dominant_color(out)
+    if not dominant:
+        logger.info(
+            "AHVI_VISUAL_GUARD_COLOR_SKIP_NOCOLOR scope=direction title=%r",
+            out.get("title"),
+        )
+        return out
+
+    def _clean_color_list(values: List[Any]) -> List[Any]:
+        kept: List[Any] = []
+        for entry in values:
+            c = str(entry or "").strip().lower()
+            if c and c != dominant and colors_clash(dominant, c):
+                stats["color_drop"] = stats.get("color_drop", 0) + 1
+                logger.info(
+                    "AHVI_VISUAL_GUARD_COLOR_CLASH scope=palette dominant=%s color=%s title=%r",
+                    dominant,
+                    c,
+                    out.get("title"),
+                )
+                continue
+            kept.append(entry)
+        return kept
+
+    if isinstance(out.get("palette"), list):
+        out["palette"] = _clean_color_list(out["palette"])
+    if isinstance(out.get("colors"), list):
+        out["colors"] = _clean_color_list(out["colors"])
+
+    complete = out.get("complete_the_look")
+    if isinstance(complete, list):
+        kept_assets: List[Any] = []
+        for item in complete:
+            if not isinstance(item, dict):
+                kept_assets.append(item)
+                continue
+            color = str(item.get("color") or "").strip().lower()
+            if not color:
+                color = next(iter(_extract_simple_colors(item.get("name"))), "")
+            if not color:
+                logger.info(
+                    "AHVI_VISUAL_GUARD_COLOR_SKIP_NOCOLOR scope=support name=%r",
+                    item.get("name"),
+                )
+                kept_assets.append(item)
+                continue
+            if color != dominant and colors_clash(dominant, color):
+                stats["color_drop"] = stats.get("color_drop", 0) + 1
+                logger.info(
+                    "AHVI_VISUAL_GUARD_COLOR_CLASH scope=support dominant=%s color=%s name=%r",
+                    dominant,
+                    color,
+                    item.get("name"),
+                )
+                continue
+            kept_assets.append(item)
+        out["complete_the_look"] = kept_assets
+    return out
+
+
+def _strip_weather_inappropriate_headwear(
+    direction: Dict[str, Any], ctx: Dict[str, Any], stats: Dict[str, int]
+) -> Dict[str, Any]:
+    """Remove winter headwear (beanie etc.) unless the weather is actually
+    cold. Keeps everything else untouched."""
+    if _weather_is_cold((ctx or {}).get("weather")):
+        return direction
+
+    def _is_winter(text: Any) -> bool:
+        t = str(text or "").lower()
+        return any(term in t for term in _WINTER_HEADWEAR)
+
+    out = dict(direction)
+    for key in ("items", "pieces"):
+        vals = out.get(key)
+        if isinstance(vals, list):
+            new_vals = [v for v in vals if not _is_winter(v)]
+            if len(new_vals) != len(vals):
+                stats["weather_drop"] = stats.get("weather_drop", 0) + (len(vals) - len(new_vals))
+                logger.info(
+                    "AHVI_VISUAL_GUARD_WEATHER_DROP scope=%s title=%r",
+                    key,
+                    out.get("title"),
+                )
+            out[key] = new_vals
+
+    if _is_winter(out.get("hero_piece")):
+        fallback_items = _safe_list(out.get("items") or out.get("pieces"), limit=6)
+        out["hero_piece"] = fallback_items[0] if fallback_items else ""
+        stats["weather_drop"] = stats.get("weather_drop", 0) + 1
+        logger.info(
+            "AHVI_VISUAL_GUARD_WEATHER_DROP scope=hero title=%r",
+            out.get("title"),
+        )
+
+    complete = out.get("complete_the_look")
+    if isinstance(complete, list):
+        new_complete: List[Any] = []
+        for item in complete:
+            name = item.get("name") if isinstance(item, dict) else item
+            if _is_winter(name):
+                stats["weather_drop"] = stats.get("weather_drop", 0) + 1
+                logger.info(
+                    "AHVI_VISUAL_GUARD_WEATHER_DROP scope=support name=%r", name
+                )
+                continue
+            new_complete.append(item)
+        out["complete_the_look"] = new_complete
+    return out
+
+
+def _direction_to_guard_board(direction: Dict[str, Any]) -> Dict[str, Any]:
+    """Adapt a visual direction (string pieces + hero + dict supporting assets)
+    into the board shape ``reject_board_for_occasion`` inspects, so the occasion
+    guard sees the direction's actual garments — not just its title text."""
+    pieces = _safe_list(direction.get("items") or direction.get("pieces"), limit=8)
+    items: List[Dict[str, Any]] = [{"name": str(p)} for p in pieces]
+    hero = _asset_text(direction.get("hero_piece"))
+    if hero:
+        items.append({"name": hero})
+    for c in direction.get("complete_the_look") or []:
+        if isinstance(c, dict):
+            items.append(
+                {
+                    "name": _asset_text(c.get("name")),
+                    "color": _asset_text(c.get("color")),
+                    "category": _asset_text(c.get("category")),
+                }
+            )
+    return {
+        "title": direction.get("title"),
+        "badge": direction.get("badge"),
+        "occasion": direction.get("occasion"),
+        "explanation": direction.get("description") or direction.get("short_note"),
+        "why": direction.get("why"),
+        "why_it_works": direction.get("why_it_works"),
+        "style_direction": direction.get("style_direction"),
+        "items": items,
+    }
+
+
+def _repair_direction_for_occasion(
+    direction: Dict[str, Any], occ: str
+) -> Dict[str, Any] | None:
+    """Try to repair an occasion-rejected direction by stripping the offending
+    piece(s). Returns the repaired direction, or None if it still rejects."""
+    try:
+        from brain.engines.outfit_quality_guard import reject_board_for_occasion
+    except Exception:  # noqa: BLE001
+        return direction
+
+    out = dict(direction)
+    reject, reason = reject_board_for_occasion(_direction_to_guard_board(out), occ)
+    if not reject:
+        return out
+
+    term = ""
+    if "_forbidden_" in reason:
+        term = reason.split("_forbidden_", 1)[1].replace("_", " ").strip()
+    if not term:
+        # Reason not tied to a specific item (e.g. metadata/private-wear) —
+        # unrepairable, drop the whole direction.
+        return None
+
+    def _hit(text: Any) -> bool:
+        return bool(term) and term in str(text or "").lower()
+
+    for key in ("items", "pieces"):
+        vals = out.get(key)
+        if isinstance(vals, list):
+            out[key] = [v for v in vals if not _hit(v)]
+
+    complete = out.get("complete_the_look")
+    if isinstance(complete, list):
+        out["complete_the_look"] = [
+            i for i in complete if not _hit(i.get("name") if isinstance(i, dict) else i)
+        ]
+
+    if _hit(out.get("hero_piece")):
+        items = _safe_list(out.get("items") or out.get("pieces"), limit=6)
+        out["hero_piece"] = items[0] if items else ""
+
+    reject_again, _ = reject_board_for_occasion(_direction_to_guard_board(out), occ)
+    if reject_again:
+        return None
+    return out
+
+
+def _apply_style_guard(
+    directions: List[Dict[str, Any]], ctx: Dict[str, Any] | None
+) -> List[Dict[str, Any]]:
+    """Post-generation visual guard: occasion -> color -> weather -> gender.
+    No-op unless STYLE_SHARED_BRAIN is enabled. Never returns empty (falls back
+    to the original directions if every direction is rejected)."""
+    if not _shared_brain_enabled():
+        return directions
+    if not isinstance(directions, list) or not directions:
+        return directions
+    try:
+        from brain.engines.outfit_quality_guard import (
+            normalize_occasion,
+            reject_board_for_occasion,
+        )
+    except Exception:  # noqa: BLE001
+        return directions
+
+    ctx = ctx or {}
+    occ = normalize_occasion(str(ctx.get("canonical_occasion") or ""))
+    gender = str(ctx.get("gender") or "unknown")
+    query = str(ctx.get("_query") or "")
+    allow_fem = gender == "female" or _prompt_allows_gendered_feminine_style(query)
+
+    out: List[Dict[str, Any]] = []
+    stats = {
+        "occ_reject": 0,
+        "color_drop": 0,
+        "weather_drop": 0,
+        "gender_drop": 0,
+        "kept": 0,
+    }
+    for direction in directions:
+        if not isinstance(direction, dict):
+            out.append(direction)
+            continue
+        d = direction
+        # 1. Occasion compatibility (whole-direction) — reuse the wardrobe guard.
+        reject, reason = reject_board_for_occasion(_direction_to_guard_board(d), occ)
+        if reject:
+            stats["occ_reject"] += 1
+            logger.info(
+                "visual_guard.reject AHVI_VISUAL_GUARD_OCC_REJECT title=%r occ=%s reason=%s",
+                d.get("title"),
+                occ,
+                reason,
+            )
+            repaired = _repair_direction_for_occasion(d, occ)
+            if repaired is None:
+                continue
+            logger.info(
+                "visual_guard.repair title=%r occ=%s reason=%s",
+                d.get("title"),
+                occ,
+                reason,
+            )
+            d = repaired
+        # 2. Color clash.
+        d = _strip_color_clashes(d, stats)
+        # 3. Weather-aware headwear.
+        d = _strip_weather_inappropriate_headwear(d, ctx, stats)
+        # 4. Gender — reuse the existing sanitizer already used during enrichment.
+        before = len(_safe_list(d.get("items") or d.get("pieces"), limit=8))
+        d = _sanitize_direction_for_gender(
+            d, target_gender=gender, allow_feminine=allow_fem
+        )
+        after = len(_safe_list(d.get("items") or d.get("pieces"), limit=8))
+        if after < before:
+            stats["gender_drop"] += before - after
+            logger.info(
+                "AHVI_VISUAL_GUARD_GENDER_DROP title=%r gender=%s dropped=%d",
+                d.get("title"),
+                gender,
+                before - after,
+            )
+        out.append(d)
+        stats["kept"] += 1
+
+    logger.info(
+        "visual_guard.summary AHVI_VISUAL_GUARD_SUMMARY occ=%s in=%d kept=%d stats=%s",
+        occ,
+        len(directions),
+        len(out),
+        stats,
+    )
+    # Never blank the screen: if every direction was rejected, keep the originals.
+    return out or directions
+
+
 def _apply_editorial_polish(
     directions: List[Dict[str, Any]],
     *,
@@ -6030,6 +6402,42 @@ def _build_response(
             if str(value or "").strip()
         )
     )
+    # Shared Style Brain (Phase A/B): build ONE canonical context and route the
+    # visual path's occasion through it. Gated by STYLE_SHARED_BRAIN (default
+    # OFF) so production behavior is identical until ops opt in.
+    canonical_ctx: Dict[str, Any] | None = None
+    if _shared_brain_enabled():
+        try:
+            from services.style_context_service import build_canonical_style_context
+
+            canonical_ctx = build_canonical_style_context(
+                query=query,
+                user_profile=user_profile,
+                intent=payload,
+                router_occasion=(
+                    str((context or {}).get("occasion") or occasion or category or "").strip()
+                    or None
+                ),
+                weather=(context or {}).get("weather") or (context or {}).get("weather_context"),
+                event_context=(context or {}).get("event_context"),
+                style_dna=(context or {}).get("style_dna") or (user_profile or {}).get("style_dna"),
+            )
+            # Keep the prompt-override-aware gender for the guard, and stash the
+            # query so the gender sanitizer can honor prompt overrides.
+            canonical_ctx["gender"] = asset_gender
+            canonical_ctx["_query"] = query
+            canon_occ = str(canonical_ctx.get("canonical_occasion") or "").strip()
+            if canon_occ:
+                logger.info(
+                    "AHVI_VISUAL_OCCASION_CANON raw=%r canonical=%s",
+                    asset_occasion,
+                    canon_occ,
+                )
+                asset_occasion = canon_occ
+        except Exception as exc:  # noqa: BLE001 — fail open, never break the visual path.
+            logger.warning("AHVI_CANONICAL_CTX_WIRE_FAILED err=%s", repr(exc)[:160])
+            canonical_ctx = None
+
     goal = str(payload.get("goal") or _fallback_goal(final_mode, category)).strip()
     impression = str(payload.get("impression") or _fallback_impression(category)).strip()
     atmosphere = str(payload.get("atmosphere") or _fallback_atmosphere(category)).strip()
@@ -6101,6 +6509,10 @@ def _build_response(
         target_gender=asset_gender,
         allow_feminine_accessory=allow_feminine_style,
     )
+    # Shared Style Brain (Phase C): post-generation visual guard. No-op unless
+    # STYLE_SHARED_BRAIN is enabled. Same list-of-dicts shape in/out.
+    if canonical_ctx is not None:
+        visual_directions = _apply_style_guard(visual_directions, canonical_ctx)
     try:
         final_confidence = max(0.0, min(1.0, float(payload.get("confidence", confidence))))
     except Exception:

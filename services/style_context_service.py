@@ -607,6 +607,80 @@ def build_pairing_persona(
     return persona
 
 
+def build_canonical_style_context(
+    *,
+    query: str,
+    user_profile: Any = None,
+    intent: Optional[Dict[str, Any]] = None,
+    router_occasion: Optional[str] = None,
+    weather: Any = None,
+    event_context: Optional[Dict[str, Any]] = None,
+    style_dna: Any = None,
+) -> Dict[str, Any]:
+    """Single canonical style context shared by every visual/style flow.
+
+    Pure assembly over functions the wardrobe path already uses:
+    - occasion via ``build_brief`` (same engine the wardrobe path resolves with)
+    - gender via ``_resolve_gender``
+    - DNA via ``compact_style_dna``
+
+    Does NOT mutate the caller's context. Fails open: any resolver error
+    degrades to safe defaults so the visual path never breaks.
+    """
+    profile = _safe_dict(user_profile)
+
+    # 1. canonical occasion via the SAME engine the wardrobe path uses.
+    brief: Dict[str, Any] = {}
+    canonical_occasion = "daily"
+    try:
+        from brain.engines.style_brief import build_brief
+
+        brief = build_brief(
+            query,
+            router_occasion=router_occasion,
+            agent_payload=intent or {},
+            weather=weather,
+        )
+        canonical_occasion = str(brief.get("occasion") or "daily") or "daily"
+    except Exception:  # noqa: BLE001 — fail open to a safe default.
+        logger.warning("AHVI_CANONICAL_CTX brief_failed query=%r", str(query or "")[:80])
+        brief = {}
+        canonical_occasion = str(router_occasion or "daily").strip().lower() or "daily"
+
+    # 2. gender via the single resolver (prompt-override handled by callers).
+    try:
+        gender = _resolve_gender(profile)
+    except Exception:  # noqa: BLE001
+        gender = "unknown"
+
+    # 3. DNA compacted (empty dict when nothing meaningful exists).
+    try:
+        dna = compact_style_dna(
+            style_dna if style_dna is not None else profile.get("style_dna"),
+            profile.get("preferences") or profile.get("style_preferences"),
+        )
+    except Exception:  # noqa: BLE001
+        dna = {}
+
+    ctx = {
+        "canonical_occasion": canonical_occasion,
+        "occasion_brief": brief,
+        "gender": gender,
+        "style_dna": dna,
+        "profile": profile,
+        "weather": weather,
+        "event_context": _safe_dict(event_context),
+    }
+    logger.info(
+        "style_context.built canonical_occasion=%s gender=%s dna=%s weather=%s",
+        canonical_occasion,
+        gender,
+        bool(dna),
+        bool(weather),
+    )
+    return ctx
+
+
 def compact_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
     """Trim the style context to a small, prompt-safe slice. Avoids shipping
     every wardrobe item / raw payloads into the Gemini prompt."""
