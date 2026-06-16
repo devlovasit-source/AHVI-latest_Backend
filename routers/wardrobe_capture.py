@@ -11,7 +11,7 @@ from typing import Any, Dict, List
 import requests
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-from PIL import Image
+from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
@@ -273,7 +273,32 @@ def _decode_image_base64(value: str) -> Image.Image:
         raise HTTPException(status_code=413, detail="Image too large (max 15MB)")
 
     try:
-        return Image.open(io.BytesIO(data)).convert("RGB")
+        opened = Image.open(io.BytesIO(data))
+        # Normalize EXIF orientation BEFORE anything downstream (Gemini bbox,
+        # crop, RMBG, catalog) sees the image. Camera photos carry an EXIF
+        # orientation tag with sideways-stored pixels; without this the crop is
+        # re-encoded rotated and cannot be recovered later. exif_transpose is a
+        # no-op when there is no orientation tag (idempotent).
+        had_orientation = False
+        try:
+            exif = opened.getexif()
+            had_orientation = bool(exif) and 0x0112 in exif and int(exif.get(0x0112) or 1) != 1
+        except Exception:  # noqa: BLE001 — orientation probe must never break decode.
+            had_orientation = False
+        transposed = ImageOps.exif_transpose(opened)
+        if had_orientation:
+            logger.info(
+                "ahvi.image.orientation.applied src=%dx%d out=%dx%d",
+                opened.size[0],
+                opened.size[1],
+                transposed.size[0],
+                transposed.size[1],
+            )
+        else:
+            logger.info("ahvi.image.orientation.skipped size=%dx%d", opened.size[0], opened.size[1])
+        return transposed.convert("RGB")
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid image bytes: {exc}")
 
