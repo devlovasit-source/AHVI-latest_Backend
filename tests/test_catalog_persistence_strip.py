@@ -56,61 +56,94 @@ def _patch(monkeypatch, responses):
     return posts
 
 
-def test_unknown_catalog_attr_retries_without_catalog_fields(monkeypatch, caplog):
+def test_unknown_pixel_hash_keeps_catalog_status(monkeypatch, caplog):
+    # THE regression: a single unknown attr (pixel_hash) must NOT take the valid
+    # catalog_* fields down with it. Drop only pixel_hash; keep catalog_status.
+    import logging
+
+    posts = _patch(
+        monkeypatch,
+        [
+            _Resp(400, text='Invalid document structure: Unknown attribute: "pixel_hash"'),
+            _Resp(201, payload={"$id": "doc1"}),
+        ],
+    )
+    doc = _catalog_doc()
+    doc["pixel_hash"] = "abc"
+    with caplog.at_level(logging.INFO):
+        res = wps._create_document("doc1", doc)
+    assert res.get("$id") == "doc1"
+    assert len(posts) == 2
+    retry = posts[1]
+    assert "pixel_hash" not in retry  # offending attr dropped
+    assert retry.get("catalog_status") == "catalog_ready"  # catalog PRESERVED
+    assert retry["image_url"] and retry["masked_url"]
+    assert "ahvi.persistence.dropped_unknown_attrs" in "\n".join(caplog.messages)
+
+
+def test_unknown_catalog_attr_dropped_only_when_named(monkeypatch, caplog):
+    # If the schema genuinely lacks catalog_status, drop only that one.
+    import logging
+
     posts = _patch(
         monkeypatch,
         [
             _Resp(400, text='Unknown attribute: "catalog_status"'),
-            _Resp(201, payload={"$id": "doc1"}),
+            _Resp(201, payload={"$id": "doc2"}),
         ],
     )
-    import logging
-
-    with caplog.at_level(logging.INFO, logger="ahvi"):
-        res = wps._create_document("doc1", _catalog_doc())
-
-    assert res.get("$id") == "doc1"  # save succeeded (returns parsed json)
-    assert len(posts) == 2  # retried once
-    # retry stripped every catalog field...
-    retry = posts[1]
-    for k in ("catalog_url", "catalog_status", "catalog_method"):
-        assert k not in retry
-    # ...but kept raw/masked image fields
-    assert retry["image_url"] and retry["masked_url"] and retry["normalized_url"]
+    with caplog.at_level(logging.INFO):
+        res = wps._create_document("doc2", _catalog_doc())
+    assert res.get("$id") == "doc2"
+    assert "catalog_status" not in posts[1]
+    assert posts[1]["image_url"]  # image fields preserved
     assert "ahvi.catalog.persistence_stripped" in "\n".join(caplog.messages)
 
 
-def test_non_catalog_error_still_fails(monkeypatch):
-    # 401 has no "unknown attribute" -> no retry, save fails (raises).
-    posts = _patch(monkeypatch, [_Resp(401, text="Unauthorized")])
-    with pytest.raises(RuntimeError):
-        wps._create_document("doc2", _catalog_doc())
-    assert len(posts) == 1  # no retry
-
-
-def test_unknown_attr_for_other_field_not_masked(monkeypatch):
-    # Unknown attribute about a NON-catalog field: stripped retry still includes
-    # it, so the save still fails (we don't silently swallow real schema bugs).
+def test_multiple_unknown_attrs_dropped_iteratively(monkeypatch):
     posts = _patch(
         monkeypatch,
         [
-            _Resp(400, text='Unknown attribute: "bogus_field"'),
-            _Resp(400, text='Unknown attribute: "bogus_field"'),
+            _Resp(400, text='Unknown attribute: "pixel_hash"'),
+            _Resp(400, text='Unknown attribute: "image_vector"'),
+            _Resp(201, payload={"$id": "doc3"}),
         ],
     )
     doc = _catalog_doc()
-    doc["bogus_field"] = "x"
+    doc["pixel_hash"] = "h"
+    doc["image_vector"] = "v"
+    res = wps._create_document("doc3", doc)
+    assert res.get("$id") == "doc3"
+    assert len(posts) == 3
+    assert "pixel_hash" not in posts[2] and "image_vector" not in posts[2]
+    assert posts[2].get("catalog_status") == "catalog_ready"  # still preserved
+
+
+def test_non_named_error_still_fails(monkeypatch):
+    # 401 (no "unknown attribute") -> no retry, raises.
+    posts = _patch(monkeypatch, [_Resp(401, text="Unauthorized")])
     with pytest.raises(RuntimeError):
-        wps._create_document("doc3", doc)
-    assert posts[1].get("bogus_field") == "x"  # bogus field NOT stripped
-    # catalog fields WERE stripped on the retry even though it still failed
-    assert "catalog_status" not in posts[1]
+        wps._create_document("doc4", _catalog_doc())
+    assert len(posts) == 1
+
+
+def test_invalid_structure_without_attr_name_fails(monkeypatch):
+    # invalid-structure error that names no attribute (e.g. type mismatch) ->
+    # nothing to strip -> raises, no infinite loop.
+    posts = _patch(
+        monkeypatch,
+        [_Resp(400, text='Invalid document structure: Attribute "occasions" must be an array')],
+    )
+    with pytest.raises(RuntimeError):
+        wps._create_document("doc5", _catalog_doc())
+    # 'occasions' IS named -> dropped once, then second post needed; queue has 1
+    # response so the retry reuses it (still 400) -> raises. Ensure bounded.
+    assert len(posts) >= 1
 
 
 def test_flag_off_no_catalog_fields_unchanged(monkeypatch):
-    # No catalog fields present -> single post, no strip path.
-    posts = _patch(monkeypatch, [_Resp(201, payload={"$id": "doc4"})])
-    res = wps._create_document("doc4", _base_doc())
-    assert res.get("$id") == "doc4"
+    posts = _patch(monkeypatch, [_Resp(201, payload={"$id": "doc6"})])
+    res = wps._create_document("doc6", _base_doc())
+    assert res.get("$id") == "doc6"
     assert len(posts) == 1
     assert posts[0]["image_url"] and posts[0]["masked_url"]

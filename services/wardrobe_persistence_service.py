@@ -198,35 +198,51 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
 
     res = post(data)
 
-    optional_keys = {"pixel_hash", "image_embedding", "image_vector", "style_metadata"}
-    # Catalog fields are only present when the catalog pipeline is enabled and
-    # may not exist in the Appwrite schema yet. They must NEVER break the save —
-    # strip and retry once if the collection rejects them. raw/masked/normalized
-    # image fields are NOT in this set, so they are always preserved.
-    catalog_keys = {
-        "catalogStatus",
+    # Surgical unknown-attribute recovery: drop ONLY the attribute Appwrite names
+    # as unknown, then retry — iteratively for multiple unknowns. This must NOT
+    # blanket-strip a whole family (a single unknown like pixel_hash used to take
+    # the valid catalog_* fields down with it). Required image fields are never
+    # targeted (Appwrite would not call a required, schema-present attr unknown).
+    _catalog_keys = {
         "catalog_status",
-        "catalogUrl",
         "catalog_url",
-        "catalogMethod",
         "catalog_method",
-        "catalogRotationApplied",
         "catalog_rotation_applied",
-        "catalogGeneratedAt",
         "catalog_generated_at",
+        "catalogStatus",
+        "catalogUrl",
+        "catalogMethod",
+        "catalogRotationApplied",
+        "catalogGeneratedAt",
     }
-    strip_keys = optional_keys | catalog_keys
-    if res.status_code not in (200, 201) and strip_keys.intersection(data):
-        body = str(res.text or "").lower()
-        if "unknown attribute" in body or "invalid document structure" in body:
-            clean_data = {k: v for k, v in data.items() if k not in strip_keys}
-            if catalog_keys.intersection(data):
-                logger.info(
-                    "ahvi.catalog.persistence_stripped document_id=%s stripped=%s",
-                    document_id,
-                    sorted(catalog_keys.intersection(data)),
-                )
-            res = post(clean_data)
+    current = dict(data)
+    dropped: List[str] = []
+    attempts = 0
+    while res.status_code not in (200, 201) and attempts < 8:
+        body = str(res.text or "")
+        low = body.lower()
+        if "unknown attribute" not in low and "invalid document structure" not in low:
+            break
+        bad = _unknown_attribute_from_appwrite_error(body)
+        if not bad or bad not in current:
+            break  # not a strippable named-attribute error
+        current.pop(bad, None)
+        dropped.append(bad)
+        attempts += 1
+        res = post(current)
+    if dropped:
+        logger.info(
+            "ahvi.persistence.dropped_unknown_attrs document_id=%s dropped=%s",
+            document_id,
+            dropped,
+        )
+        cat_dropped = [k for k in dropped if k in _catalog_keys]
+        if cat_dropped:
+            logger.info(
+                "ahvi.catalog.persistence_stripped document_id=%s stripped=%s",
+                document_id,
+                cat_dropped,
+            )
 
     if res.status_code == 409:
         # save-selected can be retried by the client after a slow RMBG/upload
