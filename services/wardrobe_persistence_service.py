@@ -199,10 +199,33 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     res = post(data)
 
     optional_keys = {"pixel_hash", "image_embedding", "image_vector", "style_metadata"}
-    if res.status_code not in (200, 201) and optional_keys.intersection(data):
+    # Catalog fields are only present when the catalog pipeline is enabled and
+    # may not exist in the Appwrite schema yet. They must NEVER break the save —
+    # strip and retry once if the collection rejects them. raw/masked/normalized
+    # image fields are NOT in this set, so they are always preserved.
+    catalog_keys = {
+        "catalogStatus",
+        "catalog_status",
+        "catalogUrl",
+        "catalog_url",
+        "catalogMethod",
+        "catalog_method",
+        "catalogRotationApplied",
+        "catalog_rotation_applied",
+        "catalogGeneratedAt",
+        "catalog_generated_at",
+    }
+    strip_keys = optional_keys | catalog_keys
+    if res.status_code not in (200, 201) and strip_keys.intersection(data):
         body = str(res.text or "").lower()
         if "unknown attribute" in body or "invalid document structure" in body:
-            clean_data = {k: v for k, v in data.items() if k not in optional_keys}
+            clean_data = {k: v for k, v in data.items() if k not in strip_keys}
+            if catalog_keys.intersection(data):
+                logger.info(
+                    "ahvi.catalog.persistence_stripped document_id=%s stripped=%s",
+                    document_id,
+                    sorted(catalog_keys.intersection(data)),
+                )
             res = post(clean_data)
 
     if res.status_code == 409:
