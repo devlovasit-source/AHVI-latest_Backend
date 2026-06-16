@@ -443,8 +443,11 @@ def enforce_preview_taxonomy(item: Dict[str, Any]) -> Dict[str, Any]:
 
 # height / width of the visible foreground. Trousers are clearly tall; shorts
 # are roughly square / wide. The band between is "uncertain" (no change).
-_TROUSER_MIN_ASPECT = 1.6
-_SHORTS_MAX_ASPECT = 1.1
+# Tuned from real RMBG cutout samples: full-length pants measured ~1.58 and
+# shorts ~1.22, so the old 1.6/1.1 band left both "uncertain". 1.4 / 1.25
+# cleanly separates them while keeping a small uncertain gap.
+_TROUSER_MIN_ASPECT = 1.4
+_SHORTS_MAX_ASPECT = 1.25
 
 _TROUSER_TOKENS = (
     "trouser", "trousers", "pant", "pants", "chino", "chinos",

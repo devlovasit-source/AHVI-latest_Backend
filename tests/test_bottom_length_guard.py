@@ -28,8 +28,8 @@ def _wide():   # shorts-shaped cutout (h/w ~1)
     return _cutout(700, 600)
 
 
-def _ambiguous():  # in the uncertain band
-    return _cutout(500, 650)  # aspect ~1.3
+def _ambiguous():  # in the uncertain band (1.25-1.4)
+    return _cutout(600, 690)  # aspect ~1.29
 
 
 # 1. full-length trousers misdetected as shorts -> corrected to trousers
