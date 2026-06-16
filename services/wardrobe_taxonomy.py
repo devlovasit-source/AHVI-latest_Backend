@@ -160,6 +160,19 @@ def normalize(
     if has(["salwar", "churidar"]):
         return "Bottoms", "Salwar"
 
+    # Bottoms garments win over a bare "dress" substring BEFORE the Dresses
+    # block — otherwise "Dress Pants" / "Dress Trousers" match the "dress"
+    # token and get misrouted to Dresses. These tokens are unambiguous bottoms;
+    # a real dress never contains pants/trouser/jean/chino tokens.
+    if has(["jeans", "jean"]):
+        return "Bottoms", "Jeans"
+    if has(["jogger", "joggers"]):
+        return "Bottoms", "Joggers"
+    if has(["legging", "leggings"]):
+        return "Bottoms", "Leggings"
+    if has(["trousers", "trouser", "pants", "pant", "chino", "chinos", "slack", "slacks"]):
+        return "Bottoms", "Trousers"
+
     # Dresses
     if has(["one piece", "one-piece"]):
         return "Dresses", "One-Piece Dress"

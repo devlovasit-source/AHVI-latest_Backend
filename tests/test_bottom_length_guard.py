@@ -99,6 +99,33 @@ def test_infer_directions():
     assert wt.infer_bottom_length_from_crop(_ambiguous(), "Bottoms") == "unknown"
 
 
+# --- normalize(): Bottoms tokens beat bare "dress" substring ---
+def test_dress_pants_routes_to_bottoms_not_dresses():
+    cat, sub = wt.normalize(category="Bottoms", name="Navy Blue Dress Pants", sub_category="Dress Pants")
+    assert cat == "Bottoms"
+    assert sub == "Trousers"
+
+
+def test_dress_trousers_routes_to_bottoms():
+    cat, _ = wt.normalize(category="Bottoms", name="Charcoal Dress Trousers", sub_category="")
+    assert cat == "Bottoms"
+
+
+def test_plain_dress_still_dresses():
+    cat, sub = wt.normalize(category="Dresses", name="Red Summer Dress", sub_category="Dress")
+    assert cat == "Dresses"
+
+
+def test_jeans_route_to_bottoms_jeans():
+    cat, sub = wt.normalize(category="Bottoms", name="Blue Jeans", sub_category="")
+    assert (cat, sub) == ("Bottoms", "Jeans")
+
+
+def test_denim_jacket_not_bottoms():
+    cat, _ = wt.normalize(category="Outerwear", name="Denim Jacket", sub_category="Jacket")
+    assert cat == "Outerwear"
+
+
 # guard does not invent a correction when detector + heuristic agree (trousers/trousers)
 def test_agreement_no_correction():
     item = {"category": "Bottoms", "sub_category": "Trousers", "name": "Grey Trousers"}
