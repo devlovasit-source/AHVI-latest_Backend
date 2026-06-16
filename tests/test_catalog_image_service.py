@@ -94,30 +94,98 @@ def test_ai_hook_not_implemented():
         c.generate_catalog_image_ai(b"x", provider="imagen")
 
 
-# --- Router integration: catalog never blocks save, flag gating ---
+# --- Router integration: catalog runs independent of RMBG, never blocks save ---
+import base64 as _b64mod
+
+
+def _data_uri(png_bytes):
+    return "data:image/png;base64," + _b64mod.b64encode(png_bytes).decode("ascii")
+
+
+class _OkR2:
+    def upload_catalog_image(self, *, file_id, image_bytes, extension="jpg"):
+        return {
+            "catalog_file_name": f"catalog_{file_id}.{extension}",
+            "catalog_url": f"https://cdn.test/catalog_{file_id}.{extension}",
+        }
+
+
 def test_router_helper_noop_when_flag_off(monkeypatch):
     monkeypatch.setenv("ENABLE_CATALOG_IMAGE_GENERATION", "false")
     monkeypatch.setenv("ENABLE_CATALOG_NORMALIZATION", "false")
     from routers import wardrobe_capture as wc
 
-    item = {"category": "top"}
-    wc._maybe_generate_catalog_image(item, _garment_png(800, 800), "id1")
+    item = {"category": "top", "item_id": "id1", "masked_image_base64": _data_uri(_garment_png(800, 800))}
+    wc._maybe_generate_catalog_image(item)
     assert "catalogUrl" not in item
     assert "catalogStatus" not in item
+
+
+def test_catalog_runs_when_rmbg_skipped_masked_b64(monkeypatch):
+    # RMBG skipped (no masked_url upload), but inline masked b64 present.
+    monkeypatch.setenv("ENABLE_CATALOG_IMAGE_GENERATION", "true")
+    from routers import wardrobe_capture as wc
+
+    monkeypatch.setattr(wc, "R2Storage", lambda: _OkR2())
+    item = {"category": "top", "item_id": "id_m", "masked_image_base64": _data_uri(_garment_png(820, 820))}
+    wc._maybe_generate_catalog_image(item)
+    assert item["catalogStatus"] == "catalog_ready"
+    assert item["catalogUrl"].endswith("catalog_id_m.jpg")
+
+
+def test_catalog_runs_when_rmbg_skipped_raw_b64(monkeypatch):
+    # No masked, only raw/crop inline bytes.
+    monkeypatch.setenv("ENABLE_CATALOG_IMAGE_GENERATION", "true")
+    from routers import wardrobe_capture as wc
+
+    monkeypatch.setattr(wc, "R2Storage", lambda: _OkR2())
+    item = {"category": "dress", "item_id": "id_r", "raw_image_base64": _data_uri(_garment_png(820, 900))}
+    wc._maybe_generate_catalog_image(item)
+    assert item["catalogStatus"] == "catalog_ready"
+
+
+def test_catalog_fetches_masked_url_when_no_inline(monkeypatch):
+    # RMBG-skipped pre-masked item: only a masked_url, no inline bytes -> fetch.
+    monkeypatch.setenv("ENABLE_CATALOG_IMAGE_GENERATION", "true")
+    from routers import wardrobe_capture as wc
+
+    png = _garment_png(800, 800)
+
+    class _Resp:
+        status_code = 200
+        content = png
+
+    monkeypatch.setattr(wc.requests, "get", lambda url, timeout=None: _Resp())
+    monkeypatch.setattr(wc, "R2Storage", lambda: _OkR2())
+    item = {"category": "top", "item_id": "id_f", "masked_url": "https://r2/m.png"}
+    wc._maybe_generate_catalog_image(item)
+    assert item["catalogStatus"] == "catalog_ready"
+
+
+def test_catalog_skip_no_bytes_logged(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setenv("ENABLE_CATALOG_IMAGE_GENERATION", "true")
+    from routers import wardrobe_capture as wc
+
+    item = {"category": "top", "item_id": "id_nb"}  # no bytes, no url
+    with caplog.at_level(logging.INFO):  # router logger is "routers.wardrobe_capture"
+        wc._maybe_generate_catalog_image(item)
+    assert item["catalogStatus"] == "catalog_failed"
+    assert "ahvi.catalog.skip_no_bytes" in "\n".join(caplog.messages)
 
 
 def test_router_helper_never_raises_on_upload_failure(monkeypatch):
     monkeypatch.setenv("ENABLE_CATALOG_IMAGE_GENERATION", "true")
     from routers import wardrobe_capture as wc
 
-    # Force R2 upload to blow up — helper must swallow and mark catalog_failed.
     class _BoomR2:
         def upload_catalog_image(self, **kw):
             raise RuntimeError("r2 down")
 
     monkeypatch.setattr(wc, "R2Storage", lambda: _BoomR2())
-    item = {"category": "top"}
-    wc._maybe_generate_catalog_image(item, _garment_png(800, 800), "id2")
+    item = {"category": "top", "item_id": "id2", "masked_image_base64": _data_uri(_garment_png(800, 800))}
+    wc._maybe_generate_catalog_image(item)
     assert item["catalogStatus"] == "catalog_failed"  # save still proceeds
 
 
@@ -125,8 +193,8 @@ def test_router_helper_skips_invalid_category(monkeypatch):
     monkeypatch.setenv("ENABLE_CATALOG_IMAGE_GENERATION", "true")
     from routers import wardrobe_capture as wc
 
-    item = {"category": "skincare"}
-    wc._maybe_generate_catalog_image(item, _garment_png(800, 800), "id3")
+    item = {"category": "skincare", "item_id": "id3", "masked_image_base64": _data_uri(_garment_png(800, 800))}
+    wc._maybe_generate_catalog_image(item)
     assert item["catalogStatus"] == "catalog_skipped_category"
     assert "catalogUrl" not in item
 
@@ -235,16 +303,9 @@ def test_router_helper_success_sets_aliases(monkeypatch):
     monkeypatch.setenv("ENABLE_CATALOG_IMAGE_GENERATION", "true")
     from routers import wardrobe_capture as wc
 
-    class _OkR2:
-        def upload_catalog_image(self, *, file_id, image_bytes, extension="jpg"):
-            return {
-                "catalog_file_name": f"catalog_{file_id}.{extension}",
-                "catalog_url": f"https://cdn.test/catalog_{file_id}.{extension}",
-            }
-
     monkeypatch.setattr(wc, "R2Storage", lambda: _OkR2())
-    item = {"category": "top"}
-    wc._maybe_generate_catalog_image(item, _garment_png(900, 900), "id4")
+    item = {"category": "top", "item_id": "id4", "masked_image_base64": _data_uri(_garment_png(900, 900))}
+    wc._maybe_generate_catalog_image(item)
     assert item["catalogStatus"] == "catalog_ready"
     assert item["catalogUrl"] == item["catalog_url"]
     assert item["catalogUrl"].endswith("catalog_id4.jpg")
