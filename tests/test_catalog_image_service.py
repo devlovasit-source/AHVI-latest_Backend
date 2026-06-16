@@ -235,6 +235,19 @@ def test_color_match_passes_for_real_garments(name, cat, color):
     assert out["validation"]["color_match"] <= c._COLOR_DIST_MAX
 
 
+# --- deterministic catalog URL helper (schema-free persistence) ---
+def test_catalog_object_name_and_build_url():
+    from services.r2_storage import R2Storage
+
+    assert R2Storage.catalog_object_name("abc123") == "catalog_abc123.jpg"
+    r = R2Storage()
+    r.wardrobe_public_url = "https://cdn.test/wardrobe"
+    assert r.build_catalog_url("abc123") == "https://cdn.test/wardrobe/catalog_abc123.jpg"
+    assert r.build_catalog_url("") == ""
+    r.wardrobe_public_url = ""
+    assert r.build_catalog_url("abc123") == ""
+
+
 # --- category normalization (live title-case / plural) ---
 @pytest.mark.parametrize(
     "raw,norm,allowed",

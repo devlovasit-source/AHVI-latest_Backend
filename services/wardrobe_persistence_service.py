@@ -730,14 +730,26 @@ def _build_appwrite_doc(
         "yes",
         "on",
     ):
-        catalog_url = _safe_text(item.get("catalogUrl") or item.get("catalog_url"))
-        if catalog_url:
-            doc["catalog_url"] = catalog_url
+        # Schema-free catalog persistence: the outfits collection is at its
+        # row-size cap, so there is NO catalog_url/catalog_method attribute.
+        # catalogUrl is derived deterministically by the client from item_id
+        # (catalog_{item_id}.jpg in the wardrobe bucket). We persist only the
+        # small attributes that exist: status, generated_at, rotation. The
+        # persistence-strip safety net still covers any that are missing.
         catalog_status = _safe_text(item.get("catalogStatus") or item.get("catalog_status"))
         if catalog_status:
             doc["catalog_status"] = catalog_status
-        if item.get("catalogMethod"):
-            doc["catalog_method"] = _safe_text(item.get("catalogMethod"))
+        catalog_gen = _safe_text(item.get("catalogGeneratedAt") or item.get("catalog_generated_at"))
+        if catalog_gen:
+            doc["catalog_generated_at"] = catalog_gen
+        rot = item.get("catalogRotationApplied")
+        if rot is None:
+            rot = item.get("catalog_rotation_applied")
+        if rot is not None:
+            try:
+                doc["catalog_rotation_applied"] = int(rot)
+            except (TypeError, ValueError):
+                pass
     doc["_style_attrs"] = style_attrs
     return doc
 

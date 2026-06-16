@@ -965,11 +965,12 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
         upload = R2Storage().upload_catalog_image(
             file_id=file_id, image_bytes=result["catalog_image_bytes"], extension="jpg"
         )
-        catalog_url = upload.get("catalog_url")
+        catalog_url = upload.get("catalog_url")  # deterministic catalog_{item_id}.jpg
         item["catalogUrl"] = catalog_url
         item["catalog_url"] = catalog_url
         item["catalogStatus"] = "catalog_ready"
         item["catalog_status"] = "catalog_ready"
+        item["catalog_ready"] = True  # API convenience flag
         item["catalogMethod"] = "rmbg_center_normalize"
         item["catalogRotationApplied"] = int(result.get("rotation_applied") or 0)
         item["catalogGeneratedAt"] = result.get("generated_at")

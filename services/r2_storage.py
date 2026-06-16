@@ -254,6 +254,18 @@ class R2Storage:
             "image_url": normalized_image_url or masked_image_url,
         }
 
+    @staticmethod
+    def catalog_object_name(item_id: str) -> str:
+        """Single canonical catalog object key. Deterministic from item_id so
+        the client can build the URL without a DB field."""
+        return f"catalog_{str(item_id or '').strip()}.jpg"
+
+    def build_catalog_url(self, item_id: str) -> str:
+        """Deterministic public catalog URL for an item, or '' if unconfigured."""
+        if not self.wardrobe_public_url or not str(item_id or "").strip():
+            return ""
+        return f"{self.wardrobe_public_url}/{self.catalog_object_name(item_id)}"
+
     def upload_catalog_image(
         self,
         *,
@@ -262,19 +274,14 @@ class R2Storage:
         extension: str = "jpg",
     ) -> Dict[str, str]:
         """Upload a single catalog (clean centered product) image to the
-        wardrobe bucket. Returns {catalog_file_name, catalog_url}."""
+        wardrobe bucket using the canonical deterministic key
+        (catalog_{item_id}.jpg). Returns {catalog_file_name, catalog_url}."""
         if not self.wardrobe_bucket or not self.wardrobe_public_url:
             raise R2StorageError("Missing wardrobe bucket/public URL configuration.")
-        ext = (extension or "jpg").lower().strip(".")
-        if ext not in ("jpg", "jpeg", "webp", "png"):
-            ext = "jpg"
+        # One canonical format so the client can derive the URL from item_id.
+        file_name = self.catalog_object_name(file_id)
         content_type = "image/jpeg"
-        if ext == "webp":
-            content_type = "image/webp"
-        elif ext == "png":
-            content_type = "image/png"
-
-        file_name = f"catalog_{file_id}.{ext}"
+        del extension  # kept for signature compatibility; format is fixed to .jpg
         client = self._client()
         client.put_object(
             self.wardrobe_bucket,
