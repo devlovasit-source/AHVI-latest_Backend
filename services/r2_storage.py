@@ -254,6 +254,40 @@ class R2Storage:
             "image_url": normalized_image_url or masked_image_url,
         }
 
+    def upload_catalog_image(
+        self,
+        *,
+        file_id: str,
+        image_bytes: bytes,
+        extension: str = "jpg",
+    ) -> Dict[str, str]:
+        """Upload a single catalog (clean centered product) image to the
+        wardrobe bucket. Returns {catalog_file_name, catalog_url}."""
+        if not self.wardrobe_bucket or not self.wardrobe_public_url:
+            raise R2StorageError("Missing wardrobe bucket/public URL configuration.")
+        ext = (extension or "jpg").lower().strip(".")
+        if ext not in ("jpg", "jpeg", "webp", "png"):
+            ext = "jpg"
+        content_type = "image/jpeg"
+        if ext == "webp":
+            content_type = "image/webp"
+        elif ext == "png":
+            content_type = "image/png"
+
+        file_name = f"catalog_{file_id}.{ext}"
+        client = self._client()
+        client.put_object(
+            self.wardrobe_bucket,
+            file_name,
+            BytesIO(image_bytes),
+            length=len(image_bytes),
+            content_type=content_type,
+        )
+        return {
+            "catalog_file_name": file_name,
+            "catalog_url": f"{self.wardrobe_public_url}/{file_name}",
+        }
+
     def upload_style_board_image(
         self,
         *,

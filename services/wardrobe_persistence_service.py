@@ -693,6 +693,28 @@ def _build_appwrite_doc(
     }
     if pixel_hash:
         doc["pixel_hash"] = pixel_hash
+    # Catalog image fields. Only written when the catalog pipeline is enabled —
+    # operator turning on the flag is responsible for adding these attributes to
+    # the Appwrite schema. Flag OFF (prod default) => doc shape unchanged.
+    if str(os.getenv("ENABLE_CATALOG_IMAGE_GENERATION", "false")).strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ) or str(os.getenv("ENABLE_CATALOG_NORMALIZATION", "false")).strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        catalog_url = _safe_text(item.get("catalogUrl") or item.get("catalog_url"))
+        if catalog_url:
+            doc["catalog_url"] = catalog_url
+        catalog_status = _safe_text(item.get("catalogStatus") or item.get("catalog_status"))
+        if catalog_status:
+            doc["catalog_status"] = catalog_status
+        if item.get("catalogMethod"):
+            doc["catalog_method"] = _safe_text(item.get("catalogMethod"))
     doc["_style_attrs"] = style_attrs
     return doc
 

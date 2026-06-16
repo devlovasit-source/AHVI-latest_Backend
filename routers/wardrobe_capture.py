@@ -822,6 +822,78 @@ def _decode_inline_image(value: Any) -> bytes:
         return b""
 
 
+def _catalog_generation_enabled() -> bool:
+    return _env_enabled("ENABLE_CATALOG_IMAGE_GENERATION", "false") or _env_enabled(
+        "ENABLE_CATALOG_NORMALIZATION", "false"
+    )
+
+
+def _maybe_generate_catalog_image(
+    item: Dict[str, Any], masked_bytes: bytes, file_id: str
+) -> None:
+    """Best-effort: build a clean centered catalog image from the masked cutout
+    and persist catalogUrl aliases. NEVER raises — save must not depend on it.
+    Gated by ENABLE_CATALOG_IMAGE_GENERATION / ENABLE_CATALOG_NORMALIZATION."""
+    if not _catalog_generation_enabled():
+        return
+    category = str(item.get("category") or "").strip().lower()
+    try:
+        from services.catalog_image_service import category_allowed, generate_catalog_image
+
+        if not category_allowed(category):
+            item["catalogStatus"] = "catalog_skipped_category"
+            return
+        result = generate_catalog_image(
+            masked_bytes,
+            item_metadata={"category": category, "item_id": file_id},
+            mode="rmbg_first",
+        )
+        if not result.get("success") or not result.get("catalog_image_bytes"):
+            reason = str(result.get("reason") or "")
+            status = (
+                "catalog_validation_failed"
+                if reason.startswith("validation:")
+                else "catalog_failed"
+            )
+            item["catalogStatus"] = status
+            item["catalog_status"] = status
+            logger.info(
+                "ahvi.catalog.failed item_id=%s category=%s reason=%s",
+                file_id,
+                category,
+                reason,
+            )
+            return
+        upload = R2Storage().upload_catalog_image(
+            file_id=file_id, image_bytes=result["catalog_image_bytes"], extension="jpg"
+        )
+        catalog_url = upload.get("catalog_url")
+        item["catalogUrl"] = catalog_url
+        item["catalog_url"] = catalog_url
+        item["catalogStatus"] = "catalog_ready"
+        item["catalog_status"] = "catalog_ready"
+        item["catalogMethod"] = "rmbg_center_normalize"
+        item["catalogRotationApplied"] = int(result.get("rotation_applied") or 0)
+        item["catalogGeneratedAt"] = result.get("generated_at")
+        item["catalog_file_name"] = upload.get("catalog_file_name")
+        logger.info(
+            "ahvi.catalog.uploaded item_id=%s category=%s url=%s rotation=%d",
+            file_id,
+            category,
+            catalog_url,
+            int(result.get("rotation_applied") or 0),
+        )
+    except Exception as exc:  # noqa: BLE001 — catalog is non-blocking.
+        item["catalogStatus"] = "catalog_failed"
+        item["catalog_status"] = "catalog_failed"
+        logger.warning(
+            "ahvi.catalog.failed item_id=%s category=%s err=%s",
+            file_id,
+            category,
+            repr(exc)[:160],
+        )
+
+
 def _try_upload_inline_images(
     item: Dict[str, Any],
     *,
@@ -888,6 +960,9 @@ def _try_upload_inline_images(
         item["masked_file_name"] = upload.get("masked_file_name")
         item["normalized_file_name"] = upload.get("normalized_file_name")
         item["_save_image_source"] = "inline_crop_upload"
+        # Catalog image (clean centered product). Non-blocking, flag-gated,
+        # never raises into save. Built from the masked cutout bytes.
+        _maybe_generate_catalog_image(item, masked_bytes, file_id)
     except Exception as exc:
         item["upload_error"] = str(exc)
         item["_save_image_source"] = "existing_url_after_inline_upload_failure"
