@@ -2258,6 +2258,23 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         if not had_url and has_url:
             upload_fixed += 1
 
+        # Bottoms pants/shorts sanity guard — correct a misdetected shorts/pants
+        # label from the garment cutout aspect ratio. Never blocks save.
+        try:
+            _guard_bytes = _decode_inline_image(
+                item.get("masked_image_base64")
+            ) or _decode_inline_image(item.get("raw_image_base64"))
+            if _guard_bytes:
+                from services.wardrobe_taxonomy import apply_bottom_length_guard
+
+                item = apply_bottom_length_guard(item, _guard_bytes)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "ahvi.taxonomy.bottom_length_guard_error item_id=%s err=%s",
+                item.get("item_id"),
+                repr(exc)[:160],
+            )
+
         # Catalog generation — runs whenever flags are ON and bytes are
         # resolvable, independent of the RMBG cleanup path. Never blocks save.
         try:

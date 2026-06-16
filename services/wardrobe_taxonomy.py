@@ -7,8 +7,12 @@ through to "Needs Review" so the user can correct them manually.
 
 from __future__ import annotations
 
+import io
+import logging
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger("ahvi.wardrobe_taxonomy")
 
 
 CATEGORIES = {
@@ -415,6 +419,154 @@ def enforce_preview_taxonomy(item: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Bottoms pants/shorts sanity guard (image-based)
+# ---------------------------------------------------------------------------
+# Gemini sometimes labels full-length trousers as shorts (and vice-versa). The
+# coarse taxonomy only pins category to "Bottoms" and preserves the sub/name, so
+# the wrong label survives. This guard measures the garment cutout's aspect
+# ratio and rewrites sub_category + name ONLY when the visual evidence clearly
+# contradicts the detector. Uncertain cases are left untouched. Never raises.
+
+# height / width of the visible foreground. Trousers are clearly tall; shorts
+# are roughly square / wide. The band between is "uncertain" (no change).
+_TROUSER_MIN_ASPECT = 1.6
+_SHORTS_MAX_ASPECT = 1.1
+
+_TROUSER_TOKENS = (
+    "trouser", "trousers", "pant", "pants", "chino", "chinos",
+    "jean", "jeans", "slack", "slacks",
+)
+_SHORTS_TOKENS = ("short", "shorts")
+
+
+def _is_bottoms(category: Any) -> bool:
+    return str(category or "").strip().lower() in {"bottoms", "bottom"}
+
+
+def _foreground_aspect(image_bytes: bytes) -> Optional[float]:
+    """height/width of the visible garment. None when undecodable/empty."""
+    if not image_bytes:
+        return None
+    try:
+        from PIL import Image, ImageOps
+
+        img = ImageOps.exif_transpose(Image.open(io.BytesIO(image_bytes))).convert("RGBA")
+    except Exception:  # noqa: BLE001
+        return None
+    bbox = img.getchannel("A").getbbox()  # masked cutout
+    if bbox is None:  # opaque photo -> non-white bounds
+        rgb = img.convert("RGB")
+        px = rgb.load()
+        w, h = rgb.size
+        minx, miny, maxx, maxy = w, h, -1, -1
+        sx, sy = max(1, w // 120), max(1, h // 120)
+        for y in range(0, h, sy):
+            for x in range(0, w, sx):
+                r, g, b = px[x, y]
+                if r >= 248 and g >= 248 and b >= 248:
+                    continue
+                minx, miny = min(minx, x), min(miny, y)
+                maxx, maxy = max(maxx, x), max(maxy, y)
+        if maxx < 0:
+            return None
+        bbox = (minx, miny, maxx + 1, maxy + 1)
+    fw, fh = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    if fw <= 0 or fh <= 0:
+        return None
+    return fh / fw
+
+
+def infer_bottom_length_from_crop(image_bytes: bytes, category: Any) -> str:
+    """'shorts' | 'trousers' | 'unknown' from the cutout aspect ratio.
+    Only meaningful for Bottoms; everything else is 'unknown'."""
+    if not _is_bottoms(category):
+        return "unknown"
+    aspect = _foreground_aspect(image_bytes)
+    if aspect is None:
+        return "unknown"
+    if aspect >= _TROUSER_MIN_ASPECT:
+        return "trousers"
+    if aspect <= _SHORTS_MAX_ASPECT:
+        return "shorts"
+    return "unknown"
+
+
+def _label_says(blob: str, tokens: Tuple[str, ...]) -> bool:
+    return any(t in blob for t in tokens)
+
+
+def _swap_name(name: str, target: str) -> str:
+    if not name:
+        return name
+    if target == "Trousers":
+        return re.sub(r"(?i)\bshorts?\b", "Trousers", name)
+    return re.sub(r"(?i)\b(trousers?|pants?|chinos?|slacks?)\b", "Shorts", name)
+
+
+def reconcile_bottom_label(
+    *, name: str, sub_category: str, heuristic: str
+) -> Optional[Tuple[str, str, str]]:
+    """Return (new_name, new_sub, reason) when a correction is warranted, else None."""
+    if heuristic not in {"shorts", "trousers"}:
+        return None
+    blob = f"{sub_category} {name}".lower()
+    detector_shorts = _label_says(blob, _SHORTS_TOKENS)
+    detector_trouser = _label_says(blob, _TROUSER_TOKENS)
+    if heuristic == "trousers" and detector_shorts and not detector_trouser:
+        new_name = _swap_name(name, "Trousers")
+        if not _label_says(new_name.lower(), _TROUSER_TOKENS):
+            new_name = (f"{name} Trousers".strip() if name else "Trousers")
+        return (new_name, "Trousers", "detector_shorts_but_crop_trousers")
+    if heuristic == "shorts" and detector_trouser and not detector_shorts:
+        new_name = _swap_name(name, "Shorts")
+        if not _label_says(new_name.lower(), _SHORTS_TOKENS):
+            new_name = (f"{name} Shorts".strip() if name else "Shorts")
+        return (new_name, "Shorts", "detector_trousers_but_crop_shorts")
+    return None
+
+
+def apply_bottom_length_guard(item: Dict[str, Any], image_bytes: bytes) -> Dict[str, Any]:
+    """Correct a Bottoms item's shorts/pants label when the cutout aspect clearly
+    contradicts the detector. Returns the (possibly updated) item. Never raises."""
+    try:
+        if not isinstance(item, dict) or not _is_bottoms(item.get("category")):
+            return item
+        name = str(item.get("name") or item.get("label") or "")
+        sub = str(item.get("sub_category") or item.get("subcategory") or "")
+        aspect = _foreground_aspect(image_bytes)
+        heuristic = infer_bottom_length_from_crop(image_bytes, item.get("category"))
+        ar = round(aspect, 3) if aspect is not None else None
+        logger.info(
+            "ahvi.taxonomy.bottom_length_check original_name=%r original_sub_category=%r aspect_ratio=%s heuristic=%s",
+            name, sub, ar, heuristic,
+        )
+        if heuristic == "unknown":
+            logger.info(
+                "ahvi.taxonomy.bottom_length_uncertain original_name=%r original_sub_category=%r aspect_ratio=%s reason=uncertain",
+                name, sub, ar,
+            )
+            return item
+        result = reconcile_bottom_label(name=name, sub_category=sub, heuristic=heuristic)
+        if not result:
+            return item
+        new_name, new_sub, reason = result
+        out = dict(item)
+        out["name"] = new_name
+        out["sub_category"] = new_sub
+        out["subcategory"] = new_sub
+        out["_bottom_length_corrected"] = reason
+        logger.info(
+            "ahvi.taxonomy.bottom_length_corrected original_name=%r original_sub_category=%r "
+            "new_name=%r new_sub_category=%r aspect_ratio=%s reason=%s",
+            name, sub, new_name, new_sub, ar, reason,
+        )
+        return out
+    except Exception as exc:  # noqa: BLE001 — guard must never break save.
+        logger.warning("ahvi.taxonomy.bottom_length_guard_error err=%s", repr(exc)[:160])
+        return item
+
+
 __all__ = [
     "CATEGORIES",
     "normalize",
@@ -422,4 +574,7 @@ __all__ = [
     "display_name",
     "build_review_card",
     "enforce_preview_taxonomy",
+    "infer_bottom_length_from_crop",
+    "reconcile_bottom_label",
+    "apply_bottom_length_guard",
 ]
