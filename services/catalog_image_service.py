@@ -86,13 +86,55 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Live wardrobe categories are title-case / plural (e.g. "Dresses",
+# "Ethnic Wear"). Map them to the canonical singular lowercase tokens the
+# pipeline uses for allowlist + rotation.
+_CATEGORY_NORMALIZE = {
+    "dresses": "dress",
+    "dress": "dress",
+    "tops": "top",
+    "top": "top",
+    "bottoms": "bottom",
+    "bottom": "bottom",
+    "ethnic wear": "ethnic",
+    "indian wear": "ethnic",
+    "traditional": "ethnic",
+    "ethnic": "ethnic",
+    "outerwear": "outerwear",
+    "footwear": "footwear",
+    "shoes": "footwear",
+    "accessories": "accessory",
+    "accessory": "accessory",
+    "bags": "bag",
+    "bag": "bag",
+    "handbag": "bag",
+    "handbags": "bag",
+    "jewellery": "jewellery",
+    "jewelry": "jewellery",
+}
+
+
 def _norm_category(category: Any) -> str:
     return str(category or "").strip().lower()
 
 
+def normalize_catalog_category(category: Any) -> str:
+    """Canonicalize a live/raw category to a singular lowercase token."""
+    raw = _norm_category(category)
+    if not raw:
+        return ""
+    if raw in _CATEGORY_NORMALIZE:
+        return _CATEGORY_NORMALIZE[raw]
+    # tolerate a trailing plural 's' (e.g. "outerwears")
+    if raw.endswith("s") and raw[:-1] in _CATEGORY_NORMALIZE:
+        return _CATEGORY_NORMALIZE[raw[:-1]]
+    return raw
+
+
 def category_allowed(category: Any) -> bool:
-    """True if a catalog image should be attempted for this category."""
-    cat = _norm_category(category)
+    """True if a catalog image should be attempted for this category. Accepts
+    raw/plural/title-case categories (normalized first)."""
+    cat = normalize_catalog_category(category)
     if not cat:
         return False
     if cat in SKIP_CATEGORIES:
@@ -145,7 +187,7 @@ def _build_catalog_canvas(
 
     # Sideways rotation: only rotate-eligible categories, only when clearly wide.
     rotation_applied = 0
-    cat = _norm_category(category)
+    cat = normalize_catalog_category(category)
     if cat in _ROTATE_CATEGORIES and fg_w > fg_h * _SIDEWAYS_RATIO:
         # Rotate 90 clockwise, expand so nothing clips. Deterministic direction.
         img = img.rotate(-90, expand=True)
@@ -321,7 +363,7 @@ def validate_catalog_image(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Deterministic acceptance checks. Returns {ok, reason, ...metrics}."""
-    cat = _norm_category(category)
+    cat = normalize_catalog_category(category)
     visible_ratio, skin_ratio, touches_edge = _visible_and_skin_ratio(canvas)
     result: Dict[str, Any] = {
         "ok": True,

@@ -235,6 +235,65 @@ def test_color_match_passes_for_real_garments(name, cat, color):
     assert out["validation"]["color_match"] <= c._COLOR_DIST_MAX
 
 
+# --- category normalization (live title-case / plural) ---
+@pytest.mark.parametrize(
+    "raw,norm,allowed",
+    [
+        ("Dresses", "dress", True),
+        ("Dress", "dress", True),
+        ("Tops", "top", True),
+        ("Bottoms", "bottom", True),
+        ("Ethnic Wear", "ethnic", True),
+        ("Indian Wear", "ethnic", True),
+        ("Outerwear", "outerwear", True),
+        ("Footwear", "footwear", True),
+        ("Accessories", "accessory", True),
+        ("Bags", "bag", True),
+        ("Jewelry", "jewellery", True),
+        ("skincare", "skincare", False),
+        ("Makeup", "makeup", False),
+    ],
+)
+def test_category_normalization_and_allow(raw, norm, allowed):
+    assert c.normalize_catalog_category(raw) == norm
+    assert c.category_allowed(raw) is allowed
+
+
+def test_dresses_category_generates(monkeypatch):
+    # Live category "Dresses" must produce a catalog image (was skipped before).
+    out = c.generate_catalog_image(_garment_png(820, 900), {"category": "Dresses"})
+    assert out["success"] is True
+
+
+def test_hook_enter_logged(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setenv("ENABLE_CATALOG_IMAGE_GENERATION", "true")
+    from routers import wardrobe_capture as wc
+
+    monkeypatch.setattr(wc, "R2Storage", lambda: _OkR2())
+    item = {"category": "Dresses", "item_id": "id_h", "masked_image_base64": _data_uri(_garment_png(820, 900))}
+    with caplog.at_level(logging.INFO):
+        wc._maybe_generate_catalog_image(item)
+    msgs = "\n".join(caplog.messages)
+    assert "ahvi.catalog.hook_enter" in msgs
+    assert "category_norm=dress" in msgs
+    assert item["catalogStatus"] == "catalog_ready"  # Dresses now runs
+
+
+def test_skip_category_logged_for_skincare(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setenv("ENABLE_CATALOG_IMAGE_GENERATION", "true")
+    from routers import wardrobe_capture as wc
+
+    item = {"category": "Skincare", "item_id": "id_sk", "masked_image_base64": _data_uri(_garment_png(800, 800))}
+    with caplog.at_level(logging.INFO):
+        wc._maybe_generate_catalog_image(item)
+    assert "ahvi.catalog.skip_category" in "\n".join(caplog.messages)
+    assert item["catalogStatus"] == "catalog_skipped_category"
+
+
 # --- B. skin: skip for accessories/footwear, tightened heuristic for garments ---
 @pytest.mark.parametrize(
     "name,cat,color",

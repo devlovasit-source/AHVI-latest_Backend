@@ -867,16 +867,41 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
     if item.get("_catalog_done"):
         return
     file_id = str(item.get("item_id") or "")
-    category = str(item.get("category") or "").strip().lower()
-    if not _catalog_generation_enabled():
+    category_raw = str(item.get("category") or "").strip()
+    from services.catalog_image_service import (
+        category_allowed,
+        generate_catalog_image,
+        normalize_catalog_category,
+    )
+
+    category = normalize_catalog_category(category_raw)
+    flags_on = _catalog_generation_enabled()
+    # Hard entry log — always fires so we can see WHY catalog did/didn't run.
+    logger.info(
+        "ahvi.catalog.hook_enter item_id=%s category_raw=%r category_norm=%s flags_on=%s "
+        "has_masked_b64=%s has_raw_b64=%s has_masked_url=%s has_raw_url=%s",
+        file_id,
+        category_raw,
+        category,
+        flags_on,
+        bool(item.get("masked_image_base64")),
+        bool(item.get("raw_image_base64")),
+        bool(item.get("masked_url") or item.get("maskedUrl")),
+        bool(item.get("raw_url") or item.get("rawUrl")),
+    )
+    if not flags_on:
         logger.info("ahvi.catalog.skip_flag_off item_id=%s", file_id)
         return
     try:
-        from services.catalog_image_service import category_allowed, generate_catalog_image
-
         if not category_allowed(category):
             item["catalogStatus"] = "catalog_skipped_category"
             item["_catalog_done"] = True
+            logger.info(
+                "ahvi.catalog.skip_category item_id=%s category_raw=%r category_norm=%s",
+                file_id,
+                category_raw,
+                category,
+            )
             return
         src_bytes, src = _resolve_catalog_source_bytes(item)
         if not src_bytes:
