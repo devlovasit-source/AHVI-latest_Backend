@@ -219,16 +219,68 @@ def _avg_color_rgba(img: Image.Image) -> Optional[Tuple[float, float, float]]:
     return (r / n, g / n, b / n)
 
 
+# Per-category minimum garment occupancy (fraction of the 1600 canvas).
+# Thin silhouettes (kurta/dupatta/shirt) legitimately under-fill a square.
+_AREA_THRESHOLDS = {
+    "dress": 0.12,
+    "ethnic": 0.12,
+    "outerwear": 0.12,
+    "top": 0.12,
+    "bottom": 0.12,
+    "footwear": 0.08,
+    "bag": 0.08,
+    "handbag": 0.08,
+    "accessory": 0.08,
+    "jewellery": 0.08,
+    "jewelry": 0.08,
+}
+_AREA_DEFAULT = 0.12
+# Non-garment categories where a skin-tone check is meaningless (leather/tan
+# reads as skin). Skip skin validation entirely for these.
+_SKIN_SKIP_CATEGORIES = {"bag", "handbag", "accessory", "footwear", "jewellery", "jewelry"}
+_SKIN_DOMINANT = 0.60
+# Max foreground-vs-foreground color distance (sum of per-channel abs deltas,
+# 0..765). Foreground-only so the off-white canvas no longer skews it.
+_COLOR_DIST_MAX = 120
+
+
+def _foreground_avg_color(img: Image.Image) -> Optional[Tuple[float, float, float]]:
+    """Average color of GARMENT pixels only — excludes transparent pixels AND
+    the off-white padding/background. Works for both a transparent masked input
+    and the composited off-white catalog canvas."""
+    rgba = img.convert("RGBA")
+    small = rgba.resize((64, 64))
+    px = small.load()
+    r = g = b = n = 0
+    for y in range(64):
+        for x in range(64):
+            cr, cg, cb, ca = px[x, y]
+            if ca <= 16:
+                continue  # transparent
+            dist = abs(cr - OFF_WHITE_RGB[0]) + abs(cg - OFF_WHITE_RGB[1]) + abs(cb - OFF_WHITE_RGB[2])
+            if dist <= 24:
+                continue  # background / padding
+            r += cr
+            g += cg
+            b += cb
+            n += 1
+    if n == 0:
+        return None
+    return (r / n, g / n, b / n)
+
+
 def _is_skin(r: float, g: float, b: float) -> bool:
-    # Loose skin-tone heuristic (RGB rule-of-thumb).
+    # Skin-tone heuristic (RGB). Tightened so warm GARMENT colors (marigold,
+    # gold, mustard, yellow) are not misread as skin: real skin keeps a small
+    # green->blue falloff and non-trivial blue, unlike saturated warm fabrics.
     return (
         r > 95
         and g > 40
-        and b > 20
-        and r > g
-        and r > b
+        and b > 40
+        and r > g > b
+        and (r - g) > 12
+        and (g - b) < 45
         and (max(r, g, b) - min(r, g, b)) > 15
-        and abs(r - g) > 15
     )
 
 
@@ -269,6 +321,7 @@ def validate_catalog_image(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Deterministic acceptance checks. Returns {ok, reason, ...metrics}."""
+    cat = _norm_category(category)
     visible_ratio, skin_ratio, touches_edge = _visible_and_skin_ratio(canvas)
     result: Dict[str, Any] = {
         "ok": True,
@@ -279,29 +332,54 @@ def validate_catalog_image(
         "color_match": None,
     }
 
-    # 2. garment visible area > 20% of canvas
-    if visible_ratio < 0.20:
-        result.update(ok=False, reason="visible_area_below_20pct")
+    # AREA — per-category minimum occupancy. Thin garments under-fill a square.
+    area_threshold = _AREA_THRESHOLDS.get(cat, _AREA_DEFAULT)
+    area_ok = visible_ratio >= area_threshold
+    logger.info(
+        "ahvi.catalog.validation.area category=%s threshold=%.2f measured=%.4f decision=%s",
+        cat, area_threshold, visible_ratio, "pass" if area_ok else "reject",
+    )
+    if not area_ok:
+        result.update(ok=False, reason="visible_area_below_min")
         return result
-    # 3. garment not cropped at edges (padding should keep it off the border)
+
+    # EDGE — garment must not clip the border (padding keeps it inside).
     if touches_edge:
         result.update(ok=False, reason="garment_touches_edge")
         return result
-    # 7. no person/skin-dominant region (best-effort; only reject when extreme)
-    if skin_ratio > 0.60:
+
+    # SKIN — skip for non-garment categories (leather/tan reads as skin).
+    skin_checked = cat not in _SKIN_SKIP_CATEGORIES
+    skin_ok = (not skin_checked) or (skin_ratio <= _SKIN_DOMINANT)
+    logger.info(
+        "ahvi.catalog.validation.skin category=%s threshold=%.2f measured=%.4f decision=%s",
+        cat, _SKIN_DOMINANT, skin_ratio,
+        "skipped" if not skin_checked else ("pass" if skin_ok else "reject"),
+    )
+    if not skin_ok:
         result.update(ok=False, reason="skin_region_dominant")
         return result
-    # 5. dominant color roughly matches original crop
+
+    # COLOR — foreground garment vs foreground garment (NOT full-canvas avg).
     if original_bytes:
         try:
-            orig = _avg_color_rgba(_open_rgba(original_bytes))
-            cat_color = _avg_color_rgba(canvas)
+            orig = _foreground_avg_color(_open_rgba(original_bytes))
+            cat_color = _foreground_avg_color(canvas)
             if orig and cat_color:
                 d = sum(abs(a - b) for a, b in zip(orig, cat_color))
                 result["color_match"] = round(d, 2)
-                if d > 180:  # very loose; only catches gross mismatch
+                color_ok = d <= _COLOR_DIST_MAX
+                logger.info(
+                    "ahvi.catalog.validation.color category=%s threshold=%d measured=%.1f decision=%s",
+                    cat, _COLOR_DIST_MAX, d, "pass" if color_ok else "reject",
+                )
+                if not color_ok:
                     result.update(ok=False, reason="color_mismatch")
                     return result
+            else:
+                logger.info(
+                    "ahvi.catalog.validation.color category=%s decision=skipped reason=no_foreground", cat
+                )
         except Exception:  # noqa: BLE001
             pass  # color check is best-effort, never blocks on its own error
     return result

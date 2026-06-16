@@ -131,6 +131,106 @@ def test_router_helper_skips_invalid_category(monkeypatch):
     assert "catalogUrl" not in item
 
 
+# ===========================================================================
+# Validation gate calibration (P0)
+# ===========================================================================
+import math
+
+from PIL import Image as _Img
+
+
+def _solid_canvas(frac, color=(30, 90, 200)):
+    """1600 off-white canvas with a centered solid square covering `frac` of
+    area (never touching edge)."""
+    side = int(math.sqrt(frac) * 1600)
+    im = _Img.new("RGBA", (1600, 1600), c.OFF_WHITE)
+    d = ImageDraw.Draw(im)
+    x = (1600 - side) // 2
+    d.rectangle([x, x, x + side, x + side], fill=color + (255,))
+    return im
+
+
+# --- A. color: foreground-vs-foreground, no off-white skew ---
+@pytest.mark.parametrize(
+    "name,cat,color",
+    [
+        ("blue shirt", "top", (40, 90, 200, 255)),
+        ("black dress", "dress", (20, 20, 24, 255)),
+        ("beige handbag", "bag", (235, 225, 200, 255)),
+    ],
+)
+def test_color_match_passes_for_real_garments(name, cat, color):
+    out = c.generate_catalog_image(_garment_png(800, 900, color=color), {"category": cat})
+    assert out["success"] is True, f"{name} wrongly rejected: {out['reason']}"
+    # color distance must be small now (was >180 under the canvas-average bug)
+    assert out["validation"]["color_match"] is not None
+    assert out["validation"]["color_match"] <= c._COLOR_DIST_MAX
+
+
+# --- B. skin: skip for accessories/footwear, tightened heuristic for garments ---
+@pytest.mark.parametrize(
+    "name,cat,color",
+    [
+        ("brown leather bag", "bag", (120, 72, 40, 255)),
+        ("tan footwear", "footwear", (200, 170, 140, 255)),
+        ("marigold (skin-adjacent) dress", "ethnic", (220, 170, 40, 255)),
+    ],
+)
+def test_skin_false_positives_fixed(name, cat, color):
+    out = c.generate_catalog_image(_garment_png(820, 820, color=color), {"category": cat})
+    assert out["success"] is True, f"{name} wrongly rejected: {out['reason']}"
+
+
+def test_skin_skipped_for_non_garment_categories():
+    skin = (214, 170, 140)  # genuine skin tone
+    assert c._is_skin(*skin) is True
+    canvas = _solid_canvas(0.5, color=skin)
+    # bag/footwear: skin check skipped -> ok
+    assert c.validate_catalog_image(canvas, category="bag")["ok"] is True
+    assert c.validate_catalog_image(canvas, category="footwear")["ok"] is True
+    # garment: skin dominant -> still rejected (intended)
+    res = c.validate_catalog_image(canvas, category="top")
+    assert res["ok"] is False and res["reason"] == "skin_region_dominant"
+
+
+def test_warm_garment_colors_not_skin():
+    # marigold / gold / mustard must NOT read as skin (kurta false-positive fix)
+    assert c._is_skin(220, 170, 40) is False
+    assert c._is_skin(212, 175, 55) is False
+    assert c._is_skin(255, 215, 0) is False
+
+
+# --- C. area: per-category thresholds, still reject empty / tiny ---
+def test_area_thresholds_per_category():
+    assert c.validate_catalog_image(_solid_canvas(0.14), category="top")["ok"] is True
+    assert c.validate_catalog_image(_solid_canvas(0.13), category="ethnic")["ok"] is True  # kurta/dupatta
+    r = c.validate_catalog_image(_solid_canvas(0.09), category="top")
+    assert r["ok"] is False and r["reason"] == "visible_area_below_min"
+    # footwear/bag tolerate thinner silhouettes (8%)
+    assert c.validate_catalog_image(_solid_canvas(0.09), category="footwear")["ok"] is True
+    assert c.validate_catalog_image(_solid_canvas(0.06), category="footwear")["ok"] is False
+
+
+def test_area_rejects_tiny_artifact_and_empty():
+    assert c.validate_catalog_image(_solid_canvas(0.01), category="top")["ok"] is False
+    # empty mask still bails in build stage
+    assert c.generate_catalog_image(_empty_png(), {"category": "top"})["reason"] == "empty_foreground"
+
+
+# --- D. logging ---
+def test_validation_emits_decision_logs(caplog):
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="ahvi.catalog"):
+        c.validate_catalog_image(
+            _solid_canvas(0.3), original_bytes=_garment_png(800, 800), category="top"
+        )
+    text = "\n".join(caplog.messages)
+    assert "ahvi.catalog.validation.area" in text
+    assert "ahvi.catalog.validation.skin" in text
+    assert "ahvi.catalog.validation.color" in text
+
+
 def test_router_helper_success_sets_aliases(monkeypatch):
     monkeypatch.setenv("ENABLE_CATALOG_IMAGE_GENERATION", "true")
     from routers import wardrobe_capture as wc
