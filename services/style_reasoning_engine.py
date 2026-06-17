@@ -311,6 +311,39 @@ def _asset_list(value: Any) -> List[str]:
     return [part.strip().lower() for part in re.split(r"[,|]", text) if part.strip()]
 
 
+# --- Non-fashion exclusion (P0 catalog hygiene) -------------------------------
+# The style-board catalog carries non-garment rows (airpods, chewing gum, hair
+# dryer, travel gadgets, wallets, skincare). They must NEVER surface on a board.
+# Single authority used by every retrieval path (hero / support / accessory /
+# complete_the_look). Category-based + name-signal based.
+_NONFASHION_CATEGORIES = {"grooming", "travel"}
+_NONFASHION_NAME_SIGNALS = (
+    "airpod", "earbud", "chewing gum", "chewinggum", "mouth freshener",
+    "mouthfreshener", "breath", "medical kit", "medicalkit", "hair dryer",
+    "hairdryer", "hair straightener", "hairstraightener", "drink flask",
+    "drinkflask", "flask", "document holder", "documentholder",
+    "weighing scale", "weighingscale", "travel container", "travelcontainer",
+    "travel file", "umbrella", "umberella", "wallet", "card case", "cardcase",
+    "skincare", "skin care", "hand sanitizer", "sanitizer",
+)
+
+
+def _is_nonfashion_asset(asset: Dict[str, Any]) -> bool:
+    """True when an asset is non-garment junk that must not reach a style board."""
+    if not isinstance(asset, dict):
+        return False
+    if _asset_text(asset.get("category")).strip().lower() in _NONFASHION_CATEGORIES:
+        return True
+    blob = " ".join(
+        [
+            _asset_text(asset.get("name")),
+            _asset_text(asset.get("subcategory")),
+            _asset_text(asset.get("category")),
+        ]
+    ).lower()
+    return any(sig in blob for sig in _NONFASHION_NAME_SIGNALS)
+
+
 def _asset_category_terms(asset: Dict[str, Any]) -> set[str]:
     text = " ".join(
         [
@@ -2861,7 +2894,9 @@ def _asset_score(
     archetype = _asset_text(direction.get("archetype")).lower()
     asset_archetypes = _asset_list(asset.get("archetypes"))
     asset_occasions = _asset_list(asset.get("occasions"))
-    asset_style_tags = _asset_list(asset.get("style_tags"))
+    # Field-mismatch recovery: catalog stores `tags`, scorer wanted `style_tags`
+    # (0% live coverage). Fall back to tags so the +3 style term works.
+    asset_style_tags = _asset_list(asset.get("style_tags")) or _asset_list(asset.get("tags"))
     asset_allowed_slots = _asset_list(asset.get("allowed_slots"))
     asset_avoid_for = _asset_list(asset.get("avoid_for"))
     if archetype and archetype in asset_archetypes:
@@ -2891,8 +2926,10 @@ def _asset_score(
             score += 1
         else:
             score -= 5
+    # Catalog stores `colors`; support legacy singular `color` too.
+    asset_color_values = _asset_list(asset.get("colors")) or _asset_list(asset.get("color"))
     for color in _safe_list(direction.get("colors") or direction.get("palette"), limit=6):
-        if color.lower() in _asset_list(asset.get("colors")):
+        if color.lower() in asset_color_values:
             score += 2
     # Color intent matching: prefer the exact hero color, penalise wildly
     # different colors. Colors are inferred from hero text + asset blob so
@@ -2901,7 +2938,7 @@ def _asset_score(
     asset_color_blob = " ".join(
         [
             _asset_text(asset.get("name")),
-            " ".join(_asset_list(asset.get("colors"))),
+            " ".join(_asset_list(asset.get("colors")) or _asset_list(asset.get("color"))),
             " ".join(_asset_list(asset.get("tags"))),
             _asset_text(asset.get("subcategory")),
         ]
@@ -3005,6 +3042,13 @@ def _best_style_assets(
         asset["_allow_feminine_accessory"] = allow_feminine_accessory
         image_url = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
         if not image_url:
+            continue
+        if _is_nonfashion_asset(asset):
+            logger.info(
+                "catalog_asset_excluded_nonfashion asset=%r category=%r",
+                _asset_text(asset.get("name")),
+                _asset_text(asset.get("category")),
+            )
             continue
         if not _asset_allowed_for_gender(asset, target_gender):
             continue
@@ -3615,7 +3659,8 @@ def _enrich_visual_directions_with_assets(
                 None,
             )
             if attached_asset and (
-                not _asset_allowed_for_context(
+                _is_nonfashion_asset(attached_asset)
+                or not _asset_allowed_for_context(
                     attached_asset,
                     occasion=occasion_text,
                     placement="hero",
