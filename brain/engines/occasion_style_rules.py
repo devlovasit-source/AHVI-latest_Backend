@@ -507,6 +507,46 @@ OCCASION_STYLE_RULES.update(
             "style_direction": "team_social",
             "formality_target": 2.4,
         },
+        # Music festival / concert / gig / live show. Low formality, high energy,
+        # movement-first. Explicitly forbids the oxford/loafer/belt/blazer formal
+        # drift and ethnic formal (bandhgala/nehru/mojari/jutti).
+        "concert_social": {
+            "mood": "expressive, energetic, movement-ready, street",
+            "resolved_brief": "music festival / concert, casual and expressive, built for movement",
+            "style_direction": "expressive_street_casual",
+            "formality_target": 2.0,
+            "footwear_energy": "sneaker-led",
+            "prefer_keywords": [
+                "sneaker", "sneakers", "casual shirt", "graphic tee", "tee",
+                "t-shirt", "overshirt", "cargo", "cargos", "relaxed trouser",
+                "relaxed pants", "crossbody", "sunglasses", "denim", "bomber",
+                "hoodie", "cap", "shorts",
+            ],
+            "avoid_keywords": [
+                "oxford", "formal loafer", "loafer", "business blazer", "blazer",
+                "suit", "belt", "bandhgala", "nehru jacket", "mojari", "jutti",
+                "dress shoes", "dress shoe", "tie", "formal trouser",
+                "formal trousers", "derby", "brogue",
+            ],
+            "preferred_colors": ["black", "white", "olive", "grey", "denim", "tan"],
+            "avoid_colors": [],
+            "preferred_materials": ["cotton", "denim", "jersey", "nylon"],
+            "required_slots": ["top_or_dress", "bottom_or_dress", "footwear"],
+            "forbidden_pairings": [
+                ["oxford", "loafer"],
+                ["oxford", "belt"],
+                ["loafer", "belt"],
+                ["blazer", "loafer"],
+                ["bandhgala", "concert"],
+                ["nehru jacket", "concert"],
+            ],
+            "fallback_message": "I don't see enough festival-ready pieces yet.",
+            "missing_recommendations": [
+                {"label": "Graphic tee", "reason": "Adds expressive festival energy", "cta": "Find this"},
+                {"label": "Relaxed cargo or trouser", "reason": "Keeps you moving all day", "cta": "Find this"},
+                {"label": "Clean sneakers", "reason": "Movement-ready footwear, no formal drift", "cta": "Find this"},
+            ],
+        },
     }
 )
 
@@ -540,6 +580,19 @@ ALIASES = {
     "pooja": "temple_modest",
     "puja": "temple_modest",
     "religious": "temple_modest",
+    # Music/social festival + concert family. Multi-word keys so a cultural
+    # phrase like "diwali festival" (exact-match miss) is never hijacked.
+    "music festival": "concert_social",
+    "music_festival": "concert_social",
+    "music fest": "concert_social",
+    "concert": "concert_social",
+    "gig": "concert_social",
+    "live show": "concert_social",
+    "live_show": "concert_social",
+    "live music": "concert_social",
+    "rave": "concert_social",
+    "edm": "concert_social",
+    "club night": "concert_social",
 }
 
 
@@ -647,6 +700,22 @@ def reject_board_for_occasion(card: Dict[str, Any], occasion: str, occasion_rule
             "charcoal",
         )
         for block in beach_blocks:
+            if block in text:
+                return f"occasion_mismatch:{block}"
+    if key == "concert_social":
+        concert_blocks = (
+            "oxford",
+            "formal loafer",
+            "business blazer",
+            "bandhgala",
+            "nehru jacket",
+            "mojari",
+            "jutti",
+            "dress shoes",
+            "dress shoe",
+            "derby",
+        )
+        for block in concert_blocks:
             if block in text:
                 return f"occasion_mismatch:{block}"
     if key in {"office", "date", "wedding"}:

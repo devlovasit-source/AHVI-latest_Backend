@@ -2549,12 +2549,69 @@ def _validate_style_assets(assets: List[Dict[str, Any]]) -> None:
             )
 
 
+# Lightweight keyword estimators for an asset's formality/movement/energy. Asset
+# metadata carries no numeric axes, so we infer from the text blob. Used only by
+# the canonical-brief scoring path (brief != None); legacy scoring is untouched.
+_ASSET_FORMAL_SIGNALS = (
+    "oxford", "loafer", "blazer", "suit", "tuxedo", "tie", "derby", "brogue",
+    "dress shoe", "dress shoes", "formal trouser", "tailored trouser",
+    "bandhgala", "sherwani", "nehru jacket", "achkan", "heel", "heels", "gown",
+    "pump", "pumps",
+)
+_ASSET_CASUAL_SIGNALS = (
+    "tee", "t-shirt", "tshirt", "graphic", "sneaker", "cargo", "hoodie",
+    "jogger", "shorts", "overshirt", "cap", "denim", "jean", "sweatshirt",
+    "slides", "sandal", "track", "jersey", "tank",
+)
+_ASSET_MOVEMENT_SIGNALS = (
+    "sneaker", "cargo", "jogger", "track", "jersey", "stretch", "shorts",
+    "tee", "hoodie", "sandal", "slides", "relaxed", "elastic",
+)
+_ASSET_LOWMOVE_SIGNALS = (
+    "oxford", "loafer", "suit", "blazer", "heel", "heels", "pencil",
+    "tailored", "dress shoe", "derby", "gown", "pump",
+)
+_ASSET_HIGHENERGY_SIGNALS = (
+    "graphic", "print", "printed", "neon", "bright", "bold", "color block",
+    "colorblock", "statement", "sequin", "metallic", "floral", "logo",
+)
+
+
+def _asset_axis_estimates(blob: str) -> tuple[int, int, int]:
+    """Estimate (formality 1..5, movement 1..9, energy 1..9) from an item text
+    blob. Heuristic — keyword counts clamped to the axis range."""
+    b = (blob or "").lower()
+    formality = 3
+    for s in _ASSET_FORMAL_SIGNALS:
+        if s in b:
+            formality += 1
+    for s in _ASSET_CASUAL_SIGNALS:
+        if s in b:
+            formality -= 1
+    formality = max(1, min(5, formality))
+    movement = 5
+    for s in _ASSET_MOVEMENT_SIGNALS:
+        if s in b:
+            movement += 1
+    for s in _ASSET_LOWMOVE_SIGNALS:
+        if s in b:
+            movement -= 1
+    movement = max(1, min(9, movement))
+    energy = 4
+    for s in _ASSET_HIGHENERGY_SIGNALS:
+        if s in b:
+            energy += 1
+    energy = max(1, min(9, energy))
+    return formality, movement, energy
+
+
 def _asset_score(
     asset: Dict[str, Any],
     *,
     direction: Dict[str, Any],
     occasion: str,
     target_gender: str = "unknown",
+    brief: Dict[str, Any] | None = None,
 ) -> int:
     blob = " ".join(
         [
@@ -2649,6 +2706,29 @@ def _asset_score(
         term in occasion_norm for term in ("coffee", "date")
     ):
         score -= 3
+    # Canonical-brief authenticity scoring (only when a brief is threaded in;
+    # legacy callers pass brief=None → identical behavior).
+    if brief:
+        # Hard veto: forbidden archetype or forbidden item signal. Return a
+        # strongly-negative score so the candidate is dropped (score>0 gate).
+        forbidden_arch = {str(a).strip().lower() for a in (brief.get("forbidden_archetypes") or []) if str(a).strip()}
+        if forbidden_arch and any(a in forbidden_arch for a in asset_archetypes):
+            return -100
+        forbidden_items = [str(s).strip().lower() for s in (brief.get("forbidden_item_signals") or []) if str(s).strip()]
+        if forbidden_items and any(s in blob for s in forbidden_items):
+            return -100
+        bf = brief.get("formality")
+        if isinstance(bf, (int, float)):
+            af, am, ae = _asset_axis_estimates(blob)
+            # Formality distance: a high-formality oxford on a low-formality
+            # festival is docked hard; an exact match costs nothing.
+            score -= int(round(2 * abs(af - float(bf))))
+            bm = brief.get("movement")
+            if isinstance(bm, (int, float)) and float(bm) >= 7 and am <= 3:
+                score -= 4  # occasion needs movement; asset is rigid/formal
+            be = brief.get("energy")
+            if isinstance(be, (int, float)) and float(be) >= 7 and ae <= 3:
+                score -= 3  # occasion is high-energy; asset reads flat/formal
     return score
 
 
@@ -2661,6 +2741,7 @@ def _best_style_asset(
     target_gender: str = "unknown",
     allow_feminine_accessory: bool = False,
     placement: str | None = None,
+    brief: Dict[str, Any] | None = None,
 ) -> Dict[str, Any] | None:
     matches = _best_style_assets(
         assets,
@@ -2671,6 +2752,7 @@ def _best_style_asset(
         allow_feminine_accessory=allow_feminine_accessory,
         limit=1,
         placement=placement,
+        brief=brief,
     )
     return matches[0] if matches else None
 
@@ -2685,6 +2767,7 @@ def _best_style_assets(
     allow_feminine_accessory: bool = False,
     limit: int = 3,
     placement: str | None = None,
+    brief: Dict[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
     # Resolve placement so the central policy can gate + score correctly.
     if placement is None:
@@ -2754,7 +2837,7 @@ def _best_style_assets(
                     )
                     rejected_logged += 1
             continue
-        score = _asset_score(asset, direction=direction, occasion=occasion, target_gender=target_gender)
+        score = _asset_score(asset, direction=direction, occasion=occasion, target_gender=target_gender, brief=brief)
         score += _asset_context_score(
             asset,
             occasion=occasion,
@@ -3252,6 +3335,7 @@ def _enrich_visual_directions_with_assets(
     occasion: str | None,
     target_gender: str = "unknown",
     allow_feminine_accessory: bool = False,
+    brief: Dict[str, Any] | None = None,
 ) -> List[Dict[str, Any]]:
     if not visual_directions:
         return visual_directions
@@ -3307,6 +3391,7 @@ def _enrich_visual_directions_with_assets(
                 occasion=occasion_text,
                 target_gender=target_gender,
                 allow_feminine_accessory=allow_feminine_accessory,
+                brief=brief,
             )
             if asset:
                 out["image_url"] = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
@@ -3329,6 +3414,7 @@ def _enrich_visual_directions_with_assets(
                 target_gender=target_gender,
                 allow_feminine_accessory=allow_feminine_accessory,
                 limit=3,
+                brief=brief,
             )
             if accessory_assets:
                 complete = _sanitize_complete_the_look(
@@ -5138,6 +5224,58 @@ def _strip_forbidden_item_signals(
     return out
 
 
+def _estimate_text_formality(text: Any) -> int:
+    """Formality 1..5 estimate for a single garment text (brief scoring path)."""
+    af, _, _ = _asset_axis_estimates(str(text or "").lower())
+    return af
+
+
+def _repair_direction_for_formality(
+    direction: Dict[str, Any], brief_formality: float, stats: Dict[str, int]
+) -> Dict[str, Any] | None:
+    """Pre-render authenticity gate. Any piece whose formality exceeds
+    ``brief.formality + 2`` is over-formal for the occasion (e.g. an oxford /
+    formal blazer [5] on a music_festival [2]) and is stripped. If nothing
+    wearable remains the board is dropped so the guard's fallback keeps the
+    originals (never blanks the screen). Off-by-construction for high-formality
+    occasions: threshold>=max-estimate (5) means no piece can exceed it."""
+    threshold = brief_formality + 2
+    pieces = _safe_list(direction.get("items") or direction.get("pieces"), limit=10)
+    hero = _asset_text(direction.get("hero_piece"))
+    blobs = [str(p) for p in pieces if str(p).strip()]
+    if hero:
+        blobs.append(hero)
+    if not blobs:
+        return direction
+    over = [b for b in blobs if _estimate_text_formality(b) > threshold]
+    if not over:
+        return direction
+
+    out = dict(direction)
+    for key in ("items", "pieces"):
+        vals = out.get(key)
+        if isinstance(vals, list):
+            kept = [v for v in vals if _estimate_text_formality(v) <= threshold]
+            if len(kept) != len(vals):
+                stats["formality_repair"] = stats.get("formality_repair", 0) + (len(vals) - len(kept))
+            out[key] = kept
+    if _estimate_text_formality(out.get("hero_piece")) > threshold:
+        items = _safe_list(out.get("items") or out.get("pieces"), limit=6)
+        out["hero_piece"] = items[0] if items else ""
+    remaining = _safe_list(out.get("items") or out.get("pieces"), limit=10)
+    if not remaining and not _asset_text(out.get("hero_piece")):
+        logger.info(
+            "visual_guard.reject reason=formality title=%r brief_formality=%s",
+            direction.get("title"), brief_formality,
+        )
+        return None
+    logger.info(
+        "visual_guard.repair reason=formality title=%r brief_formality=%s stripped=%d",
+        out.get("title"), brief_formality, len(over),
+    )
+    return out
+
+
 def _apply_style_guard(
     directions: List[Dict[str, Any]], ctx: Dict[str, Any] | None
 ) -> List[Dict[str, Any]]:
@@ -5191,6 +5329,14 @@ def _apply_style_guard(
                 continue
         if forbidden_items:
             d = _strip_forbidden_item_signals(d, forbidden_items, stats)
+        # 0b. Formality authenticity gate — board mean formality must not exceed
+        # brief.formality + 2 (kills oxford/loafer/belt drift on a festival).
+        brief_formality = ctx.get("formality")
+        if isinstance(brief_formality, (int, float)):
+            repaired_f = _repair_direction_for_formality(d, float(brief_formality), stats)
+            if repaired_f is None:
+                continue
+            d = repaired_f
         # 1. Occasion compatibility (whole-direction) — reuse the wardrobe guard.
         reject, reason = reject_board_for_occasion(_direction_to_guard_board(d), occ)
         if reject:
@@ -6559,6 +6705,9 @@ def _build_response(
         occasion=asset_occasion,
         target_gender=asset_gender,
         allow_feminine_accessory=allow_feminine_style,
+        # Canonical brief drives formality/movement/energy scoring + hard veto.
+        # None unless STYLE_SHARED_BRAIN is on (canonical_ctx built only then).
+        brief=canonical_ctx,
     )
     # Shared Style Brain (Phase C): post-generation visual guard. No-op unless
     # STYLE_SHARED_BRAIN is enabled. Same list-of-dicts shape in/out.

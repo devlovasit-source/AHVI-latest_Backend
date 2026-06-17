@@ -626,6 +626,79 @@ _DESI_CUES = (
 )
 
 
+# Numeric occasion axes keyed by occasion_family. ONE table = single source for
+# formality (1..5), energy (1..9), movement (1..9) + required_traits. Lets the
+# asset scorer judge whether a piece *feels* right for the occasion (festival =
+# low formality, high energy + movement) instead of only matching keywords. Keys
+# match _FAMILY_ARCHETYPE_POOL families; "concert_social" is an alias of
+# social_party for the music-festival/concert path (occasion_style_rules).
+OCCASION_FAMILY_PROFILE: Dict[str, Dict[str, Any]] = {
+    "concert_social": {
+        "formality": 2, "energy": 9, "movement": 9,
+        "required_traits": ["comfortable", "expressive", "movement_ready"],
+    },
+    "social_party": {
+        "formality": 2, "energy": 8, "movement": 7,
+        "required_traits": ["expressive", "comfortable", "movement_ready"],
+    },
+    "professional": {
+        "formality": 5, "energy": 3, "movement": 3,
+        "required_traits": ["polished", "structured"],
+    },
+    "travel_easy": {
+        "formality": 2, "energy": 4, "movement": 9,
+        "required_traits": ["comfortable", "movement_ready"],
+    },
+    "relaxed_casual": {
+        "formality": 2, "energy": 4, "movement": 6,
+        "required_traits": ["comfortable"],
+    },
+    "evening_date": {
+        "formality": 4, "energy": 5, "movement": 4,
+        "required_traits": ["polished"],
+    },
+    "festive_general": {
+        "formality": 4, "energy": 7, "movement": 4,
+        "required_traits": ["expressive", "polished"],
+    },
+    "festive_daytime": {
+        "formality": 3, "energy": 7, "movement": 5,
+        "required_traits": ["expressive", "comfortable"],
+    },
+    "festive_evening": {
+        "formality": 4, "energy": 8, "movement": 4,
+        "required_traits": ["expressive"],
+    },
+    "christian_ceremony": {
+        "formality": 5, "energy": 3, "movement": 3,
+        "required_traits": ["polished", "structured"],
+    },
+    "resort_summer": {
+        "formality": 2, "energy": 5, "movement": 6,
+        "required_traits": ["comfortable"],
+    },
+    "somber_formal": {
+        "formality": 5, "energy": 1, "movement": 2,
+        "required_traits": ["polished", "structured"],
+    },
+    "temple_modest": {
+        "formality": 3, "energy": 3, "movement": 4,
+        "required_traits": ["modest", "comfortable"],
+    },
+}
+
+# Neutral mid profile when no family resolves — never penalises (distance small).
+_DEFAULT_FAMILY_PROFILE: Dict[str, Any] = {
+    "formality": 3, "energy": 5, "movement": 5, "required_traits": [],
+}
+
+
+def occasion_family_profile(family: Any) -> Dict[str, Any]:
+    """Return the numeric axis profile for an occasion family, defaulting to a
+    neutral mid profile so an unknown family never vetoes by distance."""
+    return dict(OCCASION_FAMILY_PROFILE.get(str(family or "").strip(), _DEFAULT_FAMILY_PROFILE))
+
+
 def _resolve_brief_archetypes(canonical_occasion: Any, query: Any):
     """Return (occasion_family, cultural_context, allowed, forbidden_arch,
     forbidden_items). Reuses the visual path's own family resolver + pool so the
@@ -708,6 +781,14 @@ def build_canonical_style_context(
     except Exception:  # noqa: BLE001
         family, cultural, allowed_arch, forbidden_arch, forbidden_items = "", "neutral", [], [], []
 
+    # 5. Numeric axes (formality/energy/movement + required_traits) from the ONE
+    #    family-profile table. This is what lets the asset scorer + board guard
+    #    judge authenticity by *feel*, not just keyword/archetype match.
+    try:
+        axes = occasion_family_profile(family)
+    except Exception:  # noqa: BLE001
+        axes = dict(_DEFAULT_FAMILY_PROFILE)
+
     ctx = {
         "canonical_occasion": canonical_occasion,
         "occasion_brief": brief,
@@ -722,14 +803,22 @@ def build_canonical_style_context(
         "allowed_archetypes": allowed_arch,
         "forbidden_archetypes": forbidden_arch,
         "forbidden_item_signals": forbidden_items,
+        # Numeric axes — formality 1..5, energy/movement 1..9, required_traits.
+        "formality": axes.get("formality"),
+        "energy": axes.get("energy"),
+        "movement": axes.get("movement"),
+        "required_traits": list(axes.get("required_traits") or []),
     }
     logger.info(
         "style_context.built canonical_occasion=%s family=%s cultural=%s gender=%s "
-        "forbidden_arch=%d forbidden_items=%d",
+        "formality=%s energy=%s movement=%s forbidden_arch=%d forbidden_items=%d",
         canonical_occasion,
         family,
         cultural,
         gender,
+        axes.get("formality"),
+        axes.get("energy"),
+        axes.get("movement"),
         len(forbidden_arch),
         len(forbidden_items),
     )
