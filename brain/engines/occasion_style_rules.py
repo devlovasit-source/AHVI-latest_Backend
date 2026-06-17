@@ -593,6 +593,18 @@ ALIASES = {
     "rave": "concert_social",
     "edm": "concert_social",
     "club night": "concert_social",
+    # Occasion-drift fixes: these fell to the casual default before.
+    "sangeet": "wedding",
+    "cocktail sangeet": "wedding",
+    "mehendi": "wedding",
+    "haldi": "wedding",
+    "beach vacation": "beach",
+    "beach day": "beach",
+    "vacation": "beach",
+    "airport": "travel",
+    "airport travel": "travel",
+    "airport outfit": "travel",
+    "flight": "travel",
 }
 
 

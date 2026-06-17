@@ -1263,13 +1263,20 @@ _ARCHETYPE_BY_NAME = {a["name"]: a for a in ARCHETYPE_LIBRARY}
 def _resolve_occasion_family(occasion: str) -> str:
     """Map an occasion string (raw 'haldi' or canonical 'wedding') to a family
     key with a candidate archetype pool. Returns '' when no cultural/ceremony
-    family applies (the Western library handles those via normal scoring)."""
+    family applies (the Western library handles those via normal scoring).
+
+    Word-boundary matched: a needle must hit a whole word/phrase, not a
+    substring inside another word. Prevents 'rave' matching 't-rave-l'
+    (airport travel was wrongly resolving to social_party)."""
+    import re as _re
+
     o = _norm(occasion)
     if not o:
         return ""
     for needles, family in _OCCASION_FAMILY_RULES:
-        if any(n in o for n in needles):
-            return family
+        for n in needles:
+            if _re.search(r"(?<![a-z0-9])" + _re.escape(n) + r"(?![a-z0-9])", o):
+                return family
     return ""
 
 

@@ -874,6 +874,10 @@ def normalize_occasion(occasion: Any) -> str:
         or tokens.intersection({"training", "yoga", "running", "cardio", "pilates"})
     ):
         return "workout"
+    # Music festival / concert / gig / EDM are social, NOT festive/ethnic and
+    # NOT "daily". Map to party so the wardrobe scorer stops falling through.
+    if any(w in readable for w in ["music festival", "music fest", "festival ground", "concert", "gig", "edm", "live show", "live music"]):
+        return "party"
     if "night out" in readable and not any(w in readable for w in ["date", "dinner"]):
         return "party"
     if any(w in text for w in ["date_night", "date night", "date", "dinner", "tonight"]):
