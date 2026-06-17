@@ -490,6 +490,167 @@ def test_airport_policy_still_allows_sneakers_and_bag():
         )
 
 
+def test_music_festival_is_music_event_not_indian_festive():
+    assert engine._visual_occasion_family("music festival") == "music_event"
+    assert engine._visual_occasion_family("concert outfit") == "music_event"
+    assert engine._visual_occasion_family("rave night") == "music_event"
+    assert engine._visual_occasion_family("wedding guest") == "indian_festive"
+    assert engine._visual_occasion_family("sangeet") == "indian_festive"
+    assert engine._visual_occasion_family("airport travel") == "travel"
+    assert engine._visual_occasion_family("coffee date") == ""
+
+
+def test_music_event_final_guard_removes_wedding_ethnic_and_formal_leaks():
+    directions = [
+        {
+            "title": "Festive Heritage",
+            "archetype": "Festive Heritage",
+            "direction_name": "Festive Heritage",
+            "hero_piece": "Crisp Oxford Shirt",
+            "items": ["Crisp Oxford Shirt", "Leather Belt", "Cardholder"],
+            "pieces": ["Crisp Oxford Shirt", "Leather Belt", "Cardholder"],
+            "complete_the_look": [
+                {"name": "Sangeet Statement Mojari", "category": "footwear"},
+                {"name": "Canvas Tote", "category": "bag"},
+            ],
+        },
+        {
+            "title": "Wedding Day Ease",
+            "archetype": "Sangeet Statement",
+            "direction_name": "Wedding Day Ease",
+            "hero_piece": "Ivory Kurta",
+            "items": ["Ivory Kurta", "Churidar", "Mojari"],
+            "pieces": ["Ivory Kurta", "Churidar", "Mojari"],
+        },
+    ]
+    guarded = engine._music_event_visible_guard(
+        directions,
+        occasion="music festival",
+        query="music festival",
+    )
+    blob = " ".join(
+        str(value)
+        for direction in guarded
+        for value in (
+            direction.get("title"),
+            direction.get("archetype"),
+            direction.get("direction_name"),
+            direction.get("hero_piece"),
+            " ".join(direction.get("items") or []),
+            " ".join(
+                item.get("name", "") if isinstance(item, dict) else str(item)
+                for item in (direction.get("complete_the_look") or [])
+            ),
+        )
+    ).lower()
+    for blocked in (
+        "wedding day ease",
+        "sangeet statement",
+        "festive heritage",
+        "oxford shirt",
+        "kurta",
+        "bandhgala",
+        "mojari",
+        "leather belt",
+        "cardholder",
+    ):
+        assert blocked not in blob
+    assert all(direction["direction_name"] in engine._MUSIC_EVENT_DIRECTION_NAMES for direction in guarded)
+    assert "canvas tote" in blob
+
+
+def test_music_event_final_response_boundary_rewrites_bad_visual_directions():
+    response = engine._build_response(
+        query="music festival",
+        mode=engine.VISUAL_INSPIRATION,
+        category="music festival",
+        tone=None,
+        formality=None,
+        occasion="music festival",
+        confidence=0.9,
+        user_profile={},
+        context={"occasion": "music festival"},
+        ai_payload={
+            "mode": engine.VISUAL_INSPIRATION,
+            "occasion": "music festival",
+            "visual_directions": [
+                {
+                    "title": "Festive Heritage",
+                    "archetype": "Festive Heritage",
+                    "hero_piece": "Crisp Oxford Shirt",
+                    "items": ["Crisp Oxford Shirt", "Leather Belt"],
+                    "pieces": ["Crisp Oxford Shirt", "Leather Belt"],
+                },
+                {
+                    "title": "Wedding Day Ease",
+                    "archetype": "Sangeet Statement",
+                    "hero_piece": "Ivory Kurta",
+                    "items": ["Ivory Kurta", "Mojari"],
+                    "pieces": ["Ivory Kurta", "Mojari"],
+                },
+                {
+                    "title": "Creative Casual",
+                    "archetype": "Creative Casual",
+                    "hero_piece": "Printed Shirt",
+                    "items": ["Printed Shirt", "Relaxed Trousers"],
+                    "pieces": ["Printed Shirt", "Relaxed Trousers"],
+                },
+            ],
+        },
+    )
+    blob = str(response).lower()
+    for blocked in (
+        "wedding day ease",
+        "sangeet statement",
+        "festive heritage",
+        "oxford shirt",
+        "kurta",
+        "bandhgala",
+        "mojari",
+    ):
+        assert blocked not in blob
+    names = [d["direction_name"] for d in response["visual_directions"]]
+    assert set(names).issubset(set(engine._MUSIC_EVENT_DIRECTION_NAMES))
+
+
+def test_music_event_asset_gate_blocks_oxford_and_ethnic_but_keeps_airport_wedding_sangeet():
+    assert not engine._asset_allowed_for_context(
+        _asset("Crisp Oxford Shirt", category="top", subcategory="shirt"),
+        occasion="music festival",
+        placement="hero",
+        target_text="music festival",
+    )
+    assert not engine._asset_allowed_for_context(
+        _asset("Ivory Kurta", category="ethnic", subcategory="kurta"),
+        occasion="concert",
+        placement="hero",
+        target_text="Outdoor Concert",
+    )
+    assert engine._asset_allowed_for_context(
+        _asset("Clean White Sneakers", category="footwear", subcategory="sneaker"),
+        occasion="airport travel",
+        placement="complete",
+        target_text="travel layers",
+    )
+    assert engine._asset_allowed_for_context(
+        _asset("Ivory Kurta", category="ethnic", subcategory="kurta"),
+        occasion="wedding guest",
+        placement="hero",
+        target_text="Festive Heritage",
+    )
+    assert engine._asset_allowed_for_context(
+        _asset("Maroon Mojari", category="footwear", subcategory="mojari", tags=["ethnic"]),
+        occasion="sangeet",
+        placement="complete",
+        target_text="Festive Heritage",
+    )
+    assert engine._music_event_visible_guard(
+        [{"title": "Modern Romantic", "archetype": "Modern Romantic", "direction_name": "Modern Romantic"}],
+        occasion="coffee date",
+        query="coffee date",
+    )[0]["direction_name"] == "Modern Romantic"
+
+
 def test_festive_copy_scrubber_removes_malformed_internal_phrase():
     malformed = "wedding Haldi Ceremony custom_occasion casual outing haldi look"
     scrubbed = engine._scrub_visible_style_text(malformed, query="Haldi")

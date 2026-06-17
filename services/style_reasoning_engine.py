@@ -1199,6 +1199,8 @@ def _is_wedding_occasion_policy(occasion: str) -> bool:
 
 def _visual_occasion_family(occasion: Any, target_text: Any = "") -> str:
     text = f"{occasion or ''} {target_text or ''}".lower().replace("_", " ")
+    if _is_music_event_context(text):
+        return "music_event"
     if any(
         term in text
         for term in (
@@ -1255,6 +1257,207 @@ def _visual_occasion_family(occasion: Any, target_text: Any = "") -> str:
     ):
         return "indian_festive"
     return ""
+
+
+_MUSIC_EVENT_CONTEXT_TERMS: tuple[str, ...] = (
+    "music festival",
+    "concert",
+    "rave",
+    "live event",
+    "live music",
+    "gig",
+    "festival outfit",
+    "festival look",
+)
+
+_MUSIC_EVENT_FORBIDDEN_TERMS: tuple[str, ...] = (
+    "wedding",
+    "sangeet",
+    "festive heritage",
+    "refined traditional",
+    "wedding day ease",
+    "celebration kurta",
+    "bandhgala",
+    "nehru",
+    "kurta",
+    "churidar",
+    "mojari",
+    "jutti",
+    "oxford shirt",
+    "business shirt",
+    "formal loafer",
+    "leather belt",
+    "cardholder",
+    "grooming",
+    "electronics",
+)
+
+_MUSIC_EVENT_DIRECTION_NAMES: tuple[str, ...] = (
+    "Festival Street",
+    "Creative Casual",
+    "Indie Festival",
+    "Summer Concert",
+    "Boho Casual",
+    "Street-Cool Festival",
+    "Outdoor Concert",
+)
+
+_MUSIC_EVENT_FALLBACK_PIECES: tuple[tuple[str, ...], ...] = (
+    ("Graphic T-Shirt", "Cargo Pants", "Lightweight Overshirt", "Comfortable Sneakers"),
+    ("Printed Shirt", "Relaxed Trousers", "Clean Sneakers", "Crossbody Bag"),
+    ("Linen Shirt", "Utility Pants", "Canvas Sneakers", "Canvas Tote"),
+    ("Breezy Shirt", "Relaxed Shorts", "Comfortable Sneakers", "Lightweight Bag"),
+    ("Relaxed Shirt", "Straight Denim", "Canvas Sneakers", "Festival Bracelet"),
+    ("Graphic Tee", "Cargo Pants", "Lightweight Jacket", "Clean Sneakers"),
+    ("Camp-Collar Shirt", "Chinos", "Comfortable Sneakers", "Compact Crossbody"),
+)
+
+
+def _is_music_event_context(text: Any) -> bool:
+    normalized = _norm(str(text or "").replace("_", " "))
+    if not normalized:
+        return False
+    tokens = set(re.findall(r"[a-z0-9]+", normalized))
+    for term in _MUSIC_EVENT_CONTEXT_TERMS:
+        if " " in term:
+            if term in normalized:
+                return True
+        elif term in tokens:
+            return True
+    return "festival" in tokens and any(
+        term in tokens for term in ("music", "concert", "rave", "band", "live")
+    )
+
+
+def _music_event_text_blocked(text: Any) -> bool:
+    normalized = _norm(str(text or "").replace("_", " "))
+    if not normalized:
+        return False
+    return any(term in normalized for term in _MUSIC_EVENT_FORBIDDEN_TERMS)
+
+
+def _music_event_safe_direction_name(index: int) -> str:
+    return _MUSIC_EVENT_DIRECTION_NAMES[index % len(_MUSIC_EVENT_DIRECTION_NAMES)]
+
+
+def _music_event_safe_pieces(index: int) -> List[str]:
+    return list(_MUSIC_EVENT_FALLBACK_PIECES[index % len(_MUSIC_EVENT_FALLBACK_PIECES)])
+
+
+def _music_event_visible_guard(
+    directions: List[Dict[str, Any]],
+    *,
+    occasion: Any = "",
+    query: Any = "",
+) -> List[Dict[str, Any]]:
+    """Final visible-output guard for music festival / concert boards.
+
+    Upstream can mix LLM titles, selected archetypes, fallback directions, and
+    enriched assets. This runs after editorial polish so wedding/ethnic/formal
+    labels cannot escape into the UI for concert/festival prompts.
+    """
+    context = f"{occasion or ''} {query or ''}"
+    if not _is_music_event_context(context):
+        return directions
+    repaired: List[Dict[str, Any]] = []
+    blocked_seen: List[str] = []
+    for index, direction in enumerate(directions or []):
+        if not isinstance(direction, dict):
+            continue
+        out = dict(direction)
+        safe_name = _music_event_safe_direction_name(index)
+        for key in ("title", "archetype", "direction_name"):
+            current = _asset_text(out.get(key))
+            if _music_event_text_blocked(current) or current not in _MUSIC_EVENT_DIRECTION_NAMES:
+                if current:
+                    blocked_seen.append(current)
+                out[key] = safe_name
+
+        pieces = _safe_list(out.get("items") or out.get("pieces"), limit=8)
+        kept_pieces = [piece for piece in pieces if not _music_event_text_blocked(piece)]
+        if len(kept_pieces) != len(pieces):
+            blocked_seen.extend(str(piece) for piece in pieces if _music_event_text_blocked(piece))
+        if not kept_pieces:
+            kept_pieces = _music_event_safe_pieces(index)
+        out["items"] = kept_pieces
+        out["pieces"] = kept_pieces
+
+        hero = _asset_text(out.get("hero_piece"))
+        if not hero or _music_event_text_blocked(hero):
+            if hero:
+                blocked_seen.append(hero)
+            out["hero_piece"] = kept_pieces[0]
+
+        safe_note = (
+            f"{safe_name} keeps the look expressive, breathable, and practical for a live music crowd."
+        )
+        for key in (
+            "subtitle",
+            "description",
+            "why_it_works",
+            "why_this_works",
+            "short_note",
+            "style_note",
+            "styling_tip",
+            "complete_the_look_copy",
+        ):
+            if key in out and _music_event_text_blocked(out.get(key)):
+                blocked_seen.append(_asset_text(out.get(key))[:80])
+                out[key] = safe_note
+
+        complete = out.get("complete_the_look")
+        if isinstance(complete, list):
+            safe_support: List[Any] = []
+            for item in complete:
+                item_blob = str(item)
+                name = _asset_text(item.get("name") if isinstance(item, dict) else item)
+                if _music_event_text_blocked(name) or _music_event_text_blocked(item_blob):
+                    blocked_seen.append(name or item_blob[:80])
+                    continue
+                safe_support.append(item)
+            out["complete_the_look"] = safe_support[:3]
+
+        mp = out.get("missing_piece")
+        if isinstance(mp, dict) and _music_event_text_blocked(mp.get("name")):
+            blocked_seen.append(_asset_text(mp.get("name")))
+            out["missing_piece"] = {
+                "name": "Comfortable Festival Sneakers",
+                "category": "Footwear",
+                "reason": "Keeps the look practical for standing, walking, and dancing.",
+            }
+
+        repaired.append(out)
+
+    if not repaired:
+        safe_name = _music_event_safe_direction_name(0)
+        pieces = _music_event_safe_pieces(0)
+        repaired = [
+            {
+                "title": safe_name,
+                "archetype": safe_name,
+                "direction_name": safe_name,
+                "hero_piece": pieces[0],
+                "items": pieces,
+                "pieces": pieces,
+                "palette": ["black", "stone", "olive"],
+                "description": "Creative casual pieces built for movement, heat, and a live-event crowd.",
+                "why_it_works": "It keeps the outfit expressive without drifting into wedding or office formality.",
+                "complete_the_look": [],
+            }
+        ]
+
+    if blocked_seen:
+        logger.info(
+            "AHVI_MUSIC_EVENT_GUARD_APPLIED blocked=%s kept=%s context=%s",
+            sorted(set(blocked_seen)),
+            [
+                _asset_text(d.get("direction_name") or d.get("title"))
+                for d in repaired
+                if isinstance(d, dict)
+            ],
+            str(context or "")[:160],
+        )
+    return repaired
 
 
 def _asset_policy_blob(asset: Dict[str, Any]) -> str:
@@ -1329,16 +1532,11 @@ def _occasion_asset_block_reason(
             term in blob for term in ("mojari", "jutti", "ethnic", "kolhapuri")
         ):
             return "western_formal_shoe"
-        if family == "tshirt" and "graphic" in blob:
-            return "graphic_tshirt"
-        if family == "jewellery" and not any(
-            term in blob for term in ("festive", "traditional", "brooch", "subtle ring")
-        ):
-            return "generic_jewellery"
-        if family == "sandal" and not any(
-            term in blob for term in ("ethnic", "festive", "kolhapuri")
-        ):
-            return "casual_sandal"
+    if occasion_family == "music_event":
+        if any(term in blob for term in _MUSIC_EVENT_FORBIDDEN_TERMS):
+            return "music_event_forbidden"
+        if placement == "hero" and family in {"shirt", "formal_shoe", "loafer", "belt", "ethnic"}:
+            return "music_event_formal_or_ethnic"
 
     if occasion_family == "christian_wedding":
         if family in {
@@ -6823,14 +7021,23 @@ def _build_response(
         context_text=query,
     )
     final_occasion_text = _asset_text(payload.get("occasion") or occasion or category or "")
+    visual_directions = _music_event_visible_guard(
+        visual_directions,
+        occasion=final_occasion_text,
+        query=query,
+    )
     for direction in visual_directions:
         if isinstance(direction, dict) and isinstance(direction.get("complete_the_look"), list):
             direction["complete_the_look"] = _safe_visual_support_assets(
                 direction.get("complete_the_look"),
-                _visual_occasion_family(final_occasion_text, direction.get("hero_piece")),
-                final_occasion_text,
+                _visual_occasion_family(final_occasion_text, f"{query} {direction.get('hero_piece') or ''}"),
+                f"{final_occasion_text} {query}",
                 direction,
             )[:3]
+    if final_mode == VISUAL_INSPIRATION and _is_music_event_context(f"{final_occasion_text} {query}"):
+        visual_inspiration_board = _build_visual_inspiration_board(
+            payload, visual_directions, goal, impression, missing_piece, query
+        )
     editorial_cover = _build_editorial_cover(
         visual_directions,
         occasion=payload.get("occasion") or occasion or category or "",
