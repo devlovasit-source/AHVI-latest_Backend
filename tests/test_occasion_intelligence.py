@@ -74,6 +74,73 @@ def test_coffee_date_rejects_beanie():
     )
 
 
+def test_coffee_date_support_rejects_nonfashion_travel_and_cardholder_assets():
+    for asset in (
+        _asset("Tumbler White", category="accessory", subcategory="tumbler", tags=["tumbler"]),
+        _asset("Blue Card Case", category="accessory", subcategory="card_case", tags=["card_case"]),
+    ):
+        assert not engine._asset_allowed_for_context(
+            asset,
+            occasion="coffee_date",
+            placement="complete",
+            target_text="Relaxed Oxford",
+        )
+        assert not engine._asset_allowed_for_context(
+            asset,
+            occasion="coffee_date",
+            placement="missing",
+            target_text="Relaxed Oxford",
+        )
+
+
+def test_nonfestive_support_sanitizer_drops_travel_and_cardholder_assets():
+    kept = engine._safe_visual_support_assets(
+        [
+            _asset("Tumbler White", category="accessory", subcategory="tumbler", tags=["tumbler"]),
+            _asset("Blue Card Case", category="accessory", subcategory="card_case", tags=["card_case"]),
+            _asset("Hair Straightener", category="accessory", subcategory="straightener", tags=["straightener"]),
+            _asset("Blue Beanie", category="accessory", subcategory="beanie", tags=["beanie"]),
+            _asset("Tan Shoulder Bag", category="accessory", subcategory="bag", tags=["bag"]),
+        ],
+        "casual_social",
+        "social occasion",
+        {"hero_piece": "Relaxed Oxford"},
+    )
+
+    assert [item["name"] for item in kept] == ["Tan Shoulder Bag"]
+
+
+def test_knit_polo_hero_can_use_image_backed_knit_asset():
+    knit = _asset("Cream Knit Top", category="top", subcategory="knit", tags=["knit"])
+    direction = {"hero_piece": "Cream Knit Polo", "items": ["Cream Knit Polo"]}
+    assert engine._asset_allowed_for_context(
+        knit,
+        occasion="coffee_date",
+        placement="hero",
+        target_text="Cream Knit Polo",
+    )
+    assert engine._hero_asset_allowed(knit, direction, "coffee_date")
+
+
+def test_festive_kurta_hero_can_use_kurta_set_or_kurti_assets():
+    kurta_set = _asset(
+        "Yellow Sleeveless Kurta Set",
+        category="ethnic",
+        subcategory="kurtaset",
+        tags=["kurta", "haldi"],
+    )
+    kurti = _asset(
+        "Yellow Kurti Top",
+        category="ethnic",
+        subcategory="kurti",
+        tags=["kurti", "haldi"],
+    )
+    direction = {"hero_piece": "Marigold Yellow Kurta", "items": ["Marigold Yellow Kurta"]}
+
+    assert engine._hero_asset_allowed(kurta_set, direction, "haldi")
+    assert engine._hero_asset_allowed(kurti, direction, "haldi")
+
+
 # ---------- P0-3 long date prompt routes to boards ----------
 
 def test_long_date_prompt_routes_to_boards():

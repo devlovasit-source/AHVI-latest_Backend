@@ -933,6 +933,8 @@ _CASUAL_SOCIAL_OCCASIONS: set[str] = {
     "brunch date",
     "casual_date",
     "casual_day",
+    "social_occasion",
+    "social occasion",
     "weekend",
 }
 
@@ -1021,6 +1023,9 @@ _FAMILY_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
             "comb",
             "razor",
             "shaver",
+            "straightener",
+            "hairdryer",
+            "dryer",
         ),
         "grooming",
     ),
@@ -1396,7 +1401,7 @@ def _occasion_asset_block_reason(
 
 
 _ETHNIC_SUBCATS = {
-    "kurta", "kurta_set", "kurtaset", "sherwani", "bandhgala", "bandhgalaset",
+    "kurta", "kurti", "kurta_set", "kurtaset", "sherwani", "bandhgala", "bandhgalaset",
     "nehrujacket", "nehru_jacket", "waistcoat", "indowestern", "indo_western",
     "achkan", "ethnic",
 }
@@ -1429,7 +1434,7 @@ def _ethnic_garment_subtype(value: Any) -> str:
         return "sherwani"
     if "kurta set" in text or "kurtaset" in text:
         return "kurta_set"
-    if "kurta" in text:
+    if "kurta" in text or "kurti" in text:
         return "kurta"
     return ""
 
@@ -1537,6 +1542,8 @@ def _asset_allowed_for_context(
             if target_family and not family:
                 return False
         if target_family:
+            if target_family == "polo" and "knit" in _norm(target_text) and family == "knit":
+                return True
             allowed = _FAMILY_ALLOWED_FOR_TARGET.get(target_family)
             if allowed is not None:
                 if not family or family not in allowed:
@@ -1555,18 +1562,26 @@ def _asset_allowed_for_context(
                 return False
         return True
     if placement == "complete":
+        if family == "cardholder":
+            return False
         if _is_office_occasion_policy(occasion) and family in _OFFICE_CTL_REJECT_FAMILIES:
+            return False
+        if group in {"travel", "grooming", "electronics"}:
             return False
         # Casual/social: beanie + cap read too street for a date / brunch and
         # break the "approachable, put-together" mood. Hard-reject them so
         # they can never enter complete_the_look for these occasions.
-        if _is_casual_social_policy(occasion) and family in {"beanie", "cap"}:
+        if _is_casual_social_policy(occasion) and family in {"beanie", "cap", "cardholder"}:
             return False
         return True
     if placement == "missing":
+        if family == "cardholder":
+            return False
         # Casual/social missing pieces must stay on-occasion: never suggest a
         # beanie or cap to "complete" a coffee date / brunch look.
-        if _is_casual_social_policy(occasion) and family in {"beanie", "cap"}:
+        if group in {"travel", "grooming", "electronics"}:
+            return False
+        if _is_casual_social_policy(occasion) and family in {"beanie", "cap", "cardholder"}:
             return False
         target_group = _FAMILY_GROUP.get(target_family, "")
         if target_group == "accessory":
@@ -1745,6 +1760,8 @@ def _asset_matches_hero_slot(asset: Dict[str, Any], expected_slot: str | None, h
         if intent == "polo":
             if asset_intent in {"formal_shirt", "tshirt", "casual_pullover"}:
                 return False
+            if "knit" in _norm(hero_text) and asset_intent == "knit":
+                return True
             return asset_intent == "polo"
         if intent == "knit":
             if asset_intent in {"tshirt", "polo", "formal_shirt"}:
@@ -1779,6 +1796,8 @@ def _hero_asset_allowed(
         if hero_subtype:
             if hero_subtype == "kurta_set":
                 return asset_subtype in {"kurta_set", "kurta"}
+            if hero_subtype == "kurta":
+                return asset_subtype in {"kurta", "kurta_set"}
             return asset_subtype == hero_subtype
         return True
     expected_slot = _hero_expected_slot(hero)
@@ -1797,6 +1816,8 @@ def _hero_asset_allowed(
     shirt_intent = _hero_shirt_intent(hero)
     if shirt_intent == "polo":
         asset_intent = _asset_shirt_intent(_asset_text(asset.get("name")) + " " + _asset_text(asset.get("subcategory")) + " " + " ".join(_asset_list(asset.get("tags"))))
+        if "knit" in _norm(hero) and asset_intent == "knit":
+            return True
         return asset_intent == "polo" or "polo" in asset_terms
     if shirt_intent == "tshirt":
         asset_intent = _asset_shirt_intent(_asset_text(asset.get("name")) + " " + _asset_text(asset.get("subcategory")) + " " + " ".join(_asset_list(asset.get("tags"))))
@@ -3260,7 +3281,37 @@ def _safe_visual_support_assets(
 ) -> List[Dict[str, Any]]:
     rows = [dict(item) for item in (items or []) if isinstance(item, dict)]
     if occasion_family != "indian_festive":
-        return rows
+        occasion_text = _asset_text(query)
+        target_text = ""
+        if isinstance(direction, dict):
+            target_text = _asset_text(
+                direction.get("hero_piece")
+                or direction.get("direction_name")
+                or direction.get("title")
+            )
+        kept = [
+            item
+            for item in rows
+            if _asset_allowed_for_context(
+                item,
+                occasion=occasion_text,
+                placement="complete",
+                target_text=target_text,
+            )
+        ]
+        dropped = [
+            _asset_text(item.get("name") or item.get("title")) or "unknown"
+            for item in rows
+            if item not in kept
+        ]
+        if dropped:
+            logger.info(
+                "AHVI_SUPPORT_ASSET_SUPPRESSED family=%s dropped=%s kept=%s",
+                occasion_family or "general",
+                dropped[:12],
+                [_asset_text(item.get("name") or item.get("title")) for item in kept[:12]],
+            )
+        return kept
     kept: List[Dict[str, Any]] = []
     dropped: List[str] = []
     for item in rows:
@@ -6771,6 +6822,15 @@ def _build_response(
         wardrobe_items=_wardrobe_for_polish,
         context_text=query,
     )
+    final_occasion_text = _asset_text(payload.get("occasion") or occasion or category or "")
+    for direction in visual_directions:
+        if isinstance(direction, dict) and isinstance(direction.get("complete_the_look"), list):
+            direction["complete_the_look"] = _safe_visual_support_assets(
+                direction.get("complete_the_look"),
+                _visual_occasion_family(final_occasion_text, direction.get("hero_piece")),
+                final_occasion_text,
+                direction,
+            )[:3]
     editorial_cover = _build_editorial_cover(
         visual_directions,
         occasion=payload.get("occasion") or occasion or category or "",
