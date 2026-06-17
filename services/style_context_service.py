@@ -607,6 +607,44 @@ def build_pairing_persona(
     return persona
 
 
+# Ethnic occasion families + item signals. When the occasion is NOT one of these
+# (and the user did not ask for desi/fusion), Indian ethnic archetypes/items are
+# forbidden — so a music festival can never produce kurta/bandhgala/mojari.
+_ETHNIC_FAMILIES = {"festive_general", "festive_daytime", "festive_evening", "temple_modest"}
+_ETHNIC_ARCHETYPES = (
+    "Festive Heritage", "Refined Traditional", "Celebration Kurta", "Sangeet Statement",
+    "Sunlit Traditional", "Wedding Day Ease", "Temple Modest",
+)
+_ETHNIC_ITEM_SIGNALS = (
+    "kurta", "kurta pajama", "kurta pyjama", "sherwani", "bandhgala", "bandi vest",
+    "nehru jacket", "mojari", "jutti", "juti", "churidar", "dhoti", "kolhapuri",
+    "lehenga", "saree", "sari", "dupatta", "achkan", "pathani", "anarkali",
+)
+_DESI_CUES = (
+    "desi", "ethnic", "fusion", "indo", "indian", "kurta", "sherwani", "traditional",
+    "sangeet", "mehendi", "haldi", "diwali", "eid", "navratri", "saree", "lehenga",
+)
+
+
+def _resolve_brief_archetypes(canonical_occasion: Any, query: Any):
+    """Return (occasion_family, cultural_context, allowed, forbidden_arch,
+    forbidden_items). Reuses the visual path's own family resolver + pool so the
+    brief speaks the same language as select_archetypes. Fails open to neutral."""
+    try:
+        from services.stylist_knowledge_service import (
+            _FAMILY_ARCHETYPE_POOL,
+            _resolve_occasion_family,
+        )
+    except Exception:  # noqa: BLE001
+        return "", "neutral", [], [], []
+    fam = _resolve_occasion_family(str(canonical_occasion or "")) or _resolve_occasion_family(_norm(query))
+    allowed = list(_FAMILY_ARCHETYPE_POOL.get(fam, ()))
+    desi = any(cue in _norm(query) for cue in _DESI_CUES)
+    if fam in _ETHNIC_FAMILIES or desi:
+        return fam, "indian_ethnic", allowed, [], []
+    return fam, "western", allowed, list(_ETHNIC_ARCHETYPES), list(_ETHNIC_ITEM_SIGNALS)
+
+
 def build_canonical_style_context(
     *,
     query: str,
@@ -662,6 +700,14 @@ def build_canonical_style_context(
     except Exception:  # noqa: BLE001
         dna = {}
 
+    # 4. Occasion family + cultural gating (single authority for the board path).
+    try:
+        family, cultural, allowed_arch, forbidden_arch, forbidden_items = _resolve_brief_archetypes(
+            canonical_occasion, query
+        )
+    except Exception:  # noqa: BLE001
+        family, cultural, allowed_arch, forbidden_arch, forbidden_items = "", "neutral", [], [], []
+
     ctx = {
         "canonical_occasion": canonical_occasion,
         "occasion_brief": brief,
@@ -670,13 +716,22 @@ def build_canonical_style_context(
         "profile": profile,
         "weather": weather,
         "event_context": _safe_dict(event_context),
+        # Canonical Style Brain fields — one source of truth for selection/guard.
+        "occasion_family": family,
+        "cultural_context": cultural,
+        "allowed_archetypes": allowed_arch,
+        "forbidden_archetypes": forbidden_arch,
+        "forbidden_item_signals": forbidden_items,
     }
     logger.info(
-        "style_context.built canonical_occasion=%s gender=%s dna=%s weather=%s",
+        "style_context.built canonical_occasion=%s family=%s cultural=%s gender=%s "
+        "forbidden_arch=%d forbidden_items=%d",
         canonical_occasion,
+        family,
+        cultural,
         gender,
-        bool(dna),
-        bool(weather),
+        len(forbidden_arch),
+        len(forbidden_items),
     )
     return ctx
 

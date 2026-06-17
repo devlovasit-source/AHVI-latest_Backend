@@ -1206,8 +1206,15 @@ _OCCASION_FAMILY_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("temple", "puja", "pooja", "mandir", "darshan"), "temple_modest"),
     (("haldi", "mehendi", "mehndi"), "festive_daytime"),
     (("sangeet", "cocktail sangeet"), "festive_evening"),
+    # Music/social "festival" is NOT an ethnic occasion. Match the concert/rave
+    # family BEFORE festive_general so "music festival" never resolves to ethnic.
+    # Multi-word so it never swallows a cultural phrase like "diwali festival".
+    (("music festival", "music fest", "concert", "gig", "rave", "edm",
+      "club night", "live show", "house party", "festival ground"), "social_party"),
+    # festive_general keeps the genuine cultural cues. Bare "festival" removed —
+    # it was pulling music festivals into kurta/bandhgala/mojari.
     (("reception", "engagement", "roka", "wedding", "shaadi", "baraat",
-      "diwali", "eid", "navratri", "festive", "festival", "ethnic"), "festive_general"),
+      "diwali", "eid", "navratri", "festive", "ethnic"), "festive_general"),
     # Western occasion families — also pooled so they draw from intentional
     # candidates instead of falling to seeded-tiebreak noise when no keyword
     # substring matches (e.g. "conference", "date night" scored 0 everywhere).

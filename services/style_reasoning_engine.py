@@ -5103,6 +5103,41 @@ def _repair_direction_for_occasion(
     return out
 
 
+def _strip_forbidden_item_signals(
+    direction: Dict[str, Any], signals: List[str], stats: Dict[str, int]
+) -> Dict[str, Any]:
+    """Remove pieces/hero/supporting assets whose text hits a forbidden item
+    signal (e.g. kurta/bandhgala/mojari for a non-ethnic occasion)."""
+    if not signals:
+        return direction
+
+    def _hit(text: Any) -> bool:
+        t = str(text or "").lower()
+        return any(s in t for s in signals)
+
+    out = dict(direction)
+    for key in ("items", "pieces"):
+        vals = out.get(key)
+        if isinstance(vals, list):
+            kept = [v for v in vals if not _hit(v)]
+            if len(kept) != len(vals):
+                stats["item_veto"] = stats.get("item_veto", 0) + (len(vals) - len(kept))
+                logger.info(
+                    "visual_guard.repair reason=forbidden_item scope=%s title=%r", key, out.get("title")
+                )
+            out[key] = kept
+    if _hit(out.get("hero_piece")):
+        items = _safe_list(out.get("items") or out.get("pieces"), limit=6)
+        out["hero_piece"] = items[0] if items else ""
+        stats["item_veto"] = stats.get("item_veto", 0) + 1
+    complete = out.get("complete_the_look")
+    if isinstance(complete, list):
+        out["complete_the_look"] = [
+            i for i in complete if not _hit(i.get("name") if isinstance(i, dict) else i)
+        ]
+    return out
+
+
 def _apply_style_guard(
     directions: List[Dict[str, Any]], ctx: Dict[str, Any] | None
 ) -> List[Dict[str, Any]]:
@@ -5140,6 +5175,22 @@ def _apply_style_guard(
             out.append(direction)
             continue
         d = direction
+        # 0. Canonical-brief veto: forbidden archetypes / item signals
+        # (e.g. ethnic kurta/bandhgala/mojari on a music festival). Drop a whole
+        # direction whose archetype is forbidden; strip forbidden item signals.
+        forbidden_arch = {str(a).strip().lower() for a in (ctx.get("forbidden_archetypes") or []) if str(a).strip()}
+        forbidden_items = [str(s).strip().lower() for s in (ctx.get("forbidden_item_signals") or []) if str(s).strip()]
+        if forbidden_arch:
+            arch = str(d.get("archetype") or d.get("direction_name") or d.get("title") or "").strip().lower()
+            if arch and arch in forbidden_arch:
+                stats["arch_veto"] = stats.get("arch_veto", 0) + 1
+                logger.info(
+                    "visual_guard.reject reason=forbidden_archetype title=%r archetype=%s",
+                    d.get("title"), arch,
+                )
+                continue
+        if forbidden_items:
+            d = _strip_forbidden_item_signals(d, forbidden_items, stats)
         # 1. Occasion compatibility (whole-direction) — reuse the wardrobe guard.
         reject, reason = reject_board_for_occasion(_direction_to_guard_board(d), occ)
         if reject:
