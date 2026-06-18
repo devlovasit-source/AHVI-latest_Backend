@@ -1,4 +1,5 @@
 from services import style_reasoning_engine
+from services import ahvi_personality_rules
 from services.style_flow_service import finalize_style_cards
 
 
@@ -18,6 +19,87 @@ def _card(*items, score=80):
         "items": list(items),
         "score": score,
     }
+
+
+def test_personality_rules_loader_loads_p0_normalized_files():
+    ahvi_personality_rules.load_personality_rules.cache_clear()
+    rules = ahvi_personality_rules.load_personality_rules()
+
+    loaded = rules["loaded"]
+    assert "persona_normalized.json" in loaded
+    assert "tone_rules_normalized.json" in loaded
+    assert "visual_rules_normalized.json" in loaded
+    assert "outfit_validation_examples_normalized.json" not in loaded
+    assert not rules["failed"]
+
+
+def test_personality_rules_loader_missing_files_fail_open(monkeypatch, tmp_path):
+    monkeypatch.setattr(ahvi_personality_rules, "_NORMALIZED_DIR", tmp_path)
+    ahvi_personality_rules.load_personality_rules.cache_clear()
+
+    rules = ahvi_personality_rules.load_personality_rules()
+
+    assert rules["loaded"] == {}
+    assert rules["failed"]
+
+    ahvi_personality_rules.load_personality_rules.cache_clear()
+
+
+def test_personality_text_polish_preserves_payload_schema_and_assets():
+    payload = {
+        "advice": (
+            "This look by supporting the hero shirt and making the components complete. "
+            "It is designed to utilize synergy. Third sentence should be trimmed."
+        ),
+        "visual_directions": [
+            {
+                "title": "Creative Casual",
+                "direction_name": "Creative Casual",
+                "asset_id": "asset-1",
+                "image_url": "https://cdn.test/asset-1.png",
+                "category": "top",
+                "hero_piece": "Printed Shirt",
+                "items": ["Printed Shirt", "Cargo Pants"],
+                "why_it_works": (
+                    "This look by supporting the printed shirt and making components complete. "
+                    "It leverages optimal synergy. This extra sentence should not survive."
+                ),
+                "missing_piece": {
+                    "name": "Comfortable Sneakers",
+                    "category": "Footwear",
+                    "asset_id": "shoe-1",
+                    "image_url": "https://cdn.test/shoe-1.png",
+                    "reason": (
+                        "This look by supporting the footwear and making the components complete. "
+                        "It is practical. Extra sentence."
+                    ),
+                },
+            }
+        ],
+    }
+
+    polished = style_reasoning_engine.apply_personality_text_polish_to_final_payload(
+        payload,
+        query="music festival",
+    )
+    card = polished["visual_directions"][0]
+    missing = card["missing_piece"]
+    blob = str(polished).lower()
+
+    assert card["title"] == "Creative Casual"
+    assert card["direction_name"] == "Creative Casual"
+    assert card["asset_id"] == "asset-1"
+    assert card["image_url"] == "https://cdn.test/asset-1.png"
+    assert card["category"] == "top"
+    assert card["items"] == ["Printed Shirt", "Cargo Pants"]
+    assert missing["name"] == "Comfortable Sneakers"
+    assert missing["category"] == "Footwear"
+    assert missing["asset_id"] == "shoe-1"
+    assert missing["image_url"] == "https://cdn.test/shoe-1.png"
+    assert "components complete" not in blob
+    assert "synergy" not in blob
+    assert "utilize" not in blob
+    assert len(card["why_it_works"].split(".")) <= 3
 
 
 def test_visual_directions_get_assets_and_complete_the_look(monkeypatch):

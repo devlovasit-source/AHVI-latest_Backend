@@ -6603,6 +6603,154 @@ def _scrub_visible_style_payload(value: Any, *, query: str = "") -> Any:
     return value
 
 
+_PERSONALITY_TEXT_FIELDS: set[str] = {
+    "advice",
+    "stylist_reasoning",
+    "confidence_strategy",
+    "missing_piece_reasoning",
+    "description",
+    "explanation",
+    "reason",
+    "short_note",
+    "style_note",
+    "styling_tip",
+    "subtitle",
+    "summary",
+    "tip",
+    "why",
+    "why_it_works",
+    "why_this_works",
+    "complete_the_look_copy",
+    "styling_notes",
+}
+
+_PERSONALITY_SKIP_KEYS: set[str] = {
+    "$id",
+    "asset_id",
+    "assetId",
+    "board_id",
+    "card_id",
+    "category",
+    "subcategory",
+    "sub_category",
+    "id",
+    "image_base64",
+    "image_id",
+    "image_status",
+    "image_url",
+    "imageUrl",
+    "inspiration_image_url",
+    "item_id",
+    "itemId",
+    "name",
+    "title",
+    "label",
+    "value",
+    "url",
+}
+
+_PERSONALITY_ROBOTIC_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    (
+        r"\bthis look by supporting ([^.,;]+?) and making (?:the )?components complete\b",
+        r"\1 keeps the outfit feeling finished.",
+    ),
+    (
+        r"\bby supporting ([^.,;]+?) and making (?:the )?components complete\b",
+        r"with \1 as the finishing detail",
+    ),
+    (r"\bthe components complete\b", "the outfit feel finished"),
+    (r"\bcomponents complete\b", "outfit finished"),
+    (r"\bthis direction by\b", "this direction with"),
+    (r"\bthis look is designed to\b", "This keeps the look"),
+    (r"\bin order to\b", "to"),
+    (r"\butilize\b", "use"),
+    (r"\bleverage\b", "use"),
+    (r"\bsynergy\b", "balance"),
+    (r"\boptimal\b", "strong"),
+    (r"\bcurated ensemble\b", "look"),
+    (r"\bensemble\b", "look"),
+    (r"\bgarment components\b", "pieces"),
+)
+
+
+def _personality_rules_available() -> bool:
+    try:
+        from services.ahvi_personality_rules import load_personality_rules
+
+        rules = load_personality_rules()
+        return bool(isinstance(rules, dict) and rules.get("loaded"))
+    except Exception as exc:  # noqa: BLE001 - fail open, never block styling.
+        logger.warning("ahvi.personality_rules.failed stage=style_polish error=%s", str(exc)[:180])
+        return False
+
+
+def _personality_sentence_cap(text: str, *, max_chars: int = 180) -> str:
+    cleaned = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not cleaned:
+        return cleaned
+    sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.split(cleaned) if s.strip()]
+    if sentences:
+        cleaned = " ".join(sentences[:2]).strip()
+    words = cleaned.split()
+    if len(words) > 34:
+        cleaned = " ".join(words[:34]).rstrip(" ,;:-") + "."
+    if len(cleaned) > max_chars:
+        cleaned = cleaned[:max_chars].rsplit(" ", 1)[0].rstrip(" ,;:-") + "."
+    return cleaned
+
+
+def _personality_polish_text(text: Any, *, field: str = "", query: str = "") -> str:
+    out = str(text or "").strip()
+    if not out:
+        return out
+    out = _scrub_visible_style_text(out, query=query)
+    for pattern, replacement in _PERSONALITY_ROBOTIC_REPLACEMENTS:
+        out = re.sub(pattern, replacement, out, flags=re.IGNORECASE)
+    out = re.sub(r"\b(Considered and confident, styled to feel like you\.)\s*\1", r"\1", out, flags=re.IGNORECASE)
+    out = re.sub(r"\.{2,}", ".", out)
+    out = re.sub(r"\s+", " ", out).strip()
+    field_key = str(field or "").lower()
+    if field_key in {"reason", "missing_piece_reasoning"}:
+        if re.search(r"\bmissing\b", field_key) or "missing" in _norm(out):
+            out = out.replace("It completes the outfit.", "It finishes the look without overcomplicating it.")
+        return _personality_sentence_cap(out, max_chars=170)
+    if field_key in {"style_note", "styling_tip", "short_note", "subtitle", "summary", "tip"}:
+        return _personality_sentence_cap(out, max_chars=140)
+    return _personality_sentence_cap(out, max_chars=220)
+
+
+def _apply_personality_text_polish(value: Any, *, query: str = "", field: str = "") -> Any:
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        for key, val in value.items():
+            if key in _PERSONALITY_SKIP_KEYS:
+                out[key] = val
+            elif key in _PERSONALITY_TEXT_FIELDS:
+                out[key] = _apply_personality_text_polish(val, query=query, field=key)
+            elif isinstance(val, (dict, list)):
+                out[key] = _apply_personality_text_polish(val, query=query, field=key)
+            else:
+                out[key] = val
+        return out
+    if isinstance(value, list):
+        return [_apply_personality_text_polish(item, query=query, field=field) for item in value]
+    if isinstance(value, str) and field in _PERSONALITY_TEXT_FIELDS:
+        return _personality_polish_text(value, field=field, query=query)
+    return value
+
+
+def apply_personality_text_polish_to_final_payload(value: Any, *, query: str = "") -> Any:
+    """Final P0 personality-pack wording guard.
+
+    The normalized pack is used only as permission to apply deterministic copy
+    constraints: concise, practical, visual-first wording. It never changes
+    garment names, IDs, categories, assets, images, chips, or payload shape.
+    """
+    if not _personality_rules_available():
+        return value
+    return _apply_personality_text_polish(value, query=query)
+
+
 _MALE_FINAL_TEXT_REPLACEMENTS: tuple[tuple[str, str], ...] = (
     # Multiword first.
     (r"\bpointed[\s-]+toe\s+flats\b", "formal shoes"),
@@ -7147,6 +7295,7 @@ def _build_response(
             "wardrobe_alignment": str(payload.get("wardrobe_alignment") or "").strip(),
         },
     }
+    response = apply_personality_text_polish_to_final_payload(response, query=query)
     guarded, removed = apply_gender_guard_to_final_payload(
         response,
         target_gender=asset_gender,
