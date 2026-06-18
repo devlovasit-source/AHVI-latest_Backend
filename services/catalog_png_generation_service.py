@@ -22,6 +22,13 @@ from PIL import Image, ImageChops, ImageFilter, ImageOps
 from services.catalog_image_service import category_allowed, normalize_catalog_category
 from services.image_normalizer import _open_rgba, _trim_near_white_bounds, _trim_transparent_bounds
 
+try:  # google-genai is present in production, but local/dev must fail open.
+    from google import genai
+    from google.genai import types
+except Exception:  # noqa: BLE001
+    genai = None
+    types = None
+
 logger = logging.getLogger("ahvi.catalog_png")
 
 CATALOG_GENERATION_VERSION = "catalog_png_v1"
@@ -380,10 +387,108 @@ class HttpCatalogProvider(CatalogProvider):
             return CatalogProviderResult(False, reason=repr(exc)[:180], provider=self.name)
 
 
+_vertex_imagen_client = None
+
+
+def _vertex_project() -> str:
+    return os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCP_PROJECT") or "ahvi-485510"
+
+
+def _vertex_location() -> str:
+    return os.getenv("GOOGLE_CLOUD_LOCATION", "global")
+
+
+def _image_to_png_bytes(image_obj: Any) -> bytes:
+    if image_obj is None:
+        return b""
+    raw = getattr(image_obj, "image_bytes", None) or getattr(image_obj, "imageBytes", None)
+    if raw:
+        try:
+            im = Image.open(io.BytesIO(raw))
+            return _encode_png(im.convert("RGBA"))
+        except Exception:
+            return bytes(raw)
+    pil = getattr(image_obj, "_pil_image", None)
+    if pil is not None:
+        return _encode_png(pil.convert("RGBA"))
+    save = getattr(image_obj, "save", None)
+    if callable(save):
+        buf = io.BytesIO()
+        try:
+            save(buf)
+            buf.seek(0)
+            im = Image.open(buf)
+            return _encode_png(im.convert("RGBA"))
+        except Exception:
+            return buf.getvalue()
+    return b""
+
+
+class CatalogProviderVertexImagen(CatalogProvider):
+    name = "vertex_imagen"
+
+    def __init__(self):
+        self.model = os.getenv("CATALOG_IMAGEN_MODEL", "imagen-3.0-capability-001").strip()
+
+    def _client(self):
+        global _vertex_imagen_client
+        if genai is None or types is None:
+            return None
+        if _vertex_imagen_client is not None:
+            return _vertex_imagen_client
+        _vertex_imagen_client = genai.Client(
+            vertexai=True,
+            project=_vertex_project(),
+            location=_vertex_location(),
+            http_options=types.HttpOptions(api_version="v1"),
+        )
+        return _vertex_imagen_client
+
+    def generate(self, *, cutout_bytes: bytes, prompt: str, item_metadata: Dict[str, Any], timeout: int) -> CatalogProviderResult:
+        del timeout  # Vertex SDK call timeout is controlled by client/http options.
+        try:
+            client = self._client()
+            if client is None:
+                return CatalogProviderResult(False, reason="google_genai_unavailable", provider=self.name)
+            if not self.model:
+                return CatalogProviderResult(False, reason="catalog_imagen_model_missing", provider=self.name)
+            reference = types.RawReferenceImage(
+                reference_image=types.Image(image_bytes=cutout_bytes, mime_type="image/png"),
+                reference_id=1,
+            )
+            config = types.EditImageConfig(
+                number_of_images=1,
+                output_mime_type="image/png",
+                add_watermark=False,
+                include_rai_reason=True,
+                labels={
+                    "feature": "wardrobe_catalog_png",
+                    "category": str(item_metadata.get("category") or "")[:63],
+                },
+            )
+            response = client.models.edit_image(
+                model=self.model,
+                prompt=prompt,
+                reference_images=[reference],
+                config=config,
+            )
+            generated = getattr(response, "generated_images", None) or []
+            for candidate in generated:
+                image_obj = getattr(candidate, "image", None)
+                image_bytes = _image_to_png_bytes(image_obj)
+                if image_bytes:
+                    return CatalogProviderResult(True, image_bytes=image_bytes, provider=self.name)
+            return CatalogProviderResult(False, reason="vertex_imagen_returned_no_image", provider=self.name)
+        except Exception as exc:  # noqa: BLE001
+            return CatalogProviderResult(False, reason=repr(exc)[:180], provider=self.name)
+
+
 def _provider_for(name: str) -> CatalogProvider:
     key = str(name or "disabled").strip().lower()
     if key == "flux_kontext":
         return HttpCatalogProvider("flux_kontext", "FLUX_KONTEXT_CATALOG_URL", "FLUX_KONTEXT_API_KEY")
+    if key in {"vertex_imagen", "imagen_vertex"}:
+        return CatalogProviderVertexImagen()
     if key == "imagen":
         return HttpCatalogProvider("imagen", "IMAGEN_CATALOG_URL", "IMAGEN_API_KEY")
     return DisabledCatalogProvider()

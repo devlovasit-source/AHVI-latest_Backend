@@ -78,6 +78,67 @@ def test_provider_failure_returns_fallback_cutout(monkeypatch):
     assert result["catalog_png_bytes"]
 
 
+def test_vertex_imagen_provider_key_routes_to_vertex_provider(monkeypatch):
+    monkeypatch.setenv("CATALOG_IMAGEN_MODEL", "imagen-test")
+    provider = pngsvc._provider_for("vertex_imagen")
+    assert provider.name == "vertex_imagen"
+    assert provider.model == "imagen-test"
+
+
+def test_vertex_imagen_missing_sdk_fails_open(monkeypatch):
+    monkeypatch.setattr(pngsvc, "genai", None)
+    monkeypatch.setattr(pngsvc, "types", None)
+    provider = pngsvc.CatalogProviderVertexImagen()
+
+    result = provider.generate(
+        cutout_bytes=_garment_png(),
+        prompt=pngsvc.CATALOG_PROMPT,
+        item_metadata={"category": "Tops"},
+        timeout=1,
+    )
+
+    assert result.success is False
+    assert result.provider == "vertex_imagen"
+    assert result.reason == "google_genai_unavailable"
+
+
+def test_vertex_imagen_failed_call_falls_back_to_cutout(monkeypatch):
+    class _Provider(pngsvc.CatalogProvider):
+        name = "vertex_imagen"
+
+        def generate(self, **kwargs):
+            return pngsvc.CatalogProviderResult(False, reason="adc_missing", provider=self.name)
+
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+    raw = _garment_png(color=(180, 130, 95, 255))
+
+    result = pngsvc.generate_catalog_png(
+        raw,
+        provider="vertex_imagen",
+        item_metadata={
+            "item_id": "hanger-2",
+            "name": "Mirror selfie hanger shirt",
+            "category": "Tops",
+            "source": "mirror_selfie_hanger",
+        },
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "fallback_cutout"
+    assert result["reason"] == "adc_missing"
+    assert result["catalog_png_bytes"]
+
+
+def test_http_imagen_and_flux_providers_still_use_http_envs():
+    flux = pngsvc._provider_for("flux_kontext")
+    imagen = pngsvc._provider_for("imagen")
+
+    assert isinstance(flux, pngsvc.HttpCatalogProvider)
+    assert flux.name == "flux_kontext"
+    assert isinstance(imagen, pngsvc.HttpCatalogProvider)
+    assert imagen.name == "imagen"
+
+
 def test_validation_rejects_empty_catalog_png():
     empty = io.BytesIO()
     Image.new("RGBA", (600, 600), (0, 0, 0, 0)).save(empty, "PNG")
