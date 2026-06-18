@@ -588,7 +588,9 @@ class StyleBoardRenderer:
     def _load_image(self, item):
         # Prefer pre-masked/sticker assets from R2 whenever available.
         masked_url = (
-            item.get("masked_url")
+            item.get("normalized_url")
+            or item.get("normalizedUrl")
+            or item.get("masked_url")
             or item.get("masked_image_url")
             or item.get("sticker_url")
             or item.get("cutout_url")

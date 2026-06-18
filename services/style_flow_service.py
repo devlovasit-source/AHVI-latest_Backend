@@ -1038,7 +1038,9 @@ def item_image(item: Dict[str, Any]) -> str:
     if not isinstance(item, dict):
         return ""
     return _safe_text(
-        item.get("masked_url")
+        item.get("normalized_url")
+        or item.get("normalizedUrl")
+        or item.get("masked_url")
         or item.get("maskedUrl")
         or item.get("image_url")
         or item.get("imageUrl")

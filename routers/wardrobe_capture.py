@@ -848,8 +848,10 @@ def _decode_inline_image(value: Any) -> bytes:
 
 
 def _catalog_generation_enabled() -> bool:
-    return _env_enabled("ENABLE_CATALOG_IMAGE_GENERATION", "false") or _env_enabled(
-        "ENABLE_CATALOG_NORMALIZATION", "false"
+    return (
+        _env_enabled("ENABLE_CATALOG_GENERATION", "false")
+        or _env_enabled("ENABLE_CATALOG_IMAGE_GENERATION", "false")
+        or _env_enabled("ENABLE_CATALOG_NORMALIZATION", "false")
     )
 
 
@@ -893,11 +895,11 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
         return
     file_id = str(item.get("item_id") or "")
     category_raw = str(item.get("category") or "").strip()
-    from services.catalog_image_service import (
-        category_allowed,
-        generate_catalog_image,
-        normalize_catalog_category,
-    )
+    from services.catalog_image_service import category_allowed, generate_catalog_image, normalize_catalog_category
+    try:
+        from services.catalog_png_generation_service import generate_catalog_png
+    except Exception:  # noqa: BLE001
+        generate_catalog_png = None
 
     category = normalize_catalog_category(category_raw)
     flags_on = _catalog_generation_enabled()
@@ -940,6 +942,67 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
         logger.info(
             "ahvi.catalog.start item_id=%s category=%s source=%s", file_id, category, src
         )
+        catalog_png_enabled = _env_enabled("ENABLE_CATALOG_GENERATION", "false")
+        if catalog_png_enabled and generate_catalog_png is not None:
+            result = generate_catalog_png(
+                src_bytes,
+                item_metadata={
+                    "category": category,
+                    "item_id": file_id,
+                    "name": item.get("name") or item.get("label"),
+                    "sub_category": item.get("sub_category") or item.get("subcategory"),
+                    "source": item.get("source"),
+                    "label_source": item.get("label_source"),
+                },
+            )
+            if not result.get("success") or not result.get("catalog_png_bytes"):
+                status = str(result.get("status") or "catalog_failed")
+                item["catalogStatus"] = status
+                item["catalog_status"] = status
+                item["_catalog_done"] = True
+                logger.info(
+                    "ahvi.catalog_png.failed item_id=%s category=%s reason=%s",
+                    file_id,
+                    category,
+                    result.get("reason"),
+                )
+                return
+            storage = R2Storage()
+            if hasattr(storage, "upload_catalog_png"):
+                upload = storage.upload_catalog_png(
+                    file_id=file_id, image_bytes=result["catalog_png_bytes"]
+                )
+                catalog_png_url = upload.get("normalized_url") or upload.get("catalog_png_url")
+            else:
+                # Test/backward compatibility for older fake R2 helpers.
+                upload = storage.upload_catalog_image(
+                    file_id=file_id, image_bytes=result["catalog_png_bytes"], extension="png"
+                )
+                catalog_png_url = (
+                    upload.get("normalized_url")
+                    or upload.get("catalog_png_url")
+                    or upload.get("catalog_url")
+                )
+            status = str(result.get("status") or "catalog_ready")
+            if catalog_png_url:
+                item["normalized_url"] = catalog_png_url
+                item["normalizedUrl"] = catalog_png_url
+            item["catalogStatus"] = status
+            item["catalog_ready"] = status in {"catalog_ready", "catalog_generated", "fallback_cutout"}
+            item["catalogQualityScore"] = result.get("catalog_quality_score")
+            item["catalogRotationApplied"] = int(result.get("rotation_applied") or 0)
+            item["_catalog_done"] = True
+            logger.info(
+                "ahvi.catalog_png.uploaded item_id=%s category=%s status=%s provider=%s score=%s url=%s",
+                file_id,
+                category,
+                status,
+                result.get("catalog_provider"),
+                item.get("catalogQualityScore"),
+                catalog_png_url,
+            )
+            return
+
         result = generate_catalog_image(
             src_bytes,
             item_metadata={"category": category, "item_id": file_id},
@@ -966,15 +1029,13 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
             file_id=file_id, image_bytes=result["catalog_image_bytes"], extension="jpg"
         )
         catalog_url = upload.get("catalog_url")  # deterministic catalog_{item_id}.jpg
-        item["catalogUrl"] = catalog_url
-        item["catalog_url"] = catalog_url
+        if catalog_url:
+            item["normalized_url"] = catalog_url
+            item["normalizedUrl"] = catalog_url
         item["catalogStatus"] = "catalog_ready"
-        item["catalog_status"] = "catalog_ready"
         item["catalog_ready"] = True  # API convenience flag
         item["catalogMethod"] = "rmbg_center_normalize"
         item["catalogRotationApplied"] = int(result.get("rotation_applied") or 0)
-        item["catalogGeneratedAt"] = result.get("generated_at")
-        item["catalog_file_name"] = upload.get("catalog_file_name")
         item["_catalog_done"] = True
         logger.info(
             "ahvi.catalog.uploaded item_id=%s category=%s url=%s rotation=%d",

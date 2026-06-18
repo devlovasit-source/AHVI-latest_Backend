@@ -261,7 +261,18 @@ def _wardrobe_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _image_url(item: Dict[str, Any]) -> str:
-    for key in ("image_url", "imageUrl", "image", "url", "thumbnail", "photo"):
+    for key in (
+        "normalized_url",
+        "normalizedUrl",
+        "masked_url",
+        "maskedUrl",
+        "image_url",
+        "imageUrl",
+        "image",
+        "url",
+        "thumbnail",
+        "photo",
+    ):
         val = str(item.get(key) or "").strip()
         if val:
             return val

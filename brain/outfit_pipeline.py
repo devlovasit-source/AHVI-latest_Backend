@@ -253,7 +253,9 @@ def _ahvi_image_for_item(item):
     if not isinstance(item, dict):
         return ""
     return (
-        item.get("masked_url")
+        item.get("normalized_url")
+        or item.get("normalizedUrl")
+        or item.get("masked_url")
         or item.get("maskedUrl")
         or item.get("image_url")
         or item.get("imageUrl")

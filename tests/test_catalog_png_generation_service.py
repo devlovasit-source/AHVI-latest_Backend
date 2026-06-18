@@ -1,0 +1,159 @@
+import base64
+import io
+
+from PIL import Image, ImageDraw
+
+from services import catalog_png_generation_service as pngsvc
+
+
+def _garment_png(w=800, h=900, color=(40, 90, 200, 255), margin=0.18):
+    im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.rectangle([w * margin, h * margin, w * (1 - margin), h * (1 - margin)], fill=color)
+    b = io.BytesIO()
+    im.save(b, "PNG")
+    return b.getvalue()
+
+
+def _data_uri(png_bytes):
+    return "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+
+
+def test_clean_cutout_generates_transparent_catalog_png_without_provider(monkeypatch):
+    monkeypatch.setenv("CATALOG_PROVIDER", "disabled")
+    raw = _garment_png()
+
+    result = pngsvc.generate_catalog_png(
+        raw,
+        item_metadata={
+            "item_id": "shirt-1",
+            "name": "Blue Shirt",
+            "category": "Tops",
+            "sub_category": "Shirt",
+            "pattern": "plain",
+        },
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "catalog_ready"
+    assert result["catalog_provider"] == "cutout"
+    assert result["catalog_quality_score"] >= 80
+    img = Image.open(io.BytesIO(result["catalog_png_bytes"]))
+    assert img.mode == "RGBA"
+    assert img.size == (1600, 1600)
+    assert img.getpixel((0, 0))[3] == 0
+
+
+def test_hanger_or_selfie_metadata_does_not_block_save_and_falls_back(monkeypatch):
+    monkeypatch.setenv("CATALOG_PROVIDER", "disabled")
+    raw = _garment_png(color=(180, 130, 95, 255))
+
+    result = pngsvc.generate_catalog_png(
+        raw,
+        item_metadata={
+            "item_id": "hanger-1",
+            "name": "Mirror selfie hanger shirt",
+            "category": "Tops",
+            "source": "mirror_selfie_hanger",
+        },
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "fallback_cutout"
+    assert result["catalog_png_bytes"]
+    assert result["catalog_quality_score"] < 82
+
+
+def test_provider_failure_returns_fallback_cutout(monkeypatch):
+    monkeypatch.setenv("CATALOG_PROVIDER", "flux_kontext")
+    monkeypatch.delenv("FLUX_KONTEXT_CATALOG_URL", raising=False)
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={"item_id": "dress-1", "name": "Dress", "category": "Dresses"},
+    )
+
+    assert result["success"] is True
+    assert result["status"] in {"catalog_ready", "fallback_cutout"}
+    assert result["catalog_png_bytes"]
+
+
+def test_validation_rejects_empty_catalog_png():
+    empty = io.BytesIO()
+    Image.new("RGBA", (600, 600), (0, 0, 0, 0)).save(empty, "PNG")
+
+    result = pngsvc.validate_catalog_png(
+        empty.getvalue(),
+        original_bytes=empty.getvalue(),
+        item_metadata={"category": "Tops"},
+    )
+
+    assert result["ok"] is False
+    assert result["score"] == 0
+
+
+def test_router_hook_uploads_catalog_png_and_preserves_metadata(monkeypatch):
+    from routers import wardrobe_capture as wc
+
+    class _R2:
+        def upload_catalog_png(self, *, file_id, image_bytes):
+            return {
+                "catalog_png_file_name": f"catalog_{file_id}.png",
+                "catalog_png_url": f"https://cdn.test/catalog_{file_id}.png",
+                "normalized_url": f"https://cdn.test/catalog_{file_id}.png",
+            }
+
+    monkeypatch.setenv("ENABLE_CATALOG_GENERATION", "true")
+    monkeypatch.setattr(wc, "R2Storage", lambda: _R2())
+
+    item = {
+        "item_id": "kurta-1",
+        "name": "Blue Kurta",
+        "category": "Ethnic Wear",
+        "sub_category": "Kurta",
+        "pattern": "woven",
+        "color_name": "Blue",
+        "masked_image_base64": _data_uri(_garment_png(color=(20, 80, 160, 255))),
+    }
+
+    wc._maybe_generate_catalog_image(item)
+
+    assert item["normalized_url"] == "https://cdn.test/catalog_kurta-1.png"
+    assert item["catalogStatus"] in {"catalog_ready", "fallback_cutout"}
+    assert item["catalogQualityScore"] is not None
+    assert item["category"] == "Ethnic Wear"
+    assert item["sub_category"] == "Kurta"
+    assert item["pattern"] == "woven"
+
+
+def test_persistence_payload_maps_catalog_png_to_normalized_url(monkeypatch):
+    from services.wardrobe_persistence_service import _build_appwrite_doc
+
+    monkeypatch.setenv("ENABLE_CATALOG_GENERATION", "true")
+    item = {
+        "name": "Blue Shirt",
+        "category": "Tops",
+        "sub_category": "Shirt",
+        "color_code": "#1450A0",
+        "pattern": "plain",
+        "occasions": ["Work"],
+    }
+
+    doc = _build_appwrite_doc(
+        user_id="user-1",
+        file_id="item-1",
+        item=item,
+        raw_url="https://cdn.test/raw_item-1.png",
+        masked_url="https://cdn.test/cutout_item-1.png",
+        normalized_url="https://cdn.test/normalized_item-1.png",
+    )
+
+    assert doc["image_url"] == "https://cdn.test/raw_item-1.png"
+    assert doc["masked_url"] == "https://cdn.test/cutout_item-1.png"
+    assert doc["normalized_url"] == "https://cdn.test/normalized_item-1.png"
+    assert "original_image_url" not in doc
+    assert "cutout_image_url" not in doc
+    assert "catalog_png_url" not in doc
+    assert "catalog_provider" not in doc
+    assert "catalog_quality_score" not in doc
+    assert "catalog_generation_version" not in doc

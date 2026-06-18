@@ -260,11 +260,22 @@ class R2Storage:
         the client can build the URL without a DB field."""
         return f"catalog_{str(item_id or '').strip()}.jpg"
 
+    @staticmethod
+    def catalog_png_object_name(item_id: str) -> str:
+        """Canonical transparent catalog PNG key."""
+        return f"catalog_{str(item_id or '').strip()}.png"
+
     def build_catalog_url(self, item_id: str) -> str:
         """Deterministic public catalog URL for an item, or '' if unconfigured."""
         if not self.wardrobe_public_url or not str(item_id or "").strip():
             return ""
         return f"{self.wardrobe_public_url}/{self.catalog_object_name(item_id)}"
+
+    def build_catalog_png_url(self, item_id: str) -> str:
+        """Deterministic public catalog PNG URL for an item, or '' if unconfigured."""
+        if not self.wardrobe_public_url or not str(item_id or "").strip():
+            return ""
+        return f"{self.wardrobe_public_url}/{self.catalog_png_object_name(item_id)}"
 
     def upload_catalog_image(
         self,
@@ -293,6 +304,31 @@ class R2Storage:
         return {
             "catalog_file_name": file_name,
             "catalog_url": f"{self.wardrobe_public_url}/{file_name}",
+        }
+
+    def upload_catalog_png(
+        self,
+        *,
+        file_id: str,
+        image_bytes: bytes,
+    ) -> Dict[str, str]:
+        """Upload the premium transparent catalog PNG to the wardrobe bucket."""
+        if not self.wardrobe_bucket or not self.wardrobe_public_url:
+            raise R2StorageError("Missing wardrobe bucket/public URL configuration.")
+        file_name = self.catalog_png_object_name(file_id)
+        client = self._client()
+        client.put_object(
+            self.wardrobe_bucket,
+            file_name,
+            BytesIO(image_bytes),
+            length=len(image_bytes),
+            content_type="image/png",
+        )
+        url = f"{self.wardrobe_public_url}/{file_name}"
+        return {
+            "catalog_png_file_name": file_name,
+            "catalog_png_url": url,
+            "normalized_url": url,
         }
 
     def upload_style_board_image(

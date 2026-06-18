@@ -203,15 +203,24 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     # blanket-strip a whole family (a single unknown like pixel_hash used to take
     # the valid catalog_* fields down with it). Required image fields are never
     # targeted (Appwrite would not call a required, schema-present attr unknown).
-    _catalog_keys = {
+    _catalog_keys = set()
+    _unused_catalog_keys = {
         "catalog_status",
         "catalog_url",
+        "catalog_png_url",
         "catalog_method",
+        "catalog_provider",
+        "catalog_quality_score",
+        "catalog_generation_version",
         "catalog_rotation_applied",
         "catalog_generated_at",
         "catalogStatus",
         "catalogUrl",
+        "catalogPngUrl",
         "catalogMethod",
+        "catalogProvider",
+        "catalogQualityScore",
+        "catalogGenerationVersion",
         "catalogRotationApplied",
         "catalogGeneratedAt",
     }
@@ -708,12 +717,13 @@ def _build_appwrite_doc(
     # explicitly adds it. Qdrant/search payloads can still use cleaner masked
     # assets below without breaking Appwrite writes.
     final_image_url = normalized_url or masked_url or raw_url
+    original_image_url = raw_url or item.get("image_url") or item.get("imageUrl") or final_image_url
     pixel_hash = _safe_text(
         item.get("pixel_hash") or item.get("pixelHash") or item.get("masked_pixel_hash")
     )
 
     doc = {
-        "image_url": final_image_url,
+        "image_url": original_image_url,
         "category": category,
         "userId": user_id,
         "status": "active",
@@ -732,40 +742,6 @@ def _build_appwrite_doc(
     }
     if pixel_hash:
         doc["pixel_hash"] = pixel_hash
-    # Catalog image fields. Only written when the catalog pipeline is enabled —
-    # operator turning on the flag is responsible for adding these attributes to
-    # the Appwrite schema. Flag OFF (prod default) => doc shape unchanged.
-    if str(os.getenv("ENABLE_CATALOG_IMAGE_GENERATION", "false")).strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    ) or str(os.getenv("ENABLE_CATALOG_NORMALIZATION", "false")).strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    ):
-        # Schema-free catalog persistence: the outfits collection is at its
-        # row-size cap, so there is NO catalog_url/catalog_method attribute.
-        # catalogUrl is derived deterministically by the client from item_id
-        # (catalog_{item_id}.jpg in the wardrobe bucket). We persist only the
-        # small attributes that exist: status, generated_at, rotation. The
-        # persistence-strip safety net still covers any that are missing.
-        catalog_status = _safe_text(item.get("catalogStatus") or item.get("catalog_status"))
-        if catalog_status:
-            doc["catalog_status"] = catalog_status
-        catalog_gen = _safe_text(item.get("catalogGeneratedAt") or item.get("catalog_generated_at"))
-        if catalog_gen:
-            doc["catalog_generated_at"] = catalog_gen
-        rot = item.get("catalogRotationApplied")
-        if rot is None:
-            rot = item.get("catalog_rotation_applied")
-        if rot is not None:
-            try:
-                doc["catalog_rotation_applied"] = int(rot)
-            except (TypeError, ValueError):
-                pass
     doc["_style_attrs"] = style_attrs
     return doc
 
@@ -944,7 +920,9 @@ def persist_selected_items(
                         "type": str(doc["sub_category"]).lower(),
                         "category": doc["category"],
                         "color": doc["color_code"],
-                        "image_url": masked_url or normalized_url or doc.get("image_url"),
+                        "image_url": normalized_url or masked_url or doc.get("image_url"),
+                        "masked_url": masked_url,
+                        "normalized_url": normalized_url,
                         "pixel_hash": pixel_hash,
                         "embedding": embedding,
                         "formality": style_attrs.get("formality"),
@@ -963,7 +941,7 @@ def persist_selected_items(
                             "type": str(doc["sub_category"]).lower(),
                             "category": doc["category"],
                             "color": doc["color_code"],
-                            "image_url": masked_url or normalized_url or doc.get("image_url"),
+                            "image_url": normalized_url or masked_url or doc.get("image_url"),
                             "masked_url": masked_url,
                             "normalized_url": normalized_url,
                             "pixel_hash": pixel_hash,

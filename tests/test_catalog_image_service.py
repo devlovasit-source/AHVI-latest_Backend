@@ -130,7 +130,8 @@ def test_catalog_runs_when_rmbg_skipped_masked_b64(monkeypatch):
     item = {"category": "top", "item_id": "id_m", "masked_image_base64": _data_uri(_garment_png(820, 820))}
     wc._maybe_generate_catalog_image(item)
     assert item["catalogStatus"] == "catalog_ready"
-    assert item["catalogUrl"].endswith("catalog_id_m.jpg")
+    assert item["normalized_url"].endswith("catalog_id_m.jpg")
+    assert "catalogUrl" not in item
 
 
 def test_catalog_runs_when_rmbg_skipped_raw_b64(monkeypatch):
@@ -240,12 +241,16 @@ def test_catalog_object_name_and_build_url():
     from services.r2_storage import R2Storage
 
     assert R2Storage.catalog_object_name("abc123") == "catalog_abc123.jpg"
+    assert R2Storage.catalog_png_object_name("abc123") == "catalog_abc123.png"
     r = R2Storage()
     r.wardrobe_public_url = "https://cdn.test/wardrobe"
     assert r.build_catalog_url("abc123") == "https://cdn.test/wardrobe/catalog_abc123.jpg"
+    assert r.build_catalog_png_url("abc123") == "https://cdn.test/wardrobe/catalog_abc123.png"
     assert r.build_catalog_url("") == ""
+    assert r.build_catalog_png_url("") == ""
     r.wardrobe_public_url = ""
     assert r.build_catalog_url("abc123") == ""
+    assert r.build_catalog_png_url("abc123") == ""
 
 
 # --- category normalization (live title-case / plural) ---
@@ -379,6 +384,6 @@ def test_router_helper_success_sets_aliases(monkeypatch):
     item = {"category": "top", "item_id": "id4", "masked_image_base64": _data_uri(_garment_png(900, 900))}
     wc._maybe_generate_catalog_image(item)
     assert item["catalogStatus"] == "catalog_ready"
-    assert item["catalogUrl"] == item["catalog_url"]
-    assert item["catalogUrl"].endswith("catalog_id4.jpg")
+    assert item["normalizedUrl"] == item["normalized_url"]
+    assert item["normalized_url"].endswith("catalog_id4.jpg")
     assert item["catalogMethod"] == "rmbg_center_normalize"
