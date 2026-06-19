@@ -83,7 +83,8 @@ BBOX_PAD_RATIO = _env_float("GEMINI_MULTI_GARMENT_BBOX_PAD_RATIO", 0.04)
 SUPPORTED_ITEMS = [
     "dress", "saree", "lehenga", "top", "shirt", "blouse", "kurta", "jeans",
     "trousers", "skirt", "shorts", "blazer", "jacket", "footwear", "sandals",
-    "sneakers", "handbag", "sunglasses", "watch", "jewelry",
+    "sneakers", "handbag", "sunglasses", "watch", "jewelry", "cap", "hat",
+    "headwear", "baseball cap", "snapback", "dad cap", "visor", "beanie",
 ]
 
 EXCLUDED_ITEMS = [

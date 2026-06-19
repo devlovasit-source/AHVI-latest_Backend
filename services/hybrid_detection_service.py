@@ -24,7 +24,8 @@ HF_URL = "https://api-inference.huggingface.co/models/IDEA-Research/grounding-di
 TEXT_PROMPT = (
     "shirt . t-shirt . blouse . crop top . pants . trousers . jeans . skirt . shorts . "
     "dress . gown . saree . kurta . blazer . jacket . coat . sneakers . heels . boots . "
-    "sandals . handbag . backpack . belt . watch . necklace . earrings . bracelet . scarf . sunglasses"
+    "sandals . handbag . backpack . belt . watch . necklace . earrings . bracelet . scarf . sunglasses . "
+    "cap . hat . headwear . baseball cap . snapback . dad cap . visor . beanie"
 )
 
 # 🔥 FEATURE FLAGS

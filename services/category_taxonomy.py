@@ -160,6 +160,11 @@ CANONICAL_CATEGORY_KEYWORDS: List[Tuple[str, str, List[str]]] = [
             "watches",
             "belt",
             "belts",
+            "baseball cap",
+            "dad cap",
+            "snapback",
+            "visor",
+            "beanie",
             "sunglass",
             "sunglasses",
             "eyewear",
@@ -189,6 +194,10 @@ def normalize_category_from_label(label: str) -> Tuple[str, str]:
                     sub = "Watch"
                 elif "belt" in raw:
                     sub = "Belt"
+                elif "beanie" in raw:
+                    sub = "Beanie"
+                elif any(x in raw for x in ["baseball cap", "dad cap", "snapback", "visor", "hat", "cap"]):
+                    sub = "Cap"
                 elif any(x in raw for x in ["sunglass", "eyewear", "glasses"]):
                     sub = "Eyewear"
             return (category, sub)

@@ -3,6 +3,7 @@ import base64
 import io
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -682,11 +683,165 @@ def _best_effort_item_name(item: Dict[str, Any], original: Dict[str, Any] | None
     return label.title() or "Wardrobe Item"
 
 
+_HEADWEAR_CAP_TERMS = (
+    "baseball cap",
+    "dad cap",
+    "snapback",
+    "visor",
+    "cap",
+    "hat",
+)
+_HEADWEAR_BEANIE_TERMS = ("beanie",)
+_LOGO_BRANDS = {
+    "adidas": "Adidas",
+    "google": "Google",
+    "ibm": "IBM",
+    "nike": "Nike",
+    "watsonx": "Watsonx",
+}
+_WRONG_LOGO_GARMENT_TERMS = (
+    "sock",
+    "socks",
+    "top",
+    "shirt",
+    "tee",
+    "t-shirt",
+    "tshirt",
+)
+
+
+def _text_has_token(text: str, *tokens: str) -> bool:
+    clean = re.sub(r"[^a-z0-9]+", " ", str(text or "").lower())
+    return any(
+        re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", clean)
+        for token in tokens
+    )
+
+
+def _known_logo_brand(text: str) -> str:
+    clean = f" {re.sub(r'[^a-z0-9]+', ' ', str(text or '').lower())} "
+    for key, label in _LOGO_BRANDS.items():
+        if f" {key} " in clean:
+            return label
+    return ""
+
+
+def _headwear_subcategory_from_text(text: str) -> str:
+    if _text_has_token(text, *_HEADWEAR_BEANIE_TERMS):
+        return "Beanie"
+    if _text_has_token(text, *_HEADWEAR_CAP_TERMS):
+        return "Cap"
+    return ""
+
+
+def _clean_headwear_label(item: Dict[str, Any], sub_category: str) -> str:
+    color = str(item.get("color_name") or item.get("color") or "").strip().title()
+    if color.lower() in {"", "unknown", "none", "null"}:
+        color = ""
+    if sub_category == "Beanie":
+        return f"{color} Beanie".strip() or "Beanie"
+    if color:
+        return f"{color} Baseball Cap"
+    brand = _known_logo_brand(str(item.get("name") or item.get("label") or ""))
+    return f"{brand} Cap".strip() if brand else "Baseball Cap"
+
+
+def _apply_headwear_ocr_guard(
+    item: Dict[str, Any],
+    *,
+    context_text: str = "",
+    reason_prefix: str = "cap_ocr_guard",
+) -> Dict[str, Any]:
+    if not isinstance(item, dict):
+        return item
+    out = dict(item)
+    before = {
+        "name": out.get("name"),
+        "category": out.get("category"),
+        "sub_category": out.get("sub_category") or out.get("subcategory"),
+    }
+    blob = " ".join(
+        str(v or "")
+        for v in (
+            context_text,
+            out.get("name"),
+            out.get("label"),
+            out.get("title"),
+            out.get("category"),
+            out.get("sub_category"),
+            out.get("subcategory"),
+            out.get("description"),
+            out.get("reasoning"),
+        )
+    )
+    sub = _headwear_subcategory_from_text(blob)
+    if sub:
+        out["category"] = "Accessories"
+        out["sub_category"] = sub
+        out["subcategory"] = sub
+        out["subCategory"] = sub
+        if _known_logo_brand(str(out.get("name") or "")) and _text_has_token(
+            str(out.get("name") or ""), *_WRONG_LOGO_GARMENT_TERMS
+        ):
+            out["name"] = _clean_headwear_label(out, sub)
+        elif not str(out.get("name") or "").strip() or _text_has_token(
+            str(out.get("name") or ""), "item", "unknown", "review item"
+        ):
+            out["name"] = _clean_headwear_label(out, sub)
+        out["privateWear"] = False
+        out["publicWear"] = True
+        out["styleEligible"] = True
+        after = {
+            "name": out.get("name"),
+            "category": out.get("category"),
+            "sub_category": out.get("sub_category"),
+        }
+        if after != before:
+            logger.info(
+                "ahvi.capture.taxonomy_corrected from=%s to=%s reason=%s",
+                before,
+                after,
+                reason_prefix,
+            )
+        return out
+
+    category_key = str(out.get("category") or "").strip().lower()
+    sub_key = str(out.get("sub_category") or out.get("subcategory") or "").strip().lower()
+    name = str(out.get("name") or out.get("label") or "")
+    try:
+        confidence = float(out.get("confidence") or 0.0)
+    except Exception:
+        confidence = 0.0
+    if (
+        _known_logo_brand(name)
+        and _text_has_token(name, *_WRONG_LOGO_GARMENT_TERMS)
+        and (category_key in {"tops", "top", ""} or sub_key in {"top", "tops", ""})
+        and confidence < 0.75
+    ):
+        out["category"] = "Needs Review"
+        out["sub_category"] = "Needs Review"
+        out["subcategory"] = "Needs Review"
+        out["subCategory"] = "Needs Review"
+        out["requires_manual_entry"] = True
+        out["needs_review"] = True
+        logger.info(
+            "ahvi.capture.taxonomy_corrected from=%s to=%s reason=logo_only_weak_top",
+            before,
+            {
+                "name": out.get("name"),
+                "category": out.get("category"),
+                "sub_category": out.get("sub_category"),
+            },
+        )
+    return out
+
+
 def _normalize_capture_preview_item(item: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize taxonomy and keep successful vision results out of review state."""
     normalized = _taxonomy_normalize_item(item)
     if not isinstance(normalized, dict):
         return normalized
+    normalized = _apply_headwear_ocr_guard(normalized)
     normalized["name"] = _best_effort_item_name(normalized, item)
     normalized = apply_metadata_guard(normalized, source="capture_preview")
 
@@ -1489,6 +1644,13 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             vision["confidence"] = float(item.get("score") or 0.8)
             vision["reasoning"] = "gemini_multi_garment_detection"
 
+        logger.info(
+            "ahvi.capture.vision_raw name=%s category=%s sub_category=%s",
+            vision.get("name"),
+            vision.get("category"),
+            vision.get("sub_category"),
+        )
+
         category, sub_category, category_corrected = _guardrail_category(
             raw_label=raw_label,
             vision_name=str(vision.get("name") or ""),
@@ -1619,6 +1781,23 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             "duplicate": duplicate,
             "image_embedding": embedding,
         }
+        detected = _apply_headwear_ocr_guard(
+            detected,
+            context_text=" ".join(
+                str(v or "")
+                for v in (
+                    raw_label,
+                    item.get("label"),
+                    item.get("gemini_name"),
+                    item.get("gemini_category"),
+                    item.get("gemini_sub_category"),
+                    vision.get("name"),
+                    vision.get("category"),
+                    vision.get("sub_category"),
+                    vision.get("reasoning"),
+                )
+            ),
+        )
         detected.update(_infer_style_attributes(detected))
         # Preview-stage Gemini validation: correct risky / low-confidence
         # labels (saree→Accessories, one-piece→top, boxers→shorts) BEFORE
@@ -1629,6 +1808,24 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             user_id=user_id,
             vision=vision,
             raw_label=raw_label,
+        )
+        detected = _apply_headwear_ocr_guard(
+            detected,
+            context_text=" ".join(
+                str(v or "")
+                for v in (
+                    raw_label,
+                    item.get("label"),
+                    item.get("gemini_name"),
+                    item.get("gemini_category"),
+                    item.get("gemini_sub_category"),
+                    vision.get("name"),
+                    vision.get("category"),
+                    vision.get("sub_category"),
+                    vision.get("reasoning"),
+                )
+            ),
+            reason_prefix="cap_ocr_guard_post_validator",
         )
         validator_states.append(validator_state)
         items.append(detected)

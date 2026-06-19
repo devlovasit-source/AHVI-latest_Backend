@@ -14,6 +14,16 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("ahvi.wardrobe_taxonomy")
 
+_HEADWEAR_CAP_TERMS = [
+    "baseball cap",
+    "dad cap",
+    "snapback",
+    "visor",
+    "cap",
+    "hat",
+]
+_HEADWEAR_BEANIE_TERMS = ["beanie"]
+
 
 CATEGORIES = {
     "Tops",
@@ -45,6 +55,14 @@ def _has_any(text: str, tokens: List[str], words: List[str]) -> bool:
 def _blob(*parts: Any) -> Tuple[str, List[str]]:
     text = " ".join(str(p or "") for p in parts).lower()
     return text, _tokens(text)
+
+
+def _headwear_subcategory(text: str, tokens: List[str]) -> str:
+    if _has_any(text, tokens, _HEADWEAR_BEANIE_TERMS):
+        return "Beanie"
+    if _has_any(text, tokens, _HEADWEAR_CAP_TERMS):
+        return "Cap"
+    return ""
 
 
 def _skincare_subcategory(name: Any, sub_category: Any) -> str:
@@ -117,6 +135,10 @@ def normalize(
 
     def has(words: List[str]) -> bool:
         return _has_any(text, toks, words)
+
+    headwear_sub = _headwear_subcategory(text, toks)
+    if headwear_sub:
+        return "Accessories", headwear_sub
 
     # Honour explicit user-supplied category for non-garment categories
     # FIRST. When a user opens the edit dialog and picks 'Skincare' or
@@ -219,7 +241,7 @@ def normalize(
     if has(["sunglass", "sunglasses", "eyewear", "glasses"]):
         return "Accessories", "Eyewear"
     if has(["cap", "hat", "beanie"]):
-        return "Accessories", "Headwear"
+        return "Accessories", _headwear_subcategory(text, toks) or "Cap"
     if has(["scarf", "stole"]):
         return "Accessories", "Scarf"
 
@@ -396,6 +418,7 @@ def enforce_preview_taxonomy(item: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(item, dict):
         return item
     blob = _preview_blob(item)
+    tokens = _tokens(blob)
     out = dict(item)
 
     def _public(cat: str, sub: str) -> Dict[str, Any]:
@@ -429,6 +452,16 @@ def enforce_preview_taxonomy(item: Dict[str, Any]) -> Dict[str, Any]:
         blob, "pajama", "pajamas", "pyjama", "pyjamas", "nightwear", "sleepwear"
     ):
         return _private("Sleepwear")
+    headwear_sub = _headwear_subcategory(blob, tokens)
+    if headwear_sub:
+        out["category"] = "Accessories"
+        out["sub_category"] = headwear_sub
+        out["subcategory"] = headwear_sub
+        out["subCategory"] = headwear_sub
+        out["privateWear"] = False
+        out["publicWear"] = True
+        out["styleEligible"] = True
+        return out
     return out
 
 
