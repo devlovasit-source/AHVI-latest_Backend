@@ -16,6 +16,15 @@ def _garment_png(w=800, h=900, color=(40, 90, 200, 255), margin=0.18):
     return b.getvalue()
 
 
+def _opaque_product_png(w=900, h=900, color=(40, 90, 200), margin=0.18):
+    im = Image.new("RGB", (w, h), (245, 245, 245))
+    d = ImageDraw.Draw(im)
+    d.rectangle([w * margin, h * margin, w * (1 - margin), h * (1 - margin)], fill=color)
+    b = io.BytesIO()
+    im.save(b, "PNG")
+    return b.getvalue()
+
+
 def _data_uri(png_bytes):
     return "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
 
@@ -220,6 +229,67 @@ def test_vertex_imagen_config_validation_error_falls_back_to_cutout(monkeypatch)
     assert result["status"] == "fallback_cutout"
     assert result["catalog_provider"] == "vertex_imagen"
     assert "EditImageConfig" in result["reason"]
+    assert result["catalog_png_bytes"]
+
+
+def test_vertex_imagen_opaque_generated_output_is_accepted_for_demo(monkeypatch):
+    class _Provider(pngsvc.CatalogProvider):
+        name = "vertex_imagen"
+
+        def generate(self, **kwargs):
+            return pngsvc.CatalogProviderResult(
+                True,
+                image_bytes=_opaque_product_png(color=(190, 60, 60)),
+                provider=self.name,
+            )
+
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(color=(190, 60, 60, 255)),
+        provider="vertex_imagen",
+        item_metadata={
+            "item_id": "opaque-1",
+            "name": "Red Shirt",
+            "category": "Tops",
+            "needs_review": True,
+        },
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "catalog_generated"
+    assert result["catalog_provider"] == "vertex_imagen"
+    assert result["reason"] == "demo_accept_background"
+    assert result["validation"]["checks"]["alpha_or_palette_mode"] is False
+
+
+def test_vertex_imagen_invalid_size_still_falls_back(monkeypatch):
+    class _Provider(pngsvc.CatalogProvider):
+        name = "vertex_imagen"
+
+        def generate(self, **kwargs):
+            return pngsvc.CatalogProviderResult(
+                True,
+                image_bytes=_opaque_product_png(w=300, h=300, color=(190, 60, 60)),
+                provider=self.name,
+            )
+
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(color=(190, 60, 60, 255)),
+        provider="vertex_imagen",
+        item_metadata={
+            "item_id": "tiny-1",
+            "name": "Red Shirt",
+            "category": "Tops",
+            "needs_review": True,
+        },
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "fallback_cutout"
+    assert result["catalog_provider"] == "vertex_imagen"
     assert result["catalog_png_bytes"]
 
 

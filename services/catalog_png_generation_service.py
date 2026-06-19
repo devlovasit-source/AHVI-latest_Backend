@@ -364,12 +364,46 @@ def validate_catalog_png(image_bytes: bytes, *, original_bytes: bytes = b"", ite
         "garment_centered": score.get("center_offset", 1) <= 0.16,
         "image_dimensions_valid": True,
     }
+    image_info = {"image_width": 0, "image_height": 0, "image_mode": ""}
     try:
         img = Image.open(io.BytesIO(image_bytes))
-        checks["image_dimensions_valid"] = img.size[0] >= 512 and img.size[1] >= 512 and img.mode in {"RGBA", "LA", "P"}
+        image_info = {
+            "image_width": int(img.size[0]),
+            "image_height": int(img.size[1]),
+            "image_mode": str(img.mode or ""),
+        }
+        checks["image_size_valid"] = img.size[0] >= 512 and img.size[1] >= 512
+        checks["alpha_or_palette_mode"] = img.mode in {"RGBA", "LA", "P"}
+        checks["image_dimensions_valid"] = checks["image_size_valid"] and checks["alpha_or_palette_mode"]
     except Exception:
+        checks["image_size_valid"] = False
+        checks["alpha_or_palette_mode"] = False
         checks["image_dimensions_valid"] = False
-    return {**score, "ok": bool(score.get("ok")) and all(checks.values()), "checks": checks}
+    return {**score, **image_info, "ok": bool(score.get("ok")) and all(checks.values()), "checks": checks}
+
+
+def _vertex_demo_accepts_generated_validation(validation: Dict[str, Any]) -> bool:
+    checks = validation.get("checks") or {}
+    reason = str(validation.get("reason") or "").strip()
+    if reason.startswith("decode_failed") or reason in {
+        "missing_garment_sections",
+        "human_or_mannequin_remnants",
+    }:
+        return False
+    for key in (
+        "no_face",
+        "no_human",
+        "no_mannequin",
+        "category_matches_original",
+        "image_size_valid",
+    ):
+        if checks.get(key) is False:
+            return False
+    # Demo relaxation: accept useful Imagen output when the remaining problem is
+    # an opaque/non-transparent background or edge contact from that background.
+    if checks.get("alpha_or_palette_mode") is False or checks.get("image_dimensions_valid") is False:
+        return reason in {"", "bad_crop"} and int(validation.get("score") or 0) >= 45
+    return reason == "bad_crop" and int(validation.get("score") or 0) >= 45
 
 
 @dataclass
@@ -633,7 +667,12 @@ def generate_catalog_png(
             original_bytes=cutout_bytes,
             item_metadata=_provider_validation_metadata(meta, category),
         )
-        if generated_validation.get("ok"):
+        vertex_demo_accepted = (
+            provider_result.provider == "vertex_imagen"
+            and not generated_validation.get("ok")
+            and _vertex_demo_accepts_generated_validation(generated_validation)
+        )
+        if generated_validation.get("ok") or vertex_demo_accepted:
             return {
                 "success": True,
                 "status": "catalog_generated",
@@ -645,9 +684,18 @@ def generate_catalog_png(
                 "rotation_applied": rotation,
                 "foreground_bounds": bounds,
                 "validation": generated_validation,
-                "reason": "",
+                "reason": "demo_accept_background" if vertex_demo_accepted else "",
                 "elapsed_ms": int((time.monotonic() - t0) * 1000),
             }
+        if provider_result.provider == "vertex_imagen":
+            logger.info(
+                "ahvi.catalog.vertex.validation_failed score=%s reason=%s dimensions=%sx%s mode=%s",
+                generated_validation.get("score"),
+                generated_validation.get("reason"),
+                generated_validation.get("image_width"),
+                generated_validation.get("image_height"),
+                generated_validation.get("image_mode"),
+            )
         logger.info(
             "ahvi.catalog_png.provider_validation_failed provider=%s reason=%s",
             provider_result.provider,
