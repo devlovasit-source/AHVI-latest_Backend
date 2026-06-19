@@ -1135,16 +1135,29 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
         )
         catalog_png_enabled = _env_enabled("ENABLE_CATALOG_GENERATION", "false")
         if catalog_png_enabled and generate_catalog_png is not None:
+            catalog_metadata = {
+                "category": category,
+                "item_id": file_id,
+                "name": item.get("name") or item.get("label"),
+                "sub_category": item.get("sub_category") or item.get("subcategory"),
+                "crop_source": item.get("crop_source") or item.get("cropSource"),
+                "crop_quality": item.get("crop_quality") or item.get("cropQuality"),
+                "needs_review": item.get("needs_review"),
+                "review_reason": item.get("review_reason"),
+                "requires_manual_entry": item.get("requires_manual_entry"),
+                "source": item.get("source"),
+                "label_source": item.get("label_source"),
+            }
+            logger.info(
+                "ahvi.catalog.metadata item_id=%s crop_quality=%s needs_review=%s review_reason=%s",
+                file_id,
+                catalog_metadata.get("crop_quality"),
+                catalog_metadata.get("needs_review"),
+                catalog_metadata.get("review_reason"),
+            )
             result = generate_catalog_png(
                 src_bytes,
-                item_metadata={
-                    "category": category,
-                    "item_id": file_id,
-                    "name": item.get("name") or item.get("label"),
-                    "sub_category": item.get("sub_category") or item.get("subcategory"),
-                    "source": item.get("source"),
-                    "label_source": item.get("label_source"),
-                },
+                item_metadata=catalog_metadata,
             )
             if not result.get("success") or not result.get("catalog_png_bytes"):
                 status = str(result.get("status") or "catalog_failed")

@@ -245,6 +245,55 @@ def test_router_hook_uploads_catalog_png_and_preserves_metadata(monkeypatch):
     assert item["pattern"] == "woven"
 
 
+def test_router_hook_passes_crop_risk_metadata_to_catalog_provider(monkeypatch):
+    from routers import wardrobe_capture as wc
+
+    provider_calls = []
+
+    class _Provider(pngsvc.CatalogProvider):
+        name = "vertex_imagen"
+
+        def generate(self, **kwargs):
+            provider_calls.append(kwargs)
+            return pngsvc.CatalogProviderResult(
+                True, image_bytes=kwargs["cutout_bytes"], provider=self.name
+            )
+
+    class _R2:
+        def upload_catalog_png(self, *, file_id, image_bytes):
+            return {
+                "catalog_png_file_name": f"catalog_{file_id}.png",
+                "catalog_png_url": f"https://cdn.test/catalog_{file_id}.png",
+                "normalized_url": f"https://cdn.test/catalog_{file_id}.png",
+            }
+
+    monkeypatch.setenv("ENABLE_CATALOG_GENERATION", "true")
+    monkeypatch.setenv("CATALOG_PROVIDER", "disabled")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+    monkeypatch.setattr(wc, "R2Storage", lambda: _R2())
+
+    item = {
+        "item_id": "shorts-risk-1",
+        "name": "Black Shorts",
+        "category": "Bottoms",
+        "sub_category": "Shorts",
+        "crop_source": "full_image_fallback",
+        "crop_quality": "full_image_person_risk",
+        "needs_review": True,
+        "review_reason": "Needs cleaner photo",
+        "requires_manual_entry": True,
+        "source": "gemini_single_garment",
+        "label_source": "gemini",
+        "masked_image_base64": _data_uri(_garment_png(color=(20, 20, 20, 255))),
+    }
+
+    wc._maybe_generate_catalog_image(item)
+
+    assert provider_calls, "full_image_person_risk must force vertex provider"
+    assert item["normalized_url"] == "https://cdn.test/catalog_shorts-risk-1.png"
+    assert item["catalogStatus"] == "catalog_generated"
+
+
 def test_persistence_payload_maps_catalog_png_to_normalized_url(monkeypatch):
     from services.wardrobe_persistence_service import _build_appwrite_doc
 
