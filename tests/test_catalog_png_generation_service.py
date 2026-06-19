@@ -30,14 +30,31 @@ def _data_uri(png_bytes):
 
 
 def test_dress_catalog_prompt_removes_hanger_and_reconstructs_neckline():
-    prompt = pngsvc._build_catalog_prompt("Dresses", {"name": "Black Dress"})
+    prompt = pngsvc._build_catalog_prompt(
+        "Dresses",
+        {
+            "name": "Red Polka Dot Dress",
+            "sub_category": "sleeveless dress",
+            "color_name": "red",
+            "pattern": "white polka dot",
+        },
+    )
 
-    assert "no hanger" in prompt
-    assert "no hook" in prompt
-    assert "no rod" in prompt
-    assert "dress" in prompt.lower()
-    assert "Reconstruct the neckline" in prompt
-    assert "shoulders" in prompt
+    assert "The dress is the product and must remain fully visible." in prompt
+    assert "The dress must remain the dominant object" in prompt
+    assert "- hanger" in prompt
+    assert "- hook" in prompt
+    assert "- clothing rod" in prompt
+    assert "- shoulder seams" in prompt
+    assert "- neckline" in prompt
+    assert "- armholes" in prompt
+    assert "- upper bodice" in prompt
+    assert "- remove the garment" in prompt
+    assert "category = dress" in prompt
+    assert "subcategory = sleeveless dress" in prompt
+    assert "color = red" in prompt
+    assert "pattern = white polka dot" in prompt
+    assert "The final image must still be a red sleeveless dress white polka dot." in prompt
 
 
 def test_top_catalog_prompt_reconstructs_shoulders_and_sleeves():

@@ -78,14 +78,103 @@ Requirements:
 
 
 def _build_catalog_prompt(category: Any, metadata: Optional[Dict[str, Any]] = None) -> str:
+    meta = metadata or {}
     cat = normalize_catalog_category(category)
-    blob = _text_blob(metadata)
+    blob = _text_blob(meta)
+    subcategory = str(meta.get("sub_category") or meta.get("subcategory") or "").strip()
+    color = str(meta.get("color_name") or meta.get("color") or "").strip()
+    pattern = str(meta.get("pattern") or meta.get("print") or "").strip()
+    name = str(meta.get("name") or meta.get("label") or "").strip()
+    anchor_parts = []
+    if cat:
+        anchor_parts.append(f"category = {cat}")
+    if subcategory:
+        anchor_parts.append(f"subcategory = {subcategory}")
+    if color:
+        anchor_parts.append(f"color = {color}")
+    if pattern:
+        anchor_parts.append(f"pattern = {pattern}")
+    if name:
+        anchor_parts.append(f"item = {name}")
+    anchor = ""
+    if anchor_parts:
+        anchor = "\n\nMETADATA ANCHOR:\n" + "\n".join(anchor_parts)
     details = []
     if cat == "dress" or "dress" in blob:
-        details.append(
-            "This item is a dress. Reconstruct the neckline, straps, shoulders, "
-            "and upper dress areas hidden by any hanger, hook, rod, or body."
+        descriptor_parts = []
+        if color:
+            descriptor_parts.append(color)
+        if subcategory:
+            descriptor_parts.append(subcategory)
+        elif "sleeveless" in blob:
+            descriptor_parts.append("sleeveless dress")
+        else:
+            descriptor_parts.append("dress")
+        if pattern:
+            descriptor_parts.append(pattern)
+        descriptor = " ".join(descriptor_parts).strip()
+        final_anchor = (
+            f"\n\nThis is a {descriptor}.\n"
+            f"The final image must still be a {descriptor}."
+            if descriptor
+            else ""
         )
+        return f"""Create a premium fashion e-commerce product image.
+
+PRIMARY SUBJECT:
+The dress is the product and must remain fully visible.
+
+Keep exactly:
+- same dress
+- same color
+- same fabric
+- same print pattern
+- same silhouette
+- same proportions
+- same hemline length
+- same neckline shape
+
+The dress must remain the dominant object in the image.
+
+REPAIR TASK:
+The input image contains a hanger, hook and support rod.
+
+Remove:
+- hanger
+- hook
+- clothing rod
+- support hardware
+
+After removal, reconstruct any hidden garment areas naturally.
+
+Specifically reconstruct:
+- shoulder seams
+- neckline
+- armholes
+- upper bodice
+
+The reconstructed areas must match the existing fabric pattern and color.
+
+DO NOT:
+- crop the garment
+- remove the garment
+- replace the garment
+- redesign the garment
+- change fit
+- change color
+- change pattern
+- generate a mannequin
+- generate a model
+- generate accessories
+
+OUTPUT:
+Single garment product photo.
+Centered.
+Upright.
+Clean studio lighting.
+Pure white background.
+Entire dress visible from top to hem.
+Fashion catalog quality.{anchor}{final_anchor}"""
     elif cat in {"top", "outerwear", "ethnic"}:
         details.append(
             "This item is an upper-body garment. Reconstruct the collar, shoulder, "
@@ -102,8 +191,8 @@ def _build_catalog_prompt(category: Any, metadata: Optional[Dict[str, Any]] = No
             "material, and product identity. Do not add people, outfits, scenes, or lifestyle imagery."
         )
     if not details:
-        return CATALOG_PROMPT
-    return CATALOG_PROMPT + "\n\nCategory-specific instruction:\n" + "\n".join(details)
+        return CATALOG_PROMPT + anchor
+    return CATALOG_PROMPT + anchor + "\n\nCategory-specific instruction:\n" + "\n".join(details)
 
 
 def _now_iso() -> str:
