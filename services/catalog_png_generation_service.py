@@ -487,6 +487,17 @@ class CatalogProviderVertexImagen(CatalogProvider):
         )
         return _vertex_imagen_client
 
+    def _edit_config(self):
+        fields = getattr(types.EditImageConfig, "model_fields", {}) or {}
+        kwargs: Dict[str, Any] = {}
+        if not fields or "number_of_images" in fields:
+            kwargs["number_of_images"] = 1
+        if "output_mime_type" in fields:
+            kwargs["output_mime_type"] = "image/png"
+        if "add_watermark" in fields:
+            kwargs["add_watermark"] = False
+        return types.EditImageConfig(**kwargs)
+
     def generate(self, *, cutout_bytes: bytes, prompt: str, item_metadata: Dict[str, Any], timeout: int) -> CatalogProviderResult:
         del timeout  # Vertex SDK call timeout is controlled by client/http options.
         try:
@@ -499,31 +510,26 @@ class CatalogProviderVertexImagen(CatalogProvider):
                 reference_image=types.Image(image_bytes=cutout_bytes, mime_type="image/png"),
                 reference_id=1,
             )
-            config = types.EditImageConfig(
-                number_of_images=1,
-                output_mime_type="image/png",
-                add_watermark=False,
-                include_rai_reason=True,
-                labels={
-                    "feature": "wardrobe_catalog_png",
-                    "category": str(item_metadata.get("category") or "")[:63],
-                },
-            )
+            config = self._edit_config()
             response = client.models.edit_image(
                 model=self.model,
                 prompt=prompt,
                 reference_images=[reference],
                 config=config,
             )
-            generated = getattr(response, "generated_images", None) or []
+            generated = (
+                getattr(response, "generated_images", None)
+                or getattr(response, "images", None)
+                or []
+            )
             for candidate in generated:
-                image_obj = getattr(candidate, "image", None)
+                image_obj = getattr(candidate, "image", None) or candidate
                 image_bytes = _image_to_png_bytes(image_obj)
                 if image_bytes:
                     return CatalogProviderResult(True, image_bytes=image_bytes, provider=self.name)
             return CatalogProviderResult(False, reason="vertex_imagen_returned_no_image", provider=self.name)
         except Exception as exc:  # noqa: BLE001
-            return CatalogProviderResult(False, reason=repr(exc)[:180], provider=self.name)
+            return CatalogProviderResult(False, reason=repr(exc), provider=self.name)
 
 
 def _provider_for(name: str) -> CatalogProvider:
@@ -650,7 +656,7 @@ def generate_catalog_png(
 
     if provider_obj.name == "vertex_imagen":
         logger.warning(
-            "ahvi.catalog.vertex.failed item_id=%s category=%s reason=%s",
+            "ahvi.catalog.vertex.failed item_id=%s category=%s err=%s",
             meta.get("item_id"),
             category,
             provider_result.reason or "validation_failed",

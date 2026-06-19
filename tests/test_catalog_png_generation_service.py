@@ -1,5 +1,6 @@
 import base64
 import io
+from types import SimpleNamespace
 
 from PIL import Image, ImageDraw
 
@@ -158,6 +159,68 @@ def test_vertex_imagen_missing_sdk_fails_open(monkeypatch):
     assert result.success is False
     assert result.provider == "vertex_imagen"
     assert result.reason == "google_genai_unavailable"
+
+
+def test_vertex_imagen_edit_image_receives_valid_minimal_config(monkeypatch):
+    captured = {}
+    generated = _garment_png(color=(80, 120, 180, 255))
+
+    class _Models:
+        def edit_image(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                generated_images=[
+                    SimpleNamespace(image=SimpleNamespace(image_bytes=generated))
+                ]
+            )
+
+    provider = pngsvc.CatalogProviderVertexImagen()
+    monkeypatch.setattr(provider, "_client", lambda: SimpleNamespace(models=_Models()))
+
+    result = provider.generate(
+        cutout_bytes=_garment_png(),
+        prompt=pngsvc.CATALOG_PROMPT,
+        item_metadata={"category": "Tops"},
+        timeout=1,
+    )
+
+    assert result.success is True
+    assert result.provider == "vertex_imagen"
+    assert result.image_bytes.startswith(b"\x89PNG")
+    config = captured["config"]
+    assert config.number_of_images == 1
+    assert config.output_mime_type == "image/png"
+    assert config.add_watermark is False
+    assert config.labels is None
+    assert config.include_rai_reason is None
+
+
+def test_vertex_imagen_config_validation_error_falls_back_to_cutout(monkeypatch):
+    class _Provider(pngsvc.CatalogProviderVertexImagen):
+        def _client(self):
+            return SimpleNamespace(models=SimpleNamespace())
+
+        def _edit_config(self):
+            raise ValueError("2 validation errors for EditImageConfig\nbad field")
+
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(color=(180, 130, 95, 255)),
+        provider="vertex_imagen",
+        item_metadata={
+            "item_id": "validation-1",
+            "name": "Mirror selfie hanger shirt",
+            "category": "Tops",
+            "source": "mirror_selfie_hanger",
+        },
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "fallback_cutout"
+    assert result["catalog_provider"] == "vertex_imagen"
+    assert "EditImageConfig" in result["reason"]
+    assert result["catalog_png_bytes"]
 
 
 def test_vertex_imagen_failed_call_falls_back_to_cutout(monkeypatch):
