@@ -29,6 +29,35 @@ def _data_uri(png_bytes):
     return "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
 
 
+def test_dress_catalog_prompt_removes_hanger_and_reconstructs_neckline():
+    prompt = pngsvc._build_catalog_prompt("Dresses", {"name": "Black Dress"})
+
+    assert "no hanger" in prompt
+    assert "no hook" in prompt
+    assert "no rod" in prompt
+    assert "dress" in prompt.lower()
+    assert "Reconstruct the neckline" in prompt
+    assert "shoulders" in prompt
+
+
+def test_top_catalog_prompt_reconstructs_shoulders_and_sleeves():
+    prompt = pngsvc._build_catalog_prompt("Tops", {"name": "White Shirt"})
+
+    assert "upper-body garment" in prompt
+    assert "collar" in prompt
+    assert "shoulder" in prompt
+    assert "sleeve" in prompt
+
+
+def test_accessory_catalog_prompt_preserves_shape_without_lifestyle_imagery():
+    prompt = pngsvc._build_catalog_prompt("Accessories", {"name": "Leather Belt"})
+
+    assert "accessory" in prompt
+    assert "Preserve the exact shape" in prompt
+    assert "Do not add people" in prompt
+    assert "lifestyle imagery" in prompt
+
+
 def test_clean_cutout_generates_transparent_catalog_png_without_provider(monkeypatch):
     monkeypatch.setenv("CATALOG_PROVIDER", "disabled")
     raw = _garment_png()
@@ -110,6 +139,8 @@ def test_full_image_person_risk_forces_vertex_imagen(monkeypatch):
     assert calls
     assert result["status"] == "catalog_generated"
     assert result["catalog_provider"] == "vertex_imagen"
+    assert "waistband" in calls[0]["prompt"]
+    assert "no hanger" in calls[0]["prompt"]
 
 
 def test_hanger_or_selfie_metadata_does_not_block_save_and_falls_back(monkeypatch):

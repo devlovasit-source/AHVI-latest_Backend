@@ -36,36 +36,74 @@ CANVAS_SIZE = 1600
 OBJECT_FILL = 0.86
 QUALITY_READY_THRESHOLD = 82
 
-CATALOG_PROMPT = """Preserve the garment exactly.
+CATALOG_PROMPT = """Create a professional fashion e-commerce product image.
 
-Remove all humans, body parts, mannequins, hangers and background.
+The garment is the only product.
 
-Restore missing garment edges naturally.
+The hanger, hook, rod, mannequin, human body parts,
+hands, arms, legs, face, shadows and background
+are not part of the product.
 
-Reduce wrinkles and folds while preserving garment structure.
+Remove them completely.
 
-Keep original:
+Reconstruct any garment areas hidden by the hanger,
+hook or body.
+
+Preserve exactly:
 - color
-- fabric
-- texture
 - pattern
+- fabric
 - silhouette
+- neckline
+- straps
+- sleeves
+- hemline
 
-Generate a premium wardrobe garment asset.
+Output a premium online retail catalog image.
 
-Output must be:
-- transparent PNG
-- centered garment
-- upright orientation
-- realistic garment
+Requirements:
+- garment only
+- centered
+- upright
+- clean edges
+- no hanger
+- no hook
+- no rod
+- no mannequin
 - no model
 - no props
-- no accessories
-- no background
+- white background
 - no text
-- no watermark
+- no watermark"""
 
-The garment must remain visually identical to the original item."""
+
+def _build_catalog_prompt(category: Any, metadata: Optional[Dict[str, Any]] = None) -> str:
+    cat = normalize_catalog_category(category)
+    blob = _text_blob(metadata)
+    details = []
+    if cat == "dress" or "dress" in blob:
+        details.append(
+            "This item is a dress. Reconstruct the neckline, straps, shoulders, "
+            "and upper dress areas hidden by any hanger, hook, rod, or body."
+        )
+    elif cat in {"top", "outerwear", "ethnic"}:
+        details.append(
+            "This item is an upper-body garment. Reconstruct the collar, shoulder, "
+            "sleeve, neckline, and upper edge areas hidden by any hanger, hook, rod, or body."
+        )
+    elif cat == "bottom":
+        details.append(
+            "This item is a bottom garment. Reconstruct the waistband and upper garment "
+            "boundary if the crop is incomplete or occluded."
+        )
+    elif cat in {"accessory", "bag", "footwear", "jewellery", "jewelry"}:
+        details.append(
+            "This item is an accessory. Preserve the exact shape, proportions, color, "
+            "material, and product identity. Do not add people, outfits, scenes, or lifestyle imagery."
+        )
+    if not details:
+        return CATALOG_PROMPT
+    return CATALOG_PROMPT + "\n\nCategory-specific instruction:\n" + "\n".join(details)
 
 
 def _now_iso() -> str:
@@ -642,6 +680,7 @@ def generate_catalog_png(
         }
 
     provider_obj = _provider_for(provider_name)
+    catalog_prompt = _build_catalog_prompt(category, meta)
     if provider_obj.name == "vertex_imagen":
         logger.info(
             "ahvi.catalog.vertex.start item_id=%s category=%s reason=%s",
@@ -649,9 +688,15 @@ def generate_catalog_png(
             category,
             forced_reason or deterministic_validation.get("reason") or "quality_gate_failed",
         )
+        logger.info(
+            "ahvi.catalog.vertex.prompt item_id=%s category=%s prompt=%s",
+            meta.get("item_id"),
+            category,
+            catalog_prompt[:1200],
+        )
     provider_result = provider_obj.generate(
         cutout_bytes=deterministic_bytes,
-        prompt=CATALOG_PROMPT,
+        prompt=catalog_prompt,
         item_metadata={**meta, "category": category},
         timeout=timeout,
     )
