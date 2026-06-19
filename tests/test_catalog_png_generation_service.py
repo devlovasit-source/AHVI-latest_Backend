@@ -44,6 +44,64 @@ def test_clean_cutout_generates_transparent_catalog_png_without_provider(monkeyp
     assert img.getpixel((0, 0))[3] == 0
 
 
+def test_needs_review_forces_vertex_imagen(monkeypatch):
+    calls = []
+
+    class _Provider(pngsvc.CatalogProvider):
+        name = "vertex_imagen"
+
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            return pngsvc.CatalogProviderResult(True, image_bytes=kwargs["cutout_bytes"], provider=self.name)
+
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+    raw = _garment_png()
+
+    result = pngsvc.generate_catalog_png(
+        raw,
+        provider="disabled",
+        item_metadata={
+            "item_id": "review-1",
+            "name": "Black Shorts",
+            "category": "Bottoms",
+            "sub_category": "Shorts",
+            "needs_review": True,
+        },
+    )
+
+    assert calls
+    assert result["status"] == "catalog_generated"
+    assert result["catalog_provider"] == "vertex_imagen"
+
+
+def test_full_image_person_risk_forces_vertex_imagen(monkeypatch):
+    calls = []
+
+    class _Provider(pngsvc.CatalogProvider):
+        name = "vertex_imagen"
+
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            return pngsvc.CatalogProviderResult(True, image_bytes=kwargs["cutout_bytes"], provider=self.name)
+
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        provider="disabled",
+        item_metadata={
+            "item_id": "person-risk-1",
+            "name": "Black Shorts",
+            "category": "Bottoms",
+            "crop_quality": "full_image_person_risk",
+        },
+    )
+
+    assert calls
+    assert result["status"] == "catalog_generated"
+    assert result["catalog_provider"] == "vertex_imagen"
+
+
 def test_hanger_or_selfie_metadata_does_not_block_save_and_falls_back(monkeypatch):
     monkeypatch.setenv("CATALOG_PROVIDER", "disabled")
     raw = _garment_png(color=(180, 130, 95, 255))

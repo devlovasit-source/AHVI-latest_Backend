@@ -62,3 +62,33 @@ def test_idempotent_no_double_rotation():
     first.save(buf, "JPEG")  # re-encoded, no orientation tag now
     second = wc._decode_image_base64(_b64(buf.getvalue()))
     assert second.size == (40, 120)  # unchanged, no further rotation
+
+
+def test_full_image_fallback_uses_corrected_bytes(monkeypatch):
+    class _State:
+        user = {"user_id": "u1"}
+        request_id = "orientation-fallback"
+
+    class _Request:
+        state = _State()
+
+    monkeypatch.setattr(wc._gemini_multi, "is_enabled", lambda: False)
+    monkeypatch.setenv("WARDROBE_CAPTURE_SINGLE_GARMENT_MODE", "true")
+    monkeypatch.setattr(
+        wc,
+        "_find_upload_duplicate",
+        lambda **_kwargs: wc._duplicate_result(checked=False, is_duplicate=False),
+    )
+
+    request = wc.CaptureAnalyzeRequest(
+        user_id="u1",
+        image_base64=_b64(_jpeg_with_orientation(120, 40, orientation=6)),
+        auto_save=False,
+        save_duplicates=False,
+    )
+    result = __import__("asyncio").run(wc.analyze_capture(_Request(), request))
+
+    raw = result["items"][0]["raw_image_base64"].split(",", 1)[1]
+    decoded = Image.open(io.BytesIO(base64.b64decode(raw)))
+    assert decoded.size == (40, 120)
+    assert result["items"][0]["orientation_corrected"] is True

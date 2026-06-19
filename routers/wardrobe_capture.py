@@ -314,6 +314,13 @@ def _bytes_from_image_base64(value: str) -> bytes:
         raise HTTPException(status_code=400, detail=f"Invalid image_base64: {exc}")
 
 
+def _image_to_png_bytes(image: Image.Image) -> bytes:
+    buf = io.BytesIO()
+    rgb = image.convert("RGB") if image.mode != "RGB" else image
+    rgb.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 from services.category_taxonomy import (
     CANONICAL_CATEGORIES as _CANONICAL_CATEGORIES,
     CANONICAL_CATEGORY_KEYWORDS as _CANONICAL_CATEGORY_KEYWORDS,
@@ -836,6 +843,32 @@ def _apply_headwear_ocr_guard(
     return out
 
 
+def _apply_full_image_person_risk_guard(item: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(item, dict):
+        return item
+    out = dict(item)
+    crop_source = str(out.get("crop_source") or "").strip().lower()
+    category = str(out.get("category") or "").strip().lower()
+    sub = str(out.get("sub_category") or out.get("subcategory") or "").strip().lower()
+    name = str(out.get("name") or out.get("label") or "").strip().lower()
+    bottom_signal = (
+        category in {"bottoms", "bottom"}
+        or any(token in sub for token in ("short", "pant", "trouser", "jean"))
+        or any(token in name for token in ("short", "pant", "trouser", "jean"))
+    )
+    if crop_source == "full_image_fallback" and bottom_signal:
+        out["crop_quality"] = "full_image_person_risk"
+        out["needs_review"] = True
+        out["requires_manual_entry"] = True
+        out["review_reason"] = "Needs cleaner photo"
+        logger.info(
+            "ahvi.capture.full_image_person_risk item_id=%s category=%s",
+            out.get("item_id"),
+            out.get("category"),
+        )
+    return out
+
+
 def _normalize_capture_preview_item(item: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize taxonomy and keep successful vision results out of review state."""
     normalized = _taxonomy_normalize_item(item)
@@ -852,7 +885,7 @@ def _normalize_capture_preview_item(item: Dict[str, Any]) -> Dict[str, Any]:
     ):
         normalized["requires_manual_entry"] = False
         normalized["needs_review"] = False
-    return _enforce_preview_taxonomy(normalized)
+    return _apply_full_image_person_risk_guard(_enforce_preview_taxonomy(normalized))
 
 
 def _strip_internal_preview_fields(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -980,6 +1013,9 @@ async def _full_image_fallback_item(
         "label": "item",
         "score": 0.35,
         "bbox": [0, 0, image.size[0], image.size[1]],
+        "crop_source": "full_image_fallback",
+        "crop_quality": "full_image",
+        "orientation_corrected": True,
         "raw_url": None,
         "masked_url": None,
         "raw_image_base64": "data:image/png;base64,"
@@ -1483,6 +1519,12 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
     user_id = _effective_user_id(http_request, request.user_id)
     image = _decode_image_base64(request.image_base64)
     source_bytes = _bytes_from_image_base64(request.image_base64)
+    corrected_source_bytes = _image_to_png_bytes(image)
+    logger.info(
+        "ahvi.capture.orientation source_size=%s corrected_size=%s",
+        len(source_bytes),
+        len(corrected_source_bytes),
+    )
 
     detection_state = "single_garment_demo"
     request_id = str(getattr(http_request.state, "request_id", "") or "")
@@ -1495,7 +1537,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
     if _gemini_multi.is_enabled():
         try:
             gemini_multi_items = await _gemini_multi.detect_and_crop(
-                image, source_bytes, request_id=request_id
+                image, corrected_source_bytes, request_id=request_id
             )
         except Exception as exc:
             logger.info(
@@ -1505,8 +1547,12 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             )
             gemini_multi_items = []
 
-        if len(gemini_multi_items) >= _gemini_multi.MIN_VALID_ITEMS:
-            detection_state = "gemini_multi_garment"
+        if len(gemini_multi_items) >= 1:
+            detection_state = (
+                "gemini_multi_garment"
+                if len(gemini_multi_items) >= _gemini_multi.MIN_VALID_ITEMS
+                else "gemini_single_garment"
+            )
             logger.info(
                 "ahvi.capture.gemini_multi.result request_id=%s count=%d labels=%s",
                 request_id,
@@ -1536,6 +1582,9 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                         "gemini_category": g.get("category") or "",
                         "gemini_sub_category": g.get("sub_category") or "",
                         "gemini_color": g.get("color") or "",
+                        "crop_source": "gemini",
+                        "crop_quality": "tight",
+                        "orientation_corrected": True,
                         "preview_cutout_pending": True,
                         "bbox": g.get("bbox_px") or [],
                         "raw_image_base64": crop_b64,
@@ -1543,8 +1592,16 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                         "upload_error": "",
                     }
                 )
+                if detection_state == "gemini_single_garment":
+                    logger.info(
+                        "ahvi.capture.gemini_single.accepted item_id=%s category=%s bbox=%s",
+                        detected_items[-1].get("item_id"),
+                        detected_items[-1].get("gemini_category"),
+                        detected_items[-1].get("bbox"),
+                    )
             logger.info(
-                "ahvi.capture.preview_fast_path detection_state=gemini_multi_garment items=%d request_id=%s",
+                "ahvi.capture.preview_fast_path detection_state=%s items=%d request_id=%s",
+                detection_state,
                 len(detected_items),
                 request_id,
             )
@@ -1565,7 +1622,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             os.getenv("WARDROBE_CAPTURE_SINGLE_GARMENT_MODE", "false")
         ).strip().lower() in {"1", "true", "yes", "on"}:
             detected_items = [
-                await _full_image_fallback_item(image, source_bytes, "single_garment_mode")
+                await _full_image_fallback_item(image, corrected_source_bytes, "single_garment_mode")
             ]
         else:
             try:
@@ -1573,13 +1630,13 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             except Exception as e:
                 detection_state = f"fallback:{e}"
                 detected_items = [
-                    await _full_image_fallback_item(image, source_bytes, str(e))
+                    await _full_image_fallback_item(image, corrected_source_bytes, str(e))
                 ]
 
     if not detected_items:
         detection_state = "fallback:no_detection"
         detected_items = [
-            await _full_image_fallback_item(image, source_bytes, "no_detection")
+            await _full_image_fallback_item(image, corrected_source_bytes, "no_detection")
         ]
 
     items = []
@@ -1731,6 +1788,11 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             "occasions": vision.get("occasions") or [],
             "confidence": confidence,
             "label_source": label_source,
+            "crop_source": item.get("crop_source") or (
+                "gemini" if item.get("source") == "gemini_multi" else "hybrid"
+            ),
+            "crop_quality": item.get("crop_quality") or "tight",
+            "orientation_corrected": bool(item.get("orientation_corrected") or True),
             "preview_cutout_pending": bool(item.get("preview_cutout_pending")),
             "requires_manual_entry": requires_manual_entry,
             "reasoning": vision.get("reasoning")
@@ -1798,6 +1860,12 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                 )
             ),
         )
+        logger.info(
+            "ahvi.capture.crop_source item_id=%s source=%s bbox=%s",
+            detected.get("item_id"),
+            detected.get("crop_source"),
+            detected.get("bbox"),
+        )
         detected.update(_infer_style_attributes(detected))
         # Preview-stage Gemini validation: correct risky / low-confidence
         # labels (saree→Accessories, one-piece→top, boxers→shorts) BEFORE
@@ -1827,6 +1895,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             ),
             reason_prefix="cap_ocr_guard_post_validator",
         )
+        detected = _apply_full_image_person_risk_guard(detected)
         validator_states.append(validator_state)
         items.append(detected)
 

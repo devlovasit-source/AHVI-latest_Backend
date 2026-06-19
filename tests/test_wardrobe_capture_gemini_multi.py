@@ -36,6 +36,15 @@ def _image_b64(size=(200, 200)) -> str:
     return base64.b64encode(raw).decode("utf-8")
 
 
+def _jpeg_b64_with_orientation(w=120, h=40, orientation=6) -> str:
+    img = Image.new("RGB", (w, h), (210, 210, 210))
+    exif = img.getexif()
+    exif[0x0112] = orientation
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", exif=exif)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
+
+
 class _FakeRequestState:
     def __init__(self, user_id="u1", request_id="req-1"):
         self.user = {"user_id": user_id}
@@ -88,6 +97,12 @@ SAREE_AND_BOXERS_RESULT = """
 [
   {"name": "Red Saree", "category": "Dresses", "sub_category": "Saree", "color": "Red", "confidence": 0.9, "bbox": [0.05, 0.05, 0.5, 0.95]},
   {"name": "Cotton Boxers", "category": "Bottoms", "sub_category": "Shorts", "color": "Blue", "confidence": 0.7, "bbox": [0.55, 0.5, 0.95, 0.95]}
+]
+"""
+
+ONE_SHORTS_RESULT = """
+[
+  {"name": "Black Shorts", "category": "Bottoms", "sub_category": "Shorts", "color": "Black", "confidence": 0.88, "bbox": [0.25, 0.45, 0.75, 0.72]}
 ]
 """
 
@@ -197,6 +212,68 @@ def test_gemini_multi_preview_keeps_gemini_metadata_not_review_item(monkeypatch)
         assert item.get("requires_manual_entry") is False, item.get("name")
         # Internal pipeline fields are stripped from the response.
         assert "label_source" not in item
+
+
+def test_gemini_single_valid_item_is_accepted_for_analyze(monkeypatch):
+    _wire_router_for_gemini(monkeypatch, ONE_SHORTS_RESULT)
+
+    http_request = _FakeHttpRequest()
+    result = _run(wc.analyze_capture(http_request, _capture_request()))
+
+    assert result["stage_trace"]["detection"] == "gemini_single_garment"
+    assert result["count"] == 1
+    item = result["items"][0]
+    assert item["name"] == "Black Shorts"
+    assert item["category"] == "Bottoms"
+    assert item["sub_category"] == "Shorts"
+    assert item["crop_source"] == "gemini"
+    assert item["crop_quality"] == "tight"
+
+
+def test_full_image_fallback_shorts_marked_person_risk():
+    item = wc._normalize_capture_preview_item(
+        {
+            "item_id": "shorts-risk",
+            "name": "Black Shorts",
+            "category": "Bottoms",
+            "sub_category": "Shorts",
+            "confidence": 0.91,
+            "label_source": "vision",
+            "crop_source": "full_image_fallback",
+            "crop_quality": "full_image",
+        }
+    )
+
+    assert item["category"] == "Bottoms"
+    assert item["sub_category"] == "Shorts"
+    assert item["crop_quality"] == "full_image_person_risk"
+    assert item["needs_review"] is True
+    assert item["requires_manual_entry"] is True
+
+
+def test_analyze_sends_corrected_orientation_bytes_to_gemini(monkeypatch):
+    captured = {}
+
+    def _capture_payload(image_bytes, request_id=""):
+        img = Image.open(io.BytesIO(image_bytes))
+        captured["payload_size"] = img.size
+        return ONE_SHORTS_RESULT
+
+    monkeypatch.setenv("ENABLE_GEMINI_MULTI_GARMENT_PREVIEW", "true")
+    monkeypatch.setattr(gmg, "_call_gemini_vision", _capture_payload)
+    monkeypatch.setattr(wc, "remove_bg_bytes", _passthrough_bg)
+    monkeypatch.setattr(wc, "_find_upload_duplicate", _no_duplicate)
+
+    http_request = _FakeHttpRequest()
+    result = _run(
+        wc.analyze_capture(
+            http_request,
+            _capture_request(image_base64=_jpeg_b64_with_orientation()),
+        )
+    )
+
+    assert captured["payload_size"] == (40, 120)
+    assert result["stage_trace"]["detection"] == "gemini_single_garment"
 
 
 # ---------- crop framing: category-aware bbox padding ----------

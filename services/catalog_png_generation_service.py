@@ -86,9 +86,52 @@ def _text_blob(metadata: Optional[Dict[str, Any]]) -> str:
         meta.get("label"),
         meta.get("source"),
         meta.get("label_source"),
+        meta.get("crop_source"),
+        meta.get("crop_quality"),
+        meta.get("review_reason"),
         " ".join(str(x) for x in (meta.get("tags") or []) if x),
     ]
     return " ".join(str(x or "") for x in parts).lower()
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _forced_provider_reason(metadata: Optional[Dict[str, Any]], category: str) -> str:
+    meta = metadata or {}
+    blob = _text_blob(meta)
+    if _truthy(meta.get("needs_review")) or _truthy(meta.get("requires_manual_entry")):
+        return "needs_review"
+    crop_quality = str(meta.get("crop_quality") or meta.get("cropQuality") or "").strip().lower()
+    crop_source = str(meta.get("crop_source") or meta.get("cropSource") or "").strip().lower()
+    if crop_quality == "full_image_person_risk":
+        return "full_image_person_risk"
+    if any(tok in blob for tok in ("hanger", "hook", "human", "person", "mannequin", "mirror", "selfie", "body", "torso", "arm", "leg", "feet", "face", "hand")):
+        return "human_or_hanger_metadata"
+    if normalize_catalog_category(category) == "bottom" and (
+        crop_quality in {"full_image", "broad", "broad_crop"}
+        or crop_source == "full_image_fallback"
+    ):
+        return "bottoms_broad_crop"
+    return ""
+
+
+def _provider_validation_metadata(meta: Dict[str, Any], category: str) -> Dict[str, Any]:
+    cleaned = {**meta, "category": category}
+    for key in (
+        "needs_review",
+        "requires_manual_entry",
+        "crop_quality",
+        "cropQuality",
+        "crop_source",
+        "cropSource",
+        "review_reason",
+    ):
+        cleaned.pop(key, None)
+    return cleaned
 
 
 def _foreground_bbox(img: Image.Image) -> Optional[Tuple[int, int, int, int]]:
@@ -516,6 +559,15 @@ def generate_catalog_png(
     fallback = _env_enabled("CATALOG_FALLBACK_TO_CUTOUT", "true") if fallback_to_cutout is None else bool(fallback_to_cutout)
     timeout = int(timeout_seconds or os.getenv("CATALOG_TIMEOUT_SECONDS", "30") or 30)
     provider_name = provider or os.getenv("CATALOG_PROVIDER", "disabled")
+    forced_reason = _forced_provider_reason(meta, category)
+    if forced_reason:
+        provider_name = "vertex_imagen"
+        logger.info(
+            "ahvi.catalog.force_provider reason=%s item_id=%s category=%s",
+            forced_reason,
+            meta.get("item_id"),
+            category,
+        )
 
     canvas, rotation, bounds, reason = _transparent_catalog_canvas(cutout_bytes, category)
     if canvas is None:
@@ -533,7 +585,7 @@ def generate_catalog_png(
         deterministic_validation.get("reason"),
     )
 
-    if deterministic_validation.get("ok"):
+    if deterministic_validation.get("ok") and not forced_reason:
         return {
             "success": True,
             "status": "catalog_ready",
@@ -550,6 +602,13 @@ def generate_catalog_png(
         }
 
     provider_obj = _provider_for(provider_name)
+    if provider_obj.name == "vertex_imagen":
+        logger.info(
+            "ahvi.catalog.vertex.start item_id=%s category=%s reason=%s",
+            meta.get("item_id"),
+            category,
+            forced_reason or deterministic_validation.get("reason") or "quality_gate_failed",
+        )
     provider_result = provider_obj.generate(
         cutout_bytes=deterministic_bytes,
         prompt=CATALOG_PROMPT,
@@ -557,10 +616,16 @@ def generate_catalog_png(
         timeout=timeout,
     )
     if provider_result.success and provider_result.image_bytes:
+        if provider_result.provider == "vertex_imagen":
+            logger.info(
+                "ahvi.catalog.vertex.success item_id=%s category=%s",
+                meta.get("item_id"),
+                category,
+            )
         generated_validation = validate_catalog_png(
             provider_result.image_bytes,
             original_bytes=cutout_bytes,
-            item_metadata={**meta, "category": category},
+            item_metadata=_provider_validation_metadata(meta, category),
         )
         if generated_validation.get("ok"):
             return {
@@ -581,6 +646,14 @@ def generate_catalog_png(
             "ahvi.catalog_png.provider_validation_failed provider=%s reason=%s",
             provider_result.provider,
             generated_validation.get("reason"),
+        )
+
+    if provider_obj.name == "vertex_imagen":
+        logger.warning(
+            "ahvi.catalog.vertex.failed item_id=%s category=%s reason=%s",
+            meta.get("item_id"),
+            category,
+            provider_result.reason or "validation_failed",
         )
 
     if fallback:

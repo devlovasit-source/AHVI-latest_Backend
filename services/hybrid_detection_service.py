@@ -260,7 +260,15 @@ async def run_hybrid_detection(image: Image.Image):
     # FALLBACK (IMPORTANT 🔥)
     # -------------------------
     if not detections:
-        detections = [{"label": "item", "bbox": [0, 0, width, height], "score": 1.0}]
+        detections = [
+            {
+                "label": "item",
+                "bbox": [0, 0, width, height],
+                "score": 1.0,
+                "crop_source": "full_image_fallback",
+                "crop_quality": "full_image",
+            }
+        ]
 
     detections = filter_and_limit(detections, width, height)
 
@@ -296,6 +304,9 @@ async def run_hybrid_detection(image: Image.Image):
             "label": label,
             "score": float(meta_row.get("score") or 0.0),
             "bbox": meta_row.get("bbox") or [],
+            "crop_source": meta_row.get("crop_source") or "hybrid",
+            "crop_quality": meta_row.get("crop_quality") or "tight",
+            "orientation_corrected": True,
             "raw_url": None,
             "masked_url": None,
             "raw_image_base64": "data:image/jpeg;base64,"
@@ -318,6 +329,9 @@ async def run_hybrid_detection(image: Image.Image):
             "label": label,
             "score": float(meta_row.get("score") or 0.0),
             "bbox": meta_row.get("bbox") or [],
+            "crop_source": meta_row.get("crop_source") or "hybrid",
+            "crop_quality": meta_row.get("crop_quality") or "tight",
+            "orientation_corrected": True,
             "raw_url": upload["raw_image_url"],
             "masked_url": upload["masked_image_url"],
             "normalized_url": (

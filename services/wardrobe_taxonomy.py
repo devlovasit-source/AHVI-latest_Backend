@@ -188,6 +188,10 @@ def normalize(
     # a real dress never contains pants/trouser/jean/chino tokens.
     if has(["jeans", "jean"]):
         return "Bottoms", "Jeans"
+    if has(["shorts", "short"]):
+        return "Bottoms", "Shorts"
+    if has(["skirt", "skirts"]):
+        return "Bottoms", "Skirt"
     if has(["jogger", "joggers"]):
         return "Bottoms", "Joggers"
     if has(["legging", "leggings"]):
