@@ -77,6 +77,7 @@ GEMINI_MULTI_GARMENT_TIMEOUT_SECONDS = _env_float(
 MAX_ITEMS = max(1, _env_int("WARDROBE_CAPTURE_MAX_ITEMS", 6))
 MIN_VALID_ITEMS = 2
 BBOX_PAD_RATIO = _env_float("GEMINI_MULTI_GARMENT_BBOX_PAD_RATIO", 0.04)
+_GEMINI_INT32_MAX = 2_147_483_647
 
 
 # Supported fashion/wearable item types — used only to steer the prompt.
@@ -195,6 +196,27 @@ def _get_gemini_client():
         return None
 
 
+def _stable_int32_seed(image_bytes: bytes) -> int:
+    raw_seed = int(hashlib.sha256(image_bytes or b"").hexdigest()[:8], 16)
+    seed = raw_seed % _GEMINI_INT32_MAX
+    if seed <= 0:
+        seed = 1
+    return seed
+
+
+def _is_seed_invalid_argument(exc: Exception) -> bool:
+    blob = f"{type(exc).__name__} {exc}".lower()
+    return (
+        "invalid_argument" in blob
+        and "seed" in blob
+        and (
+            "generation_config.seed" in blob
+            or "generation config.seed" in blob
+            or "type_int32" in blob
+        )
+    )
+
+
 def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional[str]:
     """Synchronous Gemini Vision call. Run via asyncio.to_thread by callers."""
     client = _get_gemini_client()
@@ -212,7 +234,7 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
         # SDK/model supports. Unsupported fields are intentionally omitted.
         try:
             config_kwargs["candidate_count"] = 1
-            config_kwargs["seed"] = int(hashlib.sha256(image_bytes).hexdigest()[:8], 16)
+            config_kwargs["seed"] = _stable_int32_seed(image_bytes)
             config = types.GenerateContentConfig(**config_kwargs)
         except Exception:
             config_kwargs.pop("seed", None)
@@ -222,11 +244,27 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
                 config_kwargs.pop("candidate_count", None)
                 config_kwargs.pop("response_schema", None)
                 config = types.GenerateContentConfig(**config_kwargs)
-        response = client.models.generate_content(
-            model=GEMINI_MULTI_GARMENT_MODEL,
-            contents=[image_part, _build_prompt()],
-            config=config,
-        )
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MULTI_GARMENT_MODEL,
+                contents=[image_part, _build_prompt()],
+                config=config,
+            )
+        except Exception as exc:
+            if "seed" not in config_kwargs or not _is_seed_invalid_argument(exc):
+                raise
+            logger.warning(
+                "ahvi.capture.gemini_multi.seed_retry request_id=%s err=%s",
+                request_id,
+                str(exc)[:300],
+            )
+            config_kwargs.pop("seed", None)
+            retry_config = types.GenerateContentConfig(**config_kwargs)
+            response = client.models.generate_content(
+                model=GEMINI_MULTI_GARMENT_MODEL,
+                contents=[image_part, _build_prompt()],
+                config=retry_config,
+            )
         return (response.text or "").strip()
     except Exception as exc:
         logger.warning(
@@ -394,6 +432,7 @@ def detection_config_summary(image_bytes: bytes | None = None) -> Dict[str, Any]
     }
     if image_bytes:
         summary["seed_hash"] = hashlib.sha256(image_bytes).hexdigest()[:12]
+        summary["seed"] = _stable_int32_seed(image_bytes)
     return summary
 
 

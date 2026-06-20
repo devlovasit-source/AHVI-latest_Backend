@@ -182,6 +182,62 @@ def test_gemini_multi_parser_always_returns_items_list():
     assert error == ""
 
 
+def test_gemini_multi_seed_is_valid_signed_int32():
+    seed = gmg._stable_int32_seed(b"\xff" * 128)
+
+    assert 1 <= seed <= 2_147_483_647
+
+
+def test_gemini_multi_seed_is_never_zero_or_negative():
+    seed = gmg._stable_int32_seed(b"")
+
+    assert seed > 0
+
+
+def test_gemini_multi_seed_invalid_argument_retries_without_seed(monkeypatch):
+    calls = []
+
+    class _FakePart:
+        @staticmethod
+        def from_bytes(data, mime_type):
+            return {"data": data, "mime_type": mime_type}
+
+    class _FakeConfig(dict):
+        def __init__(self, **kwargs):
+            super().__init__(kwargs)
+
+    class _FakeTypes:
+        Part = _FakePart
+        GenerateContentConfig = _FakeConfig
+
+    class _FakeResponse:
+        text = '{"items":[]}'
+
+    class _FakeModels:
+        def generate_content(self, *, model, contents, config):
+            calls.append(dict(config))
+            if len(calls) == 1:
+                raise Exception(
+                    "ClientError 400 INVALID_ARGUMENT Invalid value at "
+                    "'generation_config.seed' (TYPE_INT32), 3898845386"
+                )
+            return _FakeResponse()
+
+    class _FakeClient:
+        models = _FakeModels()
+
+    monkeypatch.setattr(gmg, "types", _FakeTypes)
+    monkeypatch.setattr(gmg, "_get_gemini_client", lambda: _FakeClient())
+
+    result = gmg._call_gemini_vision(b"image-bytes", request_id="seed-test")
+
+    assert result == '{"items":[]}'
+    assert len(calls) == 2
+    assert "seed" in calls[0]
+    assert 1 <= calls[0]["seed"] <= 2_147_483_647
+    assert "seed" not in calls[1]
+
+
 # ---------- detector: multi-item detection ----------
 
 def test_gemini_multi_detects_dress_bag_sunglasses_footwear(monkeypatch):
