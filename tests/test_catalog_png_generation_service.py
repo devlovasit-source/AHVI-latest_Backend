@@ -217,9 +217,9 @@ def test_full_image_person_risk_forces_nanobanana(monkeypatch):
     assert "exact garment preservation over creativity" in calls[0]["prompt"]
 
 
-def test_hanger_or_selfie_metadata_does_not_block_save_and_falls_back(monkeypatch):
+def test_hanger_or_selfie_metadata_blocks_unsafe_cutout_fallback(monkeypatch):
     monkeypatch.setenv("CATALOG_PROVIDER", "disabled")
-    raw = _garment_png(color=(180, 130, 95, 255))
+    raw = _garment_png(color=(30, 90, 180, 255))
 
     result = pngsvc.generate_catalog_png(
         raw,
@@ -231,10 +231,11 @@ def test_hanger_or_selfie_metadata_does_not_block_save_and_falls_back(monkeypatc
         },
     )
 
-    assert result["success"] is True
-    assert result["status"] == "fallback_cutout"
-    assert result["catalog_png_bytes"]
-    assert result["catalog_quality_score"] < 82
+    assert result["success"] is False
+    assert result["status"] == "blocked_unsafe_fallback"
+    assert result["catalog_provider"] == "nanobanana"
+    assert result["reason"] == "unsafe_source_nanobanana_failed"
+    assert "catalog_png_bytes" not in result
 
 
 def test_provider_failure_returns_fallback_cutout(monkeypatch):
@@ -477,7 +478,7 @@ def test_vertex_imagen_failed_call_falls_back_to_cutout(monkeypatch):
             return pngsvc.CatalogProviderResult(False, reason="adc_missing", provider=self.name)
 
     monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
-    raw = _garment_png(color=(180, 130, 95, 255))
+    raw = _garment_png(color=(30, 90, 180, 255))
 
     result = pngsvc.generate_catalog_png(
         raw,
@@ -504,16 +505,15 @@ def test_nanobanana_failure_returns_fallback_cutout(monkeypatch):
             return pngsvc.CatalogProviderResult(False, reason="nano_down", provider=self.name)
 
     monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
-    raw = _garment_png(color=(180, 130, 95, 255))
+    raw = _garment_png(color=(30, 90, 180, 255))
 
     result = pngsvc.generate_catalog_png(
         raw,
         provider="nanobanana",
         item_metadata={
-            "item_id": "hanger-3",
-            "name": "Mirror selfie hanger shirt",
+            "item_id": "clean-3",
+            "name": "Clean Blue Shirt",
             "category": "Tops",
-            "source": "mirror_selfie_hanger",
         },
     )
 
@@ -522,6 +522,59 @@ def test_nanobanana_failure_returns_fallback_cutout(monkeypatch):
     assert result["catalog_provider"] == "cutout"
     assert result["reason"] == "nano_down"
     assert result["catalog_png_bytes"]
+
+
+def test_unsafe_source_nanobanana_failure_blocks_cutout_fallback(monkeypatch):
+    class _Provider(pngsvc.CatalogProvider):
+        name = "nanobanana"
+
+        def generate(self, **kwargs):
+            return pngsvc.CatalogProviderResult(False, reason="nanobanana_returned_no_image", provider=self.name)
+
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(color=(180, 130, 95, 255)),
+        provider="nanobanana",
+        item_metadata={
+            "item_id": "unsafe-saree-1",
+            "name": "Green Saree",
+            "category": "Ethnic Wear",
+            "source": "person_body_crop",
+        },
+    )
+
+    assert result["success"] is False
+    assert result["status"] == "blocked_unsafe_fallback"
+    assert result["catalog_provider"] == "nanobanana"
+    assert result["reason"] == "unsafe_source_nanobanana_failed"
+    assert "catalog_png_bytes" not in result
+    assert result["fallback_used"] is False
+
+
+def test_unsafe_source_nanobanana_success_returns_generated(monkeypatch):
+    class _Provider(pngsvc.CatalogProvider):
+        name = "nanobanana"
+
+        def generate(self, **kwargs):
+            return pngsvc.CatalogProviderResult(True, image_bytes=kwargs["cutout_bytes"], provider=self.name)
+
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(color=(30, 120, 80, 255)),
+        provider="nanobanana",
+        item_metadata={
+            "item_id": "unsafe-success-1",
+            "name": "Green Saree",
+            "category": "Ethnic Wear",
+            "source": "person_body_crop",
+        },
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "catalog_generated"
+    assert result["catalog_provider"] == "nanobanana"
 
 
 def test_http_imagen_and_flux_providers_still_use_http_envs():

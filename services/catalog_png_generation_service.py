@@ -258,6 +258,32 @@ def _forced_provider_reason(metadata: Optional[Dict[str, Any]], category: str) -
     return ""
 
 
+_UNSAFE_SOURCE_REASON_TOKENS = (
+    "human_or_mannequin_remnants",
+    "human",
+    "person",
+    "face",
+    "body",
+    "hands",
+    "hand",
+    "group_photo",
+    "mannequin",
+)
+
+
+def _unsafe_source_reason(metadata: Optional[Dict[str, Any]], validation: Optional[Dict[str, Any]]) -> str:
+    meta_blob = _text_blob(metadata)
+    validation_reason = str((validation or {}).get("reason") or "").strip().lower()
+    checks = (validation or {}).get("checks") or {}
+    combined = f"{validation_reason} {meta_blob}"
+    if checks.get("no_human") is False or checks.get("no_face") is False or checks.get("no_mannequin") is False:
+        return validation_reason or "human_or_mannequin_remnants"
+    for token in _UNSAFE_SOURCE_REASON_TOKENS:
+        if token in combined:
+            return validation_reason or token
+    return ""
+
+
 def _provider_validation_metadata(meta: Dict[str, Any], category: str) -> Dict[str, Any]:
     cleaned = {**meta, "category": category}
     for key in (
@@ -878,6 +904,13 @@ def generate_catalog_png(
     deterministic_validation = validate_catalog_png(
         deterministic_bytes, original_bytes=cutout_bytes, item_metadata={**meta, "category": category}
     )
+    unsafe_source_reason = _unsafe_source_reason(meta, deterministic_validation)
+    if unsafe_source_reason:
+        logger.warning(
+            "ahvi.capture.catalog.unsafe_source_detected item_id=%s reason=%s",
+            meta.get("item_id"),
+            unsafe_source_reason,
+        )
     logger.info(
         "ahvi.catalog_png.quality_gate item_id=%s category=%s score=%s ok=%s reason=%s",
         meta.get("item_id"),
@@ -1039,6 +1072,29 @@ def generate_catalog_png(
             category,
             provider_result.reason or "validation_failed",
         )
+
+    if unsafe_source_reason and provider_obj.name == "nanobanana":
+        logger.warning(
+            "ahvi.capture.catalog.unsafe_fallback_blocked item_id=%s reason=%s",
+            meta.get("item_id"),
+            provider_result.reason or "validation_failed",
+        )
+        return {
+            "success": False,
+            "status": "blocked_unsafe_fallback",
+            "catalog_provider": "nanobanana",
+            "catalog_quality_score": int(deterministic_validation.get("score") or 0),
+            "catalog_generation_version": CATALOG_GENERATION_VERSION,
+            "catalog_generated_at": _now_iso(),
+            "rotation_applied": rotation,
+            "foreground_bounds": bounds,
+            "validation": deterministic_validation,
+            "reason": "unsafe_source_nanobanana_failed",
+            "provider_reason": provider_result.reason or "validation_failed",
+            "unsafe_source_reason": unsafe_source_reason,
+            "fallback_used": False,
+            "elapsed_ms": int((time.monotonic() - t0) * 1000),
+        }
 
     if fallback:
         logger.info(

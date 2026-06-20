@@ -220,3 +220,66 @@ def test_save_selected_response_reports_drop_accounting(monkeypatch):
     assert reasons[0]["item_id"] == "rejected"
     assert reasons[0]["validation_status"] == "rejected"
     assert reasons[0]["reason"] == "accessory_low_confidence"
+
+
+def test_save_selected_skips_unsafe_catalog_generation_failure(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+
+    def _catalog(item):
+        item["catalogStatus"] = "blocked_unsafe_fallback"
+        item["catalogProvider"] = "nanobanana"
+        item["catalog_reason"] = "unsafe_source_nanobanana_failed"
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    unsafe = _item("unsafe")
+    unsafe["validation_status"] = "ok"
+    unsafe["source"] = "person_body_crop"
+
+    request = wc.SaveSelectedRequest(
+        user_id="user-1",
+        selected_item_ids=["unsafe"],
+        detected_items=[unsafe],
+    )
+
+    result = wc.save_selected(_Request(), request)
+
+    assert result["success"] is True
+    assert result["saved_count"] == 0
+    assert persisted["items"] == []
+    assert result["selected_count"] == 0
+    assert result["dropped_count"] == 1
+    assert result["dropped_reasons"][0]["item_id"] == "unsafe"
+    assert result["dropped_reasons"][0]["validation_status"] == "rejected"
+    assert result["dropped_reasons"][0]["reason"] == "unsafe_catalog_generation_failed"
+
+
+def test_save_selected_keeps_clean_catalog_fallback(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+
+    def _catalog(item):
+        item["catalogStatus"] = "fallback_cutout"
+        item["catalogProvider"] = "cutout"
+        item["normalized_url"] = item.get("masked_url")
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    clean = _item("clean")
+    clean["validation_status"] = "ok"
+
+    request = wc.SaveSelectedRequest(
+        user_id="user-1",
+        selected_item_ids=["clean"],
+        detected_items=[clean],
+    )
+
+    result = wc.save_selected(_Request(), request)
+
+    assert result["success"] is True
+    assert result["saved_count"] == 1
+    assert [i["item_id"] for i in persisted["items"]] == ["clean"]
+    assert persisted["items"][0]["catalogStatus"] == "fallback_cutout"

@@ -2843,6 +2843,8 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
     catalog_succeeded_count = 0
     catalog_failed_count = 0
     catalog_fallback_count = 0
+    unsafe_catalog_skipped_ids: set[str] = set()
+    unsafe_catalog_skipped_items: Dict[str, Dict[str, Any]] = {}
 
     for original in selected_items:
         if not isinstance(original, dict):
@@ -2931,6 +2933,20 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
                 catalog_succeeded_count += 1
             elif status == "fallback_cutout":
                 catalog_fallback_count += 1
+            elif status == "blocked_unsafe_fallback":
+                catalog_failed_count += 1
+                item_id = str(item.get("item_id") or "").strip()
+                if item_id:
+                    unsafe_catalog_skipped_ids.add(item_id)
+                item["validation_status"] = "rejected"
+                item["rejection_reason"] = "unsafe_catalog_generation_failed"
+                logger.warning(
+                    "ahvi.capture.save_selected.skipped_unsafe_catalog item_id=%s",
+                    item.get("item_id"),
+                )
+                if item_id:
+                    unsafe_catalog_skipped_items[item_id] = dict(item)
+                continue
             elif status:
                 catalog_failed_count += 1
             item["regen_provider"] = (
@@ -2946,6 +2962,13 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
             )
 
         normalized_items.append(apply_metadata_guard(item, source="save_selected_request"))
+
+    if unsafe_catalog_skipped_ids:
+        approved_selected_ids = [
+            item_id for item_id in approved_selected_ids if item_id not in unsafe_catalog_skipped_ids
+        ]
+        rejected_selected_count += len(unsafe_catalog_skipped_ids)
+        regen_skipped_count += len(unsafe_catalog_skipped_ids)
 
     selected_total = len(selected_set)
     logger.info(
@@ -2999,6 +3022,12 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
             for i in detected_items
             if isinstance(i, dict) and str(i.get("item_id") or "").strip()
         }
+        items_by_id.update(
+            {
+                item_id: item
+                for item_id, item in unsafe_catalog_skipped_items.items()
+            }
+        )
         dropped_reasons: List[Dict[str, Any]] = []
         for item_id in selected_set:
             if item_id in approved_set:
