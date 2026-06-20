@@ -107,6 +107,81 @@ ONE_SHORTS_RESULT = """
 """
 
 
+# ---------- detector parser: Gemini JSON-ish response shapes ----------
+
+def test_gemini_multi_parser_accepts_object_with_items():
+    raw = '{"items":[{"name":"Kurta","category":"Tops","bbox":[0.1,0.2,0.3,0.4],"confidence":0.9}]}'
+    items, mode, error = gmg._parse_gemini_items(raw)
+
+    assert mode == "object"
+    assert error == ""
+    assert len(items) == 1
+    assert items[0]["name"] == "Kurta"
+
+
+def test_gemini_multi_parser_accepts_bare_array():
+    raw = '[{"name":"Kurta","category":"Tops","bbox":[0.1,0.2,0.3,0.4],"confidence":0.9}]'
+    items, mode, error = gmg._parse_gemini_items(raw)
+
+    assert mode == "array"
+    assert error == ""
+    assert len(items) == 1
+    assert items[0]["name"] == "Kurta"
+
+
+def test_gemini_multi_parser_accepts_markdown_fenced_json():
+    raw = '```json\n{"items":[{"name":"Kurta","category":"Tops","bbox":[0.1,0.2,0.3,0.4],"confidence":0.9}]}\n```'
+    items, mode, error = gmg._parse_gemini_items(raw)
+
+    assert mode == "fenced"
+    assert error == ""
+    assert len(items) == 1
+    assert items[0]["name"] == "Kurta"
+
+
+def test_gemini_multi_parser_accepts_extra_text_around_json():
+    raw = 'Here is the JSON:\n{"items":[{"name":"Kurta","category":"Tops","bbox":[0.1,0.2,0.3,0.4],"confidence":0.9}]}\nDone.'
+    items, mode, error = gmg._parse_gemini_items(raw)
+
+    assert mode == "repaired"
+    assert error == ""
+    assert len(items) == 1
+    assert items[0]["name"] == "Kurta"
+
+
+def test_gemini_multi_parser_accepts_single_item_object():
+    raw = '{"name":"Kurta","category":"Tops","bbox":[0.1,0.2,0.3,0.4],"confidence":0.9}'
+    items, mode, error = gmg._parse_gemini_items(raw)
+
+    assert mode == "object"
+    assert error == ""
+    assert len(items) == 1
+    assert items[0]["name"] == "Kurta"
+
+
+def test_gemini_multi_parser_truncated_array_has_clear_reason():
+    items, mode, error = gmg._parse_gemini_items("[")
+
+    assert items == []
+    assert mode == "failed"
+    assert error == "invalid_json:truncated_or_empty"
+
+
+def test_gemini_multi_parser_invalid_prose_has_invalid_json_reason():
+    items, mode, error = gmg._parse_gemini_items("not json at all")
+
+    assert items == []
+    assert mode == "failed"
+    assert error.startswith("invalid_json:")
+
+
+def test_gemini_multi_parser_always_returns_items_list():
+    items, _, error = gmg._parse_gemini_items('{"items":[]}')
+
+    assert isinstance(items, list)
+    assert error == ""
+
+
 # ---------- detector: multi-item detection ----------
 
 def test_gemini_multi_detects_dress_bag_sunglasses_footwear(monkeypatch):

@@ -25,8 +25,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import json
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
@@ -37,8 +39,6 @@ try:  # google-genai may be absent in local/dev until requirements are installed
 except Exception:  # pragma: no cover - import guard
     genai = None
     types = None
-
-from services.ai_gateway import parse_json_array
 
 logger = logging.getLogger("ahvi.capture.gemini_multi")
 
@@ -119,25 +119,58 @@ Rules:
   cannot confidently separate items), set "needs_review": true on the
   affected item(s).
 
-Return JSON ONLY - a JSON array, no markdown, no commentary - in this exact
-shape:
-[
-  {{
-    "name": "Red Eyelet Dress",
-    "category": "Dresses",
-    "sub_category": "Mini Dress",
-    "color": "Red",
-    "confidence": 0.9,
-    "bbox": [0.10, 0.05, 0.55, 0.95],
-    "needs_review": false
-  }}
-]
+Return exactly one JSON object, no markdown, no commentary, no prose, in this
+exact shape:
+{{
+  "items": [
+    {{
+      "name": "Red Eyelet Dress",
+      "category": "Dresses",
+      "sub_category": "Mini Dress",
+      "color": "Red",
+      "confidence": 0.9,
+      "bbox": [0.10, 0.05, 0.55, 0.95],
+      "needs_review": false,
+      "reason": null
+    }}
+  ]
+}}
 
 bbox is [xmin, ymin, xmax, ymax], normalized 0.0-1.0 relative to the full
 image, top-left origin. confidence is 0.0-1.0.
 
-If you cannot confidently detect any supported items, return [].
+If you cannot confidently detect any supported items, return {{"items": []}}.
 """.strip()
+
+
+_ITEM_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "category": {"type": "string"},
+                    "sub_category": {"type": "string"},
+                    "color": {"type": "string"},
+                    "confidence": {"type": "number"},
+                    "bbox": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "minItems": 4,
+                        "maxItems": 4,
+                    },
+                    "needs_review": {"type": "boolean"},
+                    "reason": {"type": ["string", "null"]},
+                },
+                "required": ["name", "category", "sub_category", "confidence", "bbox"],
+            },
+        }
+    },
+    "required": ["items"],
+}
 
 
 _gemini_client = None
@@ -173,12 +206,12 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
             "temperature": 0,
             "max_output_tokens": 1536,
             "response_mime_type": "application/json",
+            "response_schema": _ITEM_SCHEMA,
         }
         # Keep Gemini 2.5 Flash, but make the request as deterministic as the
         # SDK/model supports. Unsupported fields are intentionally omitted.
         try:
             config_kwargs["candidate_count"] = 1
-            config_kwargs["top_p"] = 0.0
             config_kwargs["seed"] = int(hashlib.sha256(image_bytes).hexdigest()[:8], 16)
             config = types.GenerateContentConfig(**config_kwargs)
         except Exception:
@@ -186,8 +219,8 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
             try:
                 config = types.GenerateContentConfig(**config_kwargs)
             except Exception:
-                config_kwargs.pop("top_p", None)
                 config_kwargs.pop("candidate_count", None)
+                config_kwargs.pop("response_schema", None)
                 config = types.GenerateContentConfig(**config_kwargs)
         response = client.models.generate_content(
             model=GEMINI_MULTI_GARMENT_MODEL,
@@ -203,6 +236,103 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
             str(exc)[:300],
         )
         return None
+
+
+def _strip_markdown_fence(raw_text: str) -> Optional[str]:
+    match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw_text, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None
+    return match.group(1).strip()
+
+
+def _extract_balanced_json(raw_text: str) -> Optional[str]:
+    start_positions = [
+        pos for pos in (raw_text.find("{"), raw_text.find("["))
+        if pos >= 0
+    ]
+    if not start_positions:
+        return None
+    start = min(start_positions)
+    opener = raw_text[start]
+    closer = "}" if opener == "{" else "]"
+    depth = 0
+    in_string = False
+    escape = False
+    for idx in range(start, len(raw_text)):
+        char = raw_text[idx]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return raw_text[start:idx + 1].strip()
+    return None
+
+
+def _items_from_payload(payload: Any) -> List[Any]:
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
+    items = payload.get("items")
+    if isinstance(items, list):
+        return items
+    if "name" in payload and "bbox" in payload:
+        return [payload]
+    return []
+
+
+def _parse_gemini_items(raw_text: str) -> Tuple[List[Any], str, str]:
+    """Parse Gemini JSON-ish output into an item list.
+
+    Returns (items, parse_mode, error). parse_mode is one of object, array,
+    fenced, repaired, failed. error is empty on success.
+    """
+    text = str(raw_text or "").strip()
+    if not text or text in {"[", "{", "```", "```json"}:
+        return [], "failed", "invalid_json:truncated_or_empty"
+
+    fenced = _strip_markdown_fence(text)
+    candidates: List[Tuple[str, str]] = []
+    if fenced:
+        candidates.append(("fenced", fenced))
+    candidates.append(("direct", text))
+    extracted = _extract_balanced_json(text)
+    if extracted and extracted not in {text, fenced}:
+        candidates.append(("repaired", extracted))
+
+    last_error = ""
+    for mode_hint, candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except Exception as exc:
+            last_error = str(exc)
+            continue
+        if isinstance(payload, dict):
+            mode = "fenced" if mode_hint == "fenced" else "object"
+        elif isinstance(payload, list):
+            mode = "fenced" if mode_hint == "fenced" else "array"
+        else:
+            return [], "failed", "invalid_json:unsupported_json_shape"
+        if mode_hint == "repaired":
+            mode = "repaired"
+        return _items_from_payload(payload), mode, ""
+
+    if text[0] in "[{" and text[-1] not in "]}":
+        return [], "failed", "invalid_json:truncated_or_empty"
+    summary = last_error[:120] if last_error else "no valid JSON found in model response"
+    return [], "failed", f"invalid_json:{summary}"
 
 
 def _validate_bbox(raw: Any) -> Optional[Tuple[float, float, float, float]]:
@@ -258,8 +388,9 @@ def detection_config_summary(image_bytes: bytes | None = None) -> Dict[str, Any]
         "model": GEMINI_MULTI_GARMENT_MODEL,
         "temperature": 0,
         "candidate_count": 1,
-        "top_p": 0.0,
         "seed_source": "image_sha256",
+        "response_mime_type": "application/json",
+        "response_schema": "items[]",
     }
     if image_bytes:
         summary["seed_hash"] = hashlib.sha256(image_bytes).hexdigest()[:12]
@@ -416,18 +547,21 @@ async def detect_and_crop(
         )
         return []
 
+    parsed, parse_mode, parse_error = _parse_gemini_items(raw_text)
     logger.info(
-        "ahvi.capture.gemini_multi.raw_result request_id=%s raw=%s",
+        "ahvi.capture.gemini_multi.raw_result request_id=%s raw_response_length=%d raw_response_first_500=%s json_parse_mode=%s parsed_item_count=%d parse_error_summary=%s",
         request_id,
-        raw_text[:2000],
+        len(raw_text),
+        raw_text[:500],
+        parse_mode,
+        len(parsed),
+        parse_error,
     )
 
-    try:
-        parsed = parse_json_array(raw_text)
-    except Exception as exc:
+    if parse_error:
         logger.info(
-            "ahvi.capture.gemini_multi.fallback reason=invalid_json:%s request_id=%s",
-            exc,
+            "ahvi.capture.gemini_multi.fallback reason=%s request_id=%s",
+            parse_error,
             request_id,
         )
         return []
