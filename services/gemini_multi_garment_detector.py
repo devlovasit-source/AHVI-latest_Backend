@@ -235,6 +235,40 @@ def _is_schema_error(exc: Exception) -> bool:
     )
 
 
+def _log_gemini_diagnostics(response: Any, request_id: str = "") -> None:
+    """Diagnostic-only logging of Gemini response metadata. Never raises and
+    never changes behavior — purely for live triage of empty/blocked outputs.
+    """
+    try:
+        usage = getattr(response, "usage_metadata", None)
+        prompt_tokens = getattr(usage, "prompt_token_count", None)
+        candidates_tokens = getattr(usage, "candidates_token_count", None)
+        finish_reason = None
+        safety_ratings = None
+        candidates = getattr(response, "candidates", None) or []
+        if candidates:
+            first = candidates[0]
+            finish_reason = getattr(first, "finish_reason", None)
+            safety_ratings = getattr(first, "safety_ratings", None)
+        logger.info(
+            "ahvi.capture.gemini_multi.diagnostics request_id=%s model_used=%s "
+            "finish_reason=%s prompt_token_count=%s candidates_token_count=%s "
+            "safety_ratings=%s",
+            request_id,
+            GEMINI_MULTI_GARMENT_MODEL,
+            finish_reason,
+            prompt_tokens,
+            candidates_tokens,
+            str(safety_ratings)[:300] if safety_ratings else None,
+        )
+    except Exception as exc:  # pragma: no cover - diagnostics must never break
+        logger.debug(
+            "ahvi.capture.gemini_multi.diagnostics_failed request_id=%s err=%s",
+            request_id,
+            str(exc)[:200],
+        )
+
+
 def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional[str]:
     """Synchronous Gemini Vision call. Run via asyncio.to_thread by callers."""
     client = _get_gemini_client()
@@ -308,6 +342,7 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
                 )
             else:
                 raise
+        _log_gemini_diagnostics(response, request_id)
         return (response.text or "").strip()
     except Exception as exc:
         logger.warning(

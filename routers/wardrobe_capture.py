@@ -926,6 +926,73 @@ def _is_bottom_review_item(item: Dict[str, Any]) -> bool:
     return category in {"bottom", "bottoms"} or any(term in text for term in _BOTTOM_REVIEW_TERMS)
 
 
+# Safe single-garment fallback approval (P0). When Gemini multi returns no
+# valid items, the backend full-image fallback produces exactly one item with
+# crop_source == "full_image_fallback". Approve it ONLY if it is a safe public
+# fashion garment — never accessories, private wear, skin/body/person false
+# positives, or non-fashion objects.
+_FALLBACK_BLOCKED_TERMS = {
+    "necklace", "bracelet", "ring", "watch", "earring", "earrings",
+    "bag", "handbag", "skin", "body", "face", "hair", "person",
+    "underwear", "brief", "briefs", "boxer", "boxers", "lingerie",
+    "nightwear", "pajama", "pyjama", "charger", "bottle", "cable",
+    "phone", "adapter",
+}
+_FALLBACK_SAFE_CATEGORIES = {
+    "dresses", "dress", "tops", "top", "outerwear",
+    "traditional", "indian wear", "ethnic wear",
+}
+_FALLBACK_SAFE_TERMS = {
+    "saree", "sari", "kurti", "kurta", "dress", "one-piece", "one piece",
+    "shirt", "t-shirt", "tshirt", "tee", "blazer", "jacket", "blouse",
+    "top", "gown", "lehenga", "anarkali",
+}
+_FALLBACK_SAFE_BOTTOM_TERMS = {"trouser", "trousers", "pant", "pants", "jean", "jeans"}
+_FALLBACK_BOTTOM_MIN_CONFIDENCE = 0.80
+
+
+def _is_safe_public_fallback_garment(
+    item: Dict[str, Any], confidence: float, crop_quality: str
+) -> bool:
+    """True if a full_image_fallback item is a safe public fashion garment.
+
+    Conservative by design: blocked terms, private wear, and person/skin risk
+    all veto approval. Bottoms approved only at high confidence.
+    """
+    if not isinstance(item, dict):
+        return False
+    category = str(item.get("category") or "").strip().lower()
+    sub = str(item.get("sub_category") or item.get("subcategory") or "").strip().lower()
+    name = str(item.get("name") or item.get("label") or "").strip().lower()
+    blob = " ".join((name, category, sub))
+
+    # Hard blocks: non-fashion, accessories, skin/body/person, private wear.
+    if any(term in blob for term in _FALLBACK_BLOCKED_TERMS):
+        return False
+    if bool(item.get("privateWear")) or bool(item.get("private_wear")):
+        return False
+    if str(item.get("publicWear")).strip().lower() == "false":
+        return False
+    # Person/skin risk already flagged upstream by the full_image person guard.
+    if crop_quality in {"full_image_person_risk", "broad"}:
+        return False
+
+    # Safe public tops/dresses/outerwear/traditional.
+    if category in _FALLBACK_SAFE_CATEGORIES:
+        return True
+    if any(term in blob for term in _FALLBACK_SAFE_TERMS):
+        return True
+
+    # Bottoms: allowed only at high confidence and no person/skin risk.
+    is_bottom = category in {"bottoms", "bottom"} or any(
+        term in blob for term in _FALLBACK_SAFE_BOTTOM_TERMS
+    )
+    if is_bottom and confidence >= _FALLBACK_BOTTOM_MIN_CONFIDENCE:
+        return True
+
+    return False
+
+
 def _standardize_preview_validation(item: Dict[str, Any]) -> Dict[str, Any]:
     """Add stable validation fields without removing legacy preview fields."""
     if not isinstance(item, dict):
@@ -949,13 +1016,23 @@ def _standardize_preview_validation(item: Dict[str, Any]) -> Dict[str, Any]:
     if bool(out.get("needs_review")) and status not in {"rejected", "needs_review"}:
         status = "needs_review"
 
+    safe_fallback_approved = False
     if crop_source == "full_image_fallback":
-        status = "needs_review"
-        reason = "detector_fallback_full_image"
-        out["needs_review"] = True
-        out["requires_manual_entry"] = True
-        out["crop_quality"] = crop_quality or "full_image_person_risk"
-        out["cropQuality"] = out["crop_quality"]
+        if _is_safe_public_fallback_garment(out, confidence, crop_quality):
+            safe_fallback_approved = True
+            status = "ok"
+            reason = ""
+            out["needs_review"] = False
+            out["requires_manual_entry"] = False
+            out["crop_quality"] = crop_quality or "full_image"
+            out["cropQuality"] = out["crop_quality"]
+        else:
+            status = "needs_review"
+            reason = "detector_fallback_full_image"
+            out["needs_review"] = True
+            out["requires_manual_entry"] = True
+            out["crop_quality"] = crop_quality or "full_image_person_risk"
+            out["cropQuality"] = out["crop_quality"]
 
     if _is_accessory_review_item(out):
         if confidence < 0.72:
@@ -986,7 +1063,7 @@ def _standardize_preview_validation(item: Dict[str, Any]) -> Dict[str, Any]:
                 for token in ("partial", "waistband", "body", "person", "cleaner photo")
             )
         )
-        if partial_signal and status != "rejected":
+        if partial_signal and status != "rejected" and not safe_fallback_approved:
             status = "needs_review"
             reason = "partial_bottomwear_visible"
             out["needs_review"] = True
@@ -2889,6 +2966,37 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         result.setdefault("regen_attempted_count", regen_attempted_count)
         result.setdefault("regen_skipped_count", regen_skipped_count)
         result.setdefault("rejected_selected_count", rejected_selected_count)
+
+        # Explicit save accounting so callers never see a silent drop.
+        requested_count = len(selected_set)
+        saved_count = int(result.get("saved_count") or len(approved_selected_ids))
+        dropped_count = max(0, requested_count - saved_count)
+        approved_set = set(approved_selected_ids)
+        items_by_id = {
+            str(i.get("item_id") or "").strip(): i
+            for i in detected_items
+            if isinstance(i, dict) and str(i.get("item_id") or "").strip()
+        }
+        dropped_reasons: List[Dict[str, Any]] = []
+        for item_id in selected_set:
+            if item_id in approved_set:
+                continue
+            dropped = items_by_id.get(item_id) or {}
+            dropped_reasons.append(
+                {
+                    "item_id": item_id,
+                    "validation_status": str(dropped.get("validation_status") or "unknown"),
+                    "reason": str(
+                        dropped.get("rejection_reason")
+                        or dropped.get("review_reason")
+                        or "not_save_approved"
+                    ),
+                }
+            )
+        result.setdefault("requested_count", requested_count)
+        result.setdefault("saved_count", saved_count)
+        result.setdefault("dropped_count", dropped_count)
+        result.setdefault("dropped_reasons", dropped_reasons)
         try:
             from services.agent_metadata_validator import is_enabled as _md_on
             if _md_on():

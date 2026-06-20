@@ -189,3 +189,34 @@ def test_save_selected_skips_needs_review_and_rejected_items(monkeypatch):
     assert result["selected_count"] == 1
     assert result["rejected_selected_count"] == 2
     assert result["regen_skipped_count"] == 2
+
+
+def test_save_selected_response_reports_drop_accounting(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    _wire(monkeypatch, _remove_bg)
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", lambda item: None)
+
+    ok = _item("ok")
+    ok["validation_status"] = "ok"
+    rejected = _item("rejected")
+    rejected["validation_status"] = "rejected"
+    rejected["rejection_reason"] = "accessory_low_confidence"
+
+    request = wc.SaveSelectedRequest(
+        user_id="user-1",
+        selected_item_ids=["ok", "rejected"],
+        detected_items=[ok, rejected],
+    )
+
+    result = wc.save_selected(_Request(), request)
+
+    assert result["requested_count"] == 2
+    assert result["saved_count"] == 1
+    assert result["dropped_count"] == 1
+    reasons = result["dropped_reasons"]
+    assert len(reasons) == 1
+    assert reasons[0]["item_id"] == "rejected"
+    assert reasons[0]["validation_status"] == "rejected"
+    assert reasons[0]["reason"] == "accessory_low_confidence"

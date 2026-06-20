@@ -461,6 +461,85 @@ def test_full_image_fallback_shorts_marked_person_risk():
     assert item["rejection_reason"] in {"detector_fallback_full_image", "partial_bottomwear_visible"}
 
 
+# ---------- P0: safe single-garment fallback is saveable ----------
+
+def _fallback_item(**overrides):
+    base = {
+        "item_id": "fallback-1",
+        "crop_source": "full_image_fallback",
+        "crop_quality": "full_image",
+        "confidence": 0.9,
+        "label_source": "vision",
+    }
+    base.update(overrides)
+    return wc._normalize_capture_preview_item(base)
+
+
+def test_full_image_fallback_saree_is_saveable():
+    item = _fallback_item(
+        name="Saree",
+        category="Dresses",
+        sub_category="Saree",
+    )
+    assert item["validation_status"] == "ok"
+    assert item["selected_by_default"] is True
+    assert not item["rejection_reason"]
+    assert item["needs_review"] is False
+    assert item["requires_manual_entry"] is False
+
+
+def test_full_image_fallback_teal_dress_is_saveable():
+    item = _fallback_item(
+        name="Teal Floral Dress",
+        category="Dresses",
+        sub_category="One-piece Dress",
+    )
+    assert item["validation_status"] == "ok"
+    assert item["selected_by_default"] is True
+    assert item["needs_review"] is False
+
+
+def test_full_image_fallback_accessory_remains_blocked():
+    for name, sub in (
+        ("Gold Necklace", "Necklace"),
+        ("Silver Bracelet", "Bracelet"),
+        ("Steel Watch", "Watch"),
+        ("Diamond Ring", "Ring"),
+    ):
+        item = _fallback_item(
+            item_id=f"acc-{name}",
+            name=name,
+            category="Accessories",
+            sub_category=sub,
+            confidence=0.6,
+        )
+        assert item["validation_status"] != "ok", name
+        assert item["selected_by_default"] is False, name
+
+
+def test_full_image_fallback_privatewear_remains_blocked():
+    for name in ("Cotton Underwear", "White Briefs", "Blue Boxers", "Lace Lingerie"):
+        item = _fallback_item(
+            item_id=f"pw-{name}",
+            name=name,
+            category="Innerwear",
+            sub_category="Underwear",
+        )
+        assert item["validation_status"] != "ok", name
+        assert item["selected_by_default"] is False, name
+
+
+def test_full_image_fallback_person_skin_risk_remains_needs_review():
+    item = _fallback_item(
+        name="Black Shorts",
+        category="Bottoms",
+        sub_category="Shorts",
+        confidence=0.91,
+    )
+    assert item["validation_status"] in {"needs_review", "rejected"}
+    assert item["selected_by_default"] is False
+
+
 def test_weak_necklace_crop_is_rejected():
     item = wc._normalize_capture_preview_item(
         {
