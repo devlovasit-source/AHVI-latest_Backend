@@ -807,6 +807,14 @@ def _provider_for(name: str) -> CatalogProvider:
     return DisabledCatalogProvider()
 
 
+def _provider_key(name: str) -> str:
+    return str(name or "").strip().lower()
+
+
+def _provider_allows_quality_gate_cutout(name: str) -> bool:
+    return _provider_key(name) in {"", "disabled", "none", "off", "false", "cutout"}
+
+
 def _selected_provider_name(provider: Optional[str] = None) -> str:
     return (
         str(provider or "").strip()
@@ -854,7 +862,7 @@ def generate_catalog_png(
     forced_reason = _forced_provider_reason(meta, category)
     if forced_reason:
         provider_name = _selected_provider_name(provider)
-        if provider_name.strip().lower() in {"", "disabled", "none", "off", "false"}:
+        if _provider_allows_quality_gate_cutout(provider_name):
             provider_name = "nanobanana"
         logger.info(
             "ahvi.catalog.force_provider reason=%s item_id=%s category=%s",
@@ -878,8 +886,21 @@ def generate_catalog_png(
         deterministic_validation.get("ok"),
         deterministic_validation.get("reason"),
     )
+    logger.info(
+        "ahvi.capture.catalog.provider_select item_id=%s provider_env=%s legacy_provider_env=%s provider_selected=%s quality_gate_ok=%s fallback_cutout=%s",
+        meta.get("item_id"),
+        os.getenv("WARDROBE_CATALOG_PROVIDER", "").strip(),
+        os.getenv("CATALOG_PROVIDER", "").strip(),
+        provider_name,
+        bool(deterministic_validation.get("ok")),
+        fallback,
+    )
 
-    if deterministic_validation.get("ok") and not forced_reason:
+    if (
+        deterministic_validation.get("ok")
+        and not forced_reason
+        and _provider_allows_quality_gate_cutout(provider_name)
+    ):
         return {
             "success": True,
             "status": "catalog_ready",
@@ -1020,11 +1041,19 @@ def generate_catalog_png(
         )
 
     if fallback:
+        logger.info(
+            "ahvi.capture.catalog.fallback_cutout item_id=%s provider=%s used=true reason=%s",
+            meta.get("item_id"),
+            provider_result.provider or provider_obj.name,
+            provider_result.reason or deterministic_validation.get("reason") or "quality_gate_failed",
+        )
         return {
             "success": True,
             "status": "fallback_cutout",
             "catalog_png_bytes": deterministic_bytes,
-            "catalog_provider": provider_result.provider or "cutout",
+            "catalog_provider": (
+                "cutout" if provider_obj.name == "nanobanana" else provider_result.provider or "cutout"
+            ),
             "catalog_quality_score": int(deterministic_validation.get("score") or 0),
             "catalog_generation_version": CATALOG_GENERATION_VERSION,
             "catalog_generated_at": _now_iso(),

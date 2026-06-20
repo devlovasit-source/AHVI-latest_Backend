@@ -80,6 +80,7 @@ def test_accessory_catalog_prompt_preserves_shape_without_lifestyle_imagery():
 
 def test_clean_cutout_generates_transparent_catalog_png_without_provider(monkeypatch):
     monkeypatch.setenv("CATALOG_PROVIDER", "disabled")
+    monkeypatch.delenv("WARDROBE_CATALOG_PROVIDER", raising=False)
     raw = _garment_png()
 
     result = pngsvc.generate_catalog_png(
@@ -101,6 +102,50 @@ def test_clean_cutout_generates_transparent_catalog_png_without_provider(monkeyp
     assert img.mode == "RGBA"
     assert img.size == (1600, 1600)
     assert img.getpixel((0, 0))[3] == 0
+
+
+def test_nanobanana_provider_bypasses_quality_gate_cutout(monkeypatch):
+    calls = []
+
+    class _Provider(pngsvc.CatalogProvider):
+        name = "nanobanana"
+
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            return pngsvc.CatalogProviderResult(
+                True,
+                image_bytes=kwargs["cutout_bytes"],
+                provider=self.name,
+            )
+
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setenv("CATALOG_PROVIDER", "vertex_imagen")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={
+            "item_id": "quality-ok-nano-1",
+            "name": "Blue Shirt",
+            "category": "Tops",
+        },
+    )
+
+    assert calls, "nanobanana must run even when the cutout quality gate is ok"
+    assert result["status"] == "catalog_generated"
+    assert result["catalog_provider"] == "nanobanana"
+
+
+def test_cutout_provider_can_still_use_quality_gate(monkeypatch):
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "cutout")
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={"item_id": "cutout-1", "name": "Blue Shirt", "category": "Tops"},
+    )
+
+    assert result["status"] == "catalog_ready"
+    assert result["catalog_provider"] == "cutout"
 
 
 def test_env_provider_nanobanana_routes_to_nano_provider(monkeypatch):
@@ -474,7 +519,7 @@ def test_nanobanana_failure_returns_fallback_cutout(monkeypatch):
 
     assert result["success"] is True
     assert result["status"] == "fallback_cutout"
-    assert result["catalog_provider"] == "nanobanana"
+    assert result["catalog_provider"] == "cutout"
     assert result["reason"] == "nano_down"
     assert result["catalog_png_bytes"]
 
