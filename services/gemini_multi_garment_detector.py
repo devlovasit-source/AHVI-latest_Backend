@@ -217,6 +217,24 @@ def _is_seed_invalid_argument(exc: Exception) -> bool:
     )
 
 
+def _is_schema_error(exc: Exception) -> bool:
+    """True if exc looks like a response_schema conversion failure.
+
+    The google-genai SDK chokes on some JSON-schema shapes (e.g. a list-valued
+    "type" like ["string", "null"]) while building the request, raising
+    ``AttributeError: 'list' object has no attribute 'upper'`` BEFORE any model
+    call. Detect that (and any explicit response_schema/schema mention) so we
+    can retry once with the schema stripped.
+    """
+    blob = f"{type(exc).__name__} {exc}".lower()
+    return (
+        "'list' object has no attribute 'upper'" in blob
+        or "object has no attribute 'upper'" in blob
+        or "response_schema" in blob
+        or "schema" in blob
+    )
+
+
 def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional[str]:
     """Synchronous Gemini Vision call. Run via asyncio.to_thread by callers."""
     client = _get_gemini_client()
@@ -224,14 +242,22 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
         return None
     try:
         image_part = types.Part.from_bytes(data=image_bytes, mime_type="image/png")
+        # Live config: NO response_schema. The SDK fails converting our schema
+        # (list-valued "type") with 'list' object has no attribute 'upper'
+        # before Gemini ever runs. Prompt already asks for {"items": [...]} and
+        # the parser is robust, so JSON mime type is enough.
         config_kwargs = {
             "temperature": 0,
             "max_output_tokens": 1536,
             "response_mime_type": "application/json",
-            "response_schema": _ITEM_SCHEMA,
         }
-        # Keep Gemini 2.5 Flash, but make the request as deterministic as the
-        # SDK/model supports. Unsupported fields are intentionally omitted.
+        # Off by default. Schema-driven output is disabled because the SDK fails
+        # converting our schema. Kept env-gated only so the defensive
+        # schema-error retry below has a path to exercise.
+        if _env_enabled("GEMINI_MULTI_GARMENT_USE_SCHEMA", "false"):
+            config_kwargs["response_schema"] = _ITEM_SCHEMA
+        # Keep request as deterministic as the SDK/model supports. Unsupported
+        # fields are intentionally omitted.
         try:
             config_kwargs["candidate_count"] = 1
             config_kwargs["seed"] = _stable_int32_seed(image_bytes)
@@ -242,7 +268,6 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
                 config = types.GenerateContentConfig(**config_kwargs)
             except Exception:
                 config_kwargs.pop("candidate_count", None)
-                config_kwargs.pop("response_schema", None)
                 config = types.GenerateContentConfig(**config_kwargs)
         try:
             response = client.models.generate_content(
@@ -251,20 +276,38 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
                 config=config,
             )
         except Exception as exc:
-            if "seed" not in config_kwargs or not _is_seed_invalid_argument(exc):
+            # Defensive seed retry (drop seed on INVALID_ARGUMENT).
+            if "seed" in config_kwargs and _is_seed_invalid_argument(exc):
+                logger.warning(
+                    "ahvi.capture.gemini_multi.seed_retry request_id=%s err=%s",
+                    request_id,
+                    str(exc)[:300],
+                )
+                config_kwargs.pop("seed", None)
+                retry_config = types.GenerateContentConfig(**config_kwargs)
+                response = client.models.generate_content(
+                    model=GEMINI_MULTI_GARMENT_MODEL,
+                    contents=[image_part, _build_prompt()],
+                    config=retry_config,
+                )
+            # Defensive schema retry: live config has no response_schema, but if
+            # one is ever reintroduced and the SDK fails converting it, strip it
+            # and retry once.
+            elif "response_schema" in config_kwargs and _is_schema_error(exc):
+                logger.warning(
+                    "ahvi.capture.gemini_multi.schema_retry request_id=%s err=%s",
+                    request_id,
+                    str(exc)[:300],
+                )
+                config_kwargs.pop("response_schema", None)
+                retry_config = types.GenerateContentConfig(**config_kwargs)
+                response = client.models.generate_content(
+                    model=GEMINI_MULTI_GARMENT_MODEL,
+                    contents=[image_part, _build_prompt()],
+                    config=retry_config,
+                )
+            else:
                 raise
-            logger.warning(
-                "ahvi.capture.gemini_multi.seed_retry request_id=%s err=%s",
-                request_id,
-                str(exc)[:300],
-            )
-            config_kwargs.pop("seed", None)
-            retry_config = types.GenerateContentConfig(**config_kwargs)
-            response = client.models.generate_content(
-                model=GEMINI_MULTI_GARMENT_MODEL,
-                contents=[image_part, _build_prompt()],
-                config=retry_config,
-            )
         return (response.text or "").strip()
     except Exception as exc:
         logger.warning(
@@ -428,7 +471,7 @@ def detection_config_summary(image_bytes: bytes | None = None) -> Dict[str, Any]
         "candidate_count": 1,
         "seed_source": "image_sha256",
         "response_mime_type": "application/json",
-        "response_schema": "items[]",
+        "response_schema": "none",
     }
     if image_bytes:
         summary["seed_hash"] = hashlib.sha256(image_bytes).hexdigest()[:12]

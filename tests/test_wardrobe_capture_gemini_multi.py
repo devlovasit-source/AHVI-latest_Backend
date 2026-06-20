@@ -238,6 +238,82 @@ def test_gemini_multi_seed_invalid_argument_retries_without_seed(monkeypatch):
     assert "seed" not in calls[1]
 
 
+class _FakePart:
+    @staticmethod
+    def from_bytes(data, mime_type):
+        return {"data": data, "mime_type": mime_type}
+
+
+class _FakeConfig(dict):
+    def __init__(self, **kwargs):
+        super().__init__(kwargs)
+
+
+class _FakeTypes:
+    Part = _FakePart
+    GenerateContentConfig = _FakeConfig
+
+
+def test_gemini_multi_live_config_has_no_response_schema(monkeypatch):
+    """Primary live call must NOT pass response_schema (SDK crashes on it)."""
+    calls = []
+
+    class _FakeResponse:
+        text = '{"items":[]}'
+
+    class _FakeModels:
+        def generate_content(self, *, model, contents, config):
+            calls.append(dict(config))
+            return _FakeResponse()
+
+    class _FakeClient:
+        models = _FakeModels()
+
+    monkeypatch.delenv("GEMINI_MULTI_GARMENT_USE_SCHEMA", raising=False)
+    monkeypatch.setattr(gmg, "types", _FakeTypes)
+    monkeypatch.setattr(gmg, "_get_gemini_client", lambda: _FakeClient())
+
+    result = gmg._call_gemini_vision(b"image-bytes", request_id="no-schema")
+
+    assert result == '{"items":[]}'
+    assert len(calls) == 1
+    assert "response_schema" not in calls[0]
+    assert calls[0]["response_mime_type"] == "application/json"
+    assert calls[0]["temperature"] == 0
+    assert calls[0].get("candidate_count") == 1
+
+
+def test_gemini_multi_schema_error_retries_without_schema(monkeypatch):
+    """If response_schema is ever present and the SDK fails converting it
+    (AttributeError: 'list' object has no attribute 'upper'), retry once with
+    the schema stripped."""
+    calls = []
+
+    class _FakeResponse:
+        text = '{"items":[]}'
+
+    class _FakeModels:
+        def generate_content(self, *, model, contents, config):
+            calls.append(dict(config))
+            if len(calls) == 1:
+                raise AttributeError("'list' object has no attribute 'upper'")
+            return _FakeResponse()
+
+    class _FakeClient:
+        models = _FakeModels()
+
+    monkeypatch.setenv("GEMINI_MULTI_GARMENT_USE_SCHEMA", "true")
+    monkeypatch.setattr(gmg, "types", _FakeTypes)
+    monkeypatch.setattr(gmg, "_get_gemini_client", lambda: _FakeClient())
+
+    result = gmg._call_gemini_vision(b"image-bytes", request_id="schema-retry")
+
+    assert result == '{"items":[]}'
+    assert len(calls) == 2
+    assert "response_schema" in calls[0]
+    assert "response_schema" not in calls[1]
+
+
 # ---------- detector: multi-item detection ----------
 
 def test_gemini_multi_detects_dress_bag_sunglasses_footwear(monkeypatch):
