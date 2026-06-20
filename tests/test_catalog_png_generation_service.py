@@ -69,6 +69,9 @@ def test_top_catalog_prompt_reconstructs_shoulders_and_sleeves():
 def test_accessory_catalog_prompt_preserves_shape_without_lifestyle_imagery():
     prompt = pngsvc._build_catalog_prompt("Accessories", {"name": "Leather Belt"})
 
+    assert "professional fashion e-commerce image editor" in prompt
+    assert "Preserve exactly:" in prompt
+    assert "exact garment preservation over creativity" in prompt
     assert "accessory" in prompt
     assert "Preserve the exact shape" in prompt
     assert "Do not add people" in prompt
@@ -100,11 +103,19 @@ def test_clean_cutout_generates_transparent_catalog_png_without_provider(monkeyp
     assert img.getpixel((0, 0))[3] == 0
 
 
-def test_needs_review_forces_vertex_imagen(monkeypatch):
+def test_env_provider_nanobanana_routes_to_nano_provider(monkeypatch):
+    monkeypatch.setenv("NANO_BANANA_CATALOG_MODEL", "nano-test")
+    provider = pngsvc._provider_for("nanobanana")
+
+    assert provider.name == "nanobanana"
+    assert provider.model == "nano-test"
+
+
+def test_needs_review_forces_nanobanana(monkeypatch):
     calls = []
 
     class _Provider(pngsvc.CatalogProvider):
-        name = "vertex_imagen"
+        name = "nanobanana"
 
         def generate(self, **kwargs):
             calls.append(kwargs)
@@ -127,14 +138,14 @@ def test_needs_review_forces_vertex_imagen(monkeypatch):
 
     assert calls
     assert result["status"] == "catalog_generated"
-    assert result["catalog_provider"] == "vertex_imagen"
+    assert result["catalog_provider"] == "nanobanana"
 
 
-def test_full_image_person_risk_forces_vertex_imagen(monkeypatch):
+def test_full_image_person_risk_forces_nanobanana(monkeypatch):
     calls = []
 
     class _Provider(pngsvc.CatalogProvider):
-        name = "vertex_imagen"
+        name = "nanobanana"
 
         def generate(self, **kwargs):
             calls.append(kwargs)
@@ -155,9 +166,10 @@ def test_full_image_person_risk_forces_vertex_imagen(monkeypatch):
 
     assert calls
     assert result["status"] == "catalog_generated"
-    assert result["catalog_provider"] == "vertex_imagen"
+    assert result["catalog_provider"] == "nanobanana"
     assert "waistband" in calls[0]["prompt"]
     assert "no hanger" in calls[0]["prompt"]
+    assert "exact garment preservation over creativity" in calls[0]["prompt"]
 
 
 def test_hanger_or_selfie_metadata_does_not_block_save_and_falls_back(monkeypatch):
@@ -216,6 +228,77 @@ def test_vertex_imagen_missing_sdk_fails_open(monkeypatch):
     assert result.success is False
     assert result.provider == "vertex_imagen"
     assert result.reason == "google_genai_unavailable"
+
+
+def test_nanobanana_missing_sdk_fails_open(monkeypatch):
+    monkeypatch.setattr(pngsvc, "genai", None)
+    monkeypatch.setattr(pngsvc, "types", None)
+    provider = pngsvc.CatalogProviderNanoBanana()
+
+    result = provider.generate(
+        cutout_bytes=_garment_png(),
+        prompt=pngsvc.CATALOG_PROMPT,
+        item_metadata={"category": "Tops"},
+        timeout=1,
+    )
+
+    assert result.success is False
+    assert result.provider == "nanobanana"
+    assert result.reason == "google_genai_unavailable"
+
+
+def test_nanobanana_generate_content_returns_catalog_png(monkeypatch):
+    captured = {}
+    generated = _opaque_product_png(color=(80, 120, 180))
+
+    class _FakePart:
+        @staticmethod
+        def from_bytes(data, mime_type):
+            return {"data": data, "mime_type": mime_type}
+
+    class _FakeConfig(dict):
+        def __init__(self, **kwargs):
+            super().__init__(kwargs)
+
+    class _FakeTypes:
+        Part = _FakePart
+        GenerateContentConfig = _FakeConfig
+        HttpOptions = lambda *a, **kw: None
+
+    class _Models:
+        def generate_content(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                candidates=[
+                    SimpleNamespace(
+                        content=SimpleNamespace(
+                            parts=[
+                                SimpleNamespace(
+                                    inline_data=SimpleNamespace(data=generated)
+                                )
+                            ]
+                        )
+                    )
+                ]
+            )
+
+    provider = pngsvc.CatalogProviderNanoBanana()
+    monkeypatch.setattr(pngsvc, "types", _FakeTypes)
+    monkeypatch.setattr(provider, "_client", lambda: SimpleNamespace(models=_Models()))
+
+    result = provider.generate(
+        cutout_bytes=_garment_png(),
+        prompt=pngsvc.CATALOG_PROMPT,
+        item_metadata={"category": "Tops"},
+        timeout=1,
+    )
+
+    assert result.success is True
+    assert result.provider == "nanobanana"
+    assert result.image_bytes.startswith(b"\x89PNG")
+    assert captured["model"] == provider.model
+    assert captured["contents"][0] == pngsvc.CATALOG_PROMPT
+    assert captured["contents"][1]["mime_type"] == "image/png"
 
 
 def test_vertex_imagen_edit_image_receives_valid_minimal_config(monkeypatch):
@@ -368,6 +451,34 @@ def test_vertex_imagen_failed_call_falls_back_to_cutout(monkeypatch):
     assert result["catalog_png_bytes"]
 
 
+def test_nanobanana_failure_returns_fallback_cutout(monkeypatch):
+    class _Provider(pngsvc.CatalogProvider):
+        name = "nanobanana"
+
+        def generate(self, **kwargs):
+            return pngsvc.CatalogProviderResult(False, reason="nano_down", provider=self.name)
+
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+    raw = _garment_png(color=(180, 130, 95, 255))
+
+    result = pngsvc.generate_catalog_png(
+        raw,
+        provider="nanobanana",
+        item_metadata={
+            "item_id": "hanger-3",
+            "name": "Mirror selfie hanger shirt",
+            "category": "Tops",
+            "source": "mirror_selfie_hanger",
+        },
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "fallback_cutout"
+    assert result["catalog_provider"] == "nanobanana"
+    assert result["reason"] == "nano_down"
+    assert result["catalog_png_bytes"]
+
+
 def test_http_imagen_and_flux_providers_still_use_http_envs():
     flux = pngsvc._provider_for("flux_kontext")
     imagen = pngsvc._provider_for("imagen")
@@ -420,10 +531,61 @@ def test_router_hook_uploads_catalog_png_and_preserves_metadata(monkeypatch):
 
     assert item["normalized_url"] == "https://cdn.test/catalog_kurta-1.png"
     assert item["catalogStatus"] in {"catalog_ready", "fallback_cutout"}
+    assert item.get("catalogProvider") in {"cutout", "nanobanana", "disabled"}
     assert item["catalogQualityScore"] is not None
     assert item["category"] == "Ethnic Wear"
     assert item["sub_category"] == "Kurta"
     assert item["pattern"] == "woven"
+
+
+def test_router_hook_approved_item_uses_nanobanana_and_normalized_url(monkeypatch):
+    from routers import wardrobe_capture as wc
+
+    provider_calls = []
+
+    class _Provider(pngsvc.CatalogProvider):
+        name = "nanobanana"
+
+        def generate(self, **kwargs):
+            provider_calls.append(kwargs)
+            return pngsvc.CatalogProviderResult(
+                True,
+                image_bytes=kwargs["cutout_bytes"],
+                provider=self.name,
+            )
+
+    class _R2:
+        def upload_catalog_png(self, *, file_id, image_bytes):
+            return {
+                "catalog_png_file_name": f"catalog_{file_id}.png",
+                "catalog_png_url": f"https://cdn.test/catalog_{file_id}.png",
+                "normalized_url": f"https://cdn.test/catalog_{file_id}.png",
+            }
+
+    monkeypatch.setenv("ENABLE_CATALOG_GENERATION", "true")
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+    monkeypatch.setattr(wc, "R2Storage", lambda: _R2())
+
+    item = {
+        "item_id": "shirt-approved-1",
+        "name": "Blue Shirt",
+        "category": "Tops",
+        "sub_category": "Shirt",
+        "validation_status": "ok",
+        "source": "mirror_selfie_hanger",
+        "masked_url": "https://cdn.test/masked_shirt-approved-1.png",
+        "masked_image_base64": _data_uri(_garment_png(color=(30, 90, 180, 255))),
+    }
+
+    wc._maybe_generate_catalog_image(item)
+
+    assert provider_calls
+    assert item["normalized_url"] == "https://cdn.test/catalog_shirt-approved-1.png"
+    assert item["normalizedUrl"] == "https://cdn.test/catalog_shirt-approved-1.png"
+    assert item["masked_url"] == "https://cdn.test/masked_shirt-approved-1.png"
+    assert item["catalogStatus"] == "catalog_generated"
+    assert item["catalogProvider"] == "nanobanana"
 
 
 def test_router_hook_passes_crop_risk_metadata_to_catalog_provider(monkeypatch):
@@ -432,7 +594,7 @@ def test_router_hook_passes_crop_risk_metadata_to_catalog_provider(monkeypatch):
     provider_calls = []
 
     class _Provider(pngsvc.CatalogProvider):
-        name = "vertex_imagen"
+        name = "nanobanana"
 
         def generate(self, **kwargs):
             provider_calls.append(kwargs)
@@ -470,7 +632,7 @@ def test_router_hook_passes_crop_risk_metadata_to_catalog_provider(monkeypatch):
 
     wc._maybe_generate_catalog_image(item)
 
-    assert provider_calls, "full_image_person_risk must force vertex provider"
+    assert provider_calls, "full_image_person_risk must force provider generation"
     assert item["normalized_url"] == "https://cdn.test/catalog_shorts-risk-1.png"
     assert item["catalogStatus"] == "catalog_generated"
 

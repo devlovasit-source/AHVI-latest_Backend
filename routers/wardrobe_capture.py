@@ -1384,6 +1384,7 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
                 "requires_manual_entry": item.get("requires_manual_entry"),
                 "source": item.get("source"),
                 "label_source": item.get("label_source"),
+                "validation_status": item.get("validation_status"),
             }
             logger.info(
                 "ahvi.catalog.metadata item_id=%s crop_quality=%s needs_review=%s review_reason=%s",
@@ -1431,16 +1432,19 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
             item["catalogStatus"] = status
             item["catalog_ready"] = status in {"catalog_ready", "catalog_generated", "fallback_cutout"}
             item["catalogQualityScore"] = result.get("catalog_quality_score")
+            item["catalogProvider"] = result.get("catalog_provider")
+            item["regen_provider"] = result.get("catalog_provider")
             item["catalogRotationApplied"] = int(result.get("rotation_applied") or 0)
             item["_catalog_done"] = True
             logger.info(
-                "ahvi.catalog_png.uploaded item_id=%s category=%s status=%s provider=%s score=%s url=%s",
+                "ahvi.catalog_png.uploaded item_id=%s category=%s status=%s provider=%s score=%s normalized_url=%s masked_url=%s",
                 file_id,
                 category,
                 status,
                 result.get("catalog_provider"),
                 item.get("catalogQualityScore"),
                 catalog_png_url,
+                item.get("masked_url") or item.get("maskedUrl"),
             )
             return
 
@@ -2836,6 +2840,9 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
     normalized_items: List[Dict[str, Any]] = []
     upload_fixed = 0
     skipped_invalid = 0
+    catalog_succeeded_count = 0
+    catalog_failed_count = 0
+    catalog_fallback_count = 0
 
     for original in selected_items:
         if not isinstance(original, dict):
@@ -2919,6 +2926,13 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         try:
             regen_attempted_count += 1
             _maybe_generate_catalog_image(item)
+            status = str(item.get("catalogStatus") or "").strip()
+            if status in {"catalog_ready", "catalog_generated"}:
+                catalog_succeeded_count += 1
+            elif status == "fallback_cutout":
+                catalog_fallback_count += 1
+            elif status:
+                catalog_failed_count += 1
             item["regen_provider"] = (
                 item.get("catalogProvider")
                 or item.get("catalog_provider")
@@ -2948,6 +2962,14 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         rejected_selected_count,
         regen_attempted_count,
         regen_skipped_count,
+    )
+    logger.info(
+        "ahvi.capture.save_selected.catalog_summary selected=%d attempted=%d succeeded=%d failed=%d fallback_used=%d",
+        len(selected_set),
+        regen_attempted_count,
+        catalog_succeeded_count,
+        catalog_failed_count,
+        catalog_fallback_count,
     )
 
     result = persist_selected_items(

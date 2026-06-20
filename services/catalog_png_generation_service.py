@@ -36,7 +36,9 @@ CANVAS_SIZE = 1600
 OBJECT_FILL = 0.86
 QUALITY_READY_THRESHOLD = 82
 
-CATALOG_PROMPT = """Create a professional fashion e-commerce product image.
+CATALOG_PROMPT = """You are a professional fashion e-commerce image editor specializing in premium catalog product photography, garment cutouts, and accurate clothing preservation.
+
+Transform the provided garment image into a clean premium e-commerce catalog product image.
 
 The garment is the only product.
 
@@ -64,17 +66,27 @@ Output a premium online retail catalog image.
 Requirements:
 - garment only
 - centered
+- front-facing
 - upright
+- evenly lit
 - clean edges
+- PNG-friendly clean edges
 - no hanger
 - no hook
 - no rod
 - no mannequin
 - no model
 - no props
+- no accessories
 - white background
 - no text
-- no watermark"""
+- no watermark
+
+Quality priority:
+- exact garment preservation over creativity
+- realistic fabric detail
+- accurate pattern retention
+- premium product presentation"""
 
 
 def _build_catalog_prompt(category: Any, metadata: Optional[Dict[str, Any]] = None) -> str:
@@ -256,6 +268,8 @@ def _provider_validation_metadata(meta: Dict[str, Any], category: str) -> Dict[s
         "crop_source",
         "cropSource",
         "review_reason",
+        "source",
+        "label_source",
     ):
         cleaned.pop(key, None)
     return cleaned
@@ -693,8 +707,97 @@ class CatalogProviderVertexImagen(CatalogProvider):
             return CatalogProviderResult(False, reason=repr(exc), provider=self.name)
 
 
+class CatalogProviderNanoBanana(CatalogProvider):
+    name = "nanobanana"
+
+    def __init__(self):
+        self.model = (
+            os.getenv("NANO_BANANA_CATALOG_MODEL")
+            or os.getenv("WARDROBE_NANO_BANANA_MODEL")
+            or os.getenv("NANO_BANANA_MODEL")
+            or "gemini-2.5-flash-image-preview"
+        ).strip()
+
+    def _client(self):
+        if genai is None or types is None:
+            return None
+        return genai.Client(
+            vertexai=True,
+            project=_vertex_project(),
+            location=_vertex_location(),
+            http_options=types.HttpOptions(api_version="v1"),
+        )
+
+    def _config(self):
+        fields = getattr(types.GenerateContentConfig, "model_fields", {}) or {}
+        kwargs: Dict[str, Any] = {}
+        if not fields or "temperature" in fields:
+            kwargs["temperature"] = 0
+        if not fields or "candidate_count" in fields:
+            kwargs["candidate_count"] = 1
+        if not fields or "response_modalities" in fields:
+            kwargs["response_modalities"] = ["IMAGE"]
+        return types.GenerateContentConfig(**kwargs)
+
+    def generate(self, *, cutout_bytes: bytes, prompt: str, item_metadata: Dict[str, Any], timeout: int) -> CatalogProviderResult:
+        del timeout  # Vertex SDK call timeout is controlled by client/http options.
+        try:
+            client = self._client()
+            if client is None:
+                return CatalogProviderResult(False, reason="google_genai_unavailable", provider=self.name)
+            if not self.model:
+                return CatalogProviderResult(False, reason="nano_banana_model_missing", provider=self.name)
+            image_part = types.Part.from_bytes(data=cutout_bytes, mime_type="image/png")
+            response = client.models.generate_content(
+                model=self.model,
+                contents=[prompt, image_part],
+                config=self._config(),
+            )
+            image_bytes = _extract_generated_image_bytes(response)
+            if image_bytes:
+                return CatalogProviderResult(True, image_bytes=image_bytes, provider=self.name)
+            return CatalogProviderResult(False, reason="nanobanana_returned_no_image", provider=self.name)
+        except Exception as exc:  # noqa: BLE001
+            return CatalogProviderResult(False, reason=repr(exc), provider=self.name)
+
+
+def _extract_generated_image_bytes(response: Any) -> bytes:
+    generated = (
+        getattr(response, "generated_images", None)
+        or getattr(response, "images", None)
+        or []
+    )
+    for candidate in generated:
+        image_obj = getattr(candidate, "image", None) or candidate
+        image_bytes = _image_to_png_bytes(image_obj)
+        if image_bytes:
+            return image_bytes
+
+    candidates = getattr(response, "candidates", None) or []
+    for candidate in candidates:
+        content = getattr(candidate, "content", None)
+        parts = getattr(content, "parts", None) or []
+        for part in parts:
+            inline = getattr(part, "inline_data", None) or getattr(part, "inlineData", None)
+            data = getattr(inline, "data", None) if inline is not None else None
+            if data:
+                if isinstance(data, str):
+                    try:
+                        data = base64.b64decode(data)
+                    except Exception:
+                        data = data.encode("latin1", errors="ignore")
+                try:
+                    im = Image.open(io.BytesIO(data))
+                    return _encode_png(im.convert("RGBA"))
+                except Exception:
+                    return bytes(data)
+    return b""
+
+
 def _provider_for(name: str) -> CatalogProvider:
     key = str(name or "disabled").strip().lower()
+    if key in {"nanobanana", "nano_banana", "gemini_image", "gemini_image_edit"}:
+        return CatalogProviderNanoBanana()
     if key == "flux_kontext":
         return HttpCatalogProvider("flux_kontext", "FLUX_KONTEXT_CATALOG_URL", "FLUX_KONTEXT_API_KEY")
     if key in {"vertex_imagen", "imagen_vertex"}:
@@ -702,6 +805,28 @@ def _provider_for(name: str) -> CatalogProvider:
     if key == "imagen":
         return HttpCatalogProvider("imagen", "IMAGEN_CATALOG_URL", "IMAGEN_API_KEY")
     return DisabledCatalogProvider()
+
+
+def _selected_provider_name(provider: Optional[str] = None) -> str:
+    return (
+        str(provider or "").strip()
+        or os.getenv("WARDROBE_CATALOG_PROVIDER", "").strip()
+        or os.getenv("CATALOG_PROVIDER", "").strip()
+        or "nanobanana"
+    )
+
+
+def _legacy_fallback_provider_name(primary_provider: str) -> str:
+    fallback = (
+        os.getenv("WARDROBE_CATALOG_FALLBACK_PROVIDER", "").strip()
+        or os.getenv("CATALOG_FALLBACK_PROVIDER", "").strip()
+    )
+    if fallback:
+        return fallback
+    legacy = os.getenv("CATALOG_PROVIDER", "").strip()
+    if legacy and legacy.lower() not in {"nanobanana", "nano_banana"} and legacy.lower() != primary_provider.lower():
+        return legacy
+    return ""
 
 
 def generate_catalog_png(
@@ -725,10 +850,12 @@ def generate_catalog_png(
 
     fallback = _env_enabled("CATALOG_FALLBACK_TO_CUTOUT", "true") if fallback_to_cutout is None else bool(fallback_to_cutout)
     timeout = int(timeout_seconds or os.getenv("CATALOG_TIMEOUT_SECONDS", "30") or 30)
-    provider_name = provider or os.getenv("CATALOG_PROVIDER", "disabled")
+    provider_name = _selected_provider_name(provider)
     forced_reason = _forced_provider_reason(meta, category)
     if forced_reason:
-        provider_name = "vertex_imagen"
+        provider_name = _selected_provider_name(provider)
+        if provider_name.strip().lower() in {"", "disabled", "none", "off", "false"}:
+            provider_name = "nanobanana"
         logger.info(
             "ahvi.catalog.force_provider reason=%s item_id=%s category=%s",
             forced_reason,
@@ -769,6 +896,13 @@ def generate_catalog_png(
         }
 
     provider_obj = _provider_for(provider_name)
+    logger.info(
+        "ahvi.capture.catalog.provider provider=%s item_id=%s validation_status=%s masked_png=%s",
+        provider_obj.name,
+        meta.get("item_id"),
+        meta.get("validation_status"),
+        bool(cutout_bytes),
+    )
     catalog_prompt = _build_catalog_prompt(category, meta)
     if provider_obj.name == "vertex_imagen":
         logger.info(
@@ -783,13 +917,47 @@ def generate_catalog_png(
             category,
             catalog_prompt[:1200],
         )
+    if provider_obj.name == "nanobanana":
+        logger.info(
+            "ahvi.capture.catalog.nanobanana.start item_id=%s category=%s reason=%s",
+            meta.get("item_id"),
+            category,
+            forced_reason or deterministic_validation.get("reason") or "quality_gate_failed",
+        )
     provider_result = provider_obj.generate(
         cutout_bytes=deterministic_bytes,
         prompt=catalog_prompt,
         item_metadata={**meta, "category": category},
         timeout=timeout,
     )
+    fallback_used = False
+    if (
+        not provider_result.success
+        and provider_obj.name == "nanobanana"
+        and _legacy_fallback_provider_name(provider_obj.name)
+    ):
+        fallback_name = _legacy_fallback_provider_name(provider_obj.name)
+        logger.warning(
+            "ahvi.capture.catalog.nanobanana.failed item_id=%s err=%s fallback=%s",
+            meta.get("item_id"),
+            provider_result.reason,
+            fallback_name,
+        )
+        fallback_provider = _provider_for(fallback_name)
+        provider_result = fallback_provider.generate(
+            cutout_bytes=deterministic_bytes,
+            prompt=catalog_prompt,
+            item_metadata={**meta, "category": category},
+            timeout=timeout,
+        )
+        fallback_used = True
     if provider_result.success and provider_result.image_bytes:
+        if provider_result.provider == "nanobanana":
+            logger.info(
+                "ahvi.capture.catalog.nanobanana.success item_id=%s category=%s",
+                meta.get("item_id"),
+                category,
+            )
         if provider_result.provider == "vertex_imagen":
             logger.info(
                 "ahvi.catalog.vertex.success item_id=%s category=%s",
@@ -802,7 +970,7 @@ def generate_catalog_png(
             item_metadata=_provider_validation_metadata(meta, category),
         )
         vertex_demo_accepted = (
-            provider_result.provider == "vertex_imagen"
+            provider_result.provider in {"vertex_imagen", "nanobanana"}
             and not generated_validation.get("ok")
             and _vertex_demo_accepts_generated_validation(generated_validation)
         )
@@ -819,6 +987,7 @@ def generate_catalog_png(
                 "foreground_bounds": bounds,
                 "validation": generated_validation,
                 "reason": "demo_accept_background" if vertex_demo_accepted else "",
+                "fallback_used": fallback_used,
                 "elapsed_ms": int((time.monotonic() - t0) * 1000),
             }
         if provider_result.provider == "vertex_imagen":
@@ -836,6 +1005,12 @@ def generate_catalog_png(
             generated_validation.get("reason"),
         )
 
+    if provider_obj.name == "nanobanana" and not fallback_used:
+        logger.warning(
+            "ahvi.capture.catalog.nanobanana.failed item_id=%s err=%s",
+            meta.get("item_id"),
+            provider_result.reason or "validation_failed",
+        )
     if provider_obj.name == "vertex_imagen":
         logger.warning(
             "ahvi.catalog.vertex.failed item_id=%s category=%s err=%s",
@@ -857,6 +1032,7 @@ def generate_catalog_png(
             "foreground_bounds": bounds,
             "validation": deterministic_validation,
             "reason": provider_result.reason or deterministic_validation.get("reason") or "quality_gate_failed",
+            "fallback_used": fallback_used,
             "elapsed_ms": int((time.monotonic() - t0) * 1000),
         }
 
