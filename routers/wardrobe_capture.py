@@ -869,6 +869,164 @@ def _apply_full_image_person_risk_guard(item: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+_ACCESSORY_REVIEW_TERMS = {
+    "necklace",
+    "bracelet",
+    "ring",
+    "earring",
+    "earrings",
+    "watch",
+}
+_BOTTOM_REVIEW_TERMS = {
+    "trouser",
+    "trousers",
+    "pant",
+    "pants",
+    "short",
+    "shorts",
+    "jean",
+    "jeans",
+    "skirt",
+    "skirts",
+}
+
+
+def _bbox_area_ratio(bbox: Any) -> float | None:
+    if not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+        return None
+    try:
+        x1, y1, x2, y2 = [float(v) for v in bbox[:4]]
+    except Exception:
+        return None
+    width = abs(x2 - x1)
+    height = abs(y2 - y1)
+    if width <= 0 or height <= 0:
+        return 0.0
+    # Normalized Gemini bboxes are 0..1. Pixel bboxes need only a rough
+    # small-crop guard; screenshots vary wildly in size.
+    if max(abs(x1), abs(y1), abs(x2), abs(y2)) <= 1.5:
+        return width * height
+    return min((width * height) / (1200.0 * 1600.0), 1.0)
+
+
+def _is_accessory_review_item(item: Dict[str, Any]) -> bool:
+    text = " ".join(
+        str(item.get(k) or "")
+        for k in ("name", "label", "category", "sub_category", "subcategory")
+    ).lower()
+    return any(term in text for term in _ACCESSORY_REVIEW_TERMS)
+
+
+def _is_bottom_review_item(item: Dict[str, Any]) -> bool:
+    text = " ".join(
+        str(item.get(k) or "")
+        for k in ("name", "label", "category", "sub_category", "subcategory")
+    ).lower()
+    category = str(item.get("category") or "").strip().lower()
+    return category in {"bottom", "bottoms"} or any(term in text for term in _BOTTOM_REVIEW_TERMS)
+
+
+def _standardize_preview_validation(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Add stable validation fields without removing legacy preview fields."""
+    if not isinstance(item, dict):
+        return item
+    out = dict(item)
+    status = str(out.get("validation_status") or "").strip().lower()
+    reason = str(
+        out.get("rejection_reason")
+        or out.get("review_reason")
+        or out.get("reason")
+        or ""
+    ).strip()
+    crop_source = str(out.get("crop_source") or out.get("cropSource") or "").strip().lower()
+    crop_quality = str(out.get("crop_quality") or out.get("cropQuality") or "").strip().lower()
+    try:
+        confidence = float(out.get("confidence") or out.get("score") or 0.0)
+    except Exception:
+        confidence = 0.0
+    bbox_area = _bbox_area_ratio(out.get("bbox"))
+
+    if bool(out.get("needs_review")) and status not in {"rejected", "needs_review"}:
+        status = "needs_review"
+
+    if crop_source == "full_image_fallback":
+        status = "needs_review"
+        reason = "detector_fallback_full_image"
+        out["needs_review"] = True
+        out["requires_manual_entry"] = True
+        out["crop_quality"] = crop_quality or "full_image_person_risk"
+        out["cropQuality"] = out["crop_quality"]
+
+    if _is_accessory_review_item(out):
+        if confidence < 0.72:
+            status = "rejected"
+            reason = "accessory_low_confidence"
+        elif bbox_area is not None and bbox_area < 0.012:
+            status = "rejected"
+            reason = "accessory_bbox_too_small"
+        elif crop_source in {"full_image_fallback", "hybrid"} and crop_quality in {
+            "broad",
+            "full_image",
+            "full_image_person_risk",
+        }:
+            status = "rejected"
+            reason = "accessory_body_region_false_positive"
+        elif str(out.get("reasoning") or out.get("upload_error") or "").lower().find("skin") >= 0:
+            status = "rejected"
+            reason = "accessory_not_clearly_visible"
+
+    if _is_bottom_review_item(out):
+        partial_signal = (
+            crop_quality in {"broad", "full_image", "full_image_person_risk", "partial"}
+            or crop_source == "full_image_fallback"
+            or (bbox_area is not None and bbox_area < 0.08)
+            or any(
+                token in str(out.get(k) or "").lower()
+                for k in ("review_reason", "reasoning", "upload_error")
+                for token in ("partial", "waistband", "body", "person", "cleaner photo")
+            )
+        )
+        if partial_signal and status != "rejected":
+            status = "needs_review"
+            reason = "partial_bottomwear_visible"
+            out["needs_review"] = True
+            out["requires_manual_entry"] = True
+
+    if status not in {"ok", "needs_review", "rejected"}:
+        status = "needs_review" if bool(out.get("needs_review") or out.get("requires_manual_entry")) else "ok"
+    if status == "ok":
+        reason = ""
+        out["needs_review"] = False
+        out["requires_manual_entry"] = False
+    elif status == "needs_review":
+        out["needs_review"] = True
+        out["requires_manual_entry"] = True
+    elif status == "rejected":
+        out["needs_review"] = True
+        out["requires_manual_entry"] = True
+
+    out["validation_status"] = status
+    out["rejection_reason"] = reason or None
+    out["review_reason"] = reason or out.get("review_reason")
+    out["selected_by_default"] = status == "ok"
+    out["crop_quality_score"] = out.get("crop_quality_score")
+    if out.get("crop_quality") and not out.get("cropQuality"):
+        out["cropQuality"] = out.get("crop_quality")
+    out["detection_mode"] = out.get("detection_mode") or out.get("source") or crop_source or None
+    out["regen_provider"] = out.get("regen_provider")
+    out["input_type"] = out.get("input_type")
+    return out
+
+
+def _is_preview_item_save_approved(item: Dict[str, Any]) -> bool:
+    if not isinstance(item, dict):
+        return False
+    status = str(item.get("validation_status") or "").strip().lower()
+    if status:
+        return status == "ok"
+    return not bool(item.get("needs_review") or item.get("requires_manual_entry"))
+
+
 def _normalize_capture_preview_item(item: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize taxonomy and keep successful vision results out of review state."""
     normalized = _taxonomy_normalize_item(item)
@@ -885,7 +1043,9 @@ def _normalize_capture_preview_item(item: Dict[str, Any]) -> Dict[str, Any]:
     ):
         normalized["requires_manual_entry"] = False
         normalized["needs_review"] = False
-    return _apply_full_image_person_risk_guard(_enforce_preview_taxonomy(normalized))
+    return _standardize_preview_validation(
+        _apply_full_image_person_risk_guard(_enforce_preview_taxonomy(normalized))
+    )
 
 
 def _strip_internal_preview_fields(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -1595,6 +1755,8 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                         "gemini_category": g.get("category") or "",
                         "gemini_sub_category": g.get("sub_category") or "",
                         "gemini_color": g.get("color") or "",
+                        "gemini_needs_review": bool(g.get("needs_review") or False),
+                        "gemini_review_reason": g.get("reason") or g.get("review_reason") or "",
                         "crop_source": "gemini",
                         "crop_quality": "tight",
                         "orientation_corrected": True,
@@ -1681,7 +1843,9 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                 "color_name": str(item.get("gemini_color") or ""),
                 "occasions": [],
                 "label_source": "vision:gemini_multi",
-                "requires_manual_entry": False,
+                "requires_manual_entry": bool(item.get("gemini_needs_review")),
+                "needs_review": bool(item.get("gemini_needs_review")),
+                "review_reason": str(item.get("gemini_review_reason") or ""),
                 "confidence": float(item.get("score") or 0.8),
                 "reasoning": "gemini_multi_garment_detection",
             }
@@ -1808,6 +1972,13 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             "orientation_corrected": bool(item.get("orientation_corrected") or True),
             "preview_cutout_pending": bool(item.get("preview_cutout_pending")),
             "requires_manual_entry": requires_manual_entry,
+            "needs_review": bool(vision.get("needs_review") or item.get("needs_review")),
+            "review_reason": str(
+                vision.get("review_reason")
+                or item.get("gemini_review_reason")
+                or item.get("review_reason")
+                or ""
+            ),
             "reasoning": vision.get("reasoning")
             or f"hybrid_detection+{label_source}",
             "bbox": item.get("bbox") or [],
@@ -1952,6 +2123,16 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
     # Strip internal pipeline fields so the review screen never shows debug
     # chips like "vision:gemini_multi" — runs AFTER all logic that reads them.
     items = [_strip_internal_preview_fields(item) for item in items]
+    validation_counts = {
+        "ok": sum(1 for i in items if str(i.get("validation_status") or "") == "ok"),
+        "needs_review": sum(
+            1 for i in items if str(i.get("validation_status") or "") == "needs_review"
+        ),
+        "rejected": sum(
+            1 for i in items if str(i.get("validation_status") or "") == "rejected"
+        ),
+    }
+    selected_default_count = sum(1 for i in items if bool(i.get("selected_by_default")))
 
     save_result = None
     save_state = "skipped"
@@ -1960,6 +2141,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             save_candidates = [
                 i
                 for i in items
+                if _is_preview_item_save_approved(i)
                 if bool(request.save_duplicates)
                 or not bool((i.get("duplicate") or {}).get("is_duplicate"))
             ]
@@ -1984,6 +2166,14 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         detection_state,
     )
     logger.info(
+        "ahvi.capture.preview_validation request_id=%s ok=%d needs_review=%d rejected=%d selected_default=%d",
+        request_id,
+        validation_counts["ok"],
+        validation_counts["needs_review"],
+        validation_counts["rejected"],
+        selected_default_count,
+    )
+    logger.info(
         "ahvi.capture_analyze user_id=%s items=%s elapsed_ms=%s fast_mode=%s vision_enrichment=%s",
         user_id,
         len(items),
@@ -1997,6 +2187,24 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         "count": len(items),
         "items": items,
         "stage_trace": {
+            "total_items": len(items),
+            "ok_count": validation_counts["ok"],
+            "needs_review_count": validation_counts["needs_review"],
+            "rejected_count": validation_counts["rejected"],
+            "selected_default_count": selected_default_count,
+            "regen_attempted_count": 0,
+            "regen_skipped_count": validation_counts["needs_review"] + validation_counts["rejected"],
+            "fallback_reason": (
+                "none"
+                if not str(detection_state).startswith("fallback")
+                else str(detection_state)
+            ),
+            "detection_state": detection_state,
+            "detection_config": (
+                _gemini_multi.detection_config_summary(corrected_source_bytes)
+                if hasattr(_gemini_multi, "detection_config_summary")
+                else {"model": getattr(_gemini_multi, "GEMINI_MULTI_GARMENT_MODEL", "")}
+            ),
             "detection": detection_state,
             "background_removal": (
                 "ok"
@@ -2510,12 +2718,26 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
     # Deferred RMBG cleanup for Gemini multi fast-path previews: the preview
     # returned raw crops; clean only the items the user actually selected.
     selected_set = {str(x).strip() for x in selected_item_ids if str(x or "").strip()}
-    cleanup_items = [
+    selected_items = [
         i
         for i in detected_items
         if isinstance(i, dict)
+        and str(i.get("item_id") or "").strip() in selected_set
+        and _is_preview_item_save_approved(i)
+    ]
+    approved_selected_ids = [
+        str(i.get("item_id") or "").strip()
+        for i in selected_items
+        if str(i.get("item_id") or "").strip()
+    ][:max_selectable]
+    rejected_selected_count = max(0, len(selected_set) - len(approved_selected_ids))
+    regen_attempted_count = 0
+    regen_skipped_count = max(0, len(detected_items) - len(selected_items))
+    cleanup_items = [
+        i
+        for i in selected_items
+        if isinstance(i, dict)
         and _needs_save_rmbg_cleanup(i)
-        and (not selected_set or str(i.get("item_id") or "").strip() in selected_set)
     ]
     cleanup_ok = 0
     cleanup_failed = 0
@@ -2538,7 +2760,7 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
     upload_fixed = 0
     skipped_invalid = 0
 
-    for original in detected_items:
+    for original in selected_items:
         if not isinstance(original, dict):
             skipped_invalid += 1
             continue
@@ -2618,7 +2840,13 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         # Catalog generation — runs whenever flags are ON and bytes are
         # resolvable, independent of the RMBG cleanup path. Never blocks save.
         try:
+            regen_attempted_count += 1
             _maybe_generate_catalog_image(item)
+            item["regen_provider"] = (
+                item.get("catalogProvider")
+                or item.get("catalog_provider")
+                or item.get("regen_provider")
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "ahvi.catalog.failed item_id=%s err=%s",
@@ -2628,11 +2856,7 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
 
         normalized_items.append(apply_metadata_guard(item, source="save_selected_request"))
 
-    selected_total = (
-        len(selected_set)
-        if selected_set
-        else sum(1 for item in detected_items if isinstance(item, dict))
-    )
+    selected_total = len(selected_set)
     logger.info(
         "ahvi.capture.save_selected.rmbg_summary total=%d success=%d failed=%d skipped=%d",
         selected_total,
@@ -2640,20 +2864,31 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         cleanup_failed,
         max(0, selected_total - len(cleanup_items)),
     )
+    logger.info(
+        "ahvi.capture.save_selected.validation_summary selected=%d approved=%d rejected_or_review=%d regen_attempted=%d regen_skipped=%d",
+        len(selected_set),
+        len(approved_selected_ids),
+        rejected_selected_count,
+        regen_attempted_count,
+        regen_skipped_count,
+    )
 
     result = persist_selected_items(
         user_id=user_id,
-        selected_item_ids=selected_item_ids,
+        selected_item_ids=approved_selected_ids,
         detected_items=normalized_items,
     )
 
     if isinstance(result, dict):
         result.setdefault("max_selectable", max_selectable)
-        result.setdefault("selected_count", len(selected_item_ids))
+        result.setdefault("selected_count", len(approved_selected_ids))
         result.setdefault("input_item_count", len(detected_items))
         result.setdefault("normalized_item_count", len(normalized_items))
         result.setdefault("upload_fixed_count", upload_fixed)
         result.setdefault("skipped_invalid_count", skipped_invalid)
+        result.setdefault("regen_attempted_count", regen_attempted_count)
+        result.setdefault("regen_skipped_count", regen_skipped_count)
+        result.setdefault("rejected_selected_count", rejected_selected_count)
         try:
             from services.agent_metadata_validator import is_enabled as _md_on
             if _md_on():

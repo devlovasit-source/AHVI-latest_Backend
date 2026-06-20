@@ -124,3 +124,68 @@ def test_save_selected_treats_fail_open_original_bytes_as_rmbg_failure(monkeypat
 
     assert result["success"] is True
     assert persisted["items"][0]["imageStatus"] == "rmbg_failed"
+
+
+def test_save_selected_skips_unselected_items_for_rmbg_catalog_and_persist(monkeypatch):
+    calls = {"rmbg": 0, "catalog": 0}
+
+    async def _remove_bg(raw):
+        calls["rmbg"] += 1
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+
+    def _catalog(item):
+        calls["catalog"] += 1
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    request = wc.SaveSelectedRequest(
+        user_id="user-1",
+        selected_item_ids=["one"],
+        detected_items=[_item("one"), _item("two", (20, 20, 200))],
+    )
+
+    result = wc.save_selected(_Request(), request)
+
+    assert result["success"] is True
+    assert calls == {"rmbg": 1, "catalog": 1}
+    assert [i["item_id"] for i in persisted["items"]] == ["one"]
+    assert result["selected_count"] == 1
+    assert result["regen_skipped_count"] == 1
+
+
+def test_save_selected_skips_needs_review_and_rejected_items(monkeypatch):
+    calls = {"rmbg": 0, "catalog": 0}
+
+    async def _remove_bg(raw):
+        calls["rmbg"] += 1
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setattr(
+        wc,
+        "_maybe_generate_catalog_image",
+        lambda item: calls.__setitem__("catalog", calls["catalog"] + 1),
+    )
+    ok = _item("ok")
+    ok["validation_status"] = "ok"
+    review = _item("review")
+    review["validation_status"] = "needs_review"
+    review["needs_review"] = True
+    rejected = _item("rejected")
+    rejected["validation_status"] = "rejected"
+
+    request = wc.SaveSelectedRequest(
+        user_id="user-1",
+        selected_item_ids=["ok", "review", "rejected"],
+        detected_items=[ok, review, rejected],
+    )
+
+    result = wc.save_selected(_Request(), request)
+
+    assert result["success"] is True
+    assert calls == {"rmbg": 1, "catalog": 1}
+    assert [i["item_id"] for i in persisted["items"]] == ["ok"]
+    assert result["selected_count"] == 1
+    assert result["rejected_selected_count"] == 2
+    assert result["regen_skipped_count"] == 2

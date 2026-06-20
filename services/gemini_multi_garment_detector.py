@@ -23,6 +23,7 @@ single-garment flow unchanged.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import logging
 import os
@@ -168,11 +169,26 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
         return None
     try:
         image_part = types.Part.from_bytes(data=image_bytes, mime_type="image/png")
-        config = types.GenerateContentConfig(
-            temperature=0.1,
-            max_output_tokens=1536,
-            response_mime_type="application/json",
-        )
+        config_kwargs = {
+            "temperature": 0,
+            "max_output_tokens": 1536,
+            "response_mime_type": "application/json",
+        }
+        # Keep Gemini 2.5 Flash, but make the request as deterministic as the
+        # SDK/model supports. Unsupported fields are intentionally omitted.
+        try:
+            config_kwargs["candidate_count"] = 1
+            config_kwargs["top_p"] = 0.0
+            config_kwargs["seed"] = int(hashlib.sha256(image_bytes).hexdigest()[:8], 16)
+            config = types.GenerateContentConfig(**config_kwargs)
+        except Exception:
+            config_kwargs.pop("seed", None)
+            try:
+                config = types.GenerateContentConfig(**config_kwargs)
+            except Exception:
+                config_kwargs.pop("top_p", None)
+                config_kwargs.pop("candidate_count", None)
+                config = types.GenerateContentConfig(**config_kwargs)
         response = client.models.generate_content(
             model=GEMINI_MULTI_GARMENT_MODEL,
             contents=[image_part, _build_prompt()],
@@ -233,7 +249,21 @@ def _validate_item(raw: Any) -> Optional[Dict[str, Any]]:
         "confidence": confidence,
         "bbox": list(bbox),
         "needs_review": bool(raw.get("needs_review") or False),
+        "reason": str(raw.get("reason") or raw.get("review_reason") or "").strip(),
     }
+
+
+def detection_config_summary(image_bytes: bytes | None = None) -> Dict[str, Any]:
+    summary: Dict[str, Any] = {
+        "model": GEMINI_MULTI_GARMENT_MODEL,
+        "temperature": 0,
+        "candidate_count": 1,
+        "top_p": 0.0,
+        "seed_source": "image_sha256",
+    }
+    if image_bytes:
+        summary["seed_hash"] = hashlib.sha256(image_bytes).hexdigest()[:12]
+    return summary
 
 
 # Category-aware crop padding. Gemini bboxes hug the garment tightly, which

@@ -249,6 +249,89 @@ def test_full_image_fallback_shorts_marked_person_risk():
     assert item["crop_quality"] == "full_image_person_risk"
     assert item["needs_review"] is True
     assert item["requires_manual_entry"] is True
+    assert item["validation_status"] == "needs_review"
+    assert item["selected_by_default"] is False
+    assert item["rejection_reason"] in {"detector_fallback_full_image", "partial_bottomwear_visible"}
+
+
+def test_weak_necklace_crop_is_rejected():
+    item = wc._normalize_capture_preview_item(
+        {
+            "item_id": "neck-risk",
+            "name": "Necklace",
+            "category": "Accessories",
+            "sub_category": "Necklace",
+            "confidence": 0.41,
+            "bbox": [0.46, 0.18, 0.51, 0.23],
+            "label_source": "vision:gemini_multi",
+            "crop_source": "gemini",
+            "crop_quality": "tight",
+        }
+    )
+
+    assert item["validation_status"] == "rejected"
+    assert item["selected_by_default"] is False
+    assert item["rejection_reason"] in {
+        "accessory_low_confidence",
+        "accessory_bbox_too_small",
+    }
+
+
+def test_partial_trousers_crop_needs_review():
+    item = wc._normalize_capture_preview_item(
+        {
+            "item_id": "trouser-risk",
+            "name": "Olive Trousers",
+            "category": "Bottoms",
+            "sub_category": "Trousers",
+            "confidence": 0.86,
+            "bbox": [0.25, 0.54, 0.76, 0.62],
+            "label_source": "vision:gemini_multi",
+            "crop_source": "gemini",
+            "crop_quality": "tight",
+            "reasoning": "partial waistband crop",
+        }
+    )
+
+    assert item["validation_status"] == "needs_review"
+    assert item["selected_by_default"] is False
+    assert item["rejection_reason"] == "partial_bottomwear_visible"
+
+
+def test_approved_shirt_is_selected_by_default():
+    item = wc._normalize_capture_preview_item(
+        {
+            "item_id": "shirt-ok",
+            "name": "Sage Green Casual Shirt",
+            "category": "Tops",
+            "sub_category": "Shirt",
+            "confidence": 0.91,
+            "bbox": [0.20, 0.12, 0.80, 0.50],
+            "label_source": "vision:gemini_multi",
+            "crop_source": "gemini",
+            "crop_quality": "tight",
+        }
+    )
+
+    assert item["validation_status"] == "ok"
+    assert item["selected_by_default"] is True
+
+
+def test_gemini_needs_review_reason_survives_preview(monkeypatch):
+    needs_review_json = """
+    [
+      {"name": "Olive Trousers", "category": "Bottoms", "sub_category": "Trousers", "color": "Olive", "confidence": 0.86, "bbox": [0.20, 0.52, 0.80, 0.82], "needs_review": true, "reason": "partial_bottomwear_visible"}
+    ]
+    """
+    _wire_router_for_gemini(monkeypatch, needs_review_json)
+
+    result = _run(wc.analyze_capture(_FakeHttpRequest(), _capture_request()))
+
+    item = result["items"][0]
+    assert item["validation_status"] == "needs_review"
+    assert item["selected_by_default"] is False
+    assert item["rejection_reason"] == "partial_bottomwear_visible"
+    assert result["stage_trace"]["needs_review_count"] == 1
 
 
 def test_analyze_sends_corrected_orientation_bytes_to_gemini(monkeypatch):
@@ -634,6 +717,8 @@ def test_gemini_multi_does_not_change_save_schema(monkeypatch):
     taxonomy_optional_keys = {
         "privateWear", "publicWear", "styleEligible", "subCategory",
         "needs_review", "requires_manual_entry", "review_reason",
+        "validation_status", "rejection_reason", "selected_by_default",
+        "crop_quality_score", "detection_mode", "regen_provider", "input_type",
     }
     assert (gemini_keys - fallback_keys) <= taxonomy_optional_keys
     assert (fallback_keys - gemini_keys) <= taxonomy_optional_keys
@@ -646,5 +731,7 @@ def test_gemini_multi_does_not_change_save_schema(monkeypatch):
         "masked_url", "maskedUrl", "normalized_url", "normalizedUrl",
         "image_url", "imageUrl", "raw_image_base64", "masked_image_base64",
         "upload_error", "pixel_hash", "duplicate", "image_embedding",
+        "validation_status", "rejection_reason", "selected_by_default",
+        "crop_quality_score", "detection_mode", "regen_provider", "input_type",
     ):
         assert key in gemini_keys, key
