@@ -3644,6 +3644,9 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
     unsafe_catalog_skipped_ids: set[str] = set()
     unsafe_catalog_skipped_items: Dict[str, Dict[str, Any]] = {}
 
+    # Phase 1 (sequential, cheap): per-item prep — inline upload, RMBG status
+    # reconciliation, bottom-length guard. No provider/network catalog work here.
+    prepared_items: List[Dict[str, Any]] = []
     for original in selected_items:
         if not isinstance(original, dict):
             skipped_invalid += 1
@@ -3721,11 +3724,30 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
                 repr(exc)[:160],
             )
 
-        # Catalog generation — runs whenever flags are ON and bytes are
-        # resolvable, independent of the RMBG cleanup path. Never blocks save.
+        prepared_items.append(item)
+
+    # Phase 2 (parallel): Nano Banana catalog generation per item runs
+    # CONCURRENTLY so a multi-item save costs ~one item's provider latency, not
+    # N x. Each call mutates its own item dict in place, is idempotent, and never
+    # raises. Cap via WARDROBE_SAVE_CATALOG_PARALLELISM (default 6 = max items).
+    regen_attempted_count += len(prepared_items)
+    if prepared_items:
+        from concurrent.futures import ThreadPoolExecutor
+
+        _cat_workers = max(
+            1,
+            min(
+                len(prepared_items),
+                int(os.getenv("WARDROBE_SAVE_CATALOG_PARALLELISM", "6") or 6),
+            ),
+        )
+        with ThreadPoolExecutor(max_workers=_cat_workers) as _cat_pool:
+            list(_cat_pool.map(_maybe_generate_catalog_image, prepared_items))
+
+    # Phase 3 (sequential, cheap): catalog-status accounting, save-gating, append.
+    for item in prepared_items:
+        # Catalog generation already ran (Phase 2). Never blocks save.
         try:
-            regen_attempted_count += 1
-            _maybe_generate_catalog_image(item)
             status = str(item.get("catalogStatus") or "").strip()
             if status in {"catalog_ready", "catalog_generated"}:
                 catalog_succeeded_count += 1
