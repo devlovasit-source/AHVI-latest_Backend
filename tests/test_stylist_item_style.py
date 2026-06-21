@@ -81,6 +81,40 @@ def test_non_fashion_items_are_not_paired():
     assert "charger-1" not in ids
 
 
+def test_swim_and_sport_gear_is_not_paired():
+    trousers = _it("trouser-1", "Olive Green Trousers", "Bottoms")
+    wardrobe = [
+        trousers,
+        _it("shirt-1", "Light Green Shirt", "Tops"),
+        _it("swim-1", "Swim Cap", "Accessories"),
+        _it("goggle-1", "Swimming Goggles", "Accessories"),
+        _it("sneak-1", "Black Sneakers", "Footwear"),
+    ]
+    result = stylist.style_wardrobe_item("trouser-1", _req(wardrobe, mode="style_this", anchor=trousers))
+    for d in result["style_directions"]:
+        names = " ".join(i["name"].lower() for i in d["items"])
+        assert "swim" not in names and "goggle" not in names
+
+
+def test_directions_vary_accessories_when_multiple_owned():
+    trousers = _it("trouser-1", "Olive Green Trousers", "Bottoms")
+    wardrobe = [
+        trousers,
+        _it("shirt-1", "Light Green Shirt", "Tops"),
+        _it("watch-1", "Silver Watch", "Accessories"),
+        _it("belt-1", "Tan Belt", "Accessories"),
+        _it("bag-1", "Canvas Tote", "Accessories"),
+        _it("sneak-1", "Black Sneakers", "Footwear"),
+    ]
+    result = stylist.style_wardrobe_item("trouser-1", _req(wardrobe, mode="style_this", anchor=trousers))
+    acc_per_dir = []
+    for d in result["style_directions"]:
+        accs = [i["item_id"] for i in d["items"] if i["item_id"] in {"watch-1", "belt-1", "bag-1"}]
+        acc_per_dir.append(tuple(accs))
+    # 3 directions should not all show the identical accessory.
+    assert len(set(acc_per_dir)) > 1, "directions should vary accessories"
+
+
 def test_non_dress_anchor_allows_loafers():
     shirt = _it("shirt-1", "Blue Shirt", "Tops")
     wardrobe = [shirt, _it("loafer-1", "Brown Loafers", "Footwear"), _it("jeans-1", "Blue Jeans", "Bottoms")]

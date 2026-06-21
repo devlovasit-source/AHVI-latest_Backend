@@ -399,6 +399,13 @@ _LITE_NON_FASHION = (
     "powerbank", "plug", "wire", "battery", "speaker", "camera", "mug",
     "cup", "pen", "book", "box",
 )
+# Activity / swim / sport gear — real apparel but NOT stylable into everyday
+# looks (e.g. a swim cap should never land in a brunch or date outfit).
+_LITE_SPORT_SWIM = (
+    "swim", "goggle", "wetsuit", "snorkel", "flipper", "cleat",
+    "shin guard", "helmet", "ski ", "snowboard", "life jacket",
+    "life vest", "boxing glove", "swimsuit", "swimwear",
+)
 
 _LITE_MISSING = {
     "footwear": {"label": "Clean sneakers or sandals", "reason": "Completes the look.", "cta": "Find this"},
@@ -421,6 +428,8 @@ def _lite_role(item: Dict[str, Any]) -> str:
         for k in ("role", "category", "sub_category", "subcategory", "type", "name", "label")
     ).lower()
     if any(t in blob for t in _LITE_NON_FASHION):
+        return "unknown"
+    if any(t in blob for t in _LITE_SPORT_SWIM):
         return "unknown"
     if any(t in blob for t in _LITE_DRESS):
         return "dress"
@@ -465,16 +474,23 @@ def _lite_group(wardrobe: List[Dict[str, Any]], exclude_id: str) -> Dict[str, Li
     return groups
 
 
-def _lite_pick(groups: Dict[str, List[Dict[str, Any]]], role: str, is_dress: bool, prefer=()) -> Optional[Dict[str, Any]]:
+def _lite_pick(
+    groups: Dict[str, List[Dict[str, Any]]], role: str, is_dress: bool, prefer=(), variant: int = 0
+) -> Optional[Dict[str, Any]]:
     cands = list(groups.get(role) or [])
     if is_dress and role == "footwear":
         cands = [c for c in cands if not _is_bad_dress_footwear(c)]
+    if not cands:
+        return None
     if prefer:
         def _score(c: Dict[str, Any]) -> int:
             blob = " ".join(_txt(c.get(k)) for k in ("name", "label", "sub_category", "subcategory")).lower()
             return 0 if any(p in blob for p in prefer) else 1
         cands.sort(key=_score)
-    return cands[0] if cands else None
+        return cands[0]
+    # No preference (tops/bottoms/accessories): rotate by variant so different
+    # directions show different owned pieces when more than one exists.
+    return cands[variant % len(cands)]
 
 
 def _lite_missing(role: str, is_dress: bool) -> Dict[str, Any]:
@@ -503,6 +519,7 @@ def _lite_build_outfit(
     title: Optional[str] = None,
     prefer=(),
     note: str = "",
+    variant: int = 0,
 ) -> Dict[str, Any]:
     is_dress = _anchor_is_dress(anchor) or _lite_role(anchor) == "dress"
     anchor_role = "dress" if is_dress else _lite_role(anchor)
@@ -510,7 +527,11 @@ def _lite_build_outfit(
     items = [_lite_item(anchor, "hero")]
     missing: List[Dict[str, Any]] = []
     for slot in _lite_needed_slots(anchor_role):
-        pick = _lite_pick(groups, slot, is_dress, prefer=prefer if slot == "footwear" else ())
+        pick = _lite_pick(
+            groups, slot, is_dress,
+            prefer=prefer if slot == "footwear" else (),
+            variant=variant,
+        )
         if pick:
             items.append(_lite_item(pick, "accent" if slot == "accessory" else "support"))
             groups[slot] = [g for g in groups[slot] if _item_id_of(g) != _item_id_of(pick)]
@@ -526,8 +547,10 @@ def _lite_build_outfit(
 
 def _lite_directions(anchor: Dict[str, Any], wardrobe: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     directions = []
-    for title, prefer, note in _LITE_STYLE_DIRECTIONS:
-        look = _lite_build_outfit(anchor, wardrobe, None, title=title, prefer=prefer, note=note)
+    for idx, (title, prefer, note) in enumerate(_LITE_STYLE_DIRECTIONS):
+        look = _lite_build_outfit(
+            anchor, wardrobe, None, title=title, prefer=prefer, note=note, variant=idx
+        )
         directions.append({
             "title": title,
             "items": look["items"],
