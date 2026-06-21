@@ -381,9 +381,154 @@ def _style_fallback(mode: str, anchor: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------------------
+# Lite wardrobe pairing — fast, deterministic CTA path.
+# The full style_flow pipeline takes ~90s for an interactive button; this
+# builds a look from owned items with simple rules in ~1-2s (wardrobe load
+# only). No agent/qdrant/board rendering.
+# --------------------------------------------------------------------------
+_LITE_FOOTWEAR = ("shoe", "sneaker", "loafer", "boot", "sandal", "heel", "flat", "footwear", "mule", "pump", "oxford", "espadrille")
+_LITE_BOTTOM = ("jean", "trouser", "pant", "chino", "short", "skirt", "legging", "bottom")
+_LITE_TOP = ("top", "shirt", "tee", "tshirt", "t-shirt", "polo", "kurta", "blouse", "jacket", "blazer", "coat", "hoodie", "sweater", "knit", "cardigan", "overshirt")
+_LITE_DRESS = ("dress", "gown", "saree", "sari", "lehenga", "jumpsuit", "one-piece", "one piece", "frock", "kaftan", "anarkali")
+_LITE_ACCESSORY = ("watch", "belt", "sunglass", "bag", "clutch", "handbag", "purse", "necklace", "bracelet", "ring", "earring", "scarf", "hat", "cap", "jewel")
+
+_LITE_MISSING = {
+    "footwear": {"label": "Clean sneakers or sandals", "reason": "Completes the look.", "cta": "Find this"},
+    "top": {"label": "A simple top", "reason": "Pairs with this piece.", "cta": "Find this"},
+    "bottom": {"label": "Tailored trousers or jeans", "reason": "Anchors the outfit.", "cta": "Find this"},
+    "accessory": {"label": "A small bag or jewelry", "reason": "Finishes the look.", "cta": "Find this"},
+    "dress": {"label": "A standout dress", "reason": "Gives the accessory something to sit on.", "cta": "Find this"},
+}
+
+_LITE_STYLE_DIRECTIONS = [
+    ("Casual Brunch", ("sneaker", "flat", "loafer", "mule"), "Relaxed and easy — let the piece breathe."),
+    ("Date Night", ("heel", "sandal", "boot", "pump"), "A touch sharper for the evening."),
+    ("Vacation Day", ("sandal", "flat", "sneaker", "espadrille"), "Light, breezy, low-effort."),
+]
+
+
+def _lite_role(item: Dict[str, Any]) -> str:
+    blob = " ".join(
+        _txt(item.get(k))
+        for k in ("role", "category", "sub_category", "subcategory", "type", "name", "label")
+    ).lower()
+    if any(t in blob for t in _LITE_DRESS):
+        return "dress"
+    if any(t in blob for t in _LITE_FOOTWEAR):
+        return "footwear"
+    if any(t in blob for t in _LITE_BOTTOM):
+        return "bottom"
+    if any(t in blob for t in _LITE_ACCESSORY):
+        return "accessory"
+    if any(t in blob for t in _LITE_TOP):
+        return "top"
+    return "accessory"
+
+
+def _lite_image(item: Dict[str, Any]) -> str:
+    return _txt(
+        item.get("normalized_url") or item.get("normalizedUrl")
+        or item.get("masked_url") or item.get("maskedUrl")
+        or item.get("image_url") or item.get("imageUrl")
+    )
+
+
+def _lite_item(item: Dict[str, Any], role: str) -> Dict[str, Any]:
+    return {
+        "item_id": _item_id_of(item),
+        "name": _txt(item.get("name") or item.get("label")) or "Item",
+        "category": _txt(item.get("category")),
+        "image_url": _lite_image(item),
+        "role": role,
+        "owned": True,
+    }
+
+
+def _lite_group(wardrobe: List[Dict[str, Any]], exclude_id: str) -> Dict[str, List[Dict[str, Any]]]:
+    groups: Dict[str, List[Dict[str, Any]]] = {"dress": [], "top": [], "bottom": [], "footwear": [], "accessory": []}
+    for item in wardrobe:
+        if not isinstance(item, dict) or _item_id_of(item) == exclude_id:
+            continue
+        groups.setdefault(_lite_role(item), []).append(item)
+    return groups
+
+
+def _lite_pick(groups: Dict[str, List[Dict[str, Any]]], role: str, is_dress: bool, prefer=()) -> Optional[Dict[str, Any]]:
+    cands = list(groups.get(role) or [])
+    if is_dress and role == "footwear":
+        cands = [c for c in cands if not _is_bad_dress_footwear(c)]
+    if prefer:
+        def _score(c: Dict[str, Any]) -> int:
+            blob = " ".join(_txt(c.get(k)) for k in ("name", "label", "sub_category", "subcategory")).lower()
+            return 0 if any(p in blob for p in prefer) else 1
+        cands.sort(key=_score)
+    return cands[0] if cands else None
+
+
+def _lite_missing(role: str, is_dress: bool) -> Dict[str, Any]:
+    if role == "footwear" and is_dress:
+        return dict(_DRESS_FOOTWEAR_SUGGESTIONS[0])
+    return dict(_LITE_MISSING.get(role, _LITE_MISSING["accessory"]))
+
+
+def _lite_needed_slots(anchor_role: str) -> List[str]:
+    if anchor_role == "dress":
+        return ["footwear", "accessory"]
+    if anchor_role == "top":
+        return ["bottom", "footwear", "accessory"]
+    if anchor_role == "bottom":
+        return ["top", "footwear", "accessory"]
+    if anchor_role == "footwear":
+        return ["top", "bottom", "accessory"]
+    return ["dress", "footwear"]  # accessory anchor -> hero garment + shoes
+
+
+def _lite_build_outfit(
+    anchor: Dict[str, Any],
+    wardrobe: List[Dict[str, Any]],
+    occasion: Optional[str],
+    *,
+    title: Optional[str] = None,
+    prefer=(),
+    note: str = "",
+) -> Dict[str, Any]:
+    is_dress = _anchor_is_dress(anchor) or _lite_role(anchor) == "dress"
+    anchor_role = "dress" if is_dress else _lite_role(anchor)
+    groups = _lite_group(wardrobe, _item_id_of(anchor))
+    items = [_lite_item(anchor, "hero")]
+    missing: List[Dict[str, Any]] = []
+    for slot in _lite_needed_slots(anchor_role):
+        pick = _lite_pick(groups, slot, is_dress, prefer=prefer if slot == "footwear" else ())
+        if pick:
+            items.append(_lite_item(pick, "accent" if slot == "accessory" else "support"))
+            groups[slot] = [g for g in groups[slot] if _item_id_of(g) != _item_id_of(pick)]
+        else:
+            missing.append(_lite_missing(slot, is_dress))
+    return {
+        "title": title or _outfit_title(occasion),
+        "items": items,
+        "missing_items": missing,
+        "reason": note or "Built from pieces you already own, anchored on this item.",
+    }
+
+
+def _lite_directions(anchor: Dict[str, Any], wardrobe: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    directions = []
+    for title, prefer, note in _LITE_STYLE_DIRECTIONS:
+        look = _lite_build_outfit(anchor, wardrobe, None, title=title, prefer=prefer, note=note)
+        directions.append({
+            "title": title,
+            "items": look["items"],
+            "missing_items": look["missing_items"],
+            "styling_note": note,
+        })
+    return directions
+
+
 @router.post("/items/{item_id}/style")
 def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, Any]:
-    """Power the item-detail CTAs.
+    """Power the item-detail CTAs (fast lite-pairing path).
 
     mode=style_this -> 3 editorial styling directions.
     mode=build_outfit -> 1 practical outfit anchored on the item.
@@ -394,34 +539,20 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
         mode = "build_outfit"
     wardrobe = _resolve_wardrobe(request)
     anchor = _resolve_anchor(request, item_id, wardrobe)
-    desc = _anchor_desc(anchor)
 
     try:
         if mode == "style_this":
-            def _one(direction: "tuple[str, str]") -> Dict[str, Any]:
-                title, vibe = direction
-                query = (
-                    f"Style my {desc} for {vibe}. Prefer pieces I already own and "
-                    f"suggest what's missing."
-                )
-                return _map_look(_build_one(request, query, wardrobe), anchor, title, "styling_note")
-
-            with ThreadPoolExecutor(max_workers=len(_STYLE_DIRECTIONS)) as pool:
-                directions = list(pool.map(_one, _STYLE_DIRECTIONS))
+            directions = _lite_directions(anchor, wardrobe)
             logger.info(
-                "stylist.item_style mode=style_this item_id=%s directions=%d", item_id, len(directions)
+                "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d",
+                item_id, len(directions), len(wardrobe),
             )
             return {"success": True, "mode": mode, "anchor_item": anchor, "style_directions": directions}
 
-        occ = request.occasion or "a casual everyday"
-        query = (
-            f"Build one complete, practical outfit using my {desc} as the anchor piece "
-            f"for {occ}. Prefer items I already own; only suggest missing pieces if needed."
-        )
-        outfit = _map_look(_build_one(request, query, wardrobe), anchor, _outfit_title(request.occasion), "reason")
+        outfit = _lite_build_outfit(anchor, wardrobe, request.occasion)
         logger.info(
-            "stylist.item_style mode=build_outfit item_id=%s items=%d missing=%d",
-            item_id, len(outfit.get("items") or []), len(outfit.get("missing_items") or []),
+            "stylist.item_style mode=build_outfit item_id=%s items=%d missing=%d wardrobe=%d",
+            item_id, len(outfit["items"]), len(outfit["missing_items"]), len(wardrobe),
         )
         return {"success": True, "mode": mode, "anchor_item": anchor, "outfit": outfit}
     except Exception as exc:  # noqa: BLE001 - CTA must never dead-end the UI
