@@ -42,6 +42,107 @@ def _blank_png(w=900, h=900):
     return b.getvalue()
 
 
+def _inset_black_frame_png(w=900, h=900):
+    # White outer margin, black rectangular frame inset ~8-12%, white center
+    # with a colored garment so the inner content survives cropping.
+    im = Image.new("RGB", (w, h), (255, 255, 255))
+    d = ImageDraw.Draw(im)
+    d.rectangle([w * 0.08, h * 0.08, w * 0.92, h * 0.92], fill=(0, 0, 0))
+    d.rectangle([w * 0.12, h * 0.12, w * 0.88, h * 0.88], fill=(255, 255, 255))
+    d.rectangle([w * 0.38, h * 0.30, w * 0.62, h * 0.74], fill=(60, 140, 90))
+    b = io.BytesIO()
+    im.save(b, "PNG")
+    return b.getvalue()
+
+
+def _vertical_side_bars_png(w=900, h=900):
+    im = Image.new("RGB", (w, h), (255, 255, 255))
+    d = ImageDraw.Draw(im)
+    d.rectangle([w * 0.04, 0, w * 0.09, h], fill=(0, 0, 0))
+    d.rectangle([w * 0.91, 0, w * 0.96, h], fill=(0, 0, 0))
+    d.rectangle([w * 0.40, h * 0.25, w * 0.60, h * 0.78], fill=(60, 100, 170))
+    b = io.BytesIO()
+    im.save(b, "PNG")
+    return b.getvalue()
+
+
+def _thin_black_edge_png(w=900, h=900):
+    im = Image.new("RGB", (w, h), (255, 255, 255))
+    d = ImageDraw.Draw(im)
+    d.rectangle([0, 0, w - 1, h - 1], outline=(0, 0, 0), width=2)
+    d.rectangle([w * 0.40, h * 0.25, w * 0.60, h * 0.78], fill=(60, 100, 170))
+    b = io.BytesIO()
+    im.save(b, "PNG")
+    return b.getvalue()
+
+
+def _dark_garment_blob_png(w=900, h=900):
+    # Dark garment near center, no continuous rectangular frame structure.
+    im = Image.new("RGB", (w, h), (255, 255, 255))
+    d = ImageDraw.Draw(im)
+    d.rectangle([w * 0.30, h * 0.30, w * 0.70, h * 0.70], fill=(20, 20, 20))
+    b = io.BytesIO()
+    im.save(b, "PNG")
+    return b.getvalue()
+
+
+def test_inset_black_frame_detected():
+    metrics = pngsvc._black_frame_metrics(_inset_black_frame_png())
+    assert metrics["detected"] is True
+    assert metrics["frame_type"] in {"inset_frame", "outer_border"}
+
+
+def test_vertical_black_side_bars_detected():
+    metrics = pngsvc._black_frame_metrics(_vertical_side_bars_png())
+    assert metrics["detected"] is True
+    assert metrics["frame_type"] in {"vertical_side_bars", "inset_frame", "outer_border"}
+
+
+def test_thin_black_edge_detected():
+    metrics = pngsvc._black_frame_metrics(_thin_black_edge_png())
+    assert metrics["detected"] is True
+
+
+def test_inset_black_frame_cropped():
+    cropped_bytes, cropped = pngsvc._crop_black_frame(_inset_black_frame_png())
+    assert cropped is True
+    assert pngsvc._black_frame_metrics(cropped_bytes)["detected"] is False
+
+
+def test_dark_garment_not_false_positive():
+    metrics = pngsvc._black_frame_metrics(_dark_garment_blob_png())
+    assert metrics["detected"] is False
+
+
+def test_unresolved_black_frame_score_capped():
+    validation = pngsvc.validate_catalog_png(
+        _inset_black_frame_png(),
+        original_bytes=_inset_black_frame_png(),
+        item_metadata={"category": "Tops"},
+    )
+    assert validation["ok"] is False
+    assert validation["reason"] == "black_frame_unresolved"
+    assert validation["score"] <= 44
+    assert validation["checks"]["no_black_frame"] is False
+
+
+def test_demo_relaxation_does_not_accept_black_frame():
+    validation = {
+        "generated": True,
+        "score": 78,
+        "reason": "black_frame_unresolved",
+        "checks": {
+            "no_face": True,
+            "no_human": True,
+            "no_mannequin": True,
+            "category_matches_original": True,
+            "image_size_valid": True,
+            "no_black_frame": False,
+        },
+    }
+    assert pngsvc._vertex_demo_accepts_generated_validation(validation) is False
+
+
 def _data_uri(png_bytes):
     return "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
 

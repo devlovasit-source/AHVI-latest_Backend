@@ -79,6 +79,17 @@ Requirements:
 - no props
 - no accessories
 - white background
+- plain pure white studio background only
+- garment only, centered, natural catalog lighting
+- no black border
+- no outline
+- no rectangular frame
+- no product card
+- no box
+- no mat
+- no screenshot frame
+- no template border
+- no graphic layout
 - no text
 - no watermark
 
@@ -185,6 +196,7 @@ Centered.
 Upright.
 Clean studio lighting.
 Pure white background.
+No black border, no outline, no rectangular frame, no product card, no box, no mat, no template border.
 Entire dress visible from top to hem.
 Fashion catalog quality.{anchor}{final_anchor}"""
     elif cat in {"top", "outerwear", "ethnic"}:
@@ -470,72 +482,228 @@ def _catalog_blank_reason(image_bytes: bytes, category: Any) -> str:
     return ""
 
 
+_BLACK_FRAME_N = 288
+_BLACK_FRAME_DARK_T = 55          # pixel is "dark" if max(r,g,b) < this
+_BLACK_FRAME_LINE_T = 0.80        # row/col is a "line" if >= this fraction dark
+_BLACK_FRAME_BAND_RATIO = 0.14    # outer/inset band scanned for frame lines
+
+
 def _black_frame_metrics(image_bytes: bytes) -> Dict[str, Any]:
+    """Detect baked-in black frames/borders/side bars on a generated catalog
+    image. Multi-band, line-structure based so it catches inset frames and thin
+    edges WITHOUT false-positiving on dark garments (which are thick blobs, not
+    long thin lines along the edges)."""
+    empty = {
+        "detected": False,
+        "frame_type": "",
+        "border_dark_ratio": 0.0,
+        "center_dark_ratio": 0.0,
+        "candidate_crop_box": None,
+    }
     try:
-        rgba = _open_rgba(image_bytes).resize((160, 160)).convert("RGBA")
+        # NEAREST keeps thin 1-2px borders crisp instead of blurring them away.
+        rgba = _open_rgba(image_bytes).resize(
+            (_BLACK_FRAME_N, _BLACK_FRAME_N), Image.Resampling.NEAREST
+        ).convert("RGBA")
     except Exception:
-        return {"detected": False, "border_dark_ratio": 0.0, "center_dark_ratio": 0.0}
+        return empty
 
     white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
     white.alpha_composite(rgba)
     rgb = white.convert("RGB")
-    w, h = rgb.size
-    band = max(4, int(min(w, h) * 0.08))
-    center_box = (band * 2, band * 2, w - band * 2, h - band * 2)
+    n = _BLACK_FRAME_N
+    pixels = list(rgb.getdata())
+    dark_t = _BLACK_FRAME_DARK_T
 
-    def _dark_ratio(points):
-        total = dark = 0
-        for r, g, b in points:
-            total += 1
-            if max(r, g, b) < 42:
-                dark += 1
-        return dark / max(1, total)
+    # dark_mask[y][x] flattened: 1 if pixel dark.
+    dark = [1 if max(p) < dark_t else 0 for p in pixels]
 
-    top = list(rgb.crop((0, 0, w, band)).getdata())
-    bottom = list(rgb.crop((0, h - band, w, h)).getdata())
-    left = list(rgb.crop((0, 0, band, h)).getdata())
-    right = list(rgb.crop((w - band, 0, w, h)).getdata())
-    center = list(rgb.crop(center_box).getdata()) if center_box[2] > center_box[0] else []
-    border_dark = _dark_ratio(top + bottom + left + right)
-    center_dark = _dark_ratio(center)
+    row_dark = [0.0] * n
+    col_dark = [0.0] * n
+    col_sum = [0] * n
+    for y in range(n):
+        base = y * n
+        s = 0
+        for x in range(n):
+            d = dark[base + x]
+            s += d
+            col_sum[x] += d
+        row_dark[y] = s / n
+    for x in range(n):
+        col_dark[x] = col_sum[x] / n
+
+    band = max(2, int(n * _BLACK_FRAME_BAND_RATIO))
+    line_t = _BLACK_FRAME_LINE_T
+
+    # Largest dark idx near the low edge, smallest dark idx near the high edge.
+    def _deep_low(values):
+        idx = -1
+        for i in range(0, band):
+            if values[i] >= line_t:
+                idx = i
+        return idx
+
+    def _deep_high(values):
+        idx = -1
+        for i in range(n - 1, n - band - 1, -1):
+            if values[i] >= line_t:
+                idx = i
+        return idx
+
+    top_idx = _deep_low(row_dark)
+    bottom_idx = _deep_high(row_dark)
+    left_idx = _deep_low(col_dark)
+    right_idx = _deep_high(col_dark)
+
+    top_line = top_idx >= 0
+    bottom_line = bottom_idx >= 0
+    left_line = left_idx >= 0
+    right_line = right_idx >= 0
+
+    c0, c1 = int(n * 0.30), int(n * 0.70)
+    center_total = center_dark_n = 0
+    for y in range(c0, c1):
+        base = y * n
+        for x in range(c0, c1):
+            center_total += 1
+            center_dark_n += dark[base + x]
+    center_dark = center_dark_n / max(1, center_total)
+
+    edge_band = [
+        v
+        for i, v in enumerate(row_dark + col_dark)
+        if (i % n) < band or (i % n) >= n - band
+    ]
+    border_dark = sum(edge_band) / max(1, len(edge_band))
+
+    sides = left_line and right_line
+    horiz = top_line and bottom_line
+    ring = sides and horiz
+
+    # Structural frame = opposite dark LINES (both sides, or top+bottom, or full
+    # ring) with a light center. Dark lines are >=LINE_T dark by construction and
+    # the center is light, so no extra border>center margin gate is needed (which
+    # would wrongly reject thin 1px frames whose single line averages low).
+    structural = ring or sides or horiz
+    detected = structural and center_dark < 0.45
+
+    frame_type = ""
+    candidate_crop_box = None
+    if detected:
+        if ring:
+            edge_dark = (
+                row_dark[0] >= line_t
+                or row_dark[n - 1] >= line_t
+                or col_dark[0] >= line_t
+                or col_dark[n - 1] >= line_t
+            )
+            frame_type = "outer_border" if edge_dark else "inset_frame"
+        elif sides:
+            frame_type = "vertical_side_bars"
+        elif horiz:
+            frame_type = "horizontal_bars"
+
+        inner_l = (left_idx + 1) if left_line else 0
+        inner_t = (top_idx + 1) if top_line else 0
+        inner_r = (right_idx - 1) if right_line else n - 1
+        inner_b = (bottom_idx - 1) if bottom_line else n - 1
+        if inner_r - inner_l > n * 0.30 and inner_b - inner_t > n * 0.30:
+            candidate_crop_box = (
+                round(inner_l / n, 4),
+                round(inner_t / n, 4),
+                round((inner_r + 1) / n, 4),
+                round((inner_b + 1) / n, 4),
+            )
+
     return {
-        "detected": border_dark >= 0.35 and border_dark > center_dark + 0.20,
+        "detected": bool(detected),
+        "frame_type": frame_type,
         "border_dark_ratio": round(border_dark, 4),
         "center_dark_ratio": round(center_dark, 4),
+        "candidate_crop_box": candidate_crop_box,
     }
 
 
+def _has_visible_content(image_bytes: bytes) -> bool:
+    """True if image still has meaningful non-white content (garment survived)."""
+    try:
+        rgba = _open_rgba(image_bytes).resize((96, 96)).convert("RGBA")
+    except Exception:
+        return False
+    white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+    white.alpha_composite(rgba)
+    pixels = list(white.convert("RGB").getdata())
+    non_white = sum(
+        1 for r, g, b in pixels if not (r >= 244 and g >= 244 and b >= 244)
+    )
+    return (non_white / max(1, len(pixels))) > 0.003
+
+
 def _crop_black_frame(image_bytes: bytes) -> Tuple[bytes, bool]:
+    """Crop out a detected black frame/border/side bars to the inner content.
+
+    Uses the candidate crop box from ``_black_frame_metrics`` (inner region just
+    inside the frame). Falls back to a near-white bounding box for plain
+    borders. Only accepts the crop if the result no longer has a frame and the
+    garment is still visible. Returns (bytes, cropped)."""
     try:
         rgba = _open_rgba(image_bytes).convert("RGBA")
     except Exception:
         return image_bytes, False
 
-    white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
-    white.alpha_composite(rgba)
-    gray = white.convert("L")
-    mask = gray.point(lambda p: 255 if p > 38 else 0)
-    bbox = mask.getbbox()
-    if not bbox:
-        return image_bytes, False
     w, h = rgba.size
-    l, t, r, b = bbox
-    if l <= 2 and t <= 2 and r >= w - 2 and b >= h - 2:
-        return image_bytes, False
-    crop_w, crop_h = r - l, b - t
-    if crop_w < w * 0.35 or crop_h < h * 0.35:
-        return image_bytes, False
-    pad = max(8, int(min(w, h) * 0.015))
+    metrics = _black_frame_metrics(image_bytes)
+    box: Optional[Tuple[int, int, int, int]] = None
+
+    candidate = metrics.get("candidate_crop_box")
+    if candidate:
+        cl, ct, cr, cb = candidate
+        # Inset a hair further so the (anti-aliased) frame line itself is gone.
+        inset = 0.006
+        l = max(0, int(round((cl + inset) * w)))
+        t = max(0, int(round((ct + inset) * h)))
+        r = min(w, int(round((cr - inset) * w)))
+        b = min(h, int(round((cb - inset) * h)))
+        if r - l > w * 0.30 and b - t > h * 0.30:
+            box = (l, t, r, b)
+
+    if box is None:
+        # Fallback: trim toward the non-dark content bounding box.
+        white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+        white.alpha_composite(rgba)
+        gray = white.convert("L")
+        mask = gray.point(lambda p: 255 if p > 38 else 0)
+        bbox = mask.getbbox()
+        if not bbox:
+            return image_bytes, False
+        l, t, r, b = bbox
+        if r - l < w * 0.30 or b - t < h * 0.30:
+            return image_bytes, False
+        box = (l, t, r, b)
+
+    pad = max(6, int(min(w, h) * 0.012))
+    l, t, r, b = box
     box = (max(0, l - pad), max(0, t - pad), min(w, r + pad), min(h, b + pad))
     cropped = rgba.crop(box)
     canvas = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
-    scale = min((w * 0.92) / max(1, cropped.size[0]), (h * 0.92) / max(1, cropped.size[1]), 1.0)
+    scale = min(
+        (w * 0.92) / max(1, cropped.size[0]),
+        (h * 0.92) / max(1, cropped.size[1]),
+        1.0,
+    )
     resized = cropped.resize(
         (max(1, int(cropped.size[0] * scale)), max(1, int(cropped.size[1] * scale))),
         Image.Resampling.LANCZOS,
     )
     canvas.alpha_composite(resized, ((w - resized.size[0]) // 2, (h - resized.size[1]) // 2))
-    return _encode_png(canvas), True
+    out = _encode_png(canvas)
+
+    # Only accept if the frame is gone AND the garment survived.
+    if _black_frame_metrics(out).get("detected"):
+        return image_bytes, False
+    if not _has_visible_content(out):
+        return image_bytes, False
+    return out, True
 
 
 def score_catalog_quality(image_bytes: bytes, *, original_bytes: bytes = b"", item_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -659,12 +827,32 @@ def validate_catalog_png(image_bytes: bytes, *, original_bytes: bytes = b"", ite
         checks["image_size_valid"] = False
         checks["alpha_or_palette_mode"] = False
         checks["image_dimensions_valid"] = False
-    return {**score, **image_info, "ok": bool(score.get("ok")) and all(checks.values()), "checks": checks}
+
+    # Hard backstop: an unresolved baked-in black frame can never pass and is
+    # score-capped below the save threshold so demo relaxation cannot accept it.
+    frame = _black_frame_metrics(image_bytes)
+    checks["no_black_frame"] = not bool(frame.get("detected"))
+    result = {**score, **image_info, "checks": checks}
+    if frame.get("detected"):
+        result["score"] = min(int(result.get("score") or 0), 44)
+        result["reason"] = "black_frame_unresolved"
+        result["frame_type"] = frame.get("frame_type")
+        result["ok"] = False
+    else:
+        result["ok"] = bool(score.get("ok")) and all(checks.values())
+    return result
 
 
 def _vertex_demo_accepts_generated_validation(validation: Dict[str, Any]) -> bool:
     checks = validation.get("checks") or {}
     reason = str(validation.get("reason") or "").strip()
+    # Never accept a baked-in black frame, regardless of other signals.
+    if (
+        "black_frame" in reason
+        or reason in {"dark_side_bars", "inset_frame"}
+        or checks.get("no_black_frame") is False
+    ):
+        return False
     if reason.startswith("decode_failed") or reason in {
         "missing_garment_sections",
         "human_or_mannequin_remnants",
@@ -1136,9 +1324,10 @@ def generate_catalog_png(
             black_metrics = _black_frame_metrics(provider_result.image_bytes)
             if black_metrics.get("detected"):
                 logger.warning(
-                    "ahvi.capture.catalog.black_frame_detected item_id=%s provider=%s border_dark_ratio=%s center_dark_ratio=%s",
+                    "ahvi.capture.catalog.black_frame_detected item_id=%s provider=%s frame_type=%s border_dark_ratio=%s center_dark_ratio=%s",
                     meta.get("item_id"),
                     provider_result.provider,
+                    black_metrics.get("frame_type"),
                     black_metrics.get("border_dark_ratio"),
                     black_metrics.get("center_dark_ratio"),
                 )
@@ -1150,15 +1339,24 @@ def generate_catalog_png(
                         provider=provider_result.provider,
                     )
                     logger.info(
-                        "ahvi.capture.catalog.black_frame_cropped item_id=%s provider=%s",
+                        "ahvi.capture.catalog.black_frame_cropped item_id=%s provider=%s frame_type=%s",
                         meta.get("item_id"),
                         provider_result.provider,
+                        black_metrics.get("frame_type"),
                     )
                 else:
+                    if not cropped:
+                        logger.warning(
+                            "ahvi.capture.catalog.black_frame_crop_failed item_id=%s provider=%s frame_type=%s",
+                            meta.get("item_id"),
+                            provider_result.provider,
+                            black_metrics.get("frame_type"),
+                        )
                     logger.warning(
-                        "ahvi.capture.catalog.black_frame_rejected item_id=%s provider=%s",
+                        "ahvi.capture.catalog.black_frame_unresolved item_id=%s provider=%s frame_type=%s",
                         meta.get("item_id"),
                         provider_result.provider,
+                        black_metrics.get("frame_type"),
                     )
                     provider_result = CatalogProviderResult(
                         False,
