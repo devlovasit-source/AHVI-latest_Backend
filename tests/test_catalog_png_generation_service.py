@@ -944,7 +944,10 @@ def test_router_hook_approved_item_uses_nanobanana_and_normalized_url(monkeypatc
     assert item["catalogProvider"] == "nanobanana"
 
 
-def test_router_hook_passes_crop_risk_metadata_to_catalog_provider(monkeypatch):
+def test_router_hook_full_image_fallback_skips_provider_and_needs_review(monkeypatch):
+    # Full-image fallback (no clean single-garment crop) must NOT be sent to
+    # Nano Banana — stylizing a full-frame/body shot yields a board-like image.
+    # Skip generation and mark needs_review so the user re-shoots.
     from routers import wardrobe_capture as wc
 
     provider_calls = []
@@ -958,18 +961,9 @@ def test_router_hook_passes_crop_risk_metadata_to_catalog_provider(monkeypatch):
                 True, image_bytes=kwargs["cutout_bytes"], provider=self.name
             )
 
-    class _R2:
-        def upload_catalog_png(self, *, file_id, image_bytes):
-            return {
-                "catalog_png_file_name": f"catalog_{file_id}.png",
-                "catalog_png_url": f"https://cdn.test/catalog_{file_id}.png",
-                "normalized_url": f"https://cdn.test/catalog_{file_id}.png",
-            }
-
     monkeypatch.setenv("ENABLE_CATALOG_GENERATION", "true")
     monkeypatch.setenv("CATALOG_PROVIDER", "disabled")
     monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
-    monkeypatch.setattr(wc, "R2Storage", lambda: _R2())
 
     item = {
         "item_id": "shorts-risk-1",
@@ -988,9 +982,10 @@ def test_router_hook_passes_crop_risk_metadata_to_catalog_provider(monkeypatch):
 
     wc._maybe_generate_catalog_image(item)
 
-    assert provider_calls, "full_image_person_risk must force provider generation"
-    assert item["normalized_url"] == "https://cdn.test/catalog_shorts-risk-1.png"
-    assert item["catalogStatus"] == "catalog_generated"
+    assert provider_calls == [], "full_image_fallback must NOT call the provider"
+    assert item["catalogStatus"] == "catalog_skipped_full_frame"
+    assert item["needs_review"] is True
+    assert "normalized_url" not in item
 
 
 def test_persistence_payload_maps_catalog_png_to_normalized_url(monkeypatch):

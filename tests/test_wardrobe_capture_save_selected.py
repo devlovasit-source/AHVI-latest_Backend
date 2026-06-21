@@ -1169,6 +1169,63 @@ def test_generated_identity_drift_from_validation_rejected_at_score_90(monkeypat
     assert wc._save_selected_block_reason(item) == "identity_drift"
 
 
+def test_full_image_fallback_skips_catalog_generation_and_needs_review(monkeypatch):
+    # No-detection full-frame fallback must NOT be sent to Nano Banana (would
+    # stylize the whole scene into a board) — skip generation, mark needs_review.
+    import services.catalog_png_generation_service as pngsvc
+
+    monkeypatch.setenv("ENABLE_CATALOG_GENERATION", "true")
+    called = {"n": 0}
+
+    def _gen(*a, **k):
+        called["n"] += 1
+        return {"success": True, "status": "catalog_generated", "catalog_png_bytes": b"x",
+                "catalog_provider": "nanobanana", "catalog_quality_score": 90}
+
+    monkeypatch.setattr(pngsvc, "generate_catalog_png", _gen)
+
+    item = _item("fullframe-1")
+    item["category"] = "Outerwear"
+    item["crop_source"] = "full_image_fallback"
+    item["crop_quality"] = "full_image"
+
+    wc._maybe_generate_catalog_image(item)
+
+    assert called["n"] == 0, "Nano Banana must NOT run for full_image_fallback"
+    assert item["catalogStatus"] == "catalog_skipped_full_frame"
+    assert item["needs_review"] is True
+    wc._apply_display_image_fields(item)
+    assert wc._save_selected_block_reason(item) == "full_frame_needs_review"
+
+
+def test_full_image_fallback_is_not_saved(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setattr(wc, "_fetch_wardrobe_profile_gender", lambda user_id: "unknown")
+
+    def _catalog(item):
+        # Mirror the real hook's full-frame skip.
+        item["catalogStatus"] = "catalog_skipped_full_frame"
+        item["catalog_status"] = "catalog_skipped_full_frame"
+        item["needs_review"] = True
+        item["requires_manual_entry"] = True
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    item = _item("fullframe-2")
+    item["validation_status"] = "ok"
+    item["crop_source"] = "full_image_fallback"
+
+    result = wc.save_selected(
+        _Request(),
+        wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["fullframe-2"], detected_items=[item]),
+    )
+    assert result["saved_count"] == 0
+    assert persisted["items"] == []
+    assert result["dropped_reasons"][0]["reason"] == "full_frame_needs_review"
+
+
 def test_generated_high_color_distance_is_not_identity_drift(monkeypatch):
     # Regression: a large color_distance from regeneration must NOT reject a
     # legitimate patterned garment (paisley / distressed denim).

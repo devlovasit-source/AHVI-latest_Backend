@@ -1879,6 +1879,9 @@ def _save_selected_block_reason(item: Dict[str, Any]) -> str:
         generated_reason = _catalog_generated_block_reason(item, score, provider)
         if generated_reason:
             return generated_reason
+    elif status == "catalog_skipped_full_frame":
+        # No-detection full-frame fallback — never auto-save a board-like image.
+        return "full_frame_needs_review"
     elif status and status not in {
         "catalog_failed",
         "catalog_skipped_category",
@@ -1989,6 +1992,23 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
                 "ahvi.catalog.skip_category item_id=%s category_raw=%r category_norm=%s",
                 file_id,
                 category_raw,
+                category,
+            )
+            return
+        # Full-image fallback = Gemini detected no garment, so the whole photo is
+        # the "item". Sending that to Nano Banana stylizes the entire scene into a
+        # style-board-like image. Don't catalog it — mark needs_review so the user
+        # re-shoots a clean single-garment photo instead of auto-saving a board.
+        _crop_source = str(item.get("crop_source") or item.get("cropSource") or "").strip().lower()
+        if _crop_source == "full_image_fallback":
+            item["catalogStatus"] = "catalog_skipped_full_frame"
+            item["catalog_status"] = "catalog_skipped_full_frame"
+            item["needs_review"] = True
+            item["requires_manual_entry"] = True
+            item["_catalog_done"] = True
+            logger.info(
+                "ahvi.catalog.skip_full_frame item_id=%s category=%s reason=no_detection_full_image_fallback",
+                file_id,
                 category,
             )
             return
@@ -3834,6 +3854,11 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
                         "ahvi.capture.save_selected.skipped_hard_blocker item_id=%s reason=%s",
                         item.get("item_id"),
                         block_reason,
+                    )
+                elif block_reason == "full_frame_needs_review":
+                    logger.warning(
+                        "ahvi.capture.save_selected.skipped_full_frame_needs_review item_id=%s",
+                        item.get("item_id"),
                     )
                 elif block_reason == "missing_normalized_url":
                     logger.warning(
