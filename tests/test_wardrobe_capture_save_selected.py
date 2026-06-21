@@ -1157,7 +1157,9 @@ def test_generated_orientation_invalid_from_validation_rejected_at_score_90(monk
 
 
 def test_generated_identity_drift_from_validation_rejected_at_score_90(monkeypatch):
-    val = {"checks": {}, "reason": "", "color_distance": 260, "score": 90}
+    # identity_drift fires only on an explicit wrong-garment signal — NOT on
+    # color_distance (Nano Banana legitimately recolors patterned garments).
+    val = {"checks": {}, "reason": "wrong_garment_type", "score": 90}
     _wire_generate_catalog_png(monkeypatch, validation=val)
     item = _item("vdrift-1")
     item["category"] = "Tops"
@@ -1165,6 +1167,19 @@ def test_generated_identity_drift_from_validation_rejected_at_score_90(monkeypat
     wc._apply_display_image_fields(item)
 
     assert wc._save_selected_block_reason(item) == "identity_drift"
+
+
+def test_generated_high_color_distance_is_not_identity_drift(monkeypatch):
+    # Regression: a large color_distance from regeneration must NOT reject a
+    # legitimate patterned garment (paisley / distressed denim).
+    val = {"checks": {"no_human": True, "orientation_upright": True}, "reason": "", "color_distance": 260, "score": 64}
+    _wire_generate_catalog_png(monkeypatch, validation=val, score=64)
+    item = _item("vpattern-1")
+    item["category"] = "Tops"
+    wc._maybe_generate_catalog_image(item)
+    wc._apply_display_image_fields(item)
+
+    assert wc._save_selected_block_reason(item) == ""
 
 
 def test_generated_clean_apparel_from_validation_saves_at_score_62(monkeypatch):

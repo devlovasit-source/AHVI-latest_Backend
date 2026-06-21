@@ -1784,16 +1784,15 @@ def _catalog_orientation_invalid(item: Dict[str, Any]) -> bool:
 
 
 def _catalog_identity_drift(item: Dict[str, Any]) -> bool:
+    # NOTE: color_distance is intentionally NOT used here. Nano Banana
+    # regenerates the garment, so a moderate color/pattern shift is expected and
+    # legitimate (e.g. paisley prints, distressed denim). Gating identity_drift
+    # on color_distance falsely rejected good patterned garments, so identity
+    # drift now fires only on explicit wrong-garment signals.
     if _truthy_flag(item.get("identity_drift")) or _truthy_flag(item.get("wrong_garment")):
         return True
     v = _catalog_validation_obj(item)
-    if str(v.get("reason") or "").strip() in {"identity_drift", "wrong_garment_type"}:
-        return True
-    cd = v.get("color_distance")
-    try:
-        return cd is not None and float(cd) > 200
-    except Exception:
-        return False
+    return str(v.get("reason") or "").strip() in {"identity_drift", "wrong_garment_type"}
 
 
 def _catalog_generated_hard_block(item: Dict[str, Any]) -> str:
