@@ -179,11 +179,29 @@ CANONICAL_CATEGORY_KEYWORDS: List[Tuple[str, str, List[str]]] = [
 CANONICAL_CATEGORIES: set[str] = {row[0] for row in CANONICAL_CATEGORY_KEYWORDS}
 
 
+_TSHIRT_EXCLUSION_RE = re.compile(
+    r"\b(polo|collared|collar|button[- ]?down|buttoned|formal|dress shirt|oxford|kurta|blouse|sweatshirt|hoodie)\b"
+)
+_TSHIRT_SIGNAL_RE = re.compile(
+    r"\b(t[- ]?shirt|tshirt|tee|crew neck|round neck|no collar|no buttons|casual knit top|short cap sleeve)\b"
+)
+
+
+def _is_tshirt_label(raw: str) -> bool:
+    if not raw:
+        return False
+    if _TSHIRT_EXCLUSION_RE.search(raw):
+        return False
+    return bool(_TSHIRT_SIGNAL_RE.search(raw))
+
+
 def normalize_category_from_label(label: str) -> Tuple[str, str]:
     """Best-effort label -> (category, sub_category) mapping for capture."""
     raw = (label or "").strip().lower()
     if not raw:
         return ("Item", "Item")
+    if _is_tshirt_label(raw):
+        return ("Tops", "T-Shirt")
     for category, default_sub, keywords in CANONICAL_CATEGORY_KEYWORDS:
         if any(keyword in raw for keyword in keywords):
             sub = raw.title() or default_sub

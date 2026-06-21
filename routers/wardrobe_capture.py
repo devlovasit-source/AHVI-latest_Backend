@@ -1283,6 +1283,58 @@ def _catalog_generation_enabled() -> bool:
     )
 
 
+_BLOCKED_CATALOG_STATUSES = {
+    "blocked_unsafe_fallback",
+    "failed_unsafe_catalog",
+    "blocked_blank_catalog",
+    "blocked_black_frame",
+}
+
+
+def _apply_display_image_fields(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Expose catalog-first display hints without requiring new Appwrite fields."""
+    if not isinstance(item, dict):
+        return item
+    status = str(item.get("catalogStatus") or item.get("catalog_status") or "").strip()
+    provider = str(item.get("catalogProvider") or item.get("catalog_provider") or item.get("regen_provider") or "").strip()
+    normalized = str(item.get("normalized_url") or item.get("normalizedUrl") or "").strip()
+    masked = str(item.get("masked_url") or item.get("maskedUrl") or "").strip()
+    original = str(
+        item.get("image_url")
+        or item.get("imageUrl")
+        or item.get("raw_url")
+        or item.get("rawUrl")
+        or item.get("url")
+        or ""
+    ).strip()
+
+    display_url = ""
+    display_source = ""
+    if status == "catalog_generated" and normalized:
+        display_url = normalized
+        display_source = "catalog"
+    elif masked:
+        display_url = masked
+        display_source = "masked_fallback" if status in {"fallback_cutout", "catalog_ready", "catalog_failed", "catalog_skipped_category"} else "masked"
+    elif normalized:
+        display_url = normalized
+        display_source = "catalog" if status == "catalog_generated" else "normalized"
+    elif original:
+        display_url = original
+        display_source = "original"
+
+    if display_url:
+        item["display_image_url"] = display_url
+        item["displayImageUrl"] = display_url
+        item["display_image_source"] = display_source
+        item["displayImageSource"] = display_source
+    if status:
+        item["catalog_status"] = status
+    if provider:
+        item["catalog_provider"] = provider
+    return item
+
+
 def _resolve_catalog_source_bytes(item: Dict[str, Any]) -> tuple[bytes, str]:
     """Find usable image bytes for catalog generation, regardless of whether
     RMBG cleanup ran. Order: inline masked b64 -> inline raw b64 -> fetch a
@@ -1401,6 +1453,8 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
                 status = str(result.get("status") or "catalog_failed")
                 item["catalogStatus"] = status
                 item["catalog_status"] = status
+                item["catalogProvider"] = result.get("catalog_provider")
+                item["catalog_provider"] = result.get("catalog_provider")
                 item["_catalog_done"] = True
                 logger.info(
                     "ahvi.catalog_png.failed item_id=%s category=%s reason=%s",
@@ -1430,12 +1484,15 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
                 item["normalized_url"] = catalog_png_url
                 item["normalizedUrl"] = catalog_png_url
             item["catalogStatus"] = status
+            item["catalog_status"] = status
             item["catalog_ready"] = status in {"catalog_ready", "catalog_generated", "fallback_cutout"}
             item["catalogQualityScore"] = result.get("catalog_quality_score")
             item["catalogProvider"] = result.get("catalog_provider")
+            item["catalog_provider"] = result.get("catalog_provider")
             item["regen_provider"] = result.get("catalog_provider")
             item["catalogRotationApplied"] = int(result.get("rotation_applied") or 0)
             item["_catalog_done"] = True
+            _apply_display_image_fields(item)
             logger.info(
                 "ahvi.catalog_png.uploaded item_id=%s category=%s status=%s provider=%s score=%s normalized_url=%s masked_url=%s",
                 file_id,
@@ -2510,7 +2567,73 @@ _WORKS_WITH_CATEGORIES = {
     "outerwear": ["Tops", "Bottoms", "Footwear"],
     "footwear": ["Tops", "Bottoms", "Dresses"],
     "bags": ["Dresses", "Tops", "Outerwear"],
+    "jewelry": ["Tops", "Dresses", "Outerwear", "Traditional", "Ethnic Wear"],
+    "jewellery": ["Tops", "Dresses", "Outerwear", "Traditional", "Ethnic Wear"],
+    "accessories": ["Tops", "Dresses", "Outerwear", "Traditional", "Ethnic Wear", "Bags"],
+    "traditional": ["Jewelry", "Accessories", "Bags", "Footwear", "Outerwear"],
+    "ethnic wear": ["Jewelry", "Accessories", "Bags", "Footwear", "Outerwear"],
 }
+
+
+def _works_with_blob(item: Dict[str, Any]) -> str:
+    return " ".join(
+        str(item.get(k) or "")
+        for k in ("name", "category", "sub_category", "subcategory", "tags", "style_tags", "occasion")
+    ).lower()
+
+
+def _works_with_is_ethnic(item: Dict[str, Any]) -> bool:
+    blob = _works_with_blob(item)
+    return any(
+        token in blob
+        for token in (
+            "ethnic",
+            "traditional",
+            "saree",
+            "lehenga",
+            "kurta",
+            "sherwani",
+            "bandhgala",
+            "nehru",
+            "dupatta",
+        )
+    )
+
+
+def _works_with_bad_ethnic_pair(item: Dict[str, Any]) -> bool:
+    blob = _works_with_blob(item)
+    return any(
+        token in blob
+        for token in (
+            "loafer",
+            "leather shoe",
+            "sneaker",
+            "trainer",
+            "running",
+            "oxford",
+            "derby",
+            "office belt",
+            "laptop",
+            "backpack",
+        )
+    )
+
+
+def _works_with_score(anchor: Dict[str, Any], candidate: Dict[str, Any]) -> int:
+    score = 0
+    blob = _works_with_blob(candidate)
+    if _works_with_is_ethnic(anchor):
+        if any(t in blob for t in ("jewelry", "jewellery", "necklace", "earring", "bangle", "bracelet")):
+            score += 40
+        if any(t in blob for t in ("clutch", "potli", "pouch")):
+            score += 35
+        if any(t in blob for t in ("jutti", "jutti", "mojari", "kolhapuri", "ethnic sandal", "dressy flat")):
+            score += 35
+        if any(t in blob for t in ("dupatta", "stole", "brooch")):
+            score += 25
+    if any(t in blob for t in ("formal", "dressy", "polished", "classic")):
+        score += 8
+    return score
 
 
 @wardrobe_router.get("/{item_id}/works-with")
@@ -2525,6 +2648,8 @@ def get_works_with(item_id: str, http_request: Request):
 
     cat = str(doc.get("category") or "").strip().lower()
     want = {c.lower() for c in _WORKS_WITH_CATEGORIES.get(cat, [])}
+    anchor_is_ethnic = _works_with_is_ethnic(doc)
+    anchor_is_accessory = cat in {"accessories", "jewelry", "jewellery"}
 
     matches: List[Dict[str, Any]] = []
     try:
@@ -2539,15 +2664,28 @@ def get_works_with(item_id: str, http_request: Request):
             rcat = str(row.get("category") or "").strip().lower()
             if want and rcat not in want:
                 continue
+            if anchor_is_accessory and rcat == "bottoms":
+                continue
+            if anchor_is_ethnic and _works_with_bad_ethnic_pair(row):
+                continue
+            image_url = (
+                row.get("normalized_url")
+                or row.get("masked_url")
+                or row.get("image_url")
+            )
             matches.append({
                 "item_id": rid,
                 "name": row.get("name") or row.get("sub_category") or row.get("category"),
                 "category": row.get("category"),
-                "image_url": row.get("masked_url") or row.get("image_url") or row.get("normalized_url"),
+                "image_url": image_url,
+                "_score": _works_with_score(doc, row),
             })
     except Exception as exc:
         logger.warning("works_with lookup failed user_id=%s err=%s", user_id, exc)
 
+    matches.sort(key=lambda item: int(item.get("_score") or 0), reverse=True)
+    for item in matches:
+        item.pop("_score", None)
     return {"matches": matches[:6], "count": len(matches)}
 
 
@@ -2933,16 +3071,21 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
                 catalog_succeeded_count += 1
             elif status == "fallback_cutout":
                 catalog_fallback_count += 1
-            elif status == "blocked_unsafe_fallback":
+            elif status in _BLOCKED_CATALOG_STATUSES:
                 catalog_failed_count += 1
                 item_id = str(item.get("item_id") or "").strip()
                 if item_id:
                     unsafe_catalog_skipped_ids.add(item_id)
                 item["validation_status"] = "rejected"
-                item["rejection_reason"] = "unsafe_catalog_generation_failed"
+                item["rejection_reason"] = (
+                    "unsafe_catalog_generation_failed"
+                    if status in {"blocked_unsafe_fallback", "failed_unsafe_catalog"}
+                    else "blank_catalog_image"
+                )
                 logger.warning(
-                    "ahvi.capture.save_selected.skipped_unsafe_catalog item_id=%s",
+                    "ahvi.capture.save_selected.skipped_unsafe_catalog item_id=%s status=%s",
                     item.get("item_id"),
+                    status,
                 )
                 if item_id:
                     unsafe_catalog_skipped_items[item_id] = dict(item)
@@ -2961,7 +3104,9 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
                 repr(exc)[:160],
             )
 
-        normalized_items.append(apply_metadata_guard(item, source="save_selected_request"))
+        normalized_items.append(
+            apply_metadata_guard(_apply_display_image_fields(item), source="save_selected_request")
+        )
 
     if unsafe_catalog_skipped_ids:
         approved_selected_ids = [

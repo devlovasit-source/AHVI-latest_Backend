@@ -25,6 +25,23 @@ def _opaque_product_png(w=900, h=900, color=(40, 90, 200), margin=0.18):
     return b.getvalue()
 
 
+def _black_frame_png(w=900, h=900):
+    im = Image.new("RGB", (w, h), (0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.rectangle([w * 0.12, h * 0.12, w * 0.88, h * 0.88], fill=(250, 250, 250))
+    d.rectangle([w * 0.35, h * 0.20, w * 0.65, h * 0.82], fill=(30, 90, 180))
+    b = io.BytesIO()
+    im.save(b, "PNG")
+    return b.getvalue()
+
+
+def _blank_png(w=900, h=900):
+    im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    b = io.BytesIO()
+    im.save(b, "PNG")
+    return b.getvalue()
+
+
 def _data_uri(png_bytes):
     return "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
 
@@ -134,6 +151,61 @@ def test_nanobanana_provider_bypasses_quality_gate_cutout(monkeypatch):
     assert calls, "nanobanana must run even when the cutout quality gate is ok"
     assert result["status"] == "catalog_generated"
     assert result["catalog_provider"] == "nanobanana"
+
+
+def test_nanobanana_black_frame_output_is_cropped_before_acceptance(monkeypatch):
+    class _Provider(pngsvc.CatalogProvider):
+        name = "nanobanana"
+
+        def generate(self, **kwargs):
+            return pngsvc.CatalogProviderResult(
+                True,
+                image_bytes=_black_frame_png(),
+                provider=self.name,
+            )
+
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        provider="nanobanana",
+        item_metadata={"item_id": "black-frame-1", "name": "Blue Shirt", "category": "Tops"},
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "catalog_generated"
+    assert result["catalog_provider"] == "nanobanana"
+    assert pngsvc._black_frame_metrics(result["catalog_png_bytes"])["detected"] is False
+
+
+def test_nanobanana_blank_jewelry_output_blocks_cutout_fallback(monkeypatch):
+    class _Provider(pngsvc.CatalogProvider):
+        name = "nanobanana"
+
+        def generate(self, **kwargs):
+            return pngsvc.CatalogProviderResult(
+                True,
+                image_bytes=_blank_png(),
+                provider=self.name,
+            )
+
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(color=(230, 210, 120, 255)),
+        provider="nanobanana",
+        item_metadata={
+            "item_id": "blank-jewelry-1",
+            "name": "Gold Necklace",
+            "category": "Jewelry",
+        },
+    )
+
+    assert result["success"] is False
+    assert result["status"] == "blocked_blank_catalog"
+    assert result["catalog_provider"] == "nanobanana"
+    assert result["reason"] in {"blank_transparent_catalog", "blank_flat_catalog", "tiny_accessory_catalog"}
+    assert "catalog_png_bytes" not in result
 
 
 def test_cutout_provider_can_still_use_quality_gate(monkeypatch):

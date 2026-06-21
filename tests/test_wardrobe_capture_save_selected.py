@@ -256,6 +256,38 @@ def test_save_selected_skips_unsafe_catalog_generation_failure(monkeypatch):
     assert result["dropped_reasons"][0]["reason"] == "unsafe_catalog_generation_failed"
 
 
+def test_save_selected_skips_blank_catalog_generation_failure(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+
+    def _catalog(item):
+        item["catalogStatus"] = "blocked_blank_catalog"
+        item["catalogProvider"] = "nanobanana"
+        item["catalog_reason"] = "blank_transparent_catalog"
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    blank = _item("blank")
+    blank["validation_status"] = "ok"
+    blank["category"] = "Jewelry"
+    blank["sub_category"] = "Necklace"
+
+    request = wc.SaveSelectedRequest(
+        user_id="user-1",
+        selected_item_ids=["blank"],
+        detected_items=[blank],
+    )
+
+    result = wc.save_selected(_Request(), request)
+
+    assert result["success"] is True
+    assert result["saved_count"] == 0
+    assert persisted["items"] == []
+    assert result["dropped_count"] == 1
+    assert result["dropped_reasons"][0]["reason"] == "blank_catalog_image"
+
+
 def test_save_selected_keeps_clean_catalog_fallback(monkeypatch):
     async def _remove_bg(raw):
         return b"masked-" + raw
@@ -283,3 +315,35 @@ def test_save_selected_keeps_clean_catalog_fallback(monkeypatch):
     assert result["saved_count"] == 1
     assert [i["item_id"] for i in persisted["items"]] == ["clean"]
     assert persisted["items"][0]["catalogStatus"] == "fallback_cutout"
+    assert persisted["items"][0]["display_image_url"] == persisted["items"][0]["masked_url"]
+    assert persisted["items"][0]["display_image_source"] == "masked_fallback"
+
+
+def test_save_selected_catalog_generated_uses_normalized_display_url(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+
+    def _catalog(item):
+        item["catalogStatus"] = "catalog_generated"
+        item["catalogProvider"] = "nanobanana"
+        item["normalized_url"] = "https://normalized.test/catalog-clean.png"
+        item["normalizedUrl"] = item["normalized_url"]
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    clean = _item("clean")
+    clean["validation_status"] = "ok"
+
+    request = wc.SaveSelectedRequest(
+        user_id="user-1",
+        selected_item_ids=["clean"],
+        detected_items=[clean],
+    )
+
+    result = wc.save_selected(_Request(), request)
+
+    assert result["success"] is True
+    assert result["saved_count"] == 1
+    assert persisted["items"][0]["display_image_url"] == "https://normalized.test/catalog-clean.png"
+    assert persisted["items"][0]["display_image_source"] == "catalog"

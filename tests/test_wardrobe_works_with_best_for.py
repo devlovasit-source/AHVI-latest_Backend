@@ -73,6 +73,49 @@ def test_works_with_excludes_current_item(monkeypatch):
     assert ids == {"t-1"}
 
 
+def test_works_with_jewelry_pairs_with_wearable_anchors_not_pants(monkeypatch):
+    monkeypatch.setattr(
+        wc,
+        "_ahvi_fetch_outfit_doc",
+        lambda _id: {"category": "Jewelry", "name": "Gold Necklace", "userId": "u1"},
+    )
+    _FakeProxy.rows = [
+        {"$id": "p-1", "category": "Bottoms", "name": "Blue Pants", "masked_url": "pants"},
+        {"$id": "d-1", "category": "Dresses", "name": "Black Dress", "normalized_url": "dress"},
+        {"$id": "o-1", "category": "Outerwear", "name": "Nehru Jacket", "masked_url": "jacket"},
+    ]
+    monkeypatch.setattr(wc, "AppwriteProxy", _FakeProxy)
+
+    result = wc.get_works_with("necklace-1", _FakeHttpRequest())
+
+    names = {m["name"] for m in result["matches"]}
+    assert "Blue Pants" not in names
+    assert names == {"Black Dress", "Nehru Jacket"}
+    assert next(m for m in result["matches"] if m["name"] == "Black Dress")["image_url"] == "dress"
+
+
+def test_works_with_ethnic_anchor_blocks_bad_footwear_backfills(monkeypatch):
+    monkeypatch.setattr(
+        wc,
+        "_ahvi_fetch_outfit_doc",
+        lambda _id: {"category": "Traditional", "name": "Ivory Kurta Set", "userId": "u1"},
+    )
+    _FakeProxy.rows = [
+        {"$id": "l-1", "category": "Footwear", "name": "Black Leather Loafers"},
+        {"$id": "s-1", "category": "Footwear", "name": "White Sneakers"},
+        {"$id": "j-1", "category": "Footwear", "name": "Brown Mojaris"},
+        {"$id": "b-1", "category": "Bags", "name": "Gold Potli Bag"},
+    ]
+    monkeypatch.setattr(wc, "AppwriteProxy", _FakeProxy)
+
+    result = wc.get_works_with("kurta-1", _FakeHttpRequest())
+
+    names = [m["name"] for m in result["matches"]]
+    assert "Black Leather Loafers" not in names
+    assert "White Sneakers" not in names
+    assert names == ["Brown Mojaris", "Gold Potli Bag"]
+
+
 # ---------- best-for: from enrich_wardrobe_item metadata ----------
 
 def test_best_for_uses_enrich_metadata(monkeypatch):

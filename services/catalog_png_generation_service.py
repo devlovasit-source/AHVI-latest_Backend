@@ -425,6 +425,119 @@ def _skin_ratio(img: Image.Image) -> float:
     return round(skin / visible, 4) if visible else 0.0
 
 
+def _is_jewelry_or_accessory(category: Any) -> bool:
+    cat = normalize_catalog_category(category)
+    return cat in {"accessory", "jewellery", "jewelry", "bag", "watch"}
+
+
+def _catalog_blank_reason(image_bytes: bytes, category: Any) -> str:
+    """Reject empty/flat provider outputs before they become wardrobe assets."""
+    try:
+        rgba = _open_rgba(image_bytes)
+    except Exception as exc:  # noqa: BLE001
+        return f"decode_failed:{exc}"
+
+    small = rgba.resize((96, 96)).convert("RGBA")
+    pixels = list(small.getdata())
+    visible = [p for p in pixels if p[3] > 16]
+    if not visible:
+        return "blank_transparent_catalog"
+
+    # Opaque provider outputs can be valid on a white studio background. Treat
+    # the image as blank only when there is effectively no non-background detail.
+    non_white = [
+        p for p in visible
+        if not (p[0] >= 244 and p[1] >= 244 and p[2] >= 244)
+    ]
+    non_white_ratio = len(non_white) / max(1, len(visible))
+    alpha_visible_ratio = len(visible) / float(96 * 96)
+
+    if alpha_visible_ratio < 0.002:
+        return "blank_transparent_catalog"
+    if non_white_ratio < 0.003:
+        return "blank_flat_catalog"
+
+    if _is_jewelry_or_accessory(category):
+        bbox = small.getchannel("A").getbbox()
+        if bbox:
+            l, t, r, b = bbox
+            bbox_ratio = ((r - l) * (b - t)) / float(96 * 96)
+        else:
+            bbox_ratio = 0.0
+        if non_white_ratio < 0.01 or bbox_ratio < 0.006:
+            return "tiny_accessory_catalog"
+
+    return ""
+
+
+def _black_frame_metrics(image_bytes: bytes) -> Dict[str, Any]:
+    try:
+        rgba = _open_rgba(image_bytes).resize((160, 160)).convert("RGBA")
+    except Exception:
+        return {"detected": False, "border_dark_ratio": 0.0, "center_dark_ratio": 0.0}
+
+    white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+    white.alpha_composite(rgba)
+    rgb = white.convert("RGB")
+    w, h = rgb.size
+    band = max(4, int(min(w, h) * 0.08))
+    center_box = (band * 2, band * 2, w - band * 2, h - band * 2)
+
+    def _dark_ratio(points):
+        total = dark = 0
+        for r, g, b in points:
+            total += 1
+            if max(r, g, b) < 42:
+                dark += 1
+        return dark / max(1, total)
+
+    top = list(rgb.crop((0, 0, w, band)).getdata())
+    bottom = list(rgb.crop((0, h - band, w, h)).getdata())
+    left = list(rgb.crop((0, 0, band, h)).getdata())
+    right = list(rgb.crop((w - band, 0, w, h)).getdata())
+    center = list(rgb.crop(center_box).getdata()) if center_box[2] > center_box[0] else []
+    border_dark = _dark_ratio(top + bottom + left + right)
+    center_dark = _dark_ratio(center)
+    return {
+        "detected": border_dark >= 0.35 and border_dark > center_dark + 0.20,
+        "border_dark_ratio": round(border_dark, 4),
+        "center_dark_ratio": round(center_dark, 4),
+    }
+
+
+def _crop_black_frame(image_bytes: bytes) -> Tuple[bytes, bool]:
+    try:
+        rgba = _open_rgba(image_bytes).convert("RGBA")
+    except Exception:
+        return image_bytes, False
+
+    white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+    white.alpha_composite(rgba)
+    gray = white.convert("L")
+    mask = gray.point(lambda p: 255 if p > 38 else 0)
+    bbox = mask.getbbox()
+    if not bbox:
+        return image_bytes, False
+    w, h = rgba.size
+    l, t, r, b = bbox
+    if l <= 2 and t <= 2 and r >= w - 2 and b >= h - 2:
+        return image_bytes, False
+    crop_w, crop_h = r - l, b - t
+    if crop_w < w * 0.35 or crop_h < h * 0.35:
+        return image_bytes, False
+    pad = max(8, int(min(w, h) * 0.015))
+    box = (max(0, l - pad), max(0, t - pad), min(w, r + pad), min(h, b + pad))
+    cropped = rgba.crop(box)
+    canvas = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+    scale = min((w * 0.92) / max(1, cropped.size[0]), (h * 0.92) / max(1, cropped.size[1]), 1.0)
+    resized = cropped.resize(
+        (max(1, int(cropped.size[0] * scale)), max(1, int(cropped.size[1] * scale))),
+        Image.Resampling.LANCZOS,
+    )
+    canvas.alpha_composite(resized, ((w - resized.size[0]) // 2, (h - resized.size[1]) // 2))
+    return _encode_png(canvas), True
+
+
 def score_catalog_quality(image_bytes: bytes, *, original_bytes: bytes = b"", item_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     try:
         img = _open_rgba(image_bytes)
@@ -1006,6 +1119,54 @@ def generate_catalog_png(
         )
         fallback_used = True
     if provider_result.success and provider_result.image_bytes:
+        blank_reason = _catalog_blank_reason(provider_result.image_bytes, category)
+        if blank_reason:
+            logger.warning(
+                "ahvi.capture.catalog.blank_image_detected item_id=%s provider=%s reason=%s",
+                meta.get("item_id"),
+                provider_result.provider,
+                blank_reason,
+            )
+            provider_result = CatalogProviderResult(
+                False,
+                reason=blank_reason,
+                provider=provider_result.provider or provider_obj.name,
+            )
+        else:
+            black_metrics = _black_frame_metrics(provider_result.image_bytes)
+            if black_metrics.get("detected"):
+                logger.warning(
+                    "ahvi.capture.catalog.black_frame_detected item_id=%s provider=%s border_dark_ratio=%s center_dark_ratio=%s",
+                    meta.get("item_id"),
+                    provider_result.provider,
+                    black_metrics.get("border_dark_ratio"),
+                    black_metrics.get("center_dark_ratio"),
+                )
+                cropped_bytes, cropped = _crop_black_frame(provider_result.image_bytes)
+                if cropped and not _catalog_blank_reason(cropped_bytes, category):
+                    provider_result = CatalogProviderResult(
+                        True,
+                        image_bytes=cropped_bytes,
+                        provider=provider_result.provider,
+                    )
+                    logger.info(
+                        "ahvi.capture.catalog.black_frame_cropped item_id=%s provider=%s",
+                        meta.get("item_id"),
+                        provider_result.provider,
+                    )
+                else:
+                    logger.warning(
+                        "ahvi.capture.catalog.black_frame_rejected item_id=%s provider=%s",
+                        meta.get("item_id"),
+                        provider_result.provider,
+                    )
+                    provider_result = CatalogProviderResult(
+                        False,
+                        reason="black_frame_rejected",
+                        provider=provider_result.provider or provider_obj.name,
+                    )
+
+    if provider_result.success and provider_result.image_bytes:
         if provider_result.provider == "nanobanana":
             logger.info(
                 "ahvi.capture.catalog.nanobanana.success item_id=%s category=%s",
@@ -1096,7 +1257,39 @@ def generate_catalog_png(
             "elapsed_ms": int((time.monotonic() - t0) * 1000),
         }
 
+    if provider_obj.name == "nanobanana" and provider_result.reason in {
+        "blank_transparent_catalog",
+        "blank_flat_catalog",
+        "tiny_accessory_catalog",
+        "black_frame_rejected",
+    }:
+        logger.warning(
+            "ahvi.capture.catalog.blank_fallback_blocked item_id=%s reason=%s",
+            meta.get("item_id"),
+            provider_result.reason,
+        )
+        return {
+            "success": False,
+            "status": "blocked_blank_catalog",
+            "catalog_provider": "nanobanana",
+            "catalog_quality_score": int(deterministic_validation.get("score") or 0),
+            "catalog_generation_version": CATALOG_GENERATION_VERSION,
+            "catalog_generated_at": _now_iso(),
+            "rotation_applied": rotation,
+            "foreground_bounds": bounds,
+            "validation": deterministic_validation,
+            "reason": provider_result.reason,
+            "fallback_used": False,
+            "elapsed_ms": int((time.monotonic() - t0) * 1000),
+        }
+
     if fallback:
+        if provider_result.reason == "black_frame_rejected":
+            logger.info(
+                "ahvi.capture.catalog.black_frame_fallback_masked item_id=%s provider=%s",
+                meta.get("item_id"),
+                provider_result.provider or provider_obj.name,
+            )
         logger.info(
             "ahvi.capture.catalog.fallback_cutout item_id=%s provider=%s used=true reason=%s",
             meta.get("item_id"),
