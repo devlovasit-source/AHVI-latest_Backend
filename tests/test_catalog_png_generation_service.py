@@ -222,7 +222,9 @@ def test_clean_cutout_generates_transparent_catalog_png_without_provider(monkeyp
     assert img.getpixel((0, 0))[3] == 0
 
 
-def test_flat_lay_quality_gate_ok_saves_without_nanobanana(monkeypatch):
+def test_flat_lay_quality_gate_ok_still_invokes_nanobanana(monkeypatch):
+    # Routing rule: a clean flat-lay (quality_gate_ok) MUST still go through
+    # Nano Banana when the provider is nanobanana. Cutout is fallback only.
     calls = []
 
     class _Provider(pngsvc.CatalogProvider):
@@ -249,37 +251,42 @@ def test_flat_lay_quality_gate_ok_saves_without_nanobanana(monkeypatch):
         },
     )
 
-    assert calls == []
-    assert result["status"] == "catalog_ready"
-    assert result["catalog_provider"] == "cutout"
-    assert result["catalog_quality_score"] >= 80
+    assert calls, "nanobanana must run even when the cutout quality gate is ok"
+    assert result["status"] == "catalog_generated"
+    assert result["catalog_provider"] == "nanobanana"
 
 
-def test_quality_gate_ok_does_not_log_quality_gate_failed(monkeypatch, caplog):
+def test_quality_gate_ok_still_runs_provider_for_nanobanana(monkeypatch):
+    calls = []
+
     class _Provider(pngsvc.CatalogProvider):
         name = "nanobanana"
 
         def generate(self, **kwargs):
-            raise AssertionError("provider should not run for quality-gate-ok flat lay")
+            calls.append(kwargs)
+            return pngsvc.CatalogProviderResult(
+                True, image_bytes=kwargs["cutout_bytes"], provider=self.name
+            )
 
     monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
     monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
 
-    with caplog.at_level("INFO"):
-        result = pngsvc.generate_catalog_png(
-            _garment_png(),
-            item_metadata={
-                "item_id": "quality-ok-log-1",
-                "name": "Yellow T-Shirt",
-                "category": "Tops",
-            },
-        )
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={
+            "item_id": "quality-ok-log-1",
+            "name": "Yellow T-Shirt",
+            "category": "Tops",
+        },
+    )
 
-    assert result["status"] == "catalog_ready"
-    assert "quality_gate_failed" not in "\n".join(caplog.messages)
+    assert calls, "nanobanana must run for a clean flat-lay"
+    assert result["status"] == "catalog_generated"
 
 
-def test_fallback_cutout_true_does_not_force_provider_when_quality_ok(monkeypatch):
+def test_fallback_cutout_true_still_generates_when_quality_ok(monkeypatch):
+    # fallback_to_cutout only governs what happens AFTER generation fails; it
+    # must not skip generation for a clean nanobanana flat-lay.
     calls = []
 
     class _Provider(pngsvc.CatalogProvider):
@@ -298,9 +305,31 @@ def test_fallback_cutout_true_does_not_force_provider_when_quality_ok(monkeypatc
         fallback_to_cutout=True,
     )
 
-    assert calls == []
-    assert result["status"] == "catalog_ready"
-    assert result["catalog_provider"] == "cutout"
+    assert calls, "generation must run even with fallback enabled on a clean flat-lay"
+    assert result["status"] == "catalog_generated"
+    assert result["catalog_provider"] == "nanobanana"
+
+
+def test_clean_flatlay_generation_failure_no_fallback_does_not_save_cutout(monkeypatch):
+    # Generation fails + fallback disabled -> must NOT silently save raw/cutout.
+    class _Provider(pngsvc.CatalogProvider):
+        name = "nanobanana"
+
+        def generate(self, **kwargs):
+            return pngsvc.CatalogProviderResult(False, reason="nano_down", provider=self.name)
+
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={"item_id": "nofallback-1", "name": "Blue Shirt", "category": "Tops"},
+        fallback_to_cutout=False,
+    )
+
+    assert result["success"] is False
+    assert result["status"] == "catalog_failed"
+    assert "catalog_png_bytes" not in result
 
 
 def test_nanobanana_black_frame_output_is_cropped_before_acceptance(monkeypatch):

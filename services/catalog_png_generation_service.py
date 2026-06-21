@@ -1230,10 +1230,15 @@ def generate_catalog_png(
         fallback,
     )
 
+    # Clean-cutout short-circuit is allowed ONLY for cutout/disabled providers.
+    # When a real generator (nanobanana) is selected, every saveable garment —
+    # including clean flat-lays — must go through generation; cutout is used only
+    # as a fallback if generation fails (handled below).
     if (
         deterministic_validation.get("ok")
         and not forced_reason
         and not unsafe_source_reason
+        and _provider_allows_quality_gate_cutout(provider_name)
     ):
         return {
             "success": True,
