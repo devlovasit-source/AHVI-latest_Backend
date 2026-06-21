@@ -1538,6 +1538,9 @@ def _apply_display_image_fields(item: Dict[str, Any]) -> Dict[str, Any]:
     if status == "catalog_generated" and normalized:
         display_url = normalized
         display_source = "catalog"
+    elif status == "catalog_ready" and normalized:
+        display_url = normalized
+        display_source = "cutout"
     elif masked:
         display_url = masked
         display_source = "masked_fallback" if status in {"fallback_cutout", "catalog_ready", "catalog_failed", "catalog_skipped_category"} else "masked"
@@ -1591,6 +1594,17 @@ def _catalog_black_frame_unresolved(item: Dict[str, Any]) -> bool:
     return rejected or (detected and not cropped) or ("black_frame" in reason and not cropped)
 
 
+def _catalog_provider_name(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return str(
+        item.get("catalogProvider")
+        or item.get("catalog_provider")
+        or item.get("regen_provider")
+        or ""
+    ).strip().lower()
+
+
 def _save_selected_block_reason(item: Dict[str, Any]) -> str:
     if not isinstance(item, dict):
         return "invalid_item"
@@ -1602,6 +1616,29 @@ def _save_selected_block_reason(item: Dict[str, Any]) -> str:
     normalized = str(item.get("normalized_url") or item.get("normalizedUrl") or "").strip()
     display = _apply_display_image_fields(dict(item))
     display_source = str(display.get("display_image_source") or "").strip()
+    score = _catalog_quality_score(item)
+    provider = _catalog_provider_name(item)
+    validation_status = str(item.get("validation_status") or "").strip().lower()
+    if validation_status and validation_status != "ok":
+        return "validation_not_ok"
+    if status == "catalog_ready":
+        if provider and provider not in {"cutout", "disabled", "none"}:
+            return "unsupported_catalog_status"
+        if not normalized:
+            return "missing_normalized_url"
+        if score is None or score < 75:
+            return "low_quality_catalog"
+        if _catalog_black_frame_unresolved(item):
+            return "black_frame_catalog"
+    elif status == "fallback_cutout" and provider in {"cutout", ""}:
+        if score is not None and score < 75:
+            return "low_quality_catalog"
+    elif status and status not in {
+        "catalog_generated",
+        "catalog_failed",
+        "catalog_skipped_category",
+    }:
+        return "unsupported_catalog_status"
     unsafe = bool(item.get("unsafe_source") or item.get("source_contains_person") or _source_contains_person_item(item))
     if unsafe:
         logger.info(
@@ -1612,7 +1649,6 @@ def _save_selected_block_reason(item: Dict[str, Any]) -> str:
         )
         if status != "catalog_generated" or not normalized or display_source != "catalog":
             return "unsafe_non_catalog"
-        score = _catalog_quality_score(item)
         if score is None or score < 75:
             return "low_quality_catalog"
         if _catalog_black_frame_unresolved(item):
@@ -3511,6 +3547,26 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
                         "ahvi.capture.save_selected.skipped_black_frame item_id=%s",
                         item.get("item_id"),
                     )
+                elif block_reason == "missing_normalized_url":
+                    logger.warning(
+                        "ahvi.capture.save_selected.skipped_missing_normalized_url item_id=%s status=%s provider=%s",
+                        item.get("item_id"),
+                        item.get("catalogStatus") or item.get("catalog_status"),
+                        _catalog_provider_name(item),
+                    )
+                elif block_reason == "unsupported_catalog_status":
+                    logger.warning(
+                        "ahvi.capture.save_selected.skipped_unsupported_catalog_status item_id=%s status=%s provider=%s",
+                        item.get("item_id"),
+                        item.get("catalogStatus") or item.get("catalog_status"),
+                        _catalog_provider_name(item),
+                    )
+                elif block_reason == "validation_not_ok":
+                    logger.warning(
+                        "ahvi.capture.save_selected.skipped_validation_not_ok item_id=%s validation_status=%s",
+                        item.get("item_id"),
+                        item.get("validation_status"),
+                    )
                 if item_id:
                     unsafe_catalog_skipped_items[item_id] = dict(item)
                 continue
@@ -3581,9 +3637,31 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
 
         # Explicit save accounting so callers never see a silent drop.
         requested_count = len(selected_set)
-        saved_count = int(result.get("saved_count") or len(approved_selected_ids))
+        raw_saved_count = result.get("saved_count")
+        try:
+            saved_count = int(raw_saved_count) if raw_saved_count is not None else len(result.get("items") or [])
+        except Exception:
+            saved_count = len(result.get("items") or [])
         dropped_count = max(0, requested_count - saved_count)
         approved_set = set(approved_selected_ids)
+        saved_rows = result.get("items") if isinstance(result.get("items"), list) else []
+        saved_ids = {
+            str(
+                row.get("item_id")
+                or row.get("$id")
+                or row.get("id")
+                or row.get("image_id")
+                or ""
+            ).strip()
+            for row in saved_rows
+            if isinstance(row, dict)
+        }
+        saved_ids.discard("")
+        normalized_by_id = {
+            str(i.get("item_id") or "").strip(): i
+            for i in normalized_items
+            if isinstance(i, dict) and str(i.get("item_id") or "").strip()
+        }
         items_by_id = {
             str(i.get("item_id") or "").strip(): i
             for i in detected_items
@@ -3597,24 +3675,42 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         )
         dropped_reasons: List[Dict[str, Any]] = []
         for item_id in selected_set:
-            if item_id in approved_set:
+            if saved_ids:
+                if item_id in saved_ids:
+                    continue
+            elif item_id in approved_set and saved_count >= len(approved_set):
                 continue
-            dropped = items_by_id.get(item_id) or {}
+            dropped = (
+                unsafe_catalog_skipped_items.get(item_id)
+                or normalized_by_id.get(item_id)
+                or items_by_id.get(item_id)
+                or {}
+            )
+            reason = str(
+                dropped.get("rejection_reason")
+                or dropped.get("review_reason")
+                or ""
+            )
+            if not reason:
+                reason = "persistence_error" if item_id in approved_set else "not_save_approved"
             dropped_reasons.append(
                 {
                     "item_id": item_id,
                     "validation_status": str(dropped.get("validation_status") or "unknown"),
-                    "reason": str(
-                        dropped.get("rejection_reason")
-                        or dropped.get("review_reason")
-                        or "not_save_approved"
-                    ),
+                    "reason": reason,
                 }
             )
-        result.setdefault("requested_count", requested_count)
-        result.setdefault("saved_count", saved_count)
-        result.setdefault("dropped_count", dropped_count)
-        result.setdefault("dropped_reasons", dropped_reasons)
+            logger.warning(
+                "ahvi.capture.save_selected.selected_not_saved item_id=%s reason=%s",
+                item_id,
+                reason,
+            )
+        result["requested_count"] = requested_count
+        result["saved_count"] = saved_count
+        result["dropped_count"] = dropped_count
+        result["dropped_reasons"] = dropped_reasons
+        if dropped_count and not int(result.get("skipped") or 0) and not result.get("errors"):
+            result["skipped"] = dropped_count
         try:
             from services.agent_metadata_validator import is_enabled as _md_on
             if _md_on():
