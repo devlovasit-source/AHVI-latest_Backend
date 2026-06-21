@@ -26,6 +26,11 @@ class _R2:
             "normalized_image_url": f"https://normalized.test/{file_id}.png",
         }
 
+    def upload_catalog_image(self, *, file_id, image_bytes, extension="png"):
+        return {
+            "normalized_url": f"https://catalog.test/{file_id}.{extension}",
+        }
+
 
 def _png_base64(color):
     image = Image.new("RGB", (12, 12), color)
@@ -347,6 +352,45 @@ def test_save_selected_catalog_generated_uses_normalized_display_url(monkeypatch
     assert result["saved_count"] == 1
     assert persisted["items"][0]["display_image_url"] == "https://normalized.test/catalog-clean.png"
     assert persisted["items"][0]["display_image_source"] == "catalog"
+
+
+def test_flat_lay_quality_gate_ok_saves_without_nanobanana(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setenv("ENABLE_CATALOG_GENERATION", "true")
+    calls = []
+
+    def _catalog_png(cutout_bytes, *, item_metadata=None, **kwargs):
+        calls.append(item_metadata or {})
+        return {
+            "success": True,
+            "status": "catalog_ready",
+            "catalog_png_bytes": b"catalog-cutout",
+            "catalog_provider": "cutout",
+            "catalog_quality_score": 99,
+        }
+
+    import services.catalog_png_generation_service as pngsvc
+
+    monkeypatch.setattr(pngsvc, "generate_catalog_png", _catalog_png)
+    clean = _item("yellow-tee", (240, 210, 40))
+    clean["name"] = "Yellow T-Shirt"
+    clean["category"] = "Tops"
+    clean["sub_category"] = "T-Shirt"
+    clean["validation_status"] = "ok"
+
+    result = wc.save_selected(
+        _Request(),
+        wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["yellow-tee"], detected_items=[clean]),
+    )
+
+    assert calls
+    assert result["saved_count"] == 1
+    assert persisted["items"][0]["catalogStatus"] == "catalog_ready"
+    assert persisted["items"][0]["catalogProvider"] == "cutout"
+    assert persisted["items"][0]["display_image_source"] == "masked_fallback"
 
 
 def test_unsafe_source_catalog_generated_is_saved(monkeypatch):

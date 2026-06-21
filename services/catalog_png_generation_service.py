@@ -1233,7 +1233,7 @@ def generate_catalog_png(
     if (
         deterministic_validation.get("ok")
         and not forced_reason
-        and _provider_allows_quality_gate_cutout(provider_name)
+        and not unsafe_source_reason
     ):
         return {
             "success": True,

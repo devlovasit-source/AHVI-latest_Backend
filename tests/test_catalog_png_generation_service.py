@@ -222,7 +222,7 @@ def test_clean_cutout_generates_transparent_catalog_png_without_provider(monkeyp
     assert img.getpixel((0, 0))[3] == 0
 
 
-def test_nanobanana_provider_bypasses_quality_gate_cutout(monkeypatch):
+def test_flat_lay_quality_gate_ok_saves_without_nanobanana(monkeypatch):
     calls = []
 
     class _Provider(pngsvc.CatalogProvider):
@@ -249,9 +249,58 @@ def test_nanobanana_provider_bypasses_quality_gate_cutout(monkeypatch):
         },
     )
 
-    assert calls, "nanobanana must run even when the cutout quality gate is ok"
-    assert result["status"] == "catalog_generated"
-    assert result["catalog_provider"] == "nanobanana"
+    assert calls == []
+    assert result["status"] == "catalog_ready"
+    assert result["catalog_provider"] == "cutout"
+    assert result["catalog_quality_score"] >= 80
+
+
+def test_quality_gate_ok_does_not_log_quality_gate_failed(monkeypatch, caplog):
+    class _Provider(pngsvc.CatalogProvider):
+        name = "nanobanana"
+
+        def generate(self, **kwargs):
+            raise AssertionError("provider should not run for quality-gate-ok flat lay")
+
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+
+    with caplog.at_level("INFO"):
+        result = pngsvc.generate_catalog_png(
+            _garment_png(),
+            item_metadata={
+                "item_id": "quality-ok-log-1",
+                "name": "Yellow T-Shirt",
+                "category": "Tops",
+            },
+        )
+
+    assert result["status"] == "catalog_ready"
+    assert "quality_gate_failed" not in "\n".join(caplog.messages)
+
+
+def test_fallback_cutout_true_does_not_force_provider_when_quality_ok(monkeypatch):
+    calls = []
+
+    class _Provider(pngsvc.CatalogProvider):
+        name = "nanobanana"
+
+        def generate(self, **kwargs):
+            calls.append(kwargs)
+            return pngsvc.CatalogProviderResult(True, image_bytes=kwargs["cutout_bytes"], provider=self.name)
+
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={"item_id": "fallback-true-quality-ok", "name": "Yellow T-Shirt", "category": "Tops"},
+        fallback_to_cutout=True,
+    )
+
+    assert calls == []
+    assert result["status"] == "catalog_ready"
+    assert result["catalog_provider"] == "cutout"
 
 
 def test_nanobanana_black_frame_output_is_cropped_before_acceptance(monkeypatch):
@@ -270,7 +319,12 @@ def test_nanobanana_black_frame_output_is_cropped_before_acceptance(monkeypatch)
     result = pngsvc.generate_catalog_png(
         _garment_png(),
         provider="nanobanana",
-        item_metadata={"item_id": "black-frame-1", "name": "Blue Shirt", "category": "Tops"},
+        item_metadata={
+            "item_id": "black-frame-1",
+            "name": "Blue Shirt",
+            "category": "Tops",
+            "needs_review": True,
+        },
     )
 
     assert result["success"] is True
@@ -299,6 +353,7 @@ def test_nanobanana_blank_jewelry_output_blocks_cutout_fallback(monkeypatch):
             "item_id": "blank-jewelry-1",
             "name": "Gold Necklace",
             "category": "Jewelry",
+            "needs_review": True,
         },
     )
 
@@ -687,6 +742,7 @@ def test_nanobanana_failure_returns_fallback_cutout(monkeypatch):
             "item_id": "clean-3",
             "name": "Clean Blue Shirt",
             "category": "Tops",
+            "needs_review": True,
         },
     )
 
