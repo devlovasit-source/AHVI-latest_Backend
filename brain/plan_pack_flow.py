@@ -5,37 +5,149 @@ from typing import Any, Dict, List, Optional
 from brain.engines.packing.packing_engine import packing_engine
 
 
-_ASSET_ICONS = {
-    "sunscreen": "assets/icons/sunscreen.svg",
-    "sunglasses": "assets/icons/sunglasses.svg",
-    "charger": "assets/icons/charger.svg",
-    "phone": "assets/icons/charger.svg",
-    "power bank": "assets/icons/power_bank.svg",
-    "moisturizer": "assets/icons/moisturizer.svg",
-    "toiletries": "assets/icons/toiletries.svg",
-    "water bottle": "assets/icons/water_bottle.svg",
-    "hydration bottle": "assets/icons/water_bottle.svg",
-    "shoes": "assets/icons/shoes.svg",
-    "footwear": "assets/icons/shoes.svg",
-    "jacket": "assets/icons/jacket.svg",
-    "outer layer": "assets/icons/jacket.svg",
-    "towel": "assets/icons/towel.svg",
-    "medicine": "assets/icons/medicine_kit.svg",
-    "first-aid": "assets/icons/first_aid_kit.svg",
-    "first aid": "assets/icons/first_aid_kit.svg",
+_ICON_KEYS = {
+    "sunscreen": "sunscreen",
+    "sun screen": "sunscreen",
+    "sunglasses": "sunglasses",
+    "charger": "charger",
+    "phone": "charger",
+    "power bank": "power_bank",
+    "moisturizer": "toiletries",
+    "moisturiser": "toiletries",
+    "toiletries": "toiletries",
+    "water bottle": "water_bottle",
+    "hydration bottle": "water_bottle",
+    "shoes": "shoes",
+    "footwear": "shoes",
+    "jacket": "jacket",
+    "outer layer": "jacket",
+    "towel": "towel",
+    "medicine": "medicine",
+    "first-aid": "first_aid",
+    "first aid": "first_aid",
+    "passport": "documents",
+    "document": "documents",
+    "documents": "documents",
+    "boarding": "documents",
+    "ticket": "documents",
+    "booking": "documents",
+    "camera": "camera",
+    "bag": "bag",
 }
 
 
-def _asset_icon_for(label: str) -> Optional[str]:
+_VISUAL_SECTION_KEYWORDS = {
+    "clothes": (
+        "top",
+        "tops",
+        "shirt",
+        "t-shirt",
+        "tshirt",
+        "tee",
+        "polo",
+        "kurta",
+        "blouse",
+        "bottom",
+        "bottoms",
+        "jeans",
+        "trousers",
+        "pants",
+        "shorts",
+        "skirt",
+        "footwear",
+        "shoes",
+        "sneakers",
+        "sandals",
+        "flats",
+        "heels",
+        "jacket",
+        "hoodie",
+        "blazer",
+        "coat",
+        "cardigan",
+        "overshirt",
+        "swimwear",
+        "beachwear",
+    ),
+    "essentials": (
+        "toiletries",
+        "sunscreen",
+        "moisturizer",
+        "medicine",
+        "first-aid",
+        "first aid",
+        "water",
+        "hydration",
+        "towel",
+    ),
+    "tech": (
+        "charger",
+        "phone",
+        "power bank",
+        "camera",
+        "laptop",
+        "tablet",
+        "headphones",
+        "adapter",
+    ),
+    "documents": (
+        "passport",
+        "document",
+        "documents",
+        "id",
+        "boarding",
+        "ticket",
+        "booking",
+        "visa",
+        "invoice",
+    ),
+    "weather": (
+        "rain",
+        "jacket",
+        "waterproof",
+        "warm",
+        "thermal",
+        "socks",
+        "cotton",
+        "linen",
+        "cap",
+        "hat",
+        "hydration",
+        "layer",
+    ),
+}
+
+
+_SECTION_FALLBACK_ICON = {
+    "clothes": "clothes",
+    "essentials": "essentials",
+    "tech": "tech",
+    "documents": "documents",
+    "weather": "weather",
+}
+
+
+def _icon_key_for(label: str, *, section: str = "") -> Optional[str]:
     lowered = str(label or "").lower()
-    for key, icon in _ASSET_ICONS.items():
+    for key, icon in _ICON_KEYS.items():
         if key in lowered:
             return icon
-    return None
+    return _SECTION_FALLBACK_ICON.get(section)
 
 
 def _image_url_from_item(item: Dict[str, Any]) -> str:
-    for key in ("imageUrl", "image_url", "image", "url", "thumbnail", "photoUrl"):
+    for key in (
+        "display_image_url",
+        "normalized_url",
+        "imageUrl",
+        "image_url",
+        "masked_url",
+        "maskedUrl",
+        "image",
+        "url",
+        "thumbnail",
+        "photoUrl",
+    ):
         value = item.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
@@ -63,6 +175,206 @@ def _matches_wardrobe(label: str, item: Dict[str, Any]) -> bool:
     return any(token in searchable for token in tokens)
 
 
+def _wardrobe_search_text(item: Dict[str, Any]) -> str:
+    return " ".join(
+        str(item.get(k) or "")
+        for k in (
+            "name",
+            "category",
+            "sub_category",
+            "subcategory",
+            "type",
+            "family",
+            "tags",
+            "color",
+            "occasion",
+        )
+    ).lower()
+
+
+def _matches_visual_section(label: str, section: str, item: Dict[str, Any]) -> bool:
+    if _matches_wardrobe(label, item):
+        return True
+    searchable = _wardrobe_search_text(item)
+    label_lower = str(label or "").lower()
+    keywords = _VISUAL_SECTION_KEYWORDS.get(section, ())
+    if section == "clothes":
+        if "tops" in label_lower:
+            keywords = ("top", "tops", "shirt", "t-shirt", "tshirt", "tee", "polo", "kurta", "blouse")
+        elif "bottom" in label_lower:
+            keywords = ("bottom", "bottoms", "jeans", "trousers", "pants", "shorts", "skirt")
+        elif "footwear" in label_lower:
+            keywords = ("footwear", "shoe", "shoes", "sneakers", "sandals", "flats", "heels")
+        elif "outer" in label_lower or "layer" in label_lower:
+            keywords = ("jacket", "hoodie", "blazer", "coat", "cardigan", "overshirt", "outerwear")
+        elif "swim" in label_lower or "beach" in label_lower:
+            keywords = ("swimwear", "beachwear", "shorts")
+        else:
+            return False
+    return any(keyword in searchable for keyword in keywords)
+
+
+def _quantity_from_label(label: str) -> tuple[str, int, str]:
+    clean = str(label or "").strip()
+    match = re.search(r"\s+x\s*(\d+)\s*$", clean, re.I)
+    if not match:
+        return clean, 1, clean
+    quantity = max(1, int(match.group(1)))
+    base = re.sub(r"\s+x\s*\d+\s*$", "", clean, flags=re.I).strip()
+    return base or clean, quantity, clean
+
+
+def _section_for_visual_label(label: str, default: str) -> str:
+    lowered = str(label or "").lower()
+    for section, keywords in _VISUAL_SECTION_KEYWORDS.items():
+        if any(keyword in lowered for keyword in keywords):
+            return section
+    return default
+
+
+def _visual_section_item(
+    label: str,
+    *,
+    section: str,
+    wardrobe: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    base_label, quantity, display_label = _quantity_from_label(label)
+    item_id = re.sub(r"[^a-z0-9]+", "_", f"{section}_{base_label}".lower()).strip("_")
+    matches: List[Dict[str, Any]] = []
+    for item in wardrobe or []:
+        if not isinstance(item, dict):
+            continue
+        if _matches_visual_section(base_label, section, item):
+            image_url = _image_url_from_item(item)
+            if image_url:
+                matches.append(item)
+    if matches:
+        image_urls = [_image_url_from_item(item) for item in matches[:4]]
+        wardrobe_ids = [
+            str(item.get("$id") or item.get("id") or "")
+            for item in matches[:4]
+            if str(item.get("$id") or item.get("id") or "").strip()
+        ]
+        return {
+            "id": f"{item_id}_qty_{quantity}",
+            "label": base_label,
+            "quantity": quantity,
+            "display_label": display_label,
+            "section": section,
+            "category": section,
+            "source": "wardrobe",
+            "image_urls": image_urls,
+            "wardrobe_item_ids": wardrobe_ids,
+            "assetIcon": None,
+            "iconKey": None,
+            "asset_key": None,
+            "packed": False,
+            "missing": False,
+        }
+
+    icon_key = _icon_key_for(base_label, section=section)
+    return {
+        "id": f"{item_id}_qty_{quantity}",
+        "label": base_label,
+        "quantity": quantity,
+        "display_label": display_label,
+        "section": section,
+        "category": section,
+        "source": "icon",
+        "image_urls": [],
+        "wardrobe_item_ids": [],
+        "assetIcon": None,
+        "iconKey": icon_key or "generic",
+        "asset_key": None,
+        "packed": False,
+        "missing": False,
+    }
+
+
+def build_visual_packing_sections(
+    cards: List[Dict[str, Any]],
+    *,
+    wardrobe: Optional[List[Dict[str, Any]]] = None,
+    destination: str = "",
+    duration_label: str = "",
+    weather: str = "",
+    time_of_day: str = "",
+) -> List[Dict[str, Any]]:
+    sections: Dict[str, Dict[str, Any]] = {
+        "clothes": {"id": "clothes", "title": "Clothes", "items": []},
+        "essentials": {"id": "essentials", "title": "Essentials", "items": []},
+        "tech": {"id": "tech", "title": "Tech", "items": []},
+        "documents": {"id": "documents", "title": "Documents", "items": []},
+        "weather": {"id": "weather", "title": "Weather", "items": []},
+    }
+
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        card_id = str(card.get("id") or "").lower()
+        if card_id == "trip_plan":
+            continue
+        default_section = "essentials"
+        if card_id == "packing_clothes":
+            default_section = "clothes"
+        elif card_id == "weather_time_adjustments":
+            default_section = "weather"
+
+        raw_items = card.get("items") if isinstance(card.get("items"), list) else []
+        for raw in raw_items:
+            label = ""
+            if isinstance(raw, dict):
+                label = str(raw.get("label") or raw.get("title") or raw.get("name") or "").strip()
+            else:
+                label = str(raw or "").strip()
+            if not label:
+                continue
+            section = _section_for_visual_label(label, default_section)
+            sections[section]["items"].append(
+                _visual_section_item(label, section=section, wardrobe=wardrobe)
+            )
+
+    defaults = {
+        "documents": ["Passport/ID", "Tickets/bookings"],
+        "tech": ["Phone + charger", "Power bank"],
+        "essentials": ["Toiletries kit"],
+    }
+    for section, labels in defaults.items():
+        if not sections[section]["items"]:
+            sections[section]["items"] = [
+                _visual_section_item(label, section=section, wardrobe=wardrobe)
+                for label in labels
+            ]
+
+    subtitle_parts = [
+        part
+        for part in (
+            duration_label,
+            f"{weather.title()} {time_of_day}" if weather else "",
+            destination if destination not in {"Your Trip", "Carry-On Trip"} else "",
+        )
+        if str(part or "").strip()
+    ]
+    subtitle = " | ".join(subtitle_parts[:2])
+
+    out: List[Dict[str, Any]] = []
+    for section_id in ("clothes", "essentials", "tech", "documents", "weather"):
+        section = sections[section_id]
+        items = section["items"]
+        if not items:
+            continue
+        out.append(
+            {
+                "id": section_id,
+                "title": section["title"],
+                "subtitle": subtitle,
+                "item_count": sum(int(item.get("quantity") or 1) for item in items),
+                "items": items,
+            }
+        )
+    return out
+
+
 def _visual_item(
     label: str,
     *,
@@ -85,14 +397,15 @@ def _visual_item(
                     "source": "wardrobe",
                     "wardrobeItemId": item.get("$id") or item.get("id"),
                 }
-    asset = _asset_icon_for(clean)
+    icon_key = _icon_key_for(clean, section=category)
     return {
         "label": clean,
         "category": category,
         "checked": False,
         "imageUrl": None,
-        "assetIcon": asset,
-        "source": "asset" if asset else "text",
+        "assetIcon": None,
+        "iconKey": icon_key or "generic",
+        "source": "icon",
     }
 
 
@@ -514,6 +827,15 @@ def build_plan_pack_response(
         explicit_duration=explicit_duration,
         wardrobe=wardrobe,
     )
+    duration_label = f"{days} days" if explicit_duration else "Short trip"
+    visual_sections = build_visual_packing_sections(
+        cards,
+        wardrobe=wardrobe,
+        destination=destination,
+        duration_label=duration_label,
+        weather=weather,
+        time_of_day=time_of_day,
+    )
     if scenario == "birthday":
         message = "Built your birthday party plan."
     elif destination == "Carry-On Trip" and not explicit_duration:
@@ -526,6 +848,7 @@ def build_plan_pack_response(
         "message": message,
         "board": "plan_pack",
         "type": "checklists",
+        "visual_type": "visual_packing_checklist",
         "chips": ["Open checklist", "Plan outfits", "Weather prep", "Save trip plan"],
         "quick_actions": [
             {"label": "Open checklist", "module": "plan_pack", "intent": "open_checklist"},
@@ -534,14 +857,17 @@ def build_plan_pack_response(
             {"label": "Save trip plan", "module": "plan_pack", "intent": "save_plan"},
         ],
         "cards": cards,
+        "visual_sections": visual_sections,
         "data": {
             "days": days,
-            "duration_label": f"{days} days" if explicit_duration else "Short trip",
+            "duration_label": duration_label,
             "destination": destination,
             "scenario": scenario,
             "weather": weather,
             "time_of_day": time_of_day,
             "can_save_to_life_board": True,
             "source_text": text,
+            "visual_type": "visual_packing_checklist",
+            "visual_sections": visual_sections,
         },
     }
