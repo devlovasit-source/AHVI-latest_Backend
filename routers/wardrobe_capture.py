@@ -1700,6 +1700,153 @@ def _log_source_risk_debug(item: Dict[str, Any], *, unsafe: bool, unsafe_reason:
     )
 
 
+# --- Demo catalog save thresholds (category-aware, env-overridable) ----------
+# Lower the save floor ONLY for generated Nano Banana catalog outputs so safe
+# apparel that scores 62-70 still saves for the investor demo. Small/risky
+# categories (footwear/jewelry/accessories) stay strict. Hard safety/quality
+# blockers below are NEVER relaxed by score.
+_CATALOG_READY_SAVE_THRESHOLD = 75  # cutout / fallback stay production-strict
+
+
+def _catalog_env_int(name: str, default: int) -> int:
+    try:
+        return int(float(os.getenv(name, str(default))))
+    except Exception:
+        return int(default)
+
+
+def _truthy_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _catalog_save_threshold(item: Dict[str, Any]) -> int:
+    """Category-aware save threshold for generated catalog output."""
+    cat = str(item.get("category") or "").strip().lower()
+    blob = _item_text_blob(item)
+
+    def _has(*toks: str) -> bool:
+        return any(t in blob for t in toks)
+
+    if cat in {"footwear", "shoes"} or _has("footwear", "sandal", "sneaker", "loafer", "heels"):
+        return _catalog_env_int("CATALOG_FOOTWEAR_SAVE_THRESHOLD", 75)
+    if cat in {"jewelry", "jewellery"} or _has(
+        "jewelry", "jewellery", "necklace", "earring", "bangle", "bracelet", "pendant", "anklet"
+    ):
+        return _catalog_env_int("CATALOG_JEWELRY_SAVE_THRESHOLD", 80)
+    if cat in {"accessories", "accessory", "bags", "bag", "watches"} or _has(
+        "handbag", "clutch", "sunglasses", "wristwatch"
+    ):
+        return _catalog_env_int("CATALOG_ACCESSORY_SAVE_THRESHOLD", 75)
+    # Apparel: tops, bottoms, dresses, outerwear, traditional/indian/ethnic.
+    return _catalog_env_int(
+        "CATALOG_APPAREL_SAVE_THRESHOLD",
+        _catalog_env_int("CATALOG_DEMO_SAVE_THRESHOLD", 62),
+    )
+
+
+def _catalog_validation_obj(item: Dict[str, Any]) -> Dict[str, Any]:
+    v = item.get("catalog_validation") or item.get("validation")
+    return v if isinstance(v, dict) else {}
+
+
+def _catalog_has_human_remnant(item: Dict[str, Any]) -> bool:
+    if any(
+        _truthy_flag(item.get(k))
+        for k in (
+            "human_remnants",
+            "human_remnant",
+            "has_human_remnant",
+            "catalog_human_remnant",
+            "mannequin_remnant",
+        )
+    ):
+        return True
+    v = _catalog_validation_obj(item)
+    checks = v.get("checks") or {}
+    if (
+        checks.get("no_human") is False
+        or checks.get("no_face") is False
+        or checks.get("no_mannequin") is False
+    ):
+        return True
+    return str(v.get("reason") or "").strip() == "human_or_mannequin_remnants"
+
+
+def _catalog_orientation_invalid(item: Dict[str, Any]) -> bool:
+    if _truthy_flag(item.get("orientation_invalid")) or _truthy_flag(item.get("sideways")):
+        return True
+    v = _catalog_validation_obj(item)
+    if (v.get("checks") or {}).get("orientation_upright") is False:
+        return True
+    return str(v.get("reason") or "").strip() == "crooked_orientation"
+
+
+def _catalog_identity_drift(item: Dict[str, Any]) -> bool:
+    if _truthy_flag(item.get("identity_drift")) or _truthy_flag(item.get("wrong_garment")):
+        return True
+    v = _catalog_validation_obj(item)
+    if str(v.get("reason") or "").strip() in {"identity_drift", "wrong_garment_type"}:
+        return True
+    cd = v.get("color_distance")
+    try:
+        return cd is not None and float(cd) > 200
+    except Exception:
+        return False
+
+
+def _catalog_generated_hard_block(item: Dict[str, Any]) -> str:
+    """Hard blockers for a generated catalog output — never relaxed by score."""
+    normalized = str(item.get("normalized_url") or item.get("normalizedUrl") or "").strip()
+    if not normalized:
+        return "missing_normalized_url"
+    if _catalog_black_frame_unresolved(item):
+        return "black_frame_unresolved"
+    if _catalog_has_human_remnant(item):
+        return "human_remnants"
+    if _catalog_orientation_invalid(item):
+        return "orientation_invalid"
+    if _catalog_identity_drift(item):
+        return "identity_drift"
+    return ""
+
+
+def _catalog_generated_block_reason(item: Dict[str, Any], score: Optional[float], provider: str) -> str:
+    """Decide save for a catalog_generated output: hard blockers first, then a
+    category-aware demo score floor (generated Nano Banana output only). Logs
+    the decision. Returns "" to allow."""
+    hard = _catalog_generated_hard_block(item)
+    threshold = (
+        _catalog_save_threshold(item)
+        if provider == "nanobanana"
+        else _CATALOG_READY_SAVE_THRESHOLD
+    )
+    if hard:
+        reason = hard
+    elif provider == "nanobanana" and score is None:
+        # Missing score on a generated Nano Banana output hides provider/
+        # validation failures — never silently accept for demo.
+        reason = "missing_catalog_quality_score"
+    elif score is not None and score < threshold:
+        reason = "low_quality_catalog"
+    else:
+        reason = ""
+    logger.info(
+        "ahvi.capture.save_selected.catalog_threshold_decision item_id=%s name=%s category=%s catalog_status=catalog_generated provider=%s score=%s threshold_used=%s hard_checks_passed=%s accepted=%s rejection_reason=%s",
+        item.get("item_id"),
+        item.get("name") or item.get("label"),
+        item.get("category"),
+        provider,
+        score,
+        threshold,
+        not bool(hard),
+        not bool(reason),
+        reason or "",
+    )
+    return reason
+
+
 def _save_selected_block_reason(item: Dict[str, Any]) -> str:
     if not isinstance(item, dict):
         return "invalid_item"
@@ -1721,15 +1868,19 @@ def _save_selected_block_reason(item: Dict[str, Any]) -> str:
             return "unsupported_catalog_status"
         if not normalized:
             return "missing_normalized_url"
-        if score is None or score < 75:
-            return "low_quality_catalog"
         if _catalog_black_frame_unresolved(item):
-            return "black_frame_catalog"
-    elif status == "fallback_cutout" and provider in {"cutout", ""}:
-        if score is not None and score < 75:
+            return "black_frame_unresolved"
+        if score is None or score < _CATALOG_READY_SAVE_THRESHOLD:
             return "low_quality_catalog"
+    elif status == "fallback_cutout" and provider in {"cutout", ""}:
+        if score is not None and score < _CATALOG_READY_SAVE_THRESHOLD:
+            return "low_quality_catalog"
+    elif status == "catalog_generated":
+        # Demo path: hard blockers + category-aware score floor (generated only).
+        generated_reason = _catalog_generated_block_reason(item, score, provider)
+        if generated_reason:
+            return generated_reason
     elif status and status not in {
-        "catalog_generated",
         "catalog_failed",
         "catalog_skipped_category",
     }:
@@ -1747,12 +1898,11 @@ def _save_selected_block_reason(item: Dict[str, Any]) -> str:
             status,
             display_source,
         )
+        # Person/mirror/selfie sources may only save as a clean generated catalog
+        # image. Raw/cutout/fallback person images still reject. Hard checks and
+        # the score floor for catalog_generated already ran above.
         if status != "catalog_generated" or not normalized or display_source != "catalog":
             return "unsafe_non_catalog"
-        if score is None or score < 75:
-            return "low_quality_catalog"
-        if _catalog_black_frame_unresolved(item):
-            return "black_frame_catalog"
     blob = _item_text_blob(item)
     is_footwear = "footwear" in blob or any(t in blob for t in ("sandal", "shoe", "sneaker", "loafer", "boot"))
     is_jewelry = any(t in blob for t in ("jewelry", "jewellery", "necklace", "earring", "bangle", "bracelet", "ring"))
@@ -1924,6 +2074,12 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
             item["catalog_provider"] = result.get("catalog_provider")
             item["regen_provider"] = result.get("catalog_provider")
             item["catalogRotationApplied"] = int(result.get("rotation_applied") or 0)
+            # Stamp the generated-output validation so save-side hard blockers
+            # (human_remnants / orientation_invalid / identity_drift / black
+            # frame) can enforce on real signals, not just the score.
+            validation = result.get("validation")
+            if isinstance(validation, dict):
+                item["catalog_validation"] = validation
             item["_catalog_done"] = True
             _apply_display_image_fields(item)
             logger.info(
@@ -3642,10 +3798,21 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
                         item.get("item_id"),
                         _catalog_quality_score(item),
                     )
-                elif block_reason == "black_frame_catalog":
+                elif block_reason == "black_frame_unresolved":
                     logger.warning(
                         "ahvi.capture.save_selected.skipped_black_frame item_id=%s",
                         item.get("item_id"),
+                    )
+                elif block_reason in {
+                    "human_remnants",
+                    "orientation_invalid",
+                    "identity_drift",
+                    "missing_catalog_quality_score",
+                }:
+                    logger.warning(
+                        "ahvi.capture.save_selected.skipped_hard_blocker item_id=%s reason=%s",
+                        item.get("item_id"),
+                        block_reason,
                     )
                 elif block_reason == "missing_normalized_url":
                     logger.warning(
