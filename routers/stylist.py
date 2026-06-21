@@ -392,6 +392,13 @@ _LITE_BOTTOM = ("jean", "trouser", "pant", "chino", "short", "skirt", "legging",
 _LITE_TOP = ("top", "shirt", "tee", "tshirt", "t-shirt", "polo", "kurta", "blouse", "jacket", "blazer", "coat", "hoodie", "sweater", "knit", "cardigan", "overshirt")
 _LITE_DRESS = ("dress", "gown", "saree", "sari", "lehenga", "jumpsuit", "one-piece", "one piece", "frock", "kaftan", "anarkali")
 _LITE_ACCESSORY = ("watch", "belt", "sunglass", "bag", "clutch", "handbag", "purse", "necklace", "bracelet", "ring", "earring", "scarf", "hat", "cap", "jewel")
+# Non-fashion junk that got mis-saved into wardrobes — never pair these.
+_LITE_NON_FASHION = (
+    "charger", "cable", "adapter", "bottle", "phone", "remote", "mouse",
+    "keyboard", "laptop", "earbud", "headphone", "airpod", "power bank",
+    "powerbank", "plug", "wire", "battery", "speaker", "camera", "mug",
+    "cup", "pen", "book", "box",
+)
 
 _LITE_MISSING = {
     "footwear": {"label": "Clean sneakers or sandals", "reason": "Completes the look.", "cta": "Find this"},
@@ -413,6 +420,8 @@ def _lite_role(item: Dict[str, Any]) -> str:
         _txt(item.get(k))
         for k in ("role", "category", "sub_category", "subcategory", "type", "name", "label")
     ).lower()
+    if any(t in blob for t in _LITE_NON_FASHION):
+        return "unknown"
     if any(t in blob for t in _LITE_DRESS):
         return "dress"
     if any(t in blob for t in _LITE_FOOTWEAR):
@@ -423,7 +432,9 @@ def _lite_role(item: Dict[str, Any]) -> str:
         return "accessory"
     if any(t in blob for t in _LITE_TOP):
         return "top"
-    return "accessory"
+    # Unrecognized item — do NOT assume it's an accessory (that pulled in
+    # chargers/bottles). Excluded from pairing.
+    return "unknown"
 
 
 def _lite_image(item: Dict[str, Any]) -> str:

@@ -67,6 +67,20 @@ def test_dress_prefers_good_footwear_over_loafers():
     assert "loafer-1" not in ids
 
 
+def test_non_fashion_items_are_not_paired():
+    # A charger mis-saved into the wardrobe must never be paired into a look.
+    wardrobe = [
+        _DRESS,
+        _it("charger-1", "Phone Charger", "Accessories"),
+        _it("sneak-1", "White Sneakers", "Footwear"),
+    ]
+    result = stylist.style_wardrobe_item("dress-1", _req(wardrobe, mode="build_outfit"))
+    names = " ".join(i["name"].lower() for i in result["outfit"]["items"])
+    assert "charger" not in names
+    ids = {i["item_id"] for i in result["outfit"]["items"]}
+    assert "charger-1" not in ids
+
+
 def test_non_dress_anchor_allows_loafers():
     shirt = _it("shirt-1", "Blue Shirt", "Tops")
     wardrobe = [shirt, _it("loafer-1", "Brown Loafers", "Footwear"), _it("jeans-1", "Blue Jeans", "Bottoms")]
