@@ -185,6 +185,11 @@ _TSHIRT_EXCLUSION_RE = re.compile(
 _TSHIRT_SIGNAL_RE = re.compile(
     r"\b(t[- ]?shirt|tshirt|tee|crew neck|round neck|no collar|no buttons|casual knit top|short cap sleeve)\b"
 )
+_SHORTS_SIGNAL_RE = re.compile(r"\b(shorts|short pants|denim shorts|above[- ]?knee shorts|knee[- ]?length shorts)\b")
+_JEANS_SIGNAL_RE = re.compile(r"\b(jeans|denim jeans|denim|slim fit jeans|distressed jeans|full[- ]?length dark blue denim)\b")
+_TROUSERS_SIGNAL_RE = re.compile(r"\b(trousers|formal trousers|dress trousers|formal pants|dress pants)\b")
+_PANTS_SIGNAL_RE = re.compile(r"\b(pants|full[- ]?length|ankle[- ]?length|straight leg)\b")
+_CHINOS_SIGNAL_RE = re.compile(r"\b(chinos|chino)\b")
 
 
 def _is_tshirt_label(raw: str) -> bool:
@@ -195,11 +200,28 @@ def _is_tshirt_label(raw: str) -> bool:
     return bool(_TSHIRT_SIGNAL_RE.search(raw))
 
 
+def _bottom_category_from_label(raw: str) -> Tuple[str, str] | None:
+    if _SHORTS_SIGNAL_RE.search(raw):
+        return ("Bottoms", "Shorts")
+    if _JEANS_SIGNAL_RE.search(raw):
+        return ("Bottoms", "Jeans")
+    if _CHINOS_SIGNAL_RE.search(raw):
+        return ("Bottoms", "Chinos")
+    if _TROUSERS_SIGNAL_RE.search(raw):
+        return ("Bottoms", "Trousers")
+    if _PANTS_SIGNAL_RE.search(raw):
+        return ("Bottoms", "Pants")
+    return None
+
+
 def normalize_category_from_label(label: str) -> Tuple[str, str]:
     """Best-effort label -> (category, sub_category) mapping for capture."""
     raw = (label or "").strip().lower()
     if not raw:
         return ("Item", "Item")
+    bottom = _bottom_category_from_label(raw)
+    if bottom:
+        return bottom
     if _is_tshirt_label(raw):
         return ("Tops", "T-Shirt")
     for category, default_sub, keywords in CANONICAL_CATEGORY_KEYWORDS:

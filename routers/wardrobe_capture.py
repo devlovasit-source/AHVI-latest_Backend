@@ -891,6 +891,220 @@ _BOTTOM_REVIEW_TERMS = {
 }
 
 
+_SOURCE_PERSON_TERMS = {
+    "person",
+    "human",
+    "body",
+    "full_body",
+    "full body",
+    "selfie",
+    "mirror",
+    "model",
+    "mannequin",
+    "worn",
+    "wearing",
+    "torso",
+    "arm",
+    "leg",
+    "feet",
+    "face",
+    "hand",
+}
+_SCREENSHOT_COLLAGE_TERMS = {
+    "screenshot",
+    "style collage",
+    "social",
+    "pinterest",
+    "instagram",
+    "save button",
+    "remix",
+    "like",
+    "share",
+    "comment",
+    "watermark",
+    "app ui",
+    "interface",
+    "editorial board",
+    "inspiration board",
+}
+_WOMENSWEAR_STRONG_MISMATCH_TERMS = {
+    "saree",
+    "sari",
+    "lehenga",
+    "anarkali",
+    "sundress",
+    "dress",
+    "gown",
+    "skirt",
+    "ethnic blouse",
+    "saree blouse",
+    "women's blouse",
+    "womens blouse",
+    "heel",
+    "heels",
+    "bangle",
+    "bangles",
+}
+_FEMININE_ETHNIC_JEWELRY_TERMS = {
+    "earring",
+    "earrings",
+    "necklace",
+    "choker",
+    "bangle",
+    "bangles",
+}
+_UNISEX_ALLOW_TERMS = {
+    "shirt",
+    "t-shirt",
+    "tshirt",
+    "tee",
+    "jeans",
+    "trousers",
+    "pants",
+    "sneaker",
+    "sneakers",
+    "sandal",
+    "sandals",
+    "jacket",
+    "cap",
+    "sunglasses",
+    "watch",
+}
+
+
+def _item_text_blob(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return ""
+    parts = []
+    for key in (
+        "name",
+        "label",
+        "category",
+        "sub_category",
+        "subcategory",
+        "description",
+        "reasoning",
+        "review_reason",
+        "rejection_reason",
+        "source",
+        "input_type",
+        "label_source",
+        "crop_source",
+        "crop_quality",
+        "detected_text",
+        "ocr_text",
+        "logo_text",
+        "tags",
+    ):
+        value = item.get(key)
+        if isinstance(value, (list, tuple, set)):
+            parts.extend(str(v or "") for v in value)
+        elif isinstance(value, dict):
+            parts.extend(str(v or "") for v in value.values())
+        else:
+            parts.append(str(value or ""))
+    return " ".join(parts).lower()
+
+
+def _source_contains_person_item(item: Dict[str, Any]) -> bool:
+    blob = _item_text_blob(item)
+    return any(term in blob for term in _SOURCE_PERSON_TERMS)
+
+
+def _source_contains_person_batch(items: List[Dict[str, Any]]) -> bool:
+    if any(_source_contains_person_item(i) for i in items if isinstance(i, dict)):
+        return True
+    cats = {
+        str(i.get("category") or "").strip().lower()
+        for i in items
+        if isinstance(i, dict)
+    }
+    names = " ".join(str(i.get("name") or i.get("label") or "") for i in items if isinstance(i, dict)).lower()
+    has_top = bool(cats & {"tops", "top", "outerwear"})
+    has_bottom = bool(cats & {"bottoms", "bottom"})
+    has_footwear = "footwear" in cats
+    # A top+bottom+shoe set from capture is most often a worn full-body photo.
+    # Keep this as a source risk, not a label correction.
+    return (has_top and has_bottom and has_footwear) or "wearing" in names
+
+
+def _is_screenshot_or_style_collage(item: Dict[str, Any]) -> bool:
+    blob = _item_text_blob(item)
+    return any(term in blob for term in _SCREENSHOT_COLLAGE_TERMS)
+
+
+def _is_strong_male_profile_mismatch(item: Dict[str, Any]) -> bool:
+    blob = _item_text_blob(item)
+    if any(term in blob for term in _UNISEX_ALLOW_TERMS) and not any(
+        term in blob for term in _WOMENSWEAR_STRONG_MISMATCH_TERMS
+    ):
+        return False
+    if any(term in blob for term in _WOMENSWEAR_STRONG_MISMATCH_TERMS):
+        return True
+    ethnic_context = any(term in blob for term in ("saree", "lehenga", "anarkali", "ethnic", "traditional"))
+    return ethnic_context and any(term in blob for term in _FEMININE_ETHNIC_JEWELRY_TERMS)
+
+
+def _apply_preview_rejection(
+    item: Dict[str, Any],
+    *,
+    reason: str,
+    mismatch: bool = False,
+) -> Dict[str, Any]:
+    out = dict(item)
+    out["validation_status"] = "rejected"
+    out["needs_review"] = True
+    out["requires_manual_entry"] = True
+    out["selected_by_default"] = False
+    out["rejection_reason"] = reason
+    out["review_reason"] = reason
+    if mismatch:
+        out["wardrobe_profile_mismatch"] = True
+        out["needs_wearer_confirmation"] = True
+        out["mismatch_reason"] = "outside_current_wardrobe_profile"
+    return out
+
+
+def _apply_capture_source_and_profile_safety(
+    items: List[Dict[str, Any]],
+    *,
+    user_id: str = "",
+) -> List[Dict[str, Any]]:
+    if not items:
+        return items
+    source_has_person = _source_contains_person_batch(items)
+    gender = _fetch_wardrobe_profile_gender(user_id) if user_id else "unknown"
+    out: List[Dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        cur = dict(item)
+        if source_has_person or _source_contains_person_item(cur):
+            cur["source_contains_person"] = True
+            cur["unsafe_source"] = True
+        if _is_screenshot_or_style_collage(cur):
+            logger.warning(
+                "ahvi.capture.preview.rejected_screenshot_collage item_id=%s",
+                cur.get("item_id"),
+            )
+            cur = _apply_preview_rejection(cur, reason="screenshot_or_style_collage")
+        if gender == "male" and _is_strong_male_profile_mismatch(cur):
+            logger.warning(
+                "ahvi.capture.preview.profile_mismatch item_id=%s gender=%s name=%s category=%s",
+                cur.get("item_id"),
+                gender,
+                cur.get("name"),
+                cur.get("category"),
+            )
+            cur = _apply_preview_rejection(
+                cur,
+                reason="outside_current_wardrobe_profile",
+                mismatch=True,
+            )
+        out.append(cur)
+    return out
+
+
 def _bbox_area_ratio(bbox: Any) -> float | None:
     if not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
         return None
@@ -1098,6 +1312,10 @@ def _standardize_preview_validation(item: Dict[str, Any]) -> Dict[str, Any]:
 def _is_preview_item_save_approved(item: Dict[str, Any]) -> bool:
     if not isinstance(item, dict):
         return False
+    if bool(item.get("wardrobe_profile_mismatch")) or bool(item.get("needs_wearer_confirmation")):
+        return False
+    if _is_screenshot_or_style_collage(item):
+        return False
     status = str(item.get("validation_status") or "").strip().lower()
     if status:
         return status == "ok"
@@ -1111,6 +1329,13 @@ def _normalize_capture_preview_item(item: Dict[str, Any]) -> Dict[str, Any]:
         return normalized
     normalized = _apply_headwear_ocr_guard(normalized)
     normalized["name"] = _best_effort_item_name(normalized, item)
+    blob = _item_text_blob({**item, **normalized})
+    if "blouse" in blob and any(term in blob for term in ("saree", "sari", "ethnic", "traditional")):
+        normalized["category"] = "Tops"
+        normalized["sub_category"] = "Saree Blouse" if "saree" in blob or "sari" in blob else "Ethnic Blouse"
+        normalized["subcategory"] = normalized["sub_category"]
+        normalized["style_context"] = "ethnic"
+        normalized["traditional_wear"] = True
     normalized = apply_metadata_guard(normalized, source="capture_preview")
 
     if _vision_says_item_is_known(
@@ -1333,6 +1558,42 @@ def _apply_display_image_fields(item: Dict[str, Any]) -> Dict[str, Any]:
     if provider:
         item["catalog_provider"] = provider
     return item
+
+
+def _save_selected_block_reason(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return "invalid_item"
+    if bool(item.get("wardrobe_profile_mismatch")) or bool(item.get("needs_wearer_confirmation")):
+        return "outside_current_wardrobe_profile"
+    if _is_screenshot_or_style_collage(item):
+        return "screenshot_or_style_collage"
+    status = str(item.get("catalogStatus") or item.get("catalog_status") or "").strip()
+    normalized = str(item.get("normalized_url") or item.get("normalizedUrl") or "").strip()
+    display = _apply_display_image_fields(dict(item))
+    display_source = str(display.get("display_image_source") or "").strip()
+    unsafe = bool(item.get("unsafe_source") or item.get("source_contains_person") or _source_contains_person_item(item))
+    if unsafe:
+        logger.info(
+            "ahvi.capture.save_selected.unsafe_source_requires_catalog item_id=%s catalog_status=%s display_source=%s",
+            item.get("item_id"),
+            status,
+            display_source,
+        )
+        if status != "catalog_generated" or not normalized or display_source != "catalog":
+            return "unsafe_non_catalog"
+    blob = _item_text_blob(item)
+    is_footwear = "footwear" in blob or any(t in blob for t in ("sandal", "shoe", "sneaker", "loafer", "boot"))
+    is_jewelry = any(t in blob for t in ("jewelry", "jewellery", "necklace", "earring", "bangle", "bracelet", "ring"))
+    is_bottom = any(t in blob for t in ("bottom", "jean", "trouser", "pant", "short"))
+    body_terms = any(t in blob for t in ("leg", "legs", "pant leg", "feet", "foot", "skin", "wrist", "hand", "arm", "neck", "torso", "body", "person"))
+    if unsafe and body_terms and status != "catalog_generated":
+        if is_footwear:
+            return "footwear_body_remnant"
+        if is_jewelry:
+            return "jewelry_body_remnant"
+        if is_bottom:
+            return "body_remnant"
+    return ""
 
 
 def _resolve_catalog_source_bytes(item: Dict[str, Any]) -> tuple[bytes, str]:
@@ -2258,6 +2519,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
     # Ensures the frontend never sees: Sari→Accessories, polo→Bottoms,
     # one-piece→Tops, or unknowns silently labeled Accessories.
     items = [_normalize_capture_preview_item(item) for item in items if isinstance(item, dict)]
+    items = _apply_capture_source_and_profile_safety(items, user_id=user_id)
     # Strip internal pipeline fields so the review screen never shows debug
     # chips like "vision:gemini_multi" — runs AFTER all logic that reads them.
     items = [_strip_internal_preview_fields(item) for item in items]
@@ -2394,6 +2656,57 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
 # and timeouts).
 
 from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
+
+
+def _normalize_profile_gender(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in {"male", "man", "men", "m"}:
+        return "male"
+    if raw in {"female", "woman", "women", "f"}:
+        return "female"
+    return "unknown"
+
+
+def _extract_profile_gender(profile: Dict[str, Any]) -> str:
+    if not isinstance(profile, dict):
+        return "unknown"
+    for key in ("style_gender", "gender", "preferred_gender", "target_gender"):
+        gender = _normalize_profile_gender(profile.get(key))
+        if gender != "unknown":
+            return gender
+    nested = profile.get("profile") if isinstance(profile.get("profile"), dict) else {}
+    for key in ("style_gender", "gender", "preferred_gender", "target_gender"):
+        gender = _normalize_profile_gender(nested.get(key))
+        if gender != "unknown":
+            return gender
+    return "unknown"
+
+
+def _fetch_wardrobe_profile_gender(user_id: str) -> str:
+    clean_user = str(user_id or "").strip()
+    if not clean_user:
+        return "unknown"
+    try:
+        doc = AppwriteProxy().get_document("users", clean_user)
+        gender = _extract_profile_gender(doc)
+        if gender != "unknown":
+            return gender
+    except Exception:
+        pass
+    try:
+        docs = AppwriteProxy().list_documents("users", limit=100)
+        rows = docs if isinstance(docs, list) else (docs or {}).get("documents", [])
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("$id") or row.get("userId") or row.get("user_id") or "").strip() != clean_user:
+                continue
+            gender = _extract_profile_gender(row)
+            if gender != "unknown":
+                return gender
+    except Exception:
+        pass
+    return "unknown"
 
 
 def _ahvi_item_doc_id(item: Dict[str, Any]) -> str:
@@ -2578,7 +2891,17 @@ _WORKS_WITH_CATEGORIES = {
 def _works_with_blob(item: Dict[str, Any]) -> str:
     return " ".join(
         str(item.get(k) or "")
-        for k in ("name", "category", "sub_category", "subcategory", "tags", "style_tags", "occasion")
+        for k in (
+            "name",
+            "category",
+            "sub_category",
+            "subcategory",
+            "style_context",
+            "traditional_wear",
+            "tags",
+            "style_tags",
+            "occasion",
+        )
     ).lower()
 
 
@@ -2615,6 +2938,10 @@ def _works_with_bad_ethnic_pair(item: Dict[str, Any]) -> bool:
             "office belt",
             "laptop",
             "backpack",
+            "jeans",
+            "trouser",
+            "trousers",
+            "pants",
         )
     )
 
@@ -2650,6 +2977,8 @@ def get_works_with(item_id: str, http_request: Request):
     want = {c.lower() for c in _WORKS_WITH_CATEGORIES.get(cat, [])}
     anchor_is_ethnic = _works_with_is_ethnic(doc)
     anchor_is_accessory = cat in {"accessories", "jewelry", "jewellery"}
+    if anchor_is_ethnic:
+        want.update({"tops", "dresses", "traditional", "ethnic wear", "jewelry", "jewellery", "accessories", "bags", "footwear"})
 
     matches: List[Dict[str, Any]] = []
     try:
@@ -2933,6 +3262,10 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         dict(i) if isinstance(i, dict) else i
         for i in (request.detected_items or [])
     ]
+    detected_items = _apply_capture_source_and_profile_safety(
+        [i for i in detected_items if isinstance(i, dict)],
+        user_id=user_id,
+    )
 
     # Deferred RMBG cleanup for Gemini multi fast-path previews: the preview
     # returned raw crops; clean only the items the user actually selected.
@@ -3097,6 +3430,43 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
                 or item.get("catalog_provider")
                 or item.get("regen_provider")
             )
+            item = _apply_display_image_fields(item)
+            block_reason = _save_selected_block_reason(item)
+            if block_reason:
+                catalog_failed_count += 1
+                item_id = str(item.get("item_id") or "").strip()
+                if item_id:
+                    unsafe_catalog_skipped_ids.add(item_id)
+                item["validation_status"] = "rejected"
+                item["rejection_reason"] = block_reason
+                if block_reason == "unsafe_non_catalog":
+                    logger.warning(
+                        "ahvi.capture.save_selected.skipped_unsafe_non_catalog item_id=%s",
+                        item.get("item_id"),
+                    )
+                elif block_reason == "footwear_body_remnant":
+                    logger.warning(
+                        "ahvi.capture.save_selected.skipped_footwear_body_remnant item_id=%s",
+                        item.get("item_id"),
+                    )
+                elif block_reason == "jewelry_body_remnant":
+                    logger.warning(
+                        "ahvi.capture.save_selected.skipped_jewelry_body_remnant item_id=%s",
+                        item.get("item_id"),
+                    )
+                elif block_reason == "body_remnant":
+                    logger.warning(
+                        "ahvi.capture.save_selected.skipped_body_remnant item_id=%s",
+                        item.get("item_id"),
+                    )
+                elif block_reason == "screenshot_or_style_collage":
+                    logger.warning(
+                        "ahvi.capture.save_selected.skipped_screenshot_collage item_id=%s",
+                        item.get("item_id"),
+                    )
+                if item_id:
+                    unsafe_catalog_skipped_items[item_id] = dict(item)
+                continue
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "ahvi.catalog.failed item_id=%s err=%s",
@@ -3147,6 +3517,11 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
     )
 
     if isinstance(result, dict):
+        if isinstance(result.get("items"), list):
+            result["items"] = [
+                _apply_display_image_fields(dict(item)) if isinstance(item, dict) else item
+                for item in result.get("items", [])
+            ]
         result.setdefault("max_selectable", max_selectable)
         result.setdefault("selected_count", len(approved_selected_ids))
         result.setdefault("input_item_count", len(detected_items))

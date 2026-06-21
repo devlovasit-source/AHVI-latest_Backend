@@ -347,3 +347,134 @@ def test_save_selected_catalog_generated_uses_normalized_display_url(monkeypatch
     assert result["saved_count"] == 1
     assert persisted["items"][0]["display_image_url"] == "https://normalized.test/catalog-clean.png"
     assert persisted["items"][0]["display_image_source"] == "catalog"
+
+
+def test_unsafe_source_catalog_generated_is_saved(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setattr(wc, "_fetch_wardrobe_profile_gender", lambda user_id: "unknown")
+
+    def _catalog(item):
+        item["catalogStatus"] = "catalog_generated"
+        item["catalogProvider"] = "nanobanana"
+        item["normalized_url"] = "https://normalized.test/shirt.png"
+        item["normalizedUrl"] = item["normalized_url"]
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    shirt = _item("shirt")
+    shirt["validation_status"] = "ok"
+    shirt["source_contains_person"] = True
+    shirt["unsafe_source"] = True
+
+    result = wc.save_selected(
+        _Request(),
+        wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["shirt"], detected_items=[shirt]),
+    )
+
+    assert result["saved_count"] == 1
+    assert persisted["items"][0]["display_image_source"] == "catalog"
+
+
+def test_unsafe_source_fallback_cutout_is_skipped(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setattr(wc, "_fetch_wardrobe_profile_gender", lambda user_id: "unknown")
+
+    def _catalog(item):
+        item["catalogStatus"] = "fallback_cutout"
+        item["catalogProvider"] = "cutout"
+        item["masked_url"] = "https://masked.test/jeans.png"
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    jeans = _item("jeans")
+    jeans["validation_status"] = "ok"
+    jeans["name"] = "Distressed Dark Blue Jeans"
+    jeans["category"] = "Bottoms"
+    jeans["source_contains_person"] = True
+    jeans["unsafe_source"] = True
+
+    result = wc.save_selected(
+        _Request(),
+        wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["jeans"], detected_items=[jeans]),
+    )
+
+    assert result["saved_count"] == 0
+    assert persisted["items"] == []
+    assert result["dropped_reasons"][0]["reason"] == "unsafe_non_catalog"
+
+
+def test_screenshot_collage_item_is_not_saved(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setattr(wc, "_fetch_wardrobe_profile_gender", lambda user_id: "unknown")
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", lambda item: None)
+    collage = _item("collage")
+    collage["validation_status"] = "ok"
+    collage["input_type"] = "screenshot_style_collage"
+    collage["detected_text"] = "Save Remix Like Share"
+
+    result = wc.save_selected(
+        _Request(),
+        wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["collage"], detected_items=[collage]),
+    )
+
+    assert result["saved_count"] == 0
+    assert persisted["items"] == []
+    assert result["dropped_reasons"][0]["reason"] == "screenshot_or_style_collage"
+
+
+def test_male_profile_strong_womenswear_is_blocked(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setattr(wc, "_fetch_wardrobe_profile_gender", lambda user_id: "male")
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", lambda item: None)
+    saree = _item("saree")
+    saree["validation_status"] = "ok"
+    saree["name"] = "Teal Saree"
+    saree["category"] = "Traditional"
+    saree["sub_category"] = "Saree"
+
+    result = wc.save_selected(
+        _Request(),
+        wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["saree"], detected_items=[saree]),
+    )
+
+    assert result["saved_count"] == 0
+    assert persisted["items"] == []
+    assert result["dropped_reasons"][0]["reason"] == "outside_current_wardrobe_profile"
+
+
+def test_male_profile_unisex_shirt_and_jeans_are_allowed(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setattr(wc, "_fetch_wardrobe_profile_gender", lambda user_id: "male")
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", lambda item: None)
+    shirt = _item("shirt")
+    shirt["validation_status"] = "ok"
+    shirt["name"] = "Patterned Long-Sleeve Shirt"
+    jeans = _item("jeans")
+    jeans["validation_status"] = "ok"
+    jeans["name"] = "Distressed Dark Blue Jeans"
+    jeans["category"] = "Bottoms"
+
+    result = wc.save_selected(
+        _Request(),
+        wc.SaveSelectedRequest(
+            user_id="user-1",
+            selected_item_ids=["shirt", "jeans"],
+            detected_items=[shirt, jeans],
+        ),
+    )
+
+    assert result["saved_count"] == 2
+    assert {item["item_id"] for item in persisted["items"]} == {"shirt", "jeans"}
