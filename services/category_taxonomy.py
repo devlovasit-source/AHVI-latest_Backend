@@ -186,7 +186,9 @@ _TSHIRT_SIGNAL_RE = re.compile(
     r"\b(t[- ]?shirt|tshirt|tee|crew neck|round neck|no collar|no buttons|casual knit top|short cap sleeve)\b"
 )
 _SHORTS_SIGNAL_RE = re.compile(r"\b(shorts|short pants|denim shorts|above[- ]?knee shorts|knee[- ]?length shorts)\b")
-_JEANS_SIGNAL_RE = re.compile(r"\b(jeans|denim jeans|denim|slim fit jeans|distressed jeans|full[- ]?length dark blue denim)\b")
+_JEANS_SIGNAL_RE = re.compile(
+    r"\b(jeans|denim jeans|slim fit jeans|distressed jeans|full[- ]?length(?: [a-z]+){0,4} denim)\b"
+)
 _TROUSERS_SIGNAL_RE = re.compile(r"\b(trousers|formal trousers|dress trousers|formal pants|dress pants)\b")
 _PANTS_SIGNAL_RE = re.compile(r"\b(pants|full[- ]?length|ankle[- ]?length|straight leg)\b")
 _CHINOS_SIGNAL_RE = re.compile(r"\b(chinos|chino)\b")
@@ -201,15 +203,23 @@ def _is_tshirt_label(raw: str) -> bool:
 
 
 def _bottom_category_from_label(raw: str) -> Tuple[str, str] | None:
-    if _SHORTS_SIGNAL_RE.search(raw):
+    has_shorts = bool(_SHORTS_SIGNAL_RE.search(raw))
+    has_jeans = bool(_JEANS_SIGNAL_RE.search(raw))
+    has_chinos = bool(_CHINOS_SIGNAL_RE.search(raw))
+    has_trousers = bool(_TROUSERS_SIGNAL_RE.search(raw))
+    has_pants = bool(_PANTS_SIGNAL_RE.search(raw))
+
+    # Bad detector merges like "Distressed Jeans Shorts" should keep the
+    # long-bottom signal. Real shorts still win when no contradiction exists.
+    if has_shorts and not (has_jeans or has_chinos or has_trousers or has_pants):
         return ("Bottoms", "Shorts")
-    if _JEANS_SIGNAL_RE.search(raw):
+    if has_jeans:
         return ("Bottoms", "Jeans")
-    if _CHINOS_SIGNAL_RE.search(raw):
+    if has_chinos:
         return ("Bottoms", "Chinos")
-    if _TROUSERS_SIGNAL_RE.search(raw):
+    if has_trousers:
         return ("Bottoms", "Trousers")
-    if _PANTS_SIGNAL_RE.search(raw):
+    if has_pants:
         return ("Bottoms", "Pants")
     return None
 

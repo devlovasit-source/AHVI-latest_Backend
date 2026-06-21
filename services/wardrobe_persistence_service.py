@@ -9,7 +9,7 @@ import requests
 
 from services.embedding_service import embedding_service
 from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
-from services.category_taxonomy import infer_style_attributes
+from services.category_taxonomy import infer_style_attributes, normalize_category_from_label
 from services.qdrant_service import qdrant_service
 from services.wardrobe_taxonomy import normalize as _taxonomy_normalize
 from services.wardrobe_intelligence_service import enrich_wardrobe_item
@@ -70,6 +70,54 @@ STYLE_METADATA_RESOURCE = "wardrobe_style_metadata"
 # =========================
 _HEX6_RE = re.compile(r"^[0-9a-fA-F]{6}$")
 _SAFE_DOC_ID_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+_APPWRITE_RESPONSE_ONLY_KEYS = {
+    "pixel_hash",
+    "pixelHash",
+    "masked_pixel_hash",
+    "maskedPixelHash",
+    "raw_pixel_hash",
+    "rawPixelHash",
+    "display_image_url",
+    "displayImageUrl",
+    "display_image_source",
+    "displayImageSource",
+    "catalog_ready",
+    "catalogReady",
+    "catalog_reason",
+    "catalogReason",
+    "regen_provider",
+    "regenProvider",
+    "imageStatus",
+    "image_status",
+    "validation_status",
+    "validationStatus",
+    "rejection_reason",
+    "rejectionReason",
+    "review_reason",
+    "reviewReason",
+    "selected_by_default",
+    "selectedByDefault",
+    "crop_source",
+    "cropSource",
+    "crop_quality",
+    "cropQuality",
+    "crop_quality_score",
+    "cropQualityScore",
+    "source_contains_person",
+    "sourceContainsPerson",
+    "unsafe_source",
+    "unsafeSource",
+    "needs_review",
+    "needsReview",
+    "requires_manual_entry",
+    "requiresManualEntry",
+    "wardrobe_profile_mismatch",
+    "wardrobeProfileMismatch",
+    "needs_wearer_confirmation",
+    "needsWearerConfirmation",
+    "mismatch_reason",
+    "mismatchReason",
+}
 
 
 def _appwrite_ready() -> bool:
@@ -115,6 +163,23 @@ def _safe_document_id(value: Any) -> str:
 
     # Appwrite custom document IDs have length restrictions.
     return safe[:36]
+
+
+def _sanitize_appwrite_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    clean = dict(payload)
+    dropped: List[str] = []
+    for key in _APPWRITE_RESPONSE_ONLY_KEYS:
+        if key in clean:
+            clean.pop(key, None)
+            dropped.append(key)
+    if dropped:
+        logger.info(
+            "ahvi.persistence.dropped_unknown_attrs dropped=%s",
+            sorted(dropped),
+        )
+    return clean
 
 
 def _normalize_hex_color(value: Any, default: str = "#000000") -> str:
@@ -196,6 +261,7 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
             timeout=20,
         )
 
+    data = _sanitize_appwrite_payload(data)
     res = post(data)
 
     # Surgical unknown-attribute recovery: drop ONLY the attribute Appwrite names
@@ -203,8 +269,7 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     # blanket-strip a whole family (a single unknown like pixel_hash used to take
     # the valid catalog_* fields down with it). Required image fields are never
     # targeted (Appwrite would not call a required, schema-present attr unknown).
-    _catalog_keys = set()
-    _unused_catalog_keys = {
+    _catalog_keys = {
         "catalog_status",
         "catalog_url",
         "catalog_png_url",
@@ -261,9 +326,10 @@ def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
             f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
             f"/collections/{APPWRITE_COLLECTION_ID}/documents/{document_id}"
         )
+        update_payload = _sanitize_appwrite_payload(current)
         res = requests.patch(
             update_url,
-            json={"data": data},
+            json={"data": update_payload},
             headers=HEADERS,
             timeout=20,
         )
@@ -653,6 +719,54 @@ def normalize_display_name_and_subcategory(
     return raw_name or raw_sub or "Item", raw_sub or category or "Item"
 
 
+def normalize_final_wardrobe_item_name_and_taxonomy(
+    item: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Last save-time guard for detector label merges.
+
+    Gemini can occasionally emit contradictory labels like
+    "Distressed Jeans Shorts". Before Appwrite persistence, long-bottom terms
+    win over an appended "Shorts" token unless the whole label is clearly a
+    real shorts item.
+    """
+    out = dict(item or {})
+    name = _safe_text(out.get("name") or out.get("label"))
+    sub = _safe_text(out.get("sub_category") or out.get("subcategory"))
+    probe = f"{name} {sub}".lower()
+
+    has_shorts = bool(re.search(r"\b(shorts|short pants|above[- ]?knee shorts|knee[- ]?length shorts)\b", probe))
+    has_jeans = bool(re.search(r"\b(jeans|denim jeans|slim fit jeans|distressed jeans|full[- ]?length(?: [a-z]+){0,4} denim)\b", probe))
+    has_trousers = bool(re.search(r"\b(trousers|formal trousers|dress trousers|formal pants|dress pants)\b", probe))
+    has_pants = bool(re.search(r"\b(pants|full[- ]?length|ankle[- ]?length|straight leg)\b", probe))
+    has_chinos = bool(re.search(r"\b(chinos|chino)\b", probe))
+
+    if has_shorts and (has_jeans or has_trousers or has_pants or has_chinos):
+        cleaned_name = re.sub(r"\s+\b[Ss]horts\b", "", name).strip() or name
+        cleaned_sub = re.sub(r"\s+\b[Ss]horts\b", "", sub).strip() or sub
+        out["name"] = cleaned_name
+        if has_jeans:
+            out["category"] = "Bottoms"
+            out["sub_category"] = "Jeans"
+        elif has_trousers:
+            out["category"] = "Bottoms"
+            out["sub_category"] = "Trousers"
+        elif has_chinos:
+            out["category"] = "Bottoms"
+            out["sub_category"] = "Chinos"
+        else:
+            out["category"] = "Bottoms"
+            out["sub_category"] = "Pants"
+        out["subcategory"] = out["sub_category"]
+        return out
+
+    category, sub_category = normalize_category_from_label(f"{name} {sub}".strip())
+    if category == "Bottoms":
+        out["category"] = category
+        out["sub_category"] = sub_category
+        out["subcategory"] = sub_category
+    return out
+
+
 def _build_appwrite_doc(
     *,
     user_id: str,
@@ -663,6 +777,7 @@ def _build_appwrite_doc(
     normalized_url: str,
 ) -> Dict[str, Any]:
     item = apply_metadata_guard(item, source="persistence_build_doc")
+    item = normalize_final_wardrobe_item_name_and_taxonomy(item)
     sub_category = _safe_text(
         item.get("sub_category")
         or item.get("subcategory")

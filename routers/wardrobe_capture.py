@@ -1560,6 +1560,37 @@ def _apply_display_image_fields(item: Dict[str, Any]) -> Dict[str, Any]:
     return item
 
 
+def _catalog_quality_score(item: Dict[str, Any]) -> float | None:
+    if not isinstance(item, dict):
+        return None
+    for key in (
+        "catalogQualityScore",
+        "catalog_quality_score",
+        "catalog_score",
+        "catalogScore",
+        "quality_score",
+        "qualityScore",
+    ):
+        value = item.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            return float(value)
+        except Exception:
+            continue
+    return None
+
+
+def _catalog_black_frame_unresolved(item: Dict[str, Any]) -> bool:
+    if not isinstance(item, dict):
+        return False
+    detected = bool(item.get("black_frame_detected") or item.get("blackFrameDetected"))
+    cropped = bool(item.get("black_frame_cropped") or item.get("blackFrameCropped"))
+    rejected = bool(item.get("black_frame_rejected") or item.get("blackFrameRejected"))
+    reason = str(item.get("catalog_reason") or item.get("catalogReason") or "").lower()
+    return rejected or (detected and not cropped) or ("black_frame" in reason and not cropped)
+
+
 def _save_selected_block_reason(item: Dict[str, Any]) -> str:
     if not isinstance(item, dict):
         return "invalid_item"
@@ -1581,6 +1612,11 @@ def _save_selected_block_reason(item: Dict[str, Any]) -> str:
         )
         if status != "catalog_generated" or not normalized or display_source != "catalog":
             return "unsafe_non_catalog"
+        score = _catalog_quality_score(item)
+        if score is None or score < 75:
+            return "low_quality_catalog"
+        if _catalog_black_frame_unresolved(item):
+            return "black_frame_catalog"
     blob = _item_text_blob(item)
     is_footwear = "footwear" in blob or any(t in blob for t in ("sandal", "shoe", "sneaker", "loafer", "boot"))
     is_jewelry = any(t in blob for t in ("jewelry", "jewellery", "necklace", "earring", "bangle", "bracelet", "ring"))
@@ -3462,6 +3498,17 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
                 elif block_reason == "screenshot_or_style_collage":
                     logger.warning(
                         "ahvi.capture.save_selected.skipped_screenshot_collage item_id=%s",
+                        item.get("item_id"),
+                    )
+                elif block_reason == "low_quality_catalog":
+                    logger.warning(
+                        "ahvi.capture.save_selected.skipped_low_quality_catalog item_id=%s score=%s",
+                        item.get("item_id"),
+                        _catalog_quality_score(item),
+                    )
+                elif block_reason == "black_frame_catalog":
+                    logger.warning(
+                        "ahvi.capture.save_selected.skipped_black_frame item_id=%s",
                         item.get("item_id"),
                     )
                 if item_id:

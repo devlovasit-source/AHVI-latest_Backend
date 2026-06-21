@@ -57,14 +57,13 @@ def _patch(monkeypatch, responses):
 
 
 def test_unknown_pixel_hash_keeps_catalog_status(monkeypatch, caplog):
-    # THE regression: a single unknown attr (pixel_hash) must NOT take the valid
-    # catalog_* fields down with it. Drop only pixel_hash; keep catalog_status.
+    # THE regression: pixel_hash must never reach Appwrite and must NOT take
+    # valid catalog_* fields down with it.
     import logging
 
     posts = _patch(
         monkeypatch,
         [
-            _Resp(400, text='Invalid document structure: Unknown attribute: "pixel_hash"'),
             _Resp(201, payload={"$id": "doc1"}),
         ],
     )
@@ -73,11 +72,10 @@ def test_unknown_pixel_hash_keeps_catalog_status(monkeypatch, caplog):
     with caplog.at_level(logging.INFO):
         res = wps._create_document("doc1", doc)
     assert res.get("$id") == "doc1"
-    assert len(posts) == 2
-    retry = posts[1]
-    assert "pixel_hash" not in retry  # offending attr dropped
-    assert retry.get("catalog_status") == "catalog_ready"  # catalog PRESERVED
-    assert retry["image_url"] and retry["masked_url"]
+    assert len(posts) == 1
+    assert "pixel_hash" not in posts[0]
+    assert posts[0].get("catalog_status") == "catalog_ready"  # catalog PRESERVED
+    assert posts[0]["image_url"] and posts[0]["masked_url"]
     assert "ahvi.persistence.dropped_unknown_attrs" in "\n".join(caplog.messages)
 
 
@@ -104,7 +102,6 @@ def test_multiple_unknown_attrs_dropped_iteratively(monkeypatch):
     posts = _patch(
         monkeypatch,
         [
-            _Resp(400, text='Unknown attribute: "pixel_hash"'),
             _Resp(400, text='Unknown attribute: "image_vector"'),
             _Resp(201, payload={"$id": "doc3"}),
         ],
@@ -114,9 +111,10 @@ def test_multiple_unknown_attrs_dropped_iteratively(monkeypatch):
     doc["image_vector"] = "v"
     res = wps._create_document("doc3", doc)
     assert res.get("$id") == "doc3"
-    assert len(posts) == 3
-    assert "pixel_hash" not in posts[2] and "image_vector" not in posts[2]
-    assert posts[2].get("catalog_status") == "catalog_ready"  # still preserved
+    assert len(posts) == 2
+    assert "pixel_hash" not in posts[0]
+    assert "pixel_hash" not in posts[1] and "image_vector" not in posts[1]
+    assert posts[1].get("catalog_status") == "catalog_ready"  # still preserved
 
 
 def test_non_named_error_still_fails(monkeypatch):

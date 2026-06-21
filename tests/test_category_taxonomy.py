@@ -32,8 +32,13 @@ def test_bottom_aliases_do_not_collapse_to_shorts_or_dresses():
     cases = {
         "Dark Blue Jeans": ("Bottoms", "Jeans"),
         "Distressed Dark Blue Jeans": ("Bottoms", "Jeans"),
+        "Distressed Jeans Shorts": ("Bottoms", "Jeans"),
+        "Dark Blue Jeans Shorts": ("Bottoms", "Jeans"),
+        "Blue Denim Jeans Shorts": ("Bottoms", "Jeans"),
         "Grey Trousers": ("Bottoms", "Trousers"),
+        "Grey Trousers Shorts": ("Bottoms", "Trousers"),
         "Formal Black Pants": ("Bottoms", "Pants"),
+        "Formal Black Pants Shorts": ("Bottoms", "Pants"),
         "Full-length dark blue denim": ("Bottoms", "Jeans"),
         "Black Shorts": ("Bottoms", "Shorts"),
         "Denim Shorts": ("Bottoms", "Shorts"),
