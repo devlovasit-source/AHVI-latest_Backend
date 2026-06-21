@@ -428,6 +428,104 @@ def test_flat_lay_catalog_ready_cutout_saves(monkeypatch):
     assert persisted["items"][0]["display_image_source"] == "cutout"
 
 
+def test_flat_lay_full_image_bbox_catalog_ready_saves(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setattr(wc, "_fetch_wardrobe_profile_gender", lambda user_id: "unknown")
+
+    def _catalog(item):
+        item["catalogStatus"] = "catalog_ready"
+        item["catalogProvider"] = "cutout"
+        item["catalogQualityScore"] = 99
+        item["normalized_url"] = "https://normalized.test/yellow-tee.png"
+        item["normalizedUrl"] = item["normalized_url"]
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    tee = _item("yellow-tee", (240, 210, 40))
+    tee.update(
+        {
+            "name": "Yellow T-Shirt",
+            "category": "Tops",
+            "sub_category": "T-Shirt",
+            "validation_status": "ok",
+            "source": "gemini_single_garment",
+            "detection_state": "gemini_single_garment",
+            "bbox": [0, 0, 480, 720],
+        }
+    )
+
+    assert wc._source_contains_person_item(tee) is False
+
+    result = wc.save_selected(
+        _Request(),
+        wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["yellow-tee"], detected_items=[tee]),
+    )
+
+    assert result["saved_count"] == 1
+    assert result["normalized_item_count"] == 1
+    assert persisted["items"][0]["display_image_source"] == "cutout"
+
+
+def test_fallback_cutout_true_does_not_make_safe_flatlay_unsafe(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setattr(wc, "_fetch_wardrobe_profile_gender", lambda user_id: "unknown")
+
+    def _catalog(item):
+        item["catalogStatus"] = "catalog_ready"
+        item["catalogProvider"] = "cutout"
+        item["catalogQualityScore"] = 99
+        item["fallback_cutout"] = True
+        item["normalized_url"] = "https://normalized.test/yellow-tee.png"
+        item["normalizedUrl"] = item["normalized_url"]
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    tee = _item("yellow-tee", (240, 210, 40))
+    tee["validation_status"] = "ok"
+    tee["source"] = "gemini_single_garment"
+
+    result = wc.save_selected(
+        _Request(),
+        wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["yellow-tee"], detected_items=[tee]),
+    )
+
+    assert result["saved_count"] == 1
+    assert persisted["items"][0]["catalogProvider"] == "cutout"
+
+
+def test_provider_env_nanobanana_does_not_make_catalog_ready_cutout_unsafe(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setattr(wc, "_fetch_wardrobe_profile_gender", lambda user_id: "unknown")
+
+    def _catalog(item):
+        item["catalogStatus"] = "catalog_ready"
+        item["catalogProvider"] = "cutout"
+        item["catalogQualityScore"] = 99
+        item["normalized_url"] = "https://normalized.test/yellow-tee.png"
+        item["normalizedUrl"] = item["normalized_url"]
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    tee = _item("yellow-tee", (240, 210, 40))
+    tee["validation_status"] = "ok"
+    tee["source"] = "gemini_single_garment"
+
+    result = wc.save_selected(
+        _Request(),
+        wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["yellow-tee"], detected_items=[tee]),
+    )
+
+    assert result["saved_count"] == 1
+    assert persisted["items"][0]["display_image_source"] == "cutout"
+
+
 def test_unsafe_source_catalog_ready_cutout_rejected(monkeypatch):
     async def _remove_bg(raw):
         return b"masked-" + raw
@@ -456,6 +554,93 @@ def test_unsafe_source_catalog_ready_cutout_rejected(monkeypatch):
     assert result["saved_count"] == 0
     assert persisted["items"] == []
     assert result["skipped"] == 1
+    assert result["dropped_reasons"][0]["reason"] == "unsafe_non_catalog"
+
+
+def test_person_source_catalog_ready_cutout_still_rejected(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setattr(wc, "_fetch_wardrobe_profile_gender", lambda user_id: "unknown")
+
+    def _catalog(item):
+        item["catalogStatus"] = "catalog_ready"
+        item["catalogProvider"] = "cutout"
+        item["catalogQualityScore"] = 99
+        item["normalized_url"] = "https://normalized.test/person-cutout.png"
+        item["normalizedUrl"] = item["normalized_url"]
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    item = _item("person-shirt")
+    item["validation_status"] = "ok"
+    item["source"] = "person_body_crop"
+
+    result = wc.save_selected(
+        _Request(),
+        wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["person-shirt"], detected_items=[item]),
+    )
+
+    assert result["saved_count"] == 0
+    assert persisted["items"] == []
+    assert result["dropped_reasons"][0]["reason"] == "unsafe_non_catalog"
+
+
+def test_mirror_selfie_catalog_ready_cutout_still_rejected(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setattr(wc, "_fetch_wardrobe_profile_gender", lambda user_id: "unknown")
+
+    def _catalog(item):
+        item["catalogStatus"] = "catalog_ready"
+        item["catalogProvider"] = "cutout"
+        item["catalogQualityScore"] = 99
+        item["normalized_url"] = "https://normalized.test/mirror-cutout.png"
+        item["normalizedUrl"] = item["normalized_url"]
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    item = _item("mirror-shirt")
+    item["validation_status"] = "ok"
+    item["source"] = "mirror_selfie"
+
+    result = wc.save_selected(
+        _Request(),
+        wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["mirror-shirt"], detected_items=[item]),
+    )
+
+    assert result["saved_count"] == 0
+    assert persisted["items"] == []
+    assert result["dropped_reasons"][0]["reason"] == "unsafe_non_catalog"
+
+
+def test_unsafe_reason_requires_catalog_generated(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    monkeypatch.setattr(wc, "_fetch_wardrobe_profile_gender", lambda user_id: "unknown")
+
+    def _catalog(item):
+        item["catalogStatus"] = "catalog_ready"
+        item["catalogProvider"] = "cutout"
+        item["catalogQualityScore"] = 99
+        item["unsafe_reason"] = "human_or_mannequin_remnants"
+        item["normalized_url"] = "https://normalized.test/unsafe-reason.png"
+        item["normalizedUrl"] = item["normalized_url"]
+
+    monkeypatch.setattr(wc, "_maybe_generate_catalog_image", _catalog)
+    item = _item("unsafe-reason-shirt")
+    item["validation_status"] = "ok"
+
+    result = wc.save_selected(
+        _Request(),
+        wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["unsafe-reason-shirt"], detected_items=[item]),
+    )
+
+    assert result["saved_count"] == 0
+    assert persisted["items"] == []
     assert result["dropped_reasons"][0]["reason"] == "unsafe_non_catalog"
 
 

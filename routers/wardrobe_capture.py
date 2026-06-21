@@ -1006,9 +1006,53 @@ def _item_text_blob(item: Dict[str, Any]) -> str:
     return " ".join(parts).lower()
 
 
-def _source_contains_person_item(item: Dict[str, Any]) -> bool:
+_SOURCE_PERSON_PHRASES = {
+    "full body",
+    "full_body",
+    "mirror selfie",
+    "group selfie",
+    "group photo",
+    "person body crop",
+    "human body",
+    "body crop",
+    "body remnants",
+    "human_or_mannequin_remnants",
+}
+_SOURCE_PERSON_WORDS = {
+    "person",
+    "human",
+    "selfie",
+    "mirror",
+    "model",
+    "mannequin",
+    "worn",
+    "wearing",
+    "torso",
+    "arm",
+    "arms",
+    "leg",
+    "legs",
+    "feet",
+    "face",
+    "hand",
+    "hands",
+}
+
+
+def _source_person_reason(item: Dict[str, Any]) -> str:
     blob = _item_text_blob(item)
-    return any(term in blob for term in _SOURCE_PERSON_TERMS)
+    for phrase in _SOURCE_PERSON_PHRASES:
+        if phrase in blob:
+            return phrase
+    tokens = set(re.findall(r"[a-z0-9]+", blob))
+    for word in _SOURCE_PERSON_WORDS:
+        if word in tokens:
+            return word
+    return ""
+
+
+def _source_contains_person_item(item: Dict[str, Any]) -> bool:
+    return bool(_source_person_reason(item))
 
 
 def _source_contains_person_batch(items: List[Dict[str, Any]]) -> bool:
@@ -1605,6 +1649,57 @@ def _catalog_provider_name(item: Dict[str, Any]) -> str:
     ).strip().lower()
 
 
+def _bbox_is_full_image(item: Dict[str, Any]) -> bool:
+    bbox = item.get("bbox") if isinstance(item, dict) else None
+    if not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+        return False
+    try:
+        x1, y1, x2, y2 = [float(v) for v in bbox[:4]]
+    except Exception:
+        return False
+    return x1 <= 0 and y1 <= 0 and x2 > 0 and y2 > 0
+
+
+def _fallback_cutout_flag(item: Dict[str, Any]) -> bool:
+    if not isinstance(item, dict):
+        return False
+    status = str(item.get("catalogStatus") or item.get("catalog_status") or "").strip()
+    return (
+        status == "fallback_cutout"
+        or bool(item.get("fallback_cutout"))
+        or bool(item.get("fallback_used"))
+    )
+
+
+def _log_source_risk_debug(item: Dict[str, Any], *, unsafe: bool, unsafe_reason: str) -> None:
+    score = _catalog_quality_score(item)
+    status = str(item.get("catalogStatus") or item.get("catalog_status") or "").strip()
+    provider = _catalog_provider_name(item)
+    display = _apply_display_image_fields(dict(item))
+    display_source = str(display.get("display_image_source") or "").strip()
+    quality_gate_ok = bool(item.get("quality_gate_ok") or item.get("qualityGateOk"))
+    if not quality_gate_ok and score is not None:
+        quality_gate_ok = score >= 75 and status in {"catalog_ready", "catalog_generated"}
+    logger.info(
+        "ahvi.capture.save_selected.source_risk_debug item_id=%s name=%s catalog_status=%s provider=%s display_source=%s quality_score=%s quality_gate_ok=%s validation_status=%s rejection_reason=%s selected_by_default=%s detection_state=%s bbox_is_full_image=%s fallback_cutout=%s unsafe_source=%s unsafe_reason=%s",
+        item.get("item_id"),
+        item.get("name") or item.get("label"),
+        status,
+        provider,
+        display_source,
+        score,
+        quality_gate_ok,
+        item.get("validation_status"),
+        item.get("rejection_reason") or item.get("review_reason"),
+        item.get("selected_by_default"),
+        item.get("detection_state") or item.get("source") or item.get("label_source"),
+        _bbox_is_full_image(item),
+        _fallback_cutout_flag(item),
+        unsafe,
+        unsafe_reason,
+    )
+
+
 def _save_selected_block_reason(item: Dict[str, Any]) -> str:
     if not isinstance(item, dict):
         return "invalid_item"
@@ -1639,7 +1734,12 @@ def _save_selected_block_reason(item: Dict[str, Any]) -> str:
         "catalog_skipped_category",
     }:
         return "unsupported_catalog_status"
-    unsafe = bool(item.get("unsafe_source") or item.get("source_contains_person") or _source_contains_person_item(item))
+    unsafe_reason = (
+        str(item.get("unsafe_reason") or item.get("unsafeSourceReason") or "").strip()
+        or _source_person_reason(item)
+    )
+    unsafe = bool(item.get("unsafe_source") or item.get("source_contains_person") or unsafe_reason)
+    _log_source_risk_debug(item, unsafe=unsafe, unsafe_reason=unsafe_reason)
     if unsafe:
         logger.info(
             "ahvi.capture.save_selected.unsafe_source_requires_catalog item_id=%s catalog_status=%s display_source=%s",
