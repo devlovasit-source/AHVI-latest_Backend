@@ -223,3 +223,81 @@ def test_palette_direction_influences_fallback_tip():
     )
     tip = enriched[0]["story"]["tip"].lower()
     assert "navy" in tip or "palette" in tip or "accent" in tip
+
+
+# ---------------------------------------------------------------------------
+# Premium board layout planner
+# ---------------------------------------------------------------------------
+
+from brain.response.board_storyteller import build_premium_board_layout  # noqa: E402
+
+
+def _it(item_id, name, category):
+    return {"id": item_id, "name": name, "category": category}
+
+
+def test_dress_board_gets_premium_editorial_dress_preset():
+    outfit = _outfit(0, items=[
+        _it("dress-1", "Red Polka Dot Dress", "Dresses"),
+        _it("sneak-1", "White Sneakers", "Footwear"),
+        _it("watch-1", "Gold Watch", "Accessories"),
+    ])
+    layout = build_premium_board_layout(_board(0), outfit, {})
+    assert layout["layout_preset"] == "premium_editorial_dress"
+
+
+def test_dress_board_has_dress_hero_and_no_bottom_role():
+    outfit = _outfit(0, items=[
+        _it("dress-1", "Red Polka Dot Dress", "Dresses"),
+        _it("jeans-1", "Blue Jeans", "Bottoms"),  # must NOT be placed with a dress
+        _it("sneak-1", "White Sneakers", "Footwear"),
+    ])
+    layout = build_premium_board_layout(_board(0), outfit, {})
+    roles = [c["role"] for c in layout["composition_items"]]
+    ids = [c["id"] for c in layout["composition_items"]]
+    assert "hero" in roles
+    assert layout["hero_item_id"] == "dress-1"
+    assert "jeans-1" not in ids, "bottoms must not be placed with a dress"
+
+
+def test_top_bottom_board_gets_stack_preset():
+    outfit = _outfit(0, items=[
+        _it("shirt-1", "White Shirt", "Tops"),
+        _it("trouser-1", "Stone Trousers", "Bottoms"),
+        _it("shoe-1", "White Sneakers", "Footwear"),
+    ])
+    layout = build_premium_board_layout(_board(0), outfit, {})
+    assert layout["layout_preset"] == "premium_top_bottom_stack"
+    assert layout["hero_item_id"] == "shirt-1"
+
+
+def test_single_item_board_gets_minimal_preset():
+    outfit = _outfit(0, items=[_it("dress-1", "Red Polka Dot Dress", "Dresses")])
+    layout = build_premium_board_layout(_board(0), outfit, {})
+    assert layout["layout_preset"] == "premium_minimal_single_item"
+    assert len(layout["composition_items"]) == 1
+    assert layout["composition_items"][0]["role"] == "hero"
+
+
+def test_composition_items_present_for_every_enriched_board():
+    boards = [_board(i, items=[_it(f"d{i}", "Red Dress", "Dresses"),
+                               _it(f"s{i}", "White Sneakers", "Footwear")]) for i in range(3)]
+    outfits = [_outfit(i, items=boards[i]["items"]) for i in range(3)]
+    enriched = enrich_boards(boards, outfits, {"occasion": "date"})
+    for b in enriched:
+        assert isinstance(b.get("composition_items"), list)
+        assert b["composition_items"], "every rendered board must have composition_items"
+        assert b.get("layout_preset", "").startswith("premium_")
+
+
+def test_red_polka_dot_dress_does_not_place_brown_leather_shoes():
+    outfit = _outfit(0, items=[
+        _it("dress-1", "Red Polka Dot Dress", "Dresses"),
+        _it("leather-1", "Brown Leather Shoes", "Footwear"),
+    ])
+    layout = build_premium_board_layout(_board(0), outfit, {})
+    ids = [c["id"] for c in layout["composition_items"]]
+    assert "leather-1" not in ids, "men's leather shoes must not support a dress"
+    # A good missing suggestion is offered instead of the bad pairing.
+    labels = " ".join(m.get("label", "").lower() for m in layout["missing_items"])
+    assert any(g in labels for g in ("sneaker", "sandal", "flat"))

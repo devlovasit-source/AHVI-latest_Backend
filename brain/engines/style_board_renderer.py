@@ -120,41 +120,63 @@ class StyleBoardRenderer:
     # FALLBACK LAYOUT
     # =========================
     def _build_fallback_layout(self, items):
-
+        """Emergency fallback. Still EDITORIAL (role-aware hierarchy), never a
+        mechanical corner grid. Only used when no composition_items / preset
+        are supplied by the backend layout planner."""
         if not items:
             return {}
 
-        hero = items[0]
-        supporting = items[1:]
+        role_items = {"dress": [], "top": [], "bottom": [], "footwear": [], "accessory": []}
+        for item in items:
+            role_items.setdefault(self._item_role(item), []).append(item)
 
-        layers = {
-            "foreground": [hero],
-            "midground": supporting[:2],
-            "background": supporting[2:],
-        }
-
+        layers = {"background": [], "midground": [], "foreground": []}
         placements = {}
 
-        placements[hero.get("id")] = {
-            "x": 0.5,
-            "y": 0.45,
-            "scale": 1.1,
-            "rotation": 0,
-            "z": 3,
-        }
-
-        positions = [(0.25, 0.75), (0.75, 0.75), (0.25, 0.2), (0.75, 0.2)]
-
-        for i, item in enumerate(supporting):
-            placements[item.get("id")] = {
-                "x": positions[i % len(positions)][0],
-                "y": positions[i % len(positions)][1],
-                "scale": 0.7,
-                "rotation": 0,
-                "z": 2,
+        def add(item, layer, x, y, scale, rotation=0):
+            if not item:
+                return
+            ident = item.get("id") or self._item_id(item)
+            layers[layer].append(item)
+            placements[ident] = {
+                "x": max(0.08, min(0.92, x)),
+                "y": max(0.08, min(0.92, y)),
+                "scale": scale,
+                "rotation": rotation,
+                "z": {"background": 1, "midground": 2, "foreground": 3}[layer],
             }
 
-        return {"layers": layers, "placements": placements}
+        dress = (role_items["dress"] or [None])[0]
+        top = (role_items["top"] or [None])[0]
+        bottom = (role_items["bottom"] or [None])[0]
+        footwear = (role_items["footwear"] or [None])[0]
+        accessories = role_items["accessory"][:3]
+
+        if dress:
+            add(dress, "midground", 0.46, 0.42, 1.45)
+            add(footwear, "foreground", 0.72, 0.78, 0.78)
+        elif top and bottom:
+            add(top, "midground", 0.38, 0.36, 1.30)
+            add(bottom, "background", 0.62, 0.54, 1.05)
+            add(footwear, "foreground", 0.30, 0.78, 0.80)
+        else:
+            hero = items[0]
+            add(hero, "midground", 0.50, 0.46, 1.40)
+
+        # Accessory orbit on the right — small accents, not a grid.
+        for idx, acc in enumerate(accessories):
+            x, y = [(0.80, 0.18), (0.85, 0.31), (0.80, 0.44)][idx]
+            add(acc, "foreground", x, y, 0.40)
+
+        # Anything not yet placed (rare) gets an editorial off-center slot,
+        # never an even grid.
+        placed = {self._item_id(i) for layer in layers.values() for i in layer}
+        spare = [(0.70, 0.66), (0.30, 0.24), (0.72, 0.26)]
+        for idx, item in enumerate(i for i in items if self._item_id(i) not in placed):
+            x, y = spare[idx % len(spare)]
+            add(item, "background", x, y, 0.62)
+
+        return {"composition": "editorial_fallback", "layers": layers, "placements": placements}
 
     def _item_role(self, item):
         text = " ".join(
@@ -511,8 +533,15 @@ class StyleBoardRenderer:
 
         img = self._add_shadow(img)
 
-        x = int(placement.get("x", 0.5) * self.CANVAS_SIZE[0] - img.size[0] / 2)
-        y = int(placement.get("y", 0.5) * self.CANVAS_SIZE[1] - img.size[1] / 2)
+        cw, ch = self.CANVAS_SIZE
+        iw, ih = img.size
+        x = int(placement.get("x", 0.5) * cw - iw / 2)
+        y = int(placement.get("y", 0.5) * ch - ih / 2)
+
+        # Safe bounds: keep the item inside the canvas (center it if it is
+        # somehow larger than the canvas) so nothing clips off the edge.
+        x = (cw - iw) // 2 if iw >= cw else max(0, min(x, cw - iw))
+        y = (ch - ih) // 2 if ih >= ch else max(0, min(y, ch - ih))
 
         canvas.paste(img, (x, y), img)
 
@@ -533,8 +562,18 @@ class StyleBoardRenderer:
         w, h = img.size
         ratio = base_width / max(w, 1)
 
-        img = img.resize((int(w * ratio), int(h * ratio)))
+        img = img.resize((max(1, int(w * ratio)), max(1, int(h * ratio))))
         img = img.rotate(rotation, expand=True)
+
+        # Safe bounds: never let a hero (or any item) exceed the canvas so a
+        # large dress stays fully visible instead of clipping off-frame.
+        max_w = int(self.CANVAS_SIZE[0] * 0.94)
+        max_h = int(self.CANVAS_SIZE[1] * 0.94)
+        if img.size[0] > max_w or img.size[1] > max_h:
+            clamp = min(max_w / img.size[0], max_h / img.size[1])
+            img = img.resize(
+                (max(1, int(img.size[0] * clamp)), max(1, int(img.size[1] * clamp)))
+            )
 
         return img
 
@@ -647,17 +686,36 @@ class StyleBoardRenderer:
     # SHADOW
     # =========================
     def _add_shadow(self, img):
+        """Natural object shadow from the item's alpha silhouette — not a
+        rectangle. Falls back to no shadow if the image has no usable alpha."""
+        if img.mode != "RGBA":
+            img = img.convert("RGBA")
 
-        shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(shadow)
+        pad = 28
+        offset = (10, 14)
+        out_size = (img.size[0] + pad * 2, img.size[1] + pad * 2)
+        base = Image.new("RGBA", out_size, (0, 0, 0, 0))
 
-        draw.rectangle([(10, 10), img.size], fill=(0, 0, 0, 80))
-        shadow = shadow.filter(ImageFilter.GaussianBlur(12))
+        try:
+            alpha = img.getchannel("A")
+            lo, _hi = alpha.getextrema()
+            # Build a soft shadow shaped by the item silhouette (alpha mask),
+            # not a filled box. Skip entirely for fully-opaque rectangular
+            # assets so we never stamp a hard rectangle.
+            if lo < 255:
+                silhouette = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                black = Image.new("RGBA", img.size, (0, 0, 0, 115))
+                silhouette = Image.composite(black, silhouette, alpha)
+                shadow_canvas = Image.new("RGBA", out_size, (0, 0, 0, 0))
+                shadow_canvas.paste(
+                    silhouette, (pad + offset[0], pad + offset[1]), silhouette
+                )
+                shadow_canvas = shadow_canvas.filter(ImageFilter.GaussianBlur(16))
+                base = Image.alpha_composite(base, shadow_canvas)
+        except Exception:
+            pass
 
-        base = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        base.paste(shadow, (0, 0), shadow)
-        base.paste(img, (0, 0), img)
-
+        base.paste(img, (pad, pad), img)
         return base
 
     # =========================

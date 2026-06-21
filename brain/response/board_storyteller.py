@@ -475,6 +475,210 @@ def _refine_story_strings(story: Dict[str, str], context: Dict[str, Any]) -> Dic
 
 
 # ---------------------------------------------------------------------------
+# Premium board layout planner
+# ---------------------------------------------------------------------------
+# Produces a deterministic layout contract (layout_preset, composition_mode,
+# hero/anchor ids, composition_items with role/x/y/z/relative_size) so the
+# renderer never falls back to a mechanical grid. Visual hierarchy follows the
+# 85/10/5 rule: hero largest, support medium, accents small.
+
+_DRESS_TOKENS = (
+    "dress", "gown", "saree", "sari", "lehenga", "anarkali", "abaya",
+    "jumpsuit", "one-piece", "one piece", "frock", "kaftan",
+)
+_FOOTWEAR_TOKENS = (
+    "shoe", "sneaker", "loafer", "boot", "sandal", "heel", "flat",
+    "footwear", "mule", "espadrille", "pump", "oxford",
+)
+_BOTTOM_TOKENS = (
+    "jean", "trouser", "pant", "chino", "short", "skirt", "legging", "bottom",
+)
+_TOP_TOKENS = (
+    "top", "shirt", "tee", "tshirt", "t-shirt", "polo", "kurta", "blouse",
+    "jacket", "blazer", "coat", "hoodie", "sweater", "knit", "cardigan",
+    "overshirt",
+)
+_ACCESSORY_TOKENS = (
+    "watch", "belt", "sunglass", "bag", "clutch", "handbag", "purse",
+    "necklace", "bracelet", "ring", "earring", "scarf", "hat", "cap", "jewel",
+)
+# Footwear that should NOT support a dress unless context explicitly says so.
+_BAD_DRESS_FOOTWEAR = (
+    "loafer", "oxford", "derby", "brogue", "monk", "wingtip",
+    "leather shoe", "dress shoe", "formal", "men's", "mens", " men ",
+)
+_DRESS_FOOTWEAR_SUGGESTIONS = [
+    {"label": "White sneakers", "reason": "Fresh, casual contrast that lets the dress lead.", "cta": "Find this"},
+    {"label": "Nude or black sandals", "reason": "Clean feminine line for a dress.", "cta": "Find this"},
+    {"label": "Ballet flats", "reason": "Soft daytime option that keeps the look easy.", "cta": "Find this"},
+]
+
+
+def _layout_item_id(item: Dict[str, Any]) -> str:
+    return _text(
+        item.get("id")
+        or item.get("$id")
+        or item.get("item_id")
+        or item.get("itemId")
+        or item.get("image_id")
+        or item.get("name")
+    )
+
+
+def _layout_role(item: Dict[str, Any]) -> str:
+    blob = " ".join(
+        _text(item.get(k))
+        for k in ("role", "slot", "type", "category", "sub_category", "subcategory", "name", "label")
+    ).lower()
+    if any(t in blob for t in _DRESS_TOKENS):
+        return "dress"
+    if any(t in blob for t in _FOOTWEAR_TOKENS):
+        return "footwear"
+    if any(t in blob for t in _BOTTOM_TOKENS):
+        return "bottom"
+    if any(t in blob for t in _ACCESSORY_TOKENS):
+        return "accessory"
+    if any(t in blob for t in _TOP_TOKENS):
+        return "top"
+    return "accessory"
+
+
+def _is_bad_dress_footwear(item: Dict[str, Any]) -> bool:
+    blob = " ".join(
+        _text(item.get(k))
+        for k in ("name", "label", "sub_category", "subcategory", "category", "type")
+    ).lower()
+    return any(t in blob for t in _BAD_DRESS_FOOTWEAR)
+
+
+def build_premium_board_layout(
+    board: Dict[str, Any],
+    outfit: Optional[Dict[str, Any]] = None,
+    context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Return a deterministic premium layout contract for a board.
+
+    Keys: layout_preset, composition_mode, hero_item_id, anchor_item_id,
+    composition_items[{id,role,x,y,z,relative_size,rotation}], missing_items.
+    """
+    outfit = _dict(outfit)
+    raw_items = outfit.get("items") or board.get("items") or []
+    enriched: List[Tuple[Dict[str, Any], str, str]] = [
+        (it, _layout_item_id(it), _layout_role(it))
+        for it in raw_items
+        if isinstance(it, dict) and _layout_item_id(it)
+    ]
+    dress = next((e for e in enriched if e[2] == "dress"), None)
+    tops = [e for e in enriched if e[2] == "top"]
+    bottoms = [e for e in enriched if e[2] == "bottom"]
+    footwear = [e for e in enriched if e[2] == "footwear"]
+    accessories = [e for e in enriched if e[2] == "accessory"]
+
+    hero_id = _text(board.get("hero_item_id"))
+    anchor_id = _text(board.get("anchor_item_id"))
+
+    comp: List[Dict[str, Any]] = []
+    missing: List[Dict[str, Any]] = []
+
+    def add(ident: str, role: str, x: float, y: float, z: int, size: float, rot: int = 0) -> None:
+        if not ident:
+            return
+        comp.append({
+            "id": ident, "role": role, "x": x, "y": y, "z": z,
+            "relative_size": size, "rotation": rot,
+        })
+
+    preset = "premium_minimal_single_item"
+
+    if len(enriched) <= 1:
+        # C. Single item / anchor only — hero centered, no fake supports.
+        preset = "premium_minimal_single_item"
+        if enriched:
+            _, ident, _ = enriched[0]
+            hero_id = hero_id or ident
+            add(hero_id, "hero", 0.50, 0.46, 4, 0.38)
+    elif dress:
+        # A. Dress / saree / lehenga / gown — editorial. No bottoms.
+        preset = "premium_editorial_dress"
+        hero_id = dress[1]
+        add(hero_id, "hero", 0.46, 0.42, 4, 0.36)
+        good_footwear = [e for e in footwear if not _is_bad_dress_footwear(e[0])]
+        if good_footwear:
+            add(good_footwear[0][1], "support", 0.72, 0.78, 5, 0.16)
+        elif footwear:
+            # Only bad (men's/formal) footwear owned -> suggest, don't place it.
+            missing.append(dict(_DRESS_FOOTWEAR_SUGGESTIONS[0]))
+        for idx, (_, ident, _) in enumerate(accessories[:3]):
+            x, y = [(0.78, 0.18), (0.84, 0.30), (0.80, 0.43)][idx]
+            add(ident, "accent", x, y, 5, 0.10)
+        # If nothing safe supports the dress, render a clean single-hero board
+        # and surface a missing-item suggestion instead of a bad pairing.
+        if len(comp) == 1:
+            preset = "premium_minimal_single_item"
+            if not missing:
+                missing.append(dict(_DRESS_FOOTWEAR_SUGGESTIONS[0]))
+    elif tops and bottoms:
+        # B. Top + bottom stack.
+        preset = "premium_top_bottom_stack"
+        hero_id = hero_id or tops[0][1]
+        add(tops[0][1], "hero", 0.38, 0.36, 4, 0.30)
+        add(bottoms[0][1], "support", 0.62, 0.54, 3, 0.28)
+        if footwear:
+            add(footwear[0][1], "support", 0.30, 0.78, 5, 0.18)
+        for idx, (_, ident, _) in enumerate(accessories[:2]):
+            x, y = [(0.78, 0.20), (0.86, 0.32)][idx]
+            add(ident, "accent", x, y, 5, 0.10)
+    else:
+        hero_entry = next((e for e in enriched if e[1] == hero_id), None) or enriched[0]
+        if hero_entry[2] == "accessory":
+            # D. Accessory hero — large foreground, garments soft background.
+            preset = "premium_accessory_orbit"
+            hero_id = hero_entry[1]
+            add(hero_id, "hero", 0.48, 0.46, 5, 0.30)
+            others = [e for e in enriched if e[1] != hero_id]
+            for idx, (_, ident, _) in enumerate(others[:3]):
+                x, y = [(0.34, 0.36), (0.66, 0.40), (0.50, 0.66)][idx]
+                add(ident, "support", x, y, 2, 0.20)
+        elif hero_entry[2] == "footwear":
+            # E. Footwear hero — bottom foreground, clothes behind.
+            preset = "premium_footwear_anchor"
+            hero_id = hero_entry[1]
+            add(hero_id, "hero", 0.50, 0.74, 5, 0.26)
+            others = [e for e in enriched if e[1] != hero_id]
+            for idx, (_, ident, _) in enumerate(others[:3]):
+                x, y = [(0.40, 0.34), (0.62, 0.38), (0.50, 0.20)][idx]
+                add(ident, "support", x, y, 2, 0.22)
+        else:
+            # Generic top-led stack (no dress, no clear top+bottom pair).
+            preset = "premium_top_bottom_stack"
+            hero_id = hero_id or enriched[0][1]
+            add(hero_id, "hero", 0.46, 0.40, 4, 0.32)
+            others = [e for e in enriched if e[1] != hero_id]
+            for idx, (it, ident, role) in enumerate(others[:3]):
+                x, y = [(0.64, 0.54), (0.30, 0.78), (0.80, 0.22)][idx]
+                z = 5 if role in {"footwear", "accessory"} else 3
+                add(ident, "accent" if role == "accessory" else "support", x, y, z, 0.18)
+
+    return {
+        "layout_preset": preset,
+        "composition_mode": "stack",
+        "hero_item_id": hero_id or (enriched[0][1] if enriched else ""),
+        "anchor_item_id": anchor_id or None,
+        "composition_items": comp,
+        "missing_items": missing,
+    }
+
+
+def _text_bars_from_story(story: Dict[str, Any]) -> List[Dict[str, str]]:
+    bars: List[Dict[str, str]] = []
+    for key in ("headline", "why", "tip"):
+        value = _text(story.get(key))
+        if value:
+            bars.append({"role": key, "text": value})
+    return bars
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -508,6 +712,20 @@ class BoardStoryteller:
             board.setdefault("why_it_works", story.get("why") or "")
             board.setdefault("explanation", story.get("summary") or "")
             board.setdefault("styling_tip", story.get("tip") or "")
+
+            # Deterministic premium layout contract — the renderer should never
+            # need its grid fallback.
+            layout = build_premium_board_layout(board, matched_outfit, ctx)
+            board["layout_preset"] = layout["layout_preset"]
+            board["composition_mode"] = layout["composition_mode"]
+            board["hero_item_id"] = layout["hero_item_id"]
+            if layout.get("anchor_item_id"):
+                board["anchor_item_id"] = layout["anchor_item_id"]
+            board["composition_items"] = layout["composition_items"]
+            if layout.get("missing_items"):
+                board.setdefault("missing_items", layout["missing_items"])
+            board.setdefault("text_bars", _text_bars_from_story(story))
+            board.setdefault("hidden_fields", {})
             enriched.append(board)
         return enriched
 
@@ -583,4 +801,9 @@ def enrich_boards(
     return board_storyteller.enrich_boards(boards, outfits, context)
 
 
-__all__ = ["BoardStoryteller", "board_storyteller", "enrich_boards"]
+__all__ = [
+    "BoardStoryteller",
+    "board_storyteller",
+    "enrich_boards",
+    "build_premium_board_layout",
+]
