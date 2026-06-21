@@ -282,7 +282,12 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
         # the parser is robust, so JSON mime type is enough.
         config_kwargs = {
             "temperature": 0,
-            "max_output_tokens": 1536,
+            # gemini-2.5-flash is a THINKING model: reasoning tokens count
+            # against the output budget. At 1536 the JSON was being truncated
+            # (finish_reason=MAX_TOKENS -> no detection -> full-image fallback),
+            # intermittently for harder images (e.g. suede jackets). Give the
+            # output room. Env-overridable.
+            "max_output_tokens": _env_int("GEMINI_MULTI_GARMENT_MAX_OUTPUT_TOKENS", 4096),
             "response_mime_type": "application/json",
         }
         # Off by default. Schema-driven output is disabled because the SDK fails
@@ -290,6 +295,13 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
         # schema-error retry below has a path to exercise.
         if _env_enabled("GEMINI_MULTI_GARMENT_USE_SCHEMA", "false"):
             config_kwargs["response_schema"] = _ITEM_SCHEMA
+        # Disable thinking for this structured extraction so the whole output
+        # budget goes to the JSON, not to internal reasoning. Guarded:
+        # ThinkingConfig may be absent in older SDKs / unsupported by the model.
+        try:
+            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        except Exception:
+            config_kwargs.pop("thinking_config", None)
         # Keep request as deterministic as the SDK/model supports. Unsupported
         # fields are intentionally omitted.
         try:
@@ -302,6 +314,7 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
                 config = types.GenerateContentConfig(**config_kwargs)
             except Exception:
                 config_kwargs.pop("candidate_count", None)
+                config_kwargs.pop("thinking_config", None)
                 config = types.GenerateContentConfig(**config_kwargs)
         try:
             response = client.models.generate_content(

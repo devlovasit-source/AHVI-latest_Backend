@@ -283,6 +283,45 @@ def test_gemini_multi_live_config_has_no_response_schema(monkeypatch):
     assert calls[0].get("candidate_count") == 1
 
 
+def test_gemini_multi_disables_thinking_and_raises_token_budget(monkeypatch):
+    """gemini-2.5-flash is a thinking model; reasoning tokens were truncating
+    the JSON (MAX_TOKENS). Live config must raise max_output_tokens and disable
+    thinking so the whole budget goes to the response."""
+    calls = []
+
+    class _FakeThinking:
+        def __init__(self, thinking_budget):
+            self.thinking_budget = thinking_budget
+
+    class _FakeTypesThinking:
+        Part = _FakePart
+        GenerateContentConfig = _FakeConfig
+        ThinkingConfig = _FakeThinking
+
+    class _FakeResponse:
+        text = '{"items":[]}'
+
+    class _FakeModels:
+        def generate_content(self, *, model, contents, config):
+            calls.append(dict(config))
+            return _FakeResponse()
+
+    class _FakeClient:
+        models = _FakeModels()
+
+    monkeypatch.delenv("GEMINI_MULTI_GARMENT_MAX_OUTPUT_TOKENS", raising=False)
+    monkeypatch.setattr(gmg, "types", _FakeTypesThinking)
+    monkeypatch.setattr(gmg, "_get_gemini_client", lambda: _FakeClient())
+
+    result = gmg._call_gemini_vision(b"image-bytes", request_id="thinking")
+
+    assert result == '{"items":[]}'
+    assert len(calls) == 1
+    assert calls[0]["max_output_tokens"] >= 4096
+    assert "thinking_config" in calls[0]
+    assert calls[0]["thinking_config"].thinking_budget == 0
+
+
 def test_gemini_multi_schema_error_retries_without_schema(monkeypatch):
     """If response_schema is ever present and the SDK fails converting it
     (AttributeError: 'list' object has no attribute 'upper'), retry once with
