@@ -197,6 +197,37 @@ def iou(box1, box2):
     return inter / union if union else 0
 
 
+def _bbox_is_full_frame(bbox, width, height):
+    """A detection box anchored at the origin that spans (almost) the whole
+    frame, e.g. [0, 0, width, height]."""
+    if not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+        return False
+    if not width or not height:
+        return False
+    try:
+        x1, y1, x2, y2 = (float(v) for v in bbox[:4])
+    except (TypeError, ValueError):
+        return False
+    w = abs(x2 - x1)
+    h = abs(y2 - y1)
+    if w <= 0 or h <= 0:
+        return False
+    area_ratio = (w * h) / float(width * height)
+    return x1 <= 2 and y1 <= 2 and x2 >= width - 2 and y2 >= height - 2 and area_ratio >= 0.9
+
+
+def _resolve_crop_quality(meta_row, width, height):
+    """Never label a full-frame bbox as a tight crop. Full-frame source detents
+    read as full_frame (background-heavy), so downstream scoring/cropping does
+    not treat the whole image as a clean tight cutout."""
+    cq = meta_row.get("crop_quality")
+    if cq:
+        return cq
+    if _bbox_is_full_frame(meta_row.get("bbox") or [], width, height):
+        return "full_frame"
+    return "tight"
+
+
 def filter_and_limit(detections, width, height):
     filtered = []
 
@@ -305,7 +336,7 @@ async def run_hybrid_detection(image: Image.Image):
             "score": float(meta_row.get("score") or 0.0),
             "bbox": meta_row.get("bbox") or [],
             "crop_source": meta_row.get("crop_source") or "hybrid",
-            "crop_quality": meta_row.get("crop_quality") or "tight",
+            "crop_quality": _resolve_crop_quality(meta_row, width, height),
             "orientation_corrected": True,
             "raw_url": None,
             "masked_url": None,
@@ -330,7 +361,7 @@ async def run_hybrid_detection(image: Image.Image):
             "score": float(meta_row.get("score") or 0.0),
             "bbox": meta_row.get("bbox") or [],
             "crop_source": meta_row.get("crop_source") or "hybrid",
-            "crop_quality": meta_row.get("crop_quality") or "tight",
+            "crop_quality": _resolve_crop_quality(meta_row, width, height),
             "orientation_corrected": True,
             "raw_url": upload["raw_image_url"],
             "masked_url": upload["masked_image_url"],

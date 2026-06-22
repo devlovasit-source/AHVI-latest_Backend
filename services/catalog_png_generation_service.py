@@ -296,6 +296,73 @@ def _unsafe_source_reason(metadata: Optional[Dict[str, Any]], validation: Option
     return ""
 
 
+# Explicit human / mannequin / hanger evidence tokens. Colour or skin-ratio
+# heuristics are deliberately NOT here: a clean flat-lay garment (e.g. an orange
+# tee that a colour test reads as "skin") must never be treated as a human
+# remnant unless capture metadata actually carries one of these tokens.
+_EXPLICIT_HUMAN_TOKENS = (
+    "human",
+    "person",
+    "selfie",
+    "mirror",
+    "mannequin",
+    "face",
+    "body",
+    "torso",
+    "arm",
+    "leg",
+    "feet",
+    "hand",
+    "hanger",
+    "hook",
+)
+
+_APPAREL_CATEGORIES = {"top", "bottom", "outerwear", "dress"}
+
+
+def _explicit_unsafe_evidence(metadata: Optional[Dict[str, Any]]) -> str:
+    """Return the explicit human/mannequin/hanger token found in capture
+    metadata, or "" when there is none. Used to gate the
+    human_or_mannequin_remnants classification so colour alone never blocks a
+    clean garment."""
+    blob = _text_blob(metadata)
+    for token in _EXPLICIT_HUMAN_TOKENS:
+        if token in blob:
+            return token
+    return ""
+
+
+def _is_apparel_category(category: Any) -> bool:
+    return normalize_catalog_category(category) in _APPAREL_CATEGORIES
+
+
+def _bbox_area_ratio_and_full_frame(
+    bbox: Any,
+) -> Tuple[Optional[float], bool]:
+    """(area_ratio, is_full_frame) from a bbox. Normalized (0..1) bboxes give a
+    real ratio; a [0,0,w,h]-style box that starts at the origin and spans the
+    frame is flagged full_frame so it is never scored as a tight crop."""
+    if not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+        return None, False
+    try:
+        x1, y1, x2, y2 = (float(v) for v in bbox[:4])
+    except (TypeError, ValueError):
+        return None, False
+    w = abs(x2 - x1)
+    h = abs(y2 - y1)
+    if w <= 0 or h <= 0:
+        return None, False
+    normalized = max(abs(x1), abs(y1), abs(x2), abs(y2)) <= 1.5
+    if normalized:
+        ratio = max(0.0, min(1.0, w * h))
+        is_full = x1 <= 0.02 and y1 <= 0.02 and x2 >= 0.98 and y2 >= 0.98
+        return round(ratio, 4), is_full
+    # Pixel bbox: ratio needs frame dims we don't have here, but a box anchored
+    # at the origin and spanning a large area is still a full-frame signal.
+    is_full = x1 <= 1 and y1 <= 1 and w >= 64 and h >= 64
+    return None, is_full
+
+
 def _provider_validation_metadata(meta: Dict[str, Any], category: str) -> Dict[str, Any]:
     cleaned = {**meta, "category": category}
     for key in (
@@ -736,10 +803,11 @@ def score_catalog_quality(image_bytes: bytes, *, original_bytes: bytes = b"", it
         }
 
     human_penalty = 0
-    remnant_signal = any(
-        tok in blob
-        for tok in ("human", "selfie", "mirror", "person", "body", "face", "hand", "mannequin", "hanger")
-    )
+    # Explicit evidence (capture metadata) is the ONLY thing that may classify a
+    # garment as a human/mannequin remnant. Skin/colour ratio stays a soft score
+    # penalty but must not hard-label — an orange flat-lay tee reads as "skin".
+    unsafe_evidence = _explicit_unsafe_evidence(meta)
+    remnant_signal = bool(unsafe_evidence)
     if remnant_signal:
         human_penalty += 54
     if cat not in {"bag", "footwear", "accessory", "jewellery", "jewelry"} and skin > 0.25:
@@ -772,7 +840,8 @@ def score_catalog_quality(image_bytes: bytes, *, original_bytes: bytes = b"", it
     reason = ""
     if metrics["visible_ratio"] < 0.05:
         reason = "missing_garment_sections"
-    elif human_penalty >= 30 or remnant_signal:
+    elif remnant_signal:
+        # Only explicit human/mannequin/hanger evidence — never skin colour.
         reason = "human_or_mannequin_remnants"
     elif metrics["touches_edge"]:
         reason = "bad_crop"
@@ -796,16 +865,20 @@ def score_catalog_quality(image_bytes: bytes, *, original_bytes: bytes = b"", it
         "touches_edge": metrics["touches_edge"],
         "skin_ratio": skin,
         "color_distance": round(color_distance, 2) if color_distance is not None else None,
+        "unsafe_source_evidence": unsafe_evidence,
     }
 
 
 def validate_catalog_png(image_bytes: bytes, *, original_bytes: bytes = b"", item_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     score = score_catalog_quality(image_bytes, original_bytes=original_bytes, item_metadata=item_metadata)
+    blob = _text_blob(item_metadata)
     checks = {
-        "no_face": score.get("skin_ratio", 0) < 0.25,
+        # Evidence-based, not colour-based: skin_ratio alone (e.g. an orange
+        # tee) must not fail no_face. Only an explicit "face" token does.
+        "no_face": "face" not in blob,
         "no_human": score.get("reason") != "human_or_mannequin_remnants",
-        "no_mannequin": "mannequin" not in _text_blob(item_metadata),
-        "no_hanger": "hanger" not in _text_blob(item_metadata),
+        "no_mannequin": "mannequin" not in blob,
+        "no_hanger": "hanger" not in blob,
         "category_matches_original": bool(normalize_catalog_category((item_metadata or {}).get("category"))),
         "color_matches_original": (score.get("color_distance") is None or score.get("color_distance", 0) <= 140),
         "orientation_upright": score.get("orientation_quality", 0) >= 70,
@@ -1206,12 +1279,36 @@ def generate_catalog_png(
         deterministic_bytes, original_bytes=cutout_bytes, item_metadata={**meta, "category": category}
     )
     unsafe_source_reason = _unsafe_source_reason(meta, deterministic_validation)
+    # Allow masked-cutout fallback for clean apparel even if a downstream
+    # provider validation flags a remnant, as long as there is NO explicit
+    # human/mannequin/hanger evidence in the capture metadata. This stops the
+    # colour-only false block (orange tee -> human_or_mannequin_remnants).
+    unsafe_evidence = _explicit_unsafe_evidence(meta)
+    bbox_area_ratio, is_full_frame_bbox = _bbox_area_ratio_and_full_frame(
+        meta.get("bbox")
+    )
+    fallback_allowed = (not unsafe_evidence) and _is_apparel_category(category)
+    fallback_allowed_reason = (
+        "apparel_no_human_evidence"
+        if fallback_allowed
+        else ("explicit_human_evidence" if unsafe_evidence else "non_apparel_category")
+    )
     if unsafe_source_reason:
         logger.warning(
             "ahvi.capture.catalog.unsafe_source_detected item_id=%s reason=%s",
             meta.get("item_id"),
             unsafe_source_reason,
         )
+    logger.info(
+        "ahvi.capture.catalog.source_risk item_id=%s bbox_area_ratio=%s is_full_frame_bbox=%s "
+        "source_risk_reason=%s unsafe_source_evidence=%s fallback_allowed_reason=%s",
+        meta.get("item_id"),
+        bbox_area_ratio,
+        is_full_frame_bbox,
+        unsafe_source_reason or "none",
+        unsafe_evidence or "none",
+        fallback_allowed_reason,
+    )
     logger.info(
         "ahvi.catalog_png.quality_gate item_id=%s category=%s score=%s ok=%s reason=%s",
         meta.get("item_id"),
@@ -1437,7 +1534,18 @@ def generate_catalog_png(
             provider_result.reason or "validation_failed",
         )
 
-    if unsafe_source_reason and provider_obj.name == "nanobanana":
+    if unsafe_source_reason and provider_obj.name == "nanobanana" and fallback_allowed:
+        logger.info(
+            "ahvi.capture.catalog.unsafe_fallback_allowed item_id=%s source_risk=%s reason=%s",
+            meta.get("item_id"),
+            unsafe_source_reason,
+            fallback_allowed_reason,
+        )
+    if (
+        unsafe_source_reason
+        and provider_obj.name == "nanobanana"
+        and not fallback_allowed
+    ):
         logger.warning(
             "ahvi.capture.catalog.unsafe_fallback_blocked item_id=%s reason=%s",
             meta.get("item_id"),
