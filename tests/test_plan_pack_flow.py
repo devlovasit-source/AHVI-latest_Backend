@@ -79,7 +79,7 @@ def test_known_packing_items_return_semantic_icon_keys():
     assert sunscreen["assetIcon"] is None
     assert charger["iconKey"] == "charger"
     assert charger["assetIcon"] is None
-    assert passport["iconKey"] == "documents"
+    assert passport["iconKey"] == "passport"
     assert passport["assetIcon"] is None
 
 
@@ -214,3 +214,82 @@ def test_plan_pack_module_injects_fetched_wardrobe_images(monkeypatch):
     tops = next(i for i in clothes["items"] if i["label"] == "Tops")
     assert tops["source"] == "wardrobe"
     assert "https://cdn/top.png" in tops["image_urls"]
+
+
+# ---------------------------------------------------------------------------
+# Strict source gating: non-clothing items never use wardrobe images
+# ---------------------------------------------------------------------------
+
+# A wardrobe full of clothing AND a non-clothing bottle-like item — none of the
+# essentials/tech/documents may pull a wardrobe image.
+_GATE_WARDROBE = [
+    {"$id": "top1", "name": "Blue T-Shirt", "category": "T-Shirt", "display_image_url": "https://cdn/top.png"},
+    {"$id": "top2", "name": "Linen Shirt", "category": "Tops", "display_image_url": "https://cdn/top2.png"},
+    {"$id": "bot1", "name": "Blue Jeans", "category": "Jeans", "display_image_url": "https://cdn/jeans.png"},
+    {"$id": "bot2", "name": "Khaki Chinos", "category": "Bottoms", "display_image_url": "https://cdn/chino.png"},
+    {"$id": "shoe1", "name": "White Sneakers", "category": "Sneakers", "display_image_url": "https://cdn/shoe.png"},
+    {"$id": "jkt1", "name": "Denim Jacket", "category": "Outerwear", "display_image_url": "https://cdn/jacket.png"},
+    {"$id": "cap1", "name": "Black Cap", "category": "Accessories", "display_image_url": "https://cdn/cap.png"},
+    {"$id": "bottle1", "name": "Steel Water Bottle", "category": "Accessories", "display_image_url": "https://cdn/bottle.png"},
+]
+
+
+def _all_visual_items(resp):
+    for section in resp["visual_sections"]:
+        for item in section["items"]:
+            yield item
+
+
+def _find_item(resp, label_contains):
+    for item in _all_visual_items(resp):
+        if label_contains.lower() in item["label"].lower():
+            return item
+    raise AssertionError(f"no item matching {label_contains!r}")
+
+
+def test_non_clothing_items_are_icon_only_even_with_wardrobe():
+    resp = build_plan_pack_response("Pack for a carry-on trip", {"wardrobe": _GATE_WARDROBE})
+    for label in ("Sunscreen", "Sunglasses", "Toiletries", "Power bank", "Passport", "Tickets"):
+        try:
+            item = _find_item(resp, label)
+        except AssertionError:
+            continue  # label not present for this scenario — fine
+        assert item["source"] == "icon", f"{label} must be icon-only"
+        assert item["image_urls"] == []
+        assert item["wardrobe_item_ids"] == []
+        assert item.get("asset_key") is None
+
+
+def test_passport_and_tickets_have_distinct_icons():
+    resp = build_plan_pack_response("prepare my bag", {"wardrobe": []})
+    passport = _find_item(resp, "Passport")
+    tickets = _find_item(resp, "Tickets")
+    assert passport["iconKey"] == "passport"
+    assert tickets["iconKey"] == "tickets"
+    assert passport["iconKey"] != tickets["iconKey"]
+
+
+def test_clothing_groups_still_use_wardrobe():
+    resp = build_plan_pack_response("Pack for a 5 day Goa trip", {"wardrobe": _GATE_WARDROBE})
+    clothes = next(s for s in resp["visual_sections"] if s["id"] == "clothes")
+    tops = next(i for i in clothes["items"] if i["label"] == "Tops")
+    bottoms = next(i for i in clothes["items"] if i["label"] == "Bottoms")
+    footwear = next(i for i in clothes["items"] if i["label"] == "Footwear")
+    assert tops["source"] == "wardrobe" and tops["image_urls"]
+    assert bottoms["source"] == "wardrobe" and bottoms["image_urls"]
+    assert footwear["source"] == "wardrobe" and footwear["image_urls"]
+
+
+def test_outer_layer_does_not_match_cap_or_accessory():
+    from brain.plan_pack_flow import _matches_visual_section
+    assert _matches_visual_section("Outer layer", "clothes", {"category": "Outerwear", "name": "Denim Jacket"})
+    assert not _matches_visual_section("Outer layer", "clothes", {"category": "Accessories", "name": "Black Cap"})
+    assert not _matches_visual_section("Outer layer", "clothes", {"category": "Accessories", "name": "Tote Bag"})
+
+
+def test_section_item_count_is_display_groups_not_quantity_sum():
+    resp = build_plan_pack_response("Pack for a 5 day Goa trip", {"wardrobe": _GATE_WARDROBE})
+    clothes = next(s for s in resp["visual_sections"] if s["id"] == "clothes")
+    # Count == number of display tiles, not the summed quantities (which is bigger).
+    assert clothes["item_count"] == len(clothes["items"])
+    assert clothes["piece_count"] >= clothes["item_count"]

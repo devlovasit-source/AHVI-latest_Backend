@@ -19,34 +19,80 @@ def _is_private_label(label: str) -> bool:
     return any(token in lowered for token in _PRIVATE_LABEL_TOKENS)
 
 
+# Strict allowlist: ONLY these clothing / public-wearable groups may pull a
+# real wardrobe image. Everything else (toiletries, tech, documents, health)
+# stays icon-only. Gate runs BEFORE any wardrobe matching.
+_CLOTHING_GROUP_TOKENS = (
+    "top", "shirt", "t-shirt", "tshirt", "tee", "polo", "kurta", "blouse", "tank",
+    "bottom", "jean", "trouser", "pant", "short", "skirt", "chino", "legging",
+    "footwear", "shoe", "sneaker", "sandal", "boot", "flat", "heel", "loafer",
+    "swim", "beach",
+    "outer", "layer", "jacket", "coat", "blazer", "cardigan", "sweater",
+    "hoodie", "overshirt", "shrug", "dress",
+)
+
+
+def _is_clothing_label(label: str) -> bool:
+    """True only if the label is a clothing/wearable group eligible for
+    wardrobe imagery. Private items are never eligible."""
+    if _is_private_label(label):
+        return False
+    lowered = str(label or "").lower()
+    return any(token in lowered for token in _CLOTHING_GROUP_TOKENS)
+
+
+# Ordered most-specific-first; _icon_key_for returns the first key found in the
+# label. Differentiated semantic keys so e.g. Passport and Tickets never share
+# an icon.
 _ICON_KEYS = {
     "sunscreen": "sunscreen",
     "sun screen": "sunscreen",
-    "sunglasses": "sunglasses",
-    "charger": "charger",
-    "phone": "charger",
+    "spf": "sunscreen",
+    "sunglass": "sunglasses",
+    "lip balm": "lip_balm",
+    "lip-balm": "lip_balm",
+    "wet wipe": "wet_wipes",
+    "wipes": "wet_wipes",
+    "moisturizer": "moisturizer",
+    "moisturiser": "moisturizer",
+    "toiletr": "toiletries",
+    "sanitizer": "sanitizer",
+    "sanitiser": "sanitizer",
+    "face mask": "face_mask",
     "power bank": "power_bank",
-    "moisturizer": "toiletries",
-    "moisturiser": "toiletries",
-    "toiletries": "toiletries",
+    "powerbank": "power_bank",
+    "earphone": "earphones",
+    "earbud": "earphones",
+    "headphone": "earphones",
+    "charger": "charger",
+    "adapter": "charger",
+    "phone": "charger",
+    "boarding": "tickets",
+    "ticket": "tickets",
+    "booking": "tickets",
+    "passport": "passport",
+    "wallet": "wallet",
     "water bottle": "water_bottle",
-    "hydration bottle": "water_bottle",
-    "shoes": "shoes",
-    "footwear": "shoes",
+    "hydration": "water_bottle",
+    "medicine": "medicine",
+    "medication": "medicine",
+    "first aid": "medicine",
+    "first-aid": "medicine",
+    "umbrella": "umbrella",
+    "travel pillow": "travel_pillow",
+    "neck pillow": "travel_pillow",
+    "visa": "document",
+    "invoice": "document",
+    "itinerary": "document",
+    "document": "document",
+    "towel": "towel",
+    "camera": "camera",
     "jacket": "jacket",
     "outer layer": "jacket",
-    "towel": "towel",
-    "medicine": "medicine",
-    "first-aid": "first_aid",
-    "first aid": "first_aid",
-    "passport": "documents",
-    "document": "documents",
-    "documents": "documents",
-    "boarding": "documents",
-    "ticket": "documents",
-    "booking": "documents",
-    "camera": "camera",
-    "bag": "bag",
+    "coat": "jacket",
+    "blazer": "jacket",
+    "shoes": "shoes",
+    "footwear": "shoes",
 }
 
 
@@ -136,7 +182,8 @@ _SECTION_FALLBACK_ICON = {
     "clothes": "clothes",
     "essentials": "essentials",
     "tech": "tech",
-    "documents": "documents",
+    "documents": "document",
+    "health": "health",
     "weather": "weather",
 }
 
@@ -256,10 +303,12 @@ def _visual_section_item(
 ) -> Dict[str, Any]:
     base_label, quantity, display_label = _quantity_from_label(label)
     item_id = re.sub(r"[^a-z0-9]+", "_", f"{section}_{base_label}".lower()).strip("_")
-    # Privacy: never surface wardrobe images for innerwear/socks/sleepwear/etc.
+    # Strict gate: only clothing/wearable groups may use wardrobe images.
+    # Non-clothing (toiletries/tech/documents/health) + private -> icon only.
     private = _is_private_label(base_label)
+    eligible = _is_clothing_label(base_label)
     matches: List[Dict[str, Any]] = []
-    if not private:
+    if eligible and not private:
         for item in wardrobe or []:
             if not isinstance(item, dict):
                 continue
@@ -405,7 +454,10 @@ def build_visual_packing_sections(
                 "id": section_id,
                 "title": section["title"],
                 "subtitle": subtitle,
-                "item_count": sum(int(item.get("quantity") or 1) for item in items),
+                # Count = number of display item GROUPS (Tops x6 is one tile),
+                # not the quantity sum. piece_count keeps the total for callers.
+                "item_count": len(items),
+                "piece_count": sum(int(item.get("quantity") or 1) for item in items),
                 "items": items,
             }
         )
