@@ -119,3 +119,98 @@ def test_plan_pack_module_fetches_wardrobe_and_fails_open(monkeypatch):
     assert body["type"] == "checklists"
     assert body["visual_type"] == "visual_packing_checklist"
     assert body["visual_sections"]
+
+
+# ---------------------------------------------------------------------------
+# Wardrobe enrichment refinements
+# ---------------------------------------------------------------------------
+
+from brain.plan_pack_flow import _image_url_from_item, _matches_visual_section  # noqa: E402
+
+
+def test_generic_labels_match_specific_wardrobe_categories():
+    assert _matches_visual_section("Tops", "clothes", {"category": "Top"})
+    assert _matches_visual_section("Tops", "clothes", {"category": "T-Shirt"})
+    assert _matches_visual_section("Bottoms", "clothes", {"category": "Jeans"})
+    assert _matches_visual_section("Footwear", "clothes", {"category": "Sneakers"})
+    assert _matches_visual_section("Outer layer", "clothes", {"category": "Jacket"})
+
+
+def test_image_url_field_fallbacks():
+    assert _image_url_from_item({"display_image_url": "a"}) == "a"
+    assert _image_url_from_item({"normalized_url": "b"}) == "b"
+    assert _image_url_from_item({"masked_url": "c"}) == "c"
+    assert _image_url_from_item({"imageUrl": "d"}) == "d"
+    assert _image_url_from_item({}) == ""
+
+
+def test_private_items_never_use_wardrobe_images():
+    wardrobe = [
+        {"$id": "inner1", "name": "Cotton Innerwear", "category": "Innerwear", "display_image_url": "https://cdn/inner.png"},
+        {"$id": "sock1", "name": "Ankle Socks", "category": "Socks", "display_image_url": "https://cdn/sock.png"},
+    ]
+    resp = build_plan_pack_response("Pack for a carry-on trip", {"wardrobe": wardrobe})
+    clothes = next(s for s in resp["visual_sections"] if s["id"] == "clothes")
+    inner = next(i for i in clothes["items"] if "Innerwear" in i["label"])
+    assert inner["source"] != "wardrobe" and inner["image_urls"] == []
+    from brain.plan_pack_flow import _is_private_label
+    assert all(
+        _is_private_label(x)
+        for x in ("Innerwear", "Socks x3", "Underwear", "Sleepwear", "Boxers", "Bra")
+    )
+
+
+def test_clothes_map_to_wardrobe_thumbnails():
+    wardrobe = [
+        {"$id": "top1", "name": "Blue T-Shirt", "category": "T-Shirt", "display_image_url": "https://cdn/top.png"},
+        {"$id": "jeans1", "name": "Blue Jeans", "category": "Jeans", "display_image_url": "https://cdn/jeans.png"},
+        {"$id": "shoe1", "name": "White Sneakers", "category": "Sneakers", "display_image_url": "https://cdn/shoe.png"},
+    ]
+    resp = build_plan_pack_response("Pack for a carry-on trip", {"wardrobe": wardrobe})
+    clothes = next(s for s in resp["visual_sections"] if s["id"] == "clothes")
+    tops = next(i for i in clothes["items"] if i["label"] == "Tops")
+    bottoms = next(i for i in clothes["items"] if i["label"] == "Bottoms")
+    footwear = next(i for i in clothes["items"] if i["label"] == "Footwear")
+
+    assert tops["source"] == "wardrobe" and "https://cdn/top.png" in tops["image_urls"]
+    assert bottoms["source"] == "wardrobe" and "https://cdn/jeans.png" in bottoms["image_urls"]
+    assert footwear["source"] == "wardrobe" and "https://cdn/shoe.png" in footwear["image_urls"]
+    # No broken asset paths anywhere.
+    assert all("assets/icons/" not in v for v in _walk_strings(resp))
+
+
+def test_plan_pack_module_injects_fetched_wardrobe_images(monkeypatch):
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def user_middleware(request, call_next):
+        request.state.user = {"user_id": "user-1"}
+        return await call_next(request)
+
+    app.include_router(chat.router, prefix="/api")
+    client = TestClient(app)
+
+    monkeypatch.setattr(
+        chat,
+        "_fetch_wardrobe_for_style",
+        lambda user_id, rw: [
+            {"$id": "top1", "name": "Blue T-Shirt", "category": "T-Shirt", "display_image_url": "https://cdn/top.png"},
+        ],
+    )
+
+    response = client.post(
+        "/api/chat/module-chat",
+        json={
+            "module": "planner",
+            "message": "pack for a carry-on trip",
+            "history": [],
+            "context_data": {},  # no wardrobe -> route must fetch it
+            "user_profile": {"user_id": "user-1"},
+        },
+    )
+    body = response.json()
+    assert response.status_code == 200
+    clothes = next(s for s in body["visual_sections"] if s["id"] == "clothes")
+    tops = next(i for i in clothes["items"] if i["label"] == "Tops")
+    assert tops["source"] == "wardrobe"
+    assert "https://cdn/top.png" in tops["image_urls"]

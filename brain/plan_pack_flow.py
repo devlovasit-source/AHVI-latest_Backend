@@ -1,8 +1,22 @@
+import logging
 import math
 import re
 from typing import Any, Dict, List, Optional
 
 from brain.engines.packing.packing_engine import packing_engine
+
+logger = logging.getLogger("ahvi.plan_pack")
+
+# Private items never use real wardrobe imagery — icon/suggested only.
+_PRIVATE_LABEL_TOKENS = (
+    "innerwear", "underwear", "bra", "brief", "boxer", "sock",
+    "sleepwear", "nightwear", "pajama", "pyjama", "lingerie",
+)
+
+
+def _is_private_label(label: str) -> bool:
+    lowered = str(label or "").lower()
+    return any(token in lowered for token in _PRIVATE_LABEL_TOKENS)
 
 
 _ICON_KEYS = {
@@ -138,15 +152,17 @@ def _icon_key_for(label: str, *, section: str = "") -> Optional[str]:
 def _image_url_from_item(item: Dict[str, Any]) -> str:
     for key in (
         "display_image_url",
+        "displayImageUrl",
         "normalized_url",
+        "normalizedUrl",
         "imageUrl",
         "image_url",
         "masked_url",
         "maskedUrl",
-        "image",
-        "url",
         "thumbnail",
         "photoUrl",
+        "image",
+        "url",
     ):
         value = item.get(key)
         if isinstance(value, str) and value.strip():
@@ -199,16 +215,16 @@ def _matches_visual_section(label: str, section: str, item: Dict[str, Any]) -> b
     label_lower = str(label or "").lower()
     keywords = _VISUAL_SECTION_KEYWORDS.get(section, ())
     if section == "clothes":
-        if "tops" in label_lower:
-            keywords = ("top", "tops", "shirt", "t-shirt", "tshirt", "tee", "polo", "kurta", "blouse")
+        if "tops" in label_lower or label_lower == "top":
+            keywords = ("top", "tops", "shirt", "t-shirt", "tshirt", "tee", "polo", "kurta", "blouse", "tank", "hoodie")
         elif "bottom" in label_lower:
-            keywords = ("bottom", "bottoms", "jeans", "trousers", "pants", "shorts", "skirt")
+            keywords = ("bottom", "bottoms", "jeans", "trousers", "pants", "shorts", "skirt", "chino", "leggings")
         elif "footwear" in label_lower:
-            keywords = ("footwear", "shoe", "shoes", "sneakers", "sandals", "flats", "heels")
+            keywords = ("footwear", "shoe", "shoes", "sneaker", "sneakers", "sandals", "boots", "flats", "heels", "loafers")
         elif "outer" in label_lower or "layer" in label_lower:
-            keywords = ("jacket", "hoodie", "blazer", "coat", "cardigan", "overshirt", "outerwear")
+            keywords = ("outerwear", "jacket", "coat", "blazer", "cardigan", "shrug", "sweater", "hoodie", "overshirt")
         elif "swim" in label_lower or "beach" in label_lower:
-            keywords = ("swimwear", "beachwear", "shorts")
+            keywords = ("swimwear", "beachwear", "swimsuit", "shorts")
         else:
             return False
     return any(keyword in searchable for keyword in keywords)
@@ -240,21 +256,35 @@ def _visual_section_item(
 ) -> Dict[str, Any]:
     base_label, quantity, display_label = _quantity_from_label(label)
     item_id = re.sub(r"[^a-z0-9]+", "_", f"{section}_{base_label}".lower()).strip("_")
+    # Privacy: never surface wardrobe images for innerwear/socks/sleepwear/etc.
+    private = _is_private_label(base_label)
     matches: List[Dict[str, Any]] = []
-    for item in wardrobe or []:
-        if not isinstance(item, dict):
-            continue
-        if _matches_visual_section(base_label, section, item):
-            image_url = _image_url_from_item(item)
-            if image_url:
-                matches.append(item)
+    if not private:
+        for item in wardrobe or []:
+            if not isinstance(item, dict):
+                continue
+            if _matches_visual_section(base_label, section, item):
+                image_url = _image_url_from_item(item)
+                if image_url:
+                    matches.append(item)
+    # Limit images to the requested quantity (Tops x2 -> 2, Outer x1 -> 1).
+    limit = max(1, min(int(quantity or 1), 4))
     if matches:
-        image_urls = [_image_url_from_item(item) for item in matches[:4]]
+        capped = matches[:limit]
+        image_urls = [_image_url_from_item(item) for item in capped]
         wardrobe_ids = [
-            str(item.get("$id") or item.get("id") or "")
-            for item in matches[:4]
-            if str(item.get("$id") or item.get("id") or "").strip()
+            str(item.get("$id") or item.get("id") or item.get("item_id") or item.get("wardrobe_item_id") or "")
+            for item in capped
+            if str(item.get("$id") or item.get("id") or item.get("item_id") or item.get("wardrobe_item_id") or "").strip()
         ]
+        try:
+            logger.info(
+                "plan_pack_visual_item label=%s category=%s wardrobe_count=%d matched=%d first=%s source=wardrobe",
+                base_label, section, len(wardrobe or []), len(matches),
+                str(capped[0].get("name") or "")[:40],
+            )
+        except Exception:
+            pass
         return {
             "id": f"{item_id}_qty_{quantity}",
             "label": base_label,
@@ -273,6 +303,13 @@ def _visual_section_item(
         }
 
     icon_key = _icon_key_for(base_label, section=section)
+    try:
+        logger.info(
+            "plan_pack_visual_item label=%s category=%s wardrobe_count=%d matched=0 source=icon private=%s",
+            base_label, section, len(wardrobe or []), private,
+        )
+    except Exception:
+        pass
     return {
         "id": f"{item_id}_qty_{quantity}",
         "label": base_label,

@@ -3319,6 +3319,23 @@ def _module_plan_pack_response(
     context = dict(context_data or {})
     if user_profile:
         context["user_profile"] = user_profile
+    if not isinstance(context.get("wardrobe"), list) and user_id:
+        try:
+            wardrobe = _fetch_wardrobe_for_style(user_id, None) or []
+            context["wardrobe"] = wardrobe
+            context["wardrobe_items"] = wardrobe
+            logger.info(
+                "chat.plan_pack_wardrobe_fetch user_id=%s count=%s",
+                user_id,
+                len(wardrobe),
+            )
+        except Exception as exc:
+            logger.warning(
+                "chat.plan_pack_wardrobe_fetch_failed user_id=%s error=%s",
+                user_id,
+                exc,
+            )
+            context.setdefault("wardrobe", [])
     action_intent = _planner_action_intent(user_message)
     active_prompt = str(
         context.get("source_text")
@@ -3360,6 +3377,12 @@ def _module_plan_pack_response(
                 if isinstance(c, dict) and c.get("id") in {"packing_clothes", "packing_essentials"}
             ] or payload.get("cards", [])
             payload["cards"] = cards
+            visual_sections = [
+                s for s in payload.get("visual_sections", [])
+                if isinstance(s, dict) and s.get("id") in {"clothes", "essentials", "tech", "documents"}
+            ]
+            if visual_sections:
+                payload["visual_sections"] = visual_sections
             payload["message"] = "Here is your checklist. Tap items as you pack them."
             payload["intent"] = "open_checklist"
         elif action_intent == "weather_prep":
@@ -3368,6 +3391,12 @@ def _module_plan_pack_response(
                 if isinstance(c, dict) and c.get("id") == "weather_time_adjustments"
             ]
             payload["cards"] = cards
+            visual_sections = [
+                s for s in payload.get("visual_sections", [])
+                if isinstance(s, dict) and s.get("id") == "weather"
+            ]
+            if visual_sections:
+                payload["visual_sections"] = visual_sections
             payload["message"] = "Here is the weather prep for this plan."
             payload["intent"] = "weather_prep"
         elif action_intent == "save_plan":
@@ -3380,6 +3409,7 @@ def _module_plan_pack_response(
 
     message = str(payload.get("message") or "I built your trip plan and packing checklist.")
     cards = payload.get("cards") if isinstance(payload.get("cards"), list) else []
+    visual_sections = payload.get("visual_sections") if isinstance(payload.get("visual_sections"), list) else []
     actions = payload.get("quick_actions") if isinstance(payload.get("quick_actions"), list) else (
         payload.get("chips") if isinstance(payload.get("chips"), list) else []
     )
@@ -3392,6 +3422,7 @@ def _module_plan_pack_response(
     return {
         "success": True,
         "type": payload.get("type") or "checklists",
+        "visual_type": payload.get("visual_type") or "visual_packing_checklist",
         "module": "plan_pack" if action_intent else (module_key or "planner"),
         "domain": "plan_pack" if action_intent else (module_key or "planner"),
         "intent": payload.get("intent") or "plan_pack",
@@ -3401,6 +3432,7 @@ def _module_plan_pack_response(
         "chips": actions,
         "quick_actions": actions,
         "cards": cards,
+        "visual_sections": visual_sections,
         "style_boards": payload.get("style_boards") if isinstance(payload.get("style_boards"), list) else [],
         "data": payload.get("data") if isinstance(payload.get("data"), dict) else {},
         "meta": {
