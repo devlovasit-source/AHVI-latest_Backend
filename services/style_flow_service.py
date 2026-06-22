@@ -328,6 +328,27 @@ def _normalize_occasion_value(value: Any, query: Any = "") -> str:
     """
     explicit = _safe_text(value).lower().replace("-", "_")
     combined_text = f"{_safe_text(value)} {_safe_text(query)}".strip().lower()
+    # Beach / coastal / resort guard. A vacation brief must never resolve to
+    # office or coffee-date styling (which surfaces Oxford shirts + loafers /
+    # formal shoes). Coastal intent wins unless the user explicitly set a
+    # formal occasion. "dinner" routes to beach_dinner so evening polish is
+    # still allowed. Placed before generic detection so it is authoritative.
+    if any(
+        token in combined_text
+        for token in ("beach", "coastal", "seaside", "poolside", "resort", "tropical")
+    ) and explicit not in {
+        "office",
+        "office_meeting",
+        "client_meeting",
+        "client_presentation",
+        "client_dinner",
+        "funeral",
+        "wedding",
+        "wedding_guest",
+    }:
+        resolved = "beach_dinner" if "dinner" in combined_text else "beach"
+        logger.info("AHVI_OCCASION_ARCHETYPE=%s source=%s", resolved, "coastal_guard")
+        return resolved
     if resolve_occasion_archetype is not None:
         try:
             archetype = resolve_occasion_archetype(explicit, combined_text)
