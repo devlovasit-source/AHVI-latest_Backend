@@ -3622,6 +3622,111 @@ def _filter_complete_the_look_for_occasion(
     return kept
 
 
+# ── Itemized board_items contract for the frontend 85 flat-lay board ─────────
+# Frontend (commit 0057706) renders AhviOutfitBoardCard -> EditorialBoardCanvas
+# only when a direction carries real, role-tagged, image-bearing pieces. One
+# hero image is not enough. Build board_items alongside the legacy fields.
+_BOARD_ALLOWED_ROLES = {"top", "bottom", "footwear", "dress", "outerwear", "accessory"}
+
+
+def _board_image_url(item: Any) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return _asset_text(
+        item.get("normalized_url")
+        or item.get("normalizedUrl")
+        or item.get("masked_url")
+        or item.get("maskedUrl")
+        or item.get("image_url")
+        or item.get("imageUrl")
+    )
+
+
+def _board_item_role(name: Any, category: Any = "") -> str:
+    blob = f"{_asset_text(name)} {_asset_text(category)}".strip()
+    if not blob:
+        return ""
+    tokens = _style_tokens(_norm(blob))
+    if tokens.intersection(
+        {"dress", "gown", "saree", "sari", "lehenga", "lehnga", "anarkali", "jumpsuit", "frock"}
+    ):
+        return "dress"
+    if tokens.intersection(
+        {
+            "watch", "belt", "bag", "tote", "clutch", "backpack", "sling",
+            "sunglasses", "sunglass", "necklace", "bracelet", "earring",
+            "earrings", "ring", "scarf", "tie", "cap", "hat", "jewellery", "jewelry",
+        }
+    ):
+        return "accessory"
+    slot = _hero_expected_slot(blob)
+    if slot == "blazer":
+        return "outerwear"
+    if slot in {"top", "bottom", "footwear", "outerwear"}:
+        return slot
+    return ""
+
+
+def _build_board_items(
+    direction: Dict[str, Any], *, wardrobe_intent: bool
+) -> List[Dict[str, Any]]:
+    """Itemized, role-tagged, image-bearing board pieces. No fake data: items
+    without an image_url are excluded; one hero image is never reused as
+    top/bottom/footwear. Wardrobe intent yields owned-only items."""
+    items: List[Dict[str, Any]] = []
+    seen_urls: set[str] = set()
+
+    def add(name: str, url: str, role: str, source: str, owned: bool) -> None:
+        if not url or role not in _BOARD_ALLOWED_ROLES or url in seen_urls:
+            return
+        seen_urls.add(url)
+        items.append(
+            {"name": name, "role": role, "image_url": url, "source": source, "owned": owned}
+        )
+
+    owned_rows = direction.get("owned_items")
+    for it in owned_rows if isinstance(owned_rows, list) else []:
+        if not isinstance(it, dict):
+            continue
+        name = _asset_text(it.get("name") or it.get("title") or it.get("label"))
+        add(
+            name,
+            _board_image_url(it),
+            _board_item_role(name, it.get("category")),
+            "wardrobe",
+            True,
+        )
+
+    # Wardrobe intent: owned items only — never blend in generic assets.
+    if wardrobe_intent:
+        return items
+
+    hero_name = _asset_text(direction.get("hero_piece") or direction.get("heroPiece"))
+    add(hero_name, _board_image_url(direction), _board_item_role(hero_name), "asset", False)
+    complete = direction.get("complete_the_look")
+    for it in complete if isinstance(complete, list) else []:
+        if not isinstance(it, dict):
+            continue
+        name = _asset_text(it.get("name") or it.get("title") or it.get("label"))
+        owned = bool(it.get("owned") or it.get("wardrobeItemId") or it.get("wardrobe_item_id"))
+        add(
+            name,
+            _board_image_url(it),
+            _board_item_role(name, it.get("category")),
+            "wardrobe" if owned else "asset",
+            owned,
+        )
+    return items
+
+
+def _board_items_viable(items: List[Dict[str, Any]]) -> bool:
+    roles = {i.get("role") for i in items}
+    classic = {"top", "bottom", "footwear"}.issubset(roles)
+    dress = {"dress", "footwear"}.issubset(roles)
+    known = sum(1 for i in items if i.get("role") in _BOARD_ALLOWED_ROLES)
+    return classic or dress or known >= 3
+
+
 def _enrich_visual_directions_with_assets(
     visual_directions: List[Dict[str, Any]],
     *,
@@ -3629,6 +3734,7 @@ def _enrich_visual_directions_with_assets(
     target_gender: str = "unknown",
     allow_feminine_accessory: bool = False,
     brief: Dict[str, Any] | None = None,
+    wardrobe_intent: bool = False,
 ) -> List[Dict[str, Any]]:
     if not visual_directions:
         return visual_directions
@@ -3745,13 +3851,48 @@ def _enrich_visual_directions_with_assets(
             target_gender=target_gender,
             allow_feminine=allow_feminine_accessory,
         )
+        # Itemized board contract for the 85 board (additive — legacy fields kept).
+        board_items = _build_board_items(out, wardrobe_intent=wardrobe_intent)
+        viable = _board_items_viable(board_items)
+        if wardrobe_intent and not viable:
+            out["board_status"] = "insufficient_wardrobe_items"
+            out["fallback_reason"] = (
+                "Need top, bottom and footwear from wardrobe to build this board."
+            )
+        else:
+            out["board_status"] = "viable" if viable else "partial"
+        out["board_items"] = board_items
+        out["boardItems"] = board_items
         enriched.append(out)
+    total_board_items = sum(len(item.get("board_items") or []) for item in enriched)
+    roles_present = sorted(
+        {
+            bi.get("role")
+            for item in enriched
+            for bi in (item.get("board_items") or [])
+            if bi.get("role")
+        }
+    )
+    status = (
+        "viable"
+        if any(_board_items_viable(item.get("board_items") or []) for item in enriched)
+        else "insufficient"
+    )
     logger.info(
         "AHVI_VISUAL_ASSETS_ENRICHED directions=%d assets=%d with_images=%d gender=%s",
         len(enriched),
         len(assets),
         sum(1 for item in enriched if item.get("image_url")),
         target_gender,
+    )
+    logger.info(
+        "ahvi.style_board_items_contract direction_count=%d board_items_count=%d "
+        "roles_present=%s wardrobe_intent=%s status=%s",
+        len(enriched),
+        total_board_items,
+        ",".join(roles_present) or "none",
+        wardrobe_intent,
+        status,
     )
     return enriched
 
@@ -7150,6 +7291,8 @@ def _build_response(
         # Canonical brief drives formality/movement/energy scoring + hard veto.
         # None unless STYLE_SHARED_BRAIN is on (canonical_ctx built only then).
         brief=canonical_ctx,
+        # Wardrobe intent -> board_items must be owned-only (no generic assets).
+        wardrobe_intent=(final_mode == WARDROBE_STYLE),
     )
     # Shared Style Brain (Phase C): post-generation visual guard. No-op unless
     # STYLE_SHARED_BRAIN is enabled. Same list-of-dicts shape in/out.
