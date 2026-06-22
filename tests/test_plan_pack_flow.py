@@ -293,3 +293,46 @@ def test_section_item_count_is_display_groups_not_quantity_sum():
     # Count == number of display tiles, not the summed quantities (which is bigger).
     assert clothes["item_count"] == len(clothes["items"])
     assert clothes["piece_count"] >= clothes["item_count"]
+
+
+# ---------------------------------------------------------------------------
+# Outer-layer slot must never take headwear (swim cap / hat)
+# ---------------------------------------------------------------------------
+
+from brain.plan_pack_flow import _visual_section_item  # noqa: E402
+
+
+def test_outer_layer_picks_jacket_over_swim_cap():
+    w = [
+        {"$id": "cap1", "name": "Black Swim Cap", "category": "Accessories", "display_image_url": "https://cdn/cap.png"},
+        {"$id": "jkt1", "name": "Denim Jacket", "category": "Outerwear", "display_image_url": "https://cdn/jkt.png"},
+    ]
+    item = _visual_section_item("Outer layer x1", section="weather", wardrobe=w)
+    assert item["source"] == "wardrobe"
+    assert item["image_urls"] == ["https://cdn/jkt.png"]
+    assert "cap1" not in item["wardrobe_item_ids"]
+
+
+def test_outer_layer_only_swim_cap_is_icon():
+    w = [{"$id": "cap1", "name": "Black Swim Cap", "category": "Accessories", "display_image_url": "https://cdn/cap.png"}]
+    item = _visual_section_item("Outer layer x1", section="weather", wardrobe=w)
+    assert item["source"] == "icon"
+    assert item["image_urls"] == []
+    assert item["wardrobe_item_ids"] == []
+    assert item["iconKey"] in ("jacket", "outerwear")
+
+
+def test_swimwear_slot_still_matches_swimwear():
+    assert _matches_visual_section("Beachwear/swimwear", "clothes", {"category": "Swimwear", "name": "Swim Shorts"})
+
+
+def test_outer_layer_rejects_headwear_accepts_garments():
+    for bad in ("Black Cap", "Wool Beanie", "Sun Hat", "Silk Scarf", "Bike Helmet"):
+        assert not _matches_visual_section("Outer layer", "weather", {"name": bad, "category": "Accessories"})
+    for good in ("Denim Jacket", "Wool Coat", "Knit Cardigan", "Rain Windbreaker", "Grey Hoodie"):
+        assert _matches_visual_section("Outer layer", "weather", {"name": good, "category": "Outerwear"})
+
+
+def test_light_layer_matches_overshirt_not_cap():
+    assert _matches_visual_section("Light layer for evenings", "weather", {"name": "Linen Overshirt", "category": "Outerwear"})
+    assert not _matches_visual_section("Light layer for evenings", "weather", {"name": "Swim Cap", "category": "Accessories"})

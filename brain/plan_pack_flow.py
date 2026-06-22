@@ -255,11 +255,42 @@ def _wardrobe_search_text(item: Dict[str, Any]) -> str:
     ).lower()
 
 
+_OUTER_LAYER_ALLOW = (
+    "jacket", "coat", "blazer", "cardigan", "sweater", "hoodie",
+    "overshirt", "raincoat", "windbreaker", "outerwear",
+)
+_OUTER_LAYER_REJECT = (
+    "cap", "hat", "beanie", "headwear", "helmet", "scarf",
+    "turban", "bandana", "accessory",
+)
+_OUTER_LAYER_LABEL_TOKENS = (
+    "outer", "layer", "jacket", "coat", "blazer", "cardigan",
+    "sweater", "hoodie", "overshirt", "windbreaker", "raincoat",
+)
+
+
+def _is_outer_layer_label(label: str) -> bool:
+    lowered = str(label or "").lower()
+    return any(t in lowered for t in _OUTER_LAYER_LABEL_TOKENS)
+
+
 def _matches_visual_section(label: str, section: str, item: Dict[str, Any]) -> bool:
+    label_lower = str(label or "").lower()
+    # Slot-specific override: an "Outer layer" / "Light/Warm/Rain layer" / Jacket
+    # slot may ONLY take an actual outer garment — never headwear (swim cap,
+    # hat, beanie) or accessories. Runs first so the broad clothing allowlist
+    # and the loose token matcher cannot leak a cap into a layer slot.
+    if _is_outer_layer_label(label_lower):
+        text = _wardrobe_search_text(item)
+        if any(bad in text for bad in _OUTER_LAYER_REJECT):
+            return False
+        allow = _OUTER_LAYER_ALLOW
+        if "light" in label_lower:
+            allow = allow + ("shirt", "overshirt", "top", "tee")
+        return any(good in text for good in allow)
     if _matches_wardrobe(label, item):
         return True
     searchable = _wardrobe_search_text(item)
-    label_lower = str(label or "").lower()
     keywords = _VISUAL_SECTION_KEYWORDS.get(section, ())
     if section == "clothes":
         if "tops" in label_lower or label_lower == "top":
