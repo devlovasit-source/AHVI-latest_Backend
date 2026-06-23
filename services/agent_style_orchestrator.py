@@ -26,6 +26,11 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
+from services.style_orchestrator_normalizer import (
+    normalize_style_orchestrator_brief,
+    validate_canonical_brief,
+)
+
 logger = logging.getLogger("ahvi.agent.style_orchestrator")
 
 
@@ -491,6 +496,7 @@ async def orchestrate_style_request(
         context=context,
     )
 
+    _agent_t0 = time.perf_counter()
     try:
         raw = await asyncio.wait_for(
             _call_gemini_agent(prompt, model=model, timeout=timeout),
@@ -533,6 +539,42 @@ async def orchestrate_style_request(
             )
 
     validated = validate_agent_style_payload(raw)
+
+    # Canonical brief layer: normalize the RAW agent JSON into the backend-safe
+    # constraint object and validate it. The agent only ever produces this
+    # brief — the deterministic board/outfit engines + sanitizers remain the
+    # final authority. On any invalid/low-confidence brief we set a fallback
+    # flag so downstream uses the legacy pipeline.
+    _latency_ms = round((time.perf_counter() - _agent_t0) * 1000, 1)
+    try:
+        canonical = normalize_style_orchestrator_brief(
+            raw, has_wardrobe_context=bool(wardrobe_items)
+        )
+        brief_ok, brief_reason = validate_canonical_brief(canonical)
+    except Exception as exc:  # never break the flow
+        canonical, brief_ok, brief_reason = {}, False, f"normalizer_error:{str(exc)[:60]}"
+    validated["canonical_brief"] = canonical
+    validated["canonical_brief_valid"] = brief_ok
+    validated["fallback_used"] = not brief_ok
+
+    logger.info(
+        "AHVI_STYLE_ORCHESTRATOR_RESULT agent_called=%s agent_success=%s json_valid=%s "
+        "normalized=%s fallback_used=%s latency_ms=%s occasion=%s sub_intent=%s "
+        "formality_score=%s required_slots=%s optional_slots=%s confidence=%.2f error_reason=%s",
+        True,
+        bool(raw),
+        isinstance(raw, dict),
+        bool(canonical),
+        not brief_ok,
+        _latency_ms,
+        canonical.get("occasion"),
+        canonical.get("sub_intent"),
+        (canonical.get("formality") or {}).get("score"),
+        canonical.get("required_slots"),
+        canonical.get("optional_slots"),
+        float(canonical.get("confidence") or 0.0),
+        "" if brief_ok else brief_reason,
+    )
     logger.info(
         "ahvi.agent.style_orchestration user_id=%s occasion=%s sub_intent=%s "
         "formality=%s style_direction=%s clarification_needed=%s confidence=%.2f",
