@@ -3120,8 +3120,12 @@ def _best_asset_for_role(
             asset, occasion=occasion, placement="complete", target_text=role
         ):
             continue
+        # Identical scoring to _best_style_assets (base score + context score) so
+        # completeness ranks assets the same way the canonical matcher does.
         score = _asset_score(
             asset, direction=direction, occasion=occasion, target_gender=target_gender, brief=brief
+        ) + _asset_context_score(
+            asset, occasion=occasion, placement="complete", target_text=role
         )
         if score > best_score:
             best_score = score
