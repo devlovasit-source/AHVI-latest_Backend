@@ -4021,6 +4021,43 @@ def _board_items_viable(items: List[Dict[str, Any]]) -> bool:
     return classic or dress or known >= 3
 
 
+def canonical_piece_names(board_items: List[Dict[str, Any]]) -> List[str]:
+    """The single source of truth for a look's piece names — the names of the
+    items ACTUALLY on the board. The detail-sheet pieces list and the rationale
+    must use these, never the LLM's ideal piece names, so text always matches
+    the visible images."""
+    names: List[str] = []
+    seen: set[str] = set()
+    for bi in board_items if isinstance(board_items, list) else []:
+        nm = _asset_text(_dict_get(bi, "name"))
+        key = _norm(nm)
+        if nm and key not in seen:
+            seen.add(key)
+            names.append(nm)
+    return names
+
+
+def _dict_get(obj: Any, key: str) -> Any:
+    return obj.get(key) if isinstance(obj, dict) else None
+
+
+def board_text_image_mismatch(board_items: List[Dict[str, Any]], pieces_text: Any) -> bool:
+    """True when the pieces text references items not on the board (or counts
+    differ). Callers repair from board_items rather than ship a mismatch."""
+    canonical = {_norm(n) for n in canonical_piece_names(board_items)}
+    if not canonical:
+        return False
+    listed = pieces_text if isinstance(pieces_text, list) else _list(pieces_text)
+    listed_norm = [_norm(p) for p in listed if _norm(p)]
+    if not listed_norm:
+        return False
+    # Any listed piece whose normalized name is not a board item is a mismatch.
+    for p in listed_norm:
+        if not any(p == c or p in c or c in p for c in canonical):
+            return True
+    return len(listed_norm) != len(canonical)
+
+
 # ── Visual board sanitizer ──────────────────────────────────────────────────
 # Single entry point that repairs a RAW wardrobe dump into a viable, slot-based
 # visual board. The frontend must never receive an un-deduped wardrobe list
@@ -4399,6 +4436,24 @@ def _enrich_visual_directions_with_assets(
                 out["board_status"] = "viable" if viable else "partial"
         out["board_items"] = board_items
         out["boardItems"] = board_items
+        # Board integrity: the pieces text must describe the items that are
+        # ACTUALLY on the board. Overwrite items/pieces with the final
+        # board_item names so the detail sheet / rationale can never say
+        # "Tailored Khaki Trouser" while the card shows cream shorts.
+        if board_items:
+            final_names = canonical_piece_names(board_items)
+            if final_names:
+                out["items"] = final_names
+                out["pieces"] = final_names
+            logger.info(
+                "AHVI_BOARD_ITEM_IDENTITY look=%r title=%r final_item_names=%s "
+                "final_item_roles=%s image_urls=%d",
+                _asset_text(out.get("direction_name") or out.get("title")),
+                _asset_text(out.get("title")),
+                final_names,
+                [bi.get("role") for bi in board_items],
+                sum(1 for bi in board_items if _asset_text(bi.get("image_url"))),
+            )
         enriched.append(out)
     total_board_items = sum(len(item.get("board_items") or []) for item in enriched)
     cutout_ready_count = sum(
