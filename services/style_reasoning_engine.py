@@ -539,6 +539,38 @@ def _normalize_style_asset(asset: Dict[str, Any]) -> Dict[str, Any]:
     out["asset_id"] = _asset_text(
         out.get("asset_id") or out.get("assetId") or out.get("id") or out.get("$id")
     )
+    out["board_image_url"] = _asset_text(
+        out.get("board_image_url")
+        or out.get("boardImageUrl")
+        or out.get("board_url")
+        or out.get("boardUrl")
+    )
+    out["transparent_image_url"] = _asset_text(
+        out.get("transparent_image_url")
+        or out.get("transparentImageUrl")
+        or out.get("transparent_url")
+        or out.get("transparentUrl")
+    )
+    out["cutout_url"] = _asset_text(
+        out.get("cutout_url")
+        or out.get("cutoutUrl")
+    )
+    out["rmbg_url"] = _asset_text(
+        out.get("rmbg_url")
+        or out.get("rmbgUrl")
+    )
+    out["catalog_image_url"] = _asset_text(
+        out.get("catalog_image_url")
+        or out.get("catalogImageUrl")
+    )
+    out["cutout_status"] = _asset_text(
+        out.get("cutout_status")
+        or out.get("cutoutStatus")
+    ).lower()
+    out["board_r2_key"] = _asset_text(
+        out.get("board_r2_key")
+        or out.get("boardR2Key")
+    )
     out["image_url"] = _asset_text(
         out.get("image_url")
         or out.get("imageUrl")
@@ -2885,6 +2917,12 @@ def _asset_score(
         score -= 8
     if _asset_text(asset.get("image_url") or asset.get("imageUrl")):
         score += 3
+    if _asset_has_board_cutout(asset):
+        score += 12
+    elif _asset_text(asset.get("board_image_url") or asset.get("boardImageUrl")):
+        score += 4
+    elif _asset_text(asset.get("cutout_status") or asset.get("cutoutStatus")):
+        score -= 2
     asset_gender = _asset_gender(asset.get("gender"))
     if target_gender in {"male", "female"}:
         if asset_gender == target_gender:
@@ -3190,14 +3228,14 @@ def _best_style_assets(
 
 def _accessory_asset_to_complete_item(asset: Dict[str, Any], direction: Dict[str, Any]) -> Dict[str, Any]:
     archetype = _asset_text(direction.get("archetype")) or "this direction"
-    return {
+    item = {
         "name": _asset_text(asset.get("name")) or "Accessory",
         "category": _asset_text(asset.get("category")) or "accessory",
-        "image_url": _asset_text(asset.get("image_url") or asset.get("imageUrl")),
         "asset_id": _asset_text(asset.get("asset_id") or asset.get("$id")),
         "reason": "Completes the look with the right level of finish.",
         "unlocks": _safe_list(asset.get("archetypes"), limit=4) or [archetype],
     }
+    return _apply_board_image_fields(item, asset)
 
 
 def _complete_item_group(item: Dict[str, Any]) -> str:
@@ -3629,17 +3667,102 @@ def _filter_complete_the_look_for_occasion(
 _BOARD_ALLOWED_ROLES = {"top", "bottom", "footwear", "dress", "outerwear", "accessory"}
 
 
-def _board_image_url(item: Any) -> str:
+def _asset_has_board_cutout(item: Any) -> bool:
     if not isinstance(item, dict):
-        return ""
-    return _asset_text(
-        item.get("normalized_url")
-        or item.get("normalizedUrl")
-        or item.get("masked_url")
-        or item.get("maskedUrl")
-        or item.get("image_url")
-        or item.get("imageUrl")
+        return False
+    return bool(
+        _asset_text(item.get("board_image_url") or item.get("boardImageUrl"))
+        and _asset_text(item.get("cutout_status") or item.get("cutoutStatus")).lower() == "ready"
     )
+
+
+def _board_image_resolution(item: Any) -> Dict[str, str]:
+    """Resolve the image used by the 85 board without losing catalog provenance.
+
+    Runtime priority for style assets:
+    board_image_url -> transparent_image_url -> cutout_url -> rmbg_url ->
+    image_url -> catalog_image_url. Wardrobe-specific normalized/masked URLs are
+    kept before raw image_url for backward compatibility.
+    """
+    if not isinstance(item, dict):
+        return {
+            "image_url": "",
+            "board_image_url": "",
+            "catalog_image_url": "",
+            "board_status": "catalog_fallback",
+            "used": "catalog_fallback",
+        }
+
+    board_url = _asset_text(item.get("board_image_url") or item.get("boardImageUrl"))
+    transparent_url = _asset_text(
+        item.get("transparent_image_url")
+        or item.get("transparentImageUrl")
+        or item.get("transparent_url")
+        or item.get("transparentUrl")
+    )
+    cutout_url = _asset_text(item.get("cutout_url") or item.get("cutoutUrl"))
+    rmbg_url = _asset_text(item.get("rmbg_url") or item.get("rmbgUrl"))
+    normalized_url = _asset_text(item.get("normalized_url") or item.get("normalizedUrl"))
+    masked_url = _asset_text(item.get("masked_url") or item.get("maskedUrl"))
+    raw_url = _asset_text(item.get("image_url") or item.get("imageUrl"))
+    catalog_url = _asset_text(item.get("catalog_image_url") or item.get("catalogImageUrl"))
+
+    ordered = (
+        ("board_image_url", board_url),
+        ("transparent_image_url", transparent_url),
+        ("cutout_url", cutout_url),
+        ("rmbg_url", rmbg_url),
+        ("normalized_url", normalized_url),
+        ("masked_url", masked_url),
+        ("image_url", raw_url),
+        ("catalog_image_url", catalog_url),
+    )
+    used = ""
+    selected = ""
+    for key, value in ordered:
+        if value:
+            used = key
+            selected = value
+            break
+
+    if board_url:
+        status = "cutout_ready"
+        used_label = "board_image_url"
+    else:
+        status = "catalog_fallback" if selected else "missing_image"
+        used_label = "catalog_fallback" if selected else "missing"
+
+    return {
+        "image_url": selected,
+        "board_image_url": board_url,
+        "catalog_image_url": catalog_url or raw_url,
+        "board_status": status,
+        "used": used_label,
+        "source_field": used,
+    }
+
+
+def _board_image_url(item: Any) -> str:
+    return _board_image_resolution(item).get("image_url", "")
+
+
+def _apply_board_image_fields(target: Dict[str, Any], asset: Dict[str, Any]) -> Dict[str, Any]:
+    resolved = _board_image_resolution(asset)
+    if resolved.get("image_url"):
+        target["image_url"] = resolved["image_url"]
+        target["imageUrl"] = resolved["image_url"]
+    if resolved.get("board_image_url"):
+        target["board_image_url"] = resolved["board_image_url"]
+        target["boardImageUrl"] = resolved["board_image_url"]
+    if resolved.get("catalog_image_url"):
+        target["catalog_image_url"] = resolved["catalog_image_url"]
+        target["catalogImageUrl"] = resolved["catalog_image_url"]
+    if _asset_text(asset.get("cutout_status") or asset.get("cutoutStatus")):
+        target["cutout_status"] = _asset_text(asset.get("cutout_status") or asset.get("cutoutStatus")).lower()
+    if _asset_text(asset.get("board_r2_key") or asset.get("boardR2Key")):
+        target["board_r2_key"] = _asset_text(asset.get("board_r2_key") or asset.get("boardR2Key"))
+    target["board_image_status"] = resolved.get("board_status") or "catalog_fallback"
+    return target
 
 
 def _board_item_role(name: Any, category: Any = "") -> str:
@@ -3676,13 +3799,31 @@ def _build_board_items(
     items: List[Dict[str, Any]] = []
     seen_urls: set[str] = set()
 
-    def add(name: str, url: str, role: str, source: str, owned: bool) -> None:
+    def add(name: str, source_item: Dict[str, Any], role: str, source: str, owned: bool) -> None:
+        resolved = _board_image_resolution(source_item)
+        url = resolved.get("image_url", "")
         if not url or role not in _BOARD_ALLOWED_ROLES or url in seen_urls:
             return
         seen_urls.add(url)
-        items.append(
-            {"name": name, "role": role, "image_url": url, "source": source, "owned": owned}
+        item = {
+            "name": name,
+            "role": role,
+            "image_url": url,
+            "source": source,
+            "owned": owned,
+            "board_status": resolved.get("board_status") or "catalog_fallback",
+            "image_source": resolved.get("used") or "catalog_fallback",
+        }
+        if resolved.get("board_image_url"):
+            item["board_image_url"] = resolved["board_image_url"]
+        if resolved.get("catalog_image_url"):
+            item["catalog_image_url"] = resolved["catalog_image_url"]
+        logger.info(
+            "ahvi.board_image_resolver role=%s used=%s",
+            role,
+            item["image_source"],
         )
+        items.append(item)
 
     owned_rows = direction.get("owned_items")
     for it in owned_rows if isinstance(owned_rows, list) else []:
@@ -3691,7 +3832,7 @@ def _build_board_items(
         name = _asset_text(it.get("name") or it.get("title") or it.get("label"))
         add(
             name,
-            _board_image_url(it),
+            it,
             _board_item_role(name, it.get("category")),
             "wardrobe",
             True,
@@ -3702,7 +3843,7 @@ def _build_board_items(
         return items
 
     hero_name = _asset_text(direction.get("hero_piece") or direction.get("heroPiece"))
-    add(hero_name, _board_image_url(direction), _board_item_role(hero_name), "asset", False)
+    add(hero_name, direction, _board_item_role(hero_name), "asset", False)
     complete = direction.get("complete_the_look")
     for it in complete if isinstance(complete, list) else []:
         if not isinstance(it, dict):
@@ -3711,7 +3852,7 @@ def _build_board_items(
         owned = bool(it.get("owned") or it.get("wardrobeItemId") or it.get("wardrobe_item_id"))
         add(
             name,
-            _board_image_url(it),
+            it,
             _board_item_role(name, it.get("category")),
             "wardrobe" if owned else "asset",
             owned,
@@ -3794,7 +3935,7 @@ def _enrich_visual_directions_with_assets(
                 brief=brief,
             )
             if asset:
-                out["image_url"] = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
+                _apply_board_image_fields(out, asset)
                 out["asset_id"] = _asset_text(asset.get("asset_id") or asset.get("$id"))
         complete = out.get("complete_the_look")
         if not isinstance(complete, list) or not complete:
@@ -3860,11 +4001,25 @@ def _enrich_visual_directions_with_assets(
                 "Need top, bottom and footwear from wardrobe to build this board."
             )
         else:
-            out["board_status"] = "viable" if viable else "partial"
+            has_catalog_fallback = any(
+                item.get("board_status") == "catalog_fallback"
+                for item in board_items
+                if item.get("source") == "asset"
+            )
+            if has_catalog_fallback:
+                out["board_status"] = "catalog_fallback"
+            else:
+                out["board_status"] = "viable" if viable else "partial"
         out["board_items"] = board_items
         out["boardItems"] = board_items
         enriched.append(out)
     total_board_items = sum(len(item.get("board_items") or []) for item in enriched)
+    cutout_ready_count = sum(
+        1
+        for item in enriched
+        for bi in (item.get("board_items") or [])
+        if bi.get("board_image_url") and bi.get("board_status") != "catalog_fallback"
+    )
     roles_present = sorted(
         {
             bi.get("role")
@@ -3887,10 +4042,11 @@ def _enrich_visual_directions_with_assets(
     )
     logger.info(
         "ahvi.style_board_items_contract direction_count=%d board_items_count=%d "
-        "roles_present=%s wardrobe_intent=%s status=%s",
+        "roles_present=%s cutout_ready_count=%d wardrobe_intent=%s status=%s",
         len(enriched),
         total_board_items,
         ",".join(roles_present) or "none",
+        cutout_ready_count,
         wardrobe_intent,
         status,
     )
