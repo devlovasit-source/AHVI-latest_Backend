@@ -1,0 +1,697 @@
+asset_id,field,current,proposed,confidence,reason
+meghna_female_accessory_pink_beanie,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_blue_beanie,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_tumbler_white,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_travelweighingscale,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_travelweighingscale,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_travelfileorganiser,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_travelfileorganiser,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_purpleflask,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_purple_foldable_umberella,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_pinkflask,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_pink_scrunchie,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_pink_handfan,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_pink_foldable_umberella,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_mouthfreshener,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_mouthfreshener,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_medicalkit,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_medicalkit,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_hairclutch,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_hairclutch,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_foldable_umberella,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_foldable_umberella,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_dufflebag,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_dufflebag,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_drinkflask,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_drinkflask,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_documentholder,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_documentholder,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_chewinggum,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_chewinggum,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_breathstips,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_breathstips,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_blackdrinkflask,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_black_brush,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_backpack,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_backpack,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_airpods,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_airpods,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_whitetop,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_whitetank,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_whiteshirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_whitecrewneck,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_white_spagetti_strap_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_white_bow_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_silver_fringe_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_orangetop,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_orange_tshirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_lightblueshirt,colors,[],lightblue,high,word-boundary infer from name/subcategory/asset_id
+meghna_female_top_lightblueshirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_light_pink_tshirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_light_pink_swquin_top_sleeveless,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_light_pink_off_shoulder_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_light_blue_gingem_one_shoulder_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_leather_black_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_greyfineknittop,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_gingem_blue_spagetti_strap_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_floral_top,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_top_floral_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_electric_blue_tshirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_dark_blue_tshirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_creamtank,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_creamknittop,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_creamcrewneck,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_cream_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_burnt_red_sports_vest_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_browntop,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_brown_sports_vest_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_blacktop,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_black_sequin_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_black_fringe_leather_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_black_bandau_top,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_top_black_and_white_stripe_tshirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_brown_sunglasses,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_brown_cat_eye_sunglasses,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_walletdinor,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_walletdinor,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_puffyhairband,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_puffyhairband,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_ethnic_offshoulderblousebluesaree,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_ethnic_laender_pastel_saree,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_outerwear_white_and_black_polka_dot_jacket,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_outerwear_tan_suede_jacket,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_outerwear_polka_dot_puffer_jacket,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_outerwear_polka_dot_puffer_jacket,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_outerwear_medium_blue_denim_jacket,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_outerwear_light_blue_denim_jacket,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_outerwear_fur_coat_brown,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_outerwear_dark_blue_denim_jacket,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_outerwear_brown_suede_biker_jacket,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_outerwear_black_trench_coat,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_outerwear_black_leat_2,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_outerwear_black_leather_biker_jacket,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_outerwear_beige_fur_coat,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_ethnic_chiliredsleevelesslehenga,colors,[],red,high,word-boundary infer from name/subcategory/asset_id
+meghna_female_top_yellowmirrorworkspagettistraptop,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_black_and_white_rings,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_cream_hat,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_burgundy_straw_hat,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_brown_cap,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_travel_containers,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_travel_containers,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_purple_packing_cubes,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_pink_travel_carry_on,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_pink_packing_cubes,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_pink_cosmetic_bag,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_hair_straightener,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_hair_straightener,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_hair_dryer,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_hair_dryer,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_black_tic_tac_clips,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_black_scrunchie,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_black_clip,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_black_bobbie_pins,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_red_faux_fur_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_pastelpinkgown,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_footwear_whiteflipflop,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_white_sneaker,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_tan_flats,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_kohlapuriwedge,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_footwear_kohlapuriwedge,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_goldflatsandal,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_conversesneakers,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_footwear_conversesneakers,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_brownboots,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_brownbirkinstock,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_blckboots,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_footwear_blckboots,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_blackrainboot,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_blacknikerunningshoe,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_black_flip_flops,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_black_flat_sandals,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_yellowsweetheartcorsetdress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_yellowboatneckmidi,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_yellow_midi_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_whitespagettistrappscalloplayerdress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_whiteboatneckmidi,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_taupe_knit_dress,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_taupe_knit_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_stripesboatneckmidi,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_stripesboatneckmidi,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_strapless_dress_pink_tie_die,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_silver_shimmer_midi_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_redginghamvneckshortdress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_redginghamsweetheartshortdress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_red_corset_strapless_faux_fur_midi_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_purpleboatneckmidi,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_polkadotwhiteboatneckminidress,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_polkadotwhiteboatneckminidress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_pink_floral_short_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_orangegoldbutterflyminidress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_offshouldershirtdressblueandblack,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_offshouldershirtdressblueandblack,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_offshoulderdressminiblackandgrey,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_offshoulderdressminiblackandgrey,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_offshouldercreammididress,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_offshouldercreammididress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_multicolour_boho_maxi_dress,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_multicolour_boho_maxi_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_maroonboatneck_2,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_maroonboatneckmidi,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_lightblueboatneckmididress,colors,[],lightblue,high,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_lightblueboatneckmididress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_light_blue_denim_midi_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_florallayeredgreencreamdress,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_florallayeredgreencreamdress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_floral_midi_dress,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_floral_midi_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_denimsweetheartneckdress,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_denimsweetheartneckdress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_denim_dress,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_denim_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_dark_blue_midi_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_crochet_colorful_dress,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_crochet_colorful_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_cream_midi_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_cream_knit_midi_dress_with_collar,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_cream_column_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_colared_short_dress,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_colared_short_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_brown_short_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_blueboatneckhalfsleevedress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_blue_short_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_blue_instripe_shirt_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_blue_and_brown_stripes_crochet_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_blackboatneckmini,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_blackboatneckmidi,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_blackandwhiteboatneckmini,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_black_minimal_midi_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_black_and_white_polka_dot_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_barbiepinkboatneckdress,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_dress_barbiepinkboatneckdress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_dress_baby_blue_midi_dress,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_yellow_pleated_midi_skirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_straight_blue_jean,archetypes,[],Refined Weekend,high,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_red_pleated_maxi_skirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_red_high_waisted_belted_pants,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_pink_block_print_maxi_skirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_navy_blue_denim_shorts_high_waisted,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_medium_denim_shorts_high_waisted,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_bottom_medium_denim_shorts_high_waisted,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_leather_fringe_pants,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_leather_fringe_pants,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_ecru_jean,archetypes,[],Refined Weekend,high,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_denim_skirt_short,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_bottom_denim_skirt_short,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_dark_blue_denim_skirt_knee_length,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_cream_midi_skirt_with_slit,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_cream_cycling_shorts,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_burnt_red_cycling_shorts,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_brown_skirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_brown_cycling_shorts,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_blue_ginghem_middi_skirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_blue_floral_maxi_skirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_blue_denim_maxi_skirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_blue_block_print_maxi_skirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_black_midi_skirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_black_leather_fringe_midi_skirt,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_black_and_white_polka_dot_shorts,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_bottom_acid_wash_jeans,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+meghna_female_accessory_travel_tote_pink,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_tan_top_handle_shoulder_bag,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_purple_wallet,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_pink_wallet,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_orange_and_pink_woven_beach_tot,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_olive_green_woven_handbag,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_light_brown_top_handle_bag,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_leopard_flipflops,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_grey_suede_bag,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_green_stripes_canvas_tote,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_brown_wallet,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_brown_shoulder_bag,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_footwear_brown_sandals,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_blue_wallet,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_blue_card_case,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_black_top_handle_bag,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_black_clutch,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_black_card_case,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+meghna_female_accessory_beige_shell_bag,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_jeans_c2ebc96841,occasions,[],coffee_date|dailywear|travel,med,category+keyword heuristic
+hm_mens_jeans_c2ebc96841,archetypes,[],Refined Weekend,high,category/occasion/color heuristic; empty when unsure
+hm_mens_jeans_f7ecbf4cc2,occasions,[],coffee_date|dailywear|travel,med,category+keyword heuristic
+hm_mens_jeans_f7ecbf4cc2,archetypes,[],Refined Weekend,high,category/occasion/color heuristic; empty when unsure
+hm_mens_shorts_1f809fc5c9,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shorts_1f809fc5c9,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shorts_412b16e870,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shorts_412b16e870,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+mens_assets_travel_wireless_earphones,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_wireless_earphones,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_wide_tooth_comb,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_wide_tooth_comb,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_white_powerbank,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_travelweighingscale,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_travelweighingscale,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_tail_comb,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_tail_comb,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_suitcase,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_suitcase,category(travel),travel,deactivate,high,non-apparel travel gadget
+mens_assets_travel_mouthfreshener,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_mouthfreshener,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_medicalkit,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_medicalkit,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_handfan,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_handfan,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_foldable_umberella,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_foldable_umberella,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_face_mask,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_face_mask,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_documentholder,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_documentholder,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_chewinggum,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_chewinggum,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_carry_on,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_carry_on,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_c_type_charger,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_c_type_charger,category(travel),travel,deactivate,high,non-apparel travel gadget
+mens_assets_travel_breathstips,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_breathstips,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_blue_neck_pillow,category(travel),travel,deactivate,high,non-apparel travel gadget
+mens_assets_travel_blacktumbler,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_black_powerbank,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_black_brush,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_travel_airpods,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_travel_airpods,category(travel),travel,reclassify->accessory,med,travel bag should be accessory(+subcategory)
+mens_assets_tops_burgendystripeshirt,colors,[],burgundy,high,word-boundary infer from name/subcategory/asset_id
+mens_assets_tops_burgendyhalfhandsshirt,colors,[],burgundy,high,word-boundary infer from name/subcategory/asset_id
+mens_assets_skincare_toothpaste,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_skincare_toothpaste,category(grooming),grooming,deactivate,high,non-fashion grooming/skincare; not a stylable asset
+mens_assets_skincare_rollon,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_skincare_rollon,category(grooming),grooming,deactivate,high,non-fashion grooming/skincare; not a stylable asset
+mens_assets_skincare_retinol,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_skincare_retinol,category(grooming),grooming,deactivate,high,non-fashion grooming/skincare; not a stylable asset
+mens_assets_skincare_perfume,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_skincare_perfume,category(grooming),grooming,deactivate,high,non-fashion grooming/skincare; not a stylable asset
+mens_assets_skincare_lipbalm,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_skincare_lipbalm,category(grooming),grooming,deactivate,high,non-fashion grooming/skincare; not a stylable asset
+mens_assets_skincare_grooming_kit,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_skincare_grooming_kit,category(grooming),grooming,deactivate,high,non-fashion grooming/skincare; not a stylable asset
+mens_assets_skincare_facewash,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_skincare_facewash,category(grooming),grooming,deactivate,high,non-fashion grooming/skincare; not a stylable asset
+mens_assets_skincare_facemask,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_skincare_facemask,category(grooming),grooming,deactivate,high,non-fashion grooming/skincare; not a stylable asset
+mens_assets_outerwear_waistcoat,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_outerwear_trenchcoat,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_outerwear_scarf,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_outerwear_baseballjacket,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_jewellery_beadedbracelet,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_indian_ocassion_set_bandhgalaset,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_footwear_birkinstocksandal,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_bottoms_brwonjeans,colors,[],brown,high,word-boundary infer from name/subcategory/asset_id
+mens_assets_bags_menswallet,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_bags_laptopbag,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+mens_assets_bags_cardcase,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+test_asset,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+test_asset,occasions,[],coffee_date|dailywear,med,category+keyword heuristic
+test_asset,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hat_df7b713548,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hat_df7b713548,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_hat_df7b713548,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hat_d0505d1ab2,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hat_d0505d1ab2,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_hat_d0505d1ab2,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hat_5982bab127,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hat_5982bab127,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_hat_5982bab127,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hat_9507cf79d0,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hat_9507cf79d0,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_hat_9507cf79d0,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hat_1a837158d1,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hat_1a837158d1,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_hat_1a837158d1,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hat_af19a5a88f,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hat_af19a5a88f,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_hat_af19a5a88f,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hat_3829ce1c21,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hat_3829ce1c21,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_hat_3829ce1c21,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_belt_cb45e3c87f,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_belt_cb45e3c87f,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_belt_cb45e3c87f,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_belt_eefc689ab3,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_belt_eefc689ab3,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_belt_eefc689ab3,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_belt_7adfecea70,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_belt_7adfecea70,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_belt_7adfecea70,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_belt_7ce9e46236,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_belt_7ce9e46236,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_belt_7ce9e46236,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_belt_ec99e08bc9,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_belt_ec99e08bc9,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_belt_ec99e08bc9,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_belt_af596d4e0a,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_belt_af596d4e0a,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_belt_af596d4e0a,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sunglasses_03ceffef77,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sunglasses_03ceffef77,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_sunglasses_03ceffef77,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sunglasses_382429e0c2,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sunglasses_382429e0c2,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_sunglasses_382429e0c2,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sunglasses_88e2f41acf,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sunglasses_88e2f41acf,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_sunglasses_88e2f41acf,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sunglasses_e85aa89e0f,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sunglasses_e85aa89e0f,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_sunglasses_e85aa89e0f,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sunglasses_8633ae9d45,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sunglasses_8633ae9d45,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_sunglasses_8633ae9d45,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sunglasses_44390b4919,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sunglasses_44390b4919,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_sunglasses_44390b4919,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sunglasses_224034a705,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sunglasses_224034a705,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_sunglasses_224034a705,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sunglasses_ee026ca38f,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sunglasses_ee026ca38f,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_sunglasses_ee026ca38f,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_ring_867529207a,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_ring_867529207a,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_ring_867529207a,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_ring_de5d518cec,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_ring_de5d518cec,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_ring_de5d518cec,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_ring_9e5600452d,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_ring_9e5600452d,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_ring_9e5600452d,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_ring_3ad5f5775f,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_ring_3ad5f5775f,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_ring_3ad5f5775f,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_ring_6c9357137b,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_ring_6c9357137b,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_ring_6c9357137b,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_ring_6d11b170c4,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_ring_6d11b170c4,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_ring_6d11b170c4,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_ring_0f094fcd9f,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_ring_0f094fcd9f,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_ring_0f094fcd9f,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_necklace_a6604b6d9c,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_necklace_a6604b6d9c,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_necklace_a6604b6d9c,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_necklace_b56e65d24d,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_necklace_b56e65d24d,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_necklace_b56e65d24d,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_necklace_8d53f5ce2a,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_necklace_8d53f5ce2a,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_necklace_8d53f5ce2a,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_necklace_741b0af9ad,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_necklace_741b0af9ad,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_necklace_741b0af9ad,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_necklace_807c617755,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_necklace_807c617755,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_necklace_807c617755,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_necklace_f7dc290b92,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_necklace_f7dc290b92,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_necklace_f7dc290b92,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_necklace_849dae51c7,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_necklace_849dae51c7,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_necklace_849dae51c7,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_necklace_7bb21b4f03,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_necklace_7bb21b4f03,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_necklace_7bb21b4f03,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_bracelet_93fa2c883b,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_bracelet_93fa2c883b,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_bracelet_93fa2c883b,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_bracelet_e88929269b,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_bracelet_e88929269b,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_bracelet_e88929269b,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_bracelet_0bbf0cc60e,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_bracelet_0bbf0cc60e,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_bracelet_0bbf0cc60e,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_bracelet_9f6bd67a2c,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_bracelet_9f6bd67a2c,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_bracelet_9f6bd67a2c,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_bracelet_b9ed3986d6,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_bracelet_b9ed3986d6,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_bracelet_b9ed3986d6,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_bracelet_618af0db9f,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_bracelet_618af0db9f,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_bracelet_618af0db9f,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_flip_flops_c958dc1fb6,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_flip_flops_c958dc1fb6,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_flip_flops_c958dc1fb6,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_flip_flops_cf7d0d819c,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_flip_flops_cf7d0d819c,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_flip_flops_cf7d0d819c,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_flip_flops_d94ceff338,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_flip_flops_d94ceff338,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_flip_flops_d94ceff338,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_flip_flops_5e00b50314,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_flip_flops_5e00b50314,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_flip_flops_5e00b50314,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_flip_flops_8b1a8cb27e,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_flip_flops_8b1a8cb27e,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_flip_flops_8b1a8cb27e,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shoes_992c4ab465,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shoes_992c4ab465,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_shoes_992c4ab465,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shoes_791fd95699,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shoes_791fd95699,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shoes_791fd95699,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shoes_efe358d220,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shoes_efe358d220,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_shoes_efe358d220,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shoes_e489e2f69a,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shoes_e489e2f69a,occasions,[],dinner|office|party,med,category+keyword heuristic
+hm_mens_shoes_e489e2f69a,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shoes_72fa933d73,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shoes_72fa933d73,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shoes_72fa933d73,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shoes_684ecc9453,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shoes_684ecc9453,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_shoes_684ecc9453,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shoes_92571b53c3,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shoes_92571b53c3,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shoes_92571b53c3,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shoes_54894bae24,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shoes_54894bae24,occasions,[],dailywear,med,category+keyword heuristic
+hm_mens_shoes_54894bae24,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shoes_25b7e81968,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shoes_25b7e81968,occasions,[],dinner|office|party,med,category+keyword heuristic
+hm_mens_shoes_25b7e81968,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shoes_0145395ed2,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shoes_0145395ed2,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shoes_0145395ed2,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sleepwear_e62a891243,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sleepwear_e62a891243,occasions,[],,low,category+keyword heuristic
+hm_mens_sleepwear_e62a891243,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sleepwear_e62a891243,category(loungewear),loungewear,keep_or_rename,low,sleepwear; valid but non-canonical category — confirm taxonomy
+hm_mens_sleepwear_14c2efc948,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sleepwear_14c2efc948,occasions,[],,low,category+keyword heuristic
+hm_mens_sleepwear_14c2efc948,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sleepwear_14c2efc948,category(loungewear),loungewear,keep_or_rename,low,sleepwear; valid but non-canonical category — confirm taxonomy
+hm_mens_sleepwear_a687615964,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sleepwear_a687615964,occasions,[],,low,category+keyword heuristic
+hm_mens_sleepwear_a687615964,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sleepwear_a687615964,category(loungewear),loungewear,keep_or_rename,low,sleepwear; valid but non-canonical category — confirm taxonomy
+hm_mens_sleepwear_adceaf5f33,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sleepwear_adceaf5f33,occasions,[],,low,category+keyword heuristic
+hm_mens_sleepwear_adceaf5f33,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sleepwear_adceaf5f33,category(loungewear),loungewear,keep_or_rename,low,sleepwear; valid but non-canonical category — confirm taxonomy
+hm_mens_sleepwear_99afb3974b,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sleepwear_99afb3974b,occasions,[],,low,category+keyword heuristic
+hm_mens_sleepwear_99afb3974b,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sleepwear_99afb3974b,category(loungewear),loungewear,keep_or_rename,low,sleepwear; valid but non-canonical category — confirm taxonomy
+hm_mens_sleepwear_9a2be2043b,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sleepwear_9a2be2043b,occasions,[],,low,category+keyword heuristic
+hm_mens_sleepwear_9a2be2043b,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sleepwear_9a2be2043b,category(loungewear),loungewear,keep_or_rename,low,sleepwear; valid but non-canonical category — confirm taxonomy
+hm_mens_sleepwear_b3182d5a4e,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sleepwear_b3182d5a4e,occasions,[],,low,category+keyword heuristic
+hm_mens_sleepwear_b3182d5a4e,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sleepwear_b3182d5a4e,category(loungewear),loungewear,keep_or_rename,low,sleepwear; valid but non-canonical category — confirm taxonomy
+hm_mens_sleepwear_90ce898625,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sleepwear_90ce898625,occasions,[],,low,category+keyword heuristic
+hm_mens_sleepwear_90ce898625,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sleepwear_90ce898625,category(loungewear),loungewear,keep_or_rename,low,sleepwear; valid but non-canonical category — confirm taxonomy
+hm_mens_sleepwear_414828509a,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sleepwear_414828509a,occasions,[],,low,category+keyword heuristic
+hm_mens_sleepwear_414828509a,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sleepwear_414828509a,category(loungewear),loungewear,keep_or_rename,low,sleepwear; valid but non-canonical category — confirm taxonomy
+hm_mens_sleepwear_2482666a7f,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_sleepwear_2482666a7f,occasions,[],,low,category+keyword heuristic
+hm_mens_sleepwear_2482666a7f,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_sleepwear_2482666a7f,category(loungewear),loungewear,keep_or_rename,low,sleepwear; valid but non-canonical category — confirm taxonomy
+hm_mens_hoodie_sweatshirt_959d3f283a,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hoodie_sweatshirt_959d3f283a,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_hoodie_sweatshirt_959d3f283a,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hoodie_sweatshirt_b4c93e2e32,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hoodie_sweatshirt_b4c93e2e32,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_hoodie_sweatshirt_b4c93e2e32,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hoodie_sweatshirt_068ca836ab,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hoodie_sweatshirt_068ca836ab,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_hoodie_sweatshirt_068ca836ab,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hoodie_sweatshirt_85397d4e88,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hoodie_sweatshirt_85397d4e88,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_hoodie_sweatshirt_85397d4e88,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hoodie_sweatshirt_1a8c0caafa,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hoodie_sweatshirt_1a8c0caafa,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_hoodie_sweatshirt_1a8c0caafa,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hoodie_sweatshirt_9e4a6a1b81,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hoodie_sweatshirt_9e4a6a1b81,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_hoodie_sweatshirt_9e4a6a1b81,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hoodie_sweatshirt_72a8ec2d1a,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hoodie_sweatshirt_72a8ec2d1a,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_hoodie_sweatshirt_72a8ec2d1a,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hoodie_sweatshirt_b28f7a8d6b,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hoodie_sweatshirt_b28f7a8d6b,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_hoodie_sweatshirt_b28f7a8d6b,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hoodie_sweatshirt_51da325845,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hoodie_sweatshirt_51da325845,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_hoodie_sweatshirt_51da325845,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_hoodie_sweatshirt_359477b5a3,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_hoodie_sweatshirt_359477b5a3,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_hoodie_sweatshirt_359477b5a3,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_jacket_333fb1012a,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jacket_333fb1012a,occasions,[],dinner|office,med,category+keyword heuristic
+hm_mens_jacket_333fb1012a,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_jacket_9a82707289,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jacket_9a82707289,occasions,[],dinner|office,med,category+keyword heuristic
+hm_mens_jacket_9a82707289,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_jacket_0a76fdcb45,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jacket_0a76fdcb45,occasions,[],dinner|office,med,category+keyword heuristic
+hm_mens_jacket_0a76fdcb45,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_jacket_ef23870578,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jacket_ef23870578,occasions,[],dinner|office,med,category+keyword heuristic
+hm_mens_jacket_ef23870578,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_jacket_1340cdbe76,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jacket_1340cdbe76,occasions,[],dinner|office,med,category+keyword heuristic
+hm_mens_jacket_1340cdbe76,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_jacket_b8026b1fb4,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jacket_b8026b1fb4,occasions,[],dinner|office,med,category+keyword heuristic
+hm_mens_jacket_b8026b1fb4,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_jacket_2691ea0804,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jacket_2691ea0804,occasions,[],dinner|office,med,category+keyword heuristic
+hm_mens_jacket_2691ea0804,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_jacket_1605c6500f,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jacket_1605c6500f,occasions,[],dinner|office,med,category+keyword heuristic
+hm_mens_jacket_1605c6500f,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_jacket_05ceb4c17b,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jacket_05ceb4c17b,occasions,[],dinner|office,med,category+keyword heuristic
+hm_mens_jacket_05ceb4c17b,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shorts_e39fb90f95,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shorts_e39fb90f95,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shorts_e39fb90f95,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shorts_c640aa68c9,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shorts_c640aa68c9,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shorts_c640aa68c9,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shorts_0c0ba25252,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shorts_0c0ba25252,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shorts_0c0ba25252,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shorts_3cd5d4b9f5,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shorts_3cd5d4b9f5,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shorts_3cd5d4b9f5,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shorts_07cbdb673e,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shorts_07cbdb673e,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shorts_07cbdb673e,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shorts_573ce60e90,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shorts_573ce60e90,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shorts_573ce60e90,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shorts_0002cdb7fa,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shorts_0002cdb7fa,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shorts_0002cdb7fa,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shorts_f85a963fd0,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shorts_f85a963fd0,occasions,[],dailywear|travel,med,category+keyword heuristic
+hm_mens_shorts_f85a963fd0,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_jeans_ba74a6e262,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jeans_ba74a6e262,occasions,[],coffee_date|dailywear|travel,med,category+keyword heuristic
+hm_mens_jeans_ba74a6e262,archetypes,[],Refined Weekend,high,category/occasion/color heuristic; empty when unsure
+hm_mens_jeans_8f8ce99db5,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jeans_8f8ce99db5,occasions,[],coffee_date|dailywear|travel,med,category+keyword heuristic
+hm_mens_jeans_8f8ce99db5,archetypes,[],Refined Weekend,high,category/occasion/color heuristic; empty when unsure
+hm_mens_jeans_19b8fbf6b0,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jeans_19b8fbf6b0,occasions,[],coffee_date|dailywear|travel,med,category+keyword heuristic
+hm_mens_jeans_19b8fbf6b0,archetypes,[],Refined Weekend,high,category/occasion/color heuristic; empty when unsure
+hm_mens_jeans_c9300fa8b8,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jeans_c9300fa8b8,occasions,[],coffee_date|dailywear|travel,med,category+keyword heuristic
+hm_mens_jeans_c9300fa8b8,archetypes,[],Refined Weekend,high,category/occasion/color heuristic; empty when unsure
+hm_mens_jeans_63acd15b01,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jeans_63acd15b01,occasions,[],coffee_date|dailywear|travel,med,category+keyword heuristic
+hm_mens_jeans_63acd15b01,archetypes,[],Refined Weekend,high,category/occasion/color heuristic; empty when unsure
+hm_mens_jeans_e7e7b878b8,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jeans_e7e7b878b8,occasions,[],coffee_date|dailywear|travel,med,category+keyword heuristic
+hm_mens_jeans_e7e7b878b8,archetypes,[],Refined Weekend,high,category/occasion/color heuristic; empty when unsure
+hm_mens_jeans_4ab6550018,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jeans_4ab6550018,occasions,[],coffee_date|dailywear|travel,med,category+keyword heuristic
+hm_mens_jeans_4ab6550018,archetypes,[],Refined Weekend,high,category/occasion/color heuristic; empty when unsure
+hm_mens_jeans_53f59a62af,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_jeans_53f59a62af,occasions,[],coffee_date|dailywear|travel,med,category+keyword heuristic
+hm_mens_jeans_53f59a62af,archetypes,[],Refined Weekend,high,category/occasion/color heuristic; empty when unsure
+hm_mens_shirt_4c9809cf19,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shirt_4c9809cf19,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_shirt_4c9809cf19,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shirt_08f08c9cc3,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shirt_08f08c9cc3,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_shirt_08f08c9cc3,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shirt_d24b6998eb,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shirt_d24b6998eb,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_shirt_d24b6998eb,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shirt_2e3963dcdd,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shirt_2e3963dcdd,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_shirt_2e3963dcdd,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shirt_323d6b934e,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shirt_323d6b934e,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_shirt_323d6b934e,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shirt_f5c5337c41,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shirt_f5c5337c41,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_shirt_f5c5337c41,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shirt_7778ddd252,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shirt_7778ddd252,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_shirt_7778ddd252,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shirt_1e0c52d10b,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shirt_1e0c52d10b,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_shirt_1e0c52d10b,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shirt_b4e8237be4,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shirt_b4e8237be4,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_shirt_b4e8237be4,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shirt_a012febfa4,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shirt_a012febfa4,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_shirt_a012febfa4,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shirt_b4dfba8f21,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shirt_b4dfba8f21,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_shirt_b4dfba8f21,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_shirt_78e1c6836a,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_shirt_78e1c6836a,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_shirt_78e1c6836a,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_t_shirt_099cb3c78c,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_t_shirt_099cb3c78c,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_t_shirt_099cb3c78c,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_t_shirt_d7d04de614,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_t_shirt_d7d04de614,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_t_shirt_d7d04de614,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_t_shirt_59cf222a29,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_t_shirt_59cf222a29,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_t_shirt_59cf222a29,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_t_shirt_22945aa8c1,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_t_shirt_22945aa8c1,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_t_shirt_22945aa8c1,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_t_shirt_1de2423bdb,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_t_shirt_1de2423bdb,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_t_shirt_1de2423bdb,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_t_shirt_8f084e26e5,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_t_shirt_8f084e26e5,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_t_shirt_8f084e26e5,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_t_shirt_98bd01d97f,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_t_shirt_98bd01d97f,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_t_shirt_98bd01d97f,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_t_shirt_97bf61b8ba,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_t_shirt_97bf61b8ba,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_t_shirt_97bf61b8ba,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_t_shirt_2af82d8ff6,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_t_shirt_2af82d8ff6,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_t_shirt_2af82d8ff6,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure
+hm_mens_t_shirt_e5be53d1c4,colors,[],(none - needs image extraction),low,word-boundary infer from name/subcategory/asset_id
+hm_mens_t_shirt_e5be53d1c4,occasions,[],coffee_date|dailywear|dinner|office,med,category+keyword heuristic
+hm_mens_t_shirt_e5be53d1c4,archetypes,[],(leave empty - low confidence),low,category/occasion/color heuristic; empty when unsure

@@ -129,6 +129,7 @@ exact shape:
       "category": "Dresses",
       "sub_category": "Mini Dress",
       "color": "Red",
+      "occasions": ["dinner", "party", "date", "wedding", "brunch"],
       "confidence": 0.9,
       "bbox": [0.10, 0.05, 0.55, 0.95],
       "needs_review": false,
@@ -162,6 +163,10 @@ _ITEM_SCHEMA: Dict[str, Any] = {
                         "items": {"type": "number"},
                         "minItems": 4,
                         "maxItems": 4,
+                    },
+                    "occasions": {
+                        "type": "array",
+                        "items": {"type": "string"}
                     },
                     "needs_review": {"type": "boolean"},
                     "reason": {"type": ["string", "null"]},
@@ -501,10 +506,11 @@ def _validate_item(raw: Any) -> Optional[Dict[str, Any]]:
         confidence = 0.5
     confidence = min(max(confidence, 0.0), 1.0)
     return {
-        "name": name,
+        "name": str(raw.get("name") or "").strip().title(),
         "category": str(raw.get("category") or "").strip(),
         "sub_category": str(raw.get("sub_category") or "").strip(),
         "color": str(raw.get("color") or "").strip(),
+        "occasions": raw.get("occasions") if isinstance(raw.get("occasions"), list) else [],
         "confidence": confidence,
         "bbox": list(bbox),
         "needs_review": bool(raw.get("needs_review") or False),

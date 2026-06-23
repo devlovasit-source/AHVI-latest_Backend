@@ -1,3209 +1,4126 @@
 [
-  {
-    "asset_id": "hm_mens_t_shirt_e5be53d1c4",
-    "name": "H&M Mens Essential T-Shirt 01",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "t_shirt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Polished Casual"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/cb/31/cb310db642518f58a358028107e5d38be82dee7e.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "t_shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_t_shirt_2af82d8ff6",
-    "name": "H&M Mens Crew T-Shirt 02",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "t_shirt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Polished Casual"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/d6/f1/d6f1a99748dfcb5e32f11432712ad182d9a8f65b.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "t_shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_t_shirt_97bf61b8ba",
-    "name": "H&M Mens Relaxed T-Shirt 03",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "t_shirt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Polished Casual"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/3b/33/3b3329bd93eac50bd9aee73b11ba5d9f6d2d6d8a.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "t_shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_t_shirt_98bd01d97f",
-    "name": "H&M Mens Pocket T-Shirt 04",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "t_shirt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Polished Casual"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/33/21/3321a6092a11d2ddb53366693a3c9cfbf6da5828.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "t_shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_t_shirt_8f084e26e5",
-    "name": "H&M Mens Slim Fit T-Shirt 05",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "t_shirt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Polished Casual"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/e1/23/e12388725a613b3ed99704657cc2e9d169a29254.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "t_shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_t_shirt_1de2423bdb",
-    "name": "H&M Mens Essential T-Shirt 06",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "t_shirt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Polished Casual"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/28/0b/280bbb575e798f4cc841d7fabf9b42510032dc54.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "t_shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_t_shirt_22945aa8c1",
-    "name": "H&M Mens Crew T-Shirt 07",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "t_shirt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Polished Casual"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/e8/bd/e8bdd04a444892518f81d611a4ba8c847ceea0a5.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "t_shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_t_shirt_59cf222a29",
-    "name": "H&M Mens Relaxed T-Shirt 08",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "t_shirt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Polished Casual"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/ad/83/ad83b6d69d91958390c86339b8b6aace4d8683d9.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "t_shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_t_shirt_d7d04de614",
-    "name": "H&M Mens Pocket T-Shirt 09",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "t_shirt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Polished Casual"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/36/91/369157f78ea0a36638ea42481d0723e9ca7cea58.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "t_shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_t_shirt_099cb3c78c",
-    "name": "H&M Mens Slim Fit T-Shirt 10",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "t_shirt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Polished Casual"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/63/60/6360969e09fbb606bacd6c9378e0d1cd1c231406.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "t_shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shirt_78e1c6836a",
-    "name": "H&M Mens Oxford Shirt 01",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "shirt",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "coffee_date",
-      "smart_casual",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Professional",
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Contemporary Classic"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/b1/a1/b1a168578c0031696cfd9cf22c945eda0dcdf851.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shirt_b4dfba8f21",
-    "name": "H&M Mens Relaxed Shirt 02",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "shirt",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "coffee_date",
-      "smart_casual",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Professional",
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Contemporary Classic"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/10/04/1004c3378e99c5101ec7543bf2a42729e4ec0071.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shirt_a012febfa4",
-    "name": "H&M Mens Casual Shirt 03",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "shirt",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "coffee_date",
-      "smart_casual",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Professional",
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Contemporary Classic"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/59/53/59535f019024c5abe0f1e4260fe6737786f2ee61.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shirt_b4e8237be4",
-    "name": "H&M Mens Linen Shirt 04",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "shirt",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "coffee_date",
-      "smart_casual",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Professional",
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Contemporary Classic"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/6f/31/6f31e9a37f649635db75c253fa65b152f88a7c32.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shirt_1e0c52d10b",
-    "name": "H&M Mens Poplin Shirt 05",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "shirt",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "coffee_date",
-      "smart_casual",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Professional",
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Contemporary Classic"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/c6/f0/c6f0bdfac877c29e912b1b47e61cc24c9247661c.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shirt_7778ddd252",
-    "name": "H&M Mens Oxford Shirt 06",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "shirt",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "coffee_date",
-      "smart_casual",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Professional",
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Contemporary Classic"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/ff/5b/ff5b2b09c092d1df5c91943f3ce98a5fe1b158e3.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shirt_f5c5337c41",
-    "name": "H&M Mens Relaxed Shirt 07",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "shirt",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "coffee_date",
-      "smart_casual",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Professional",
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Contemporary Classic"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/b9/ae/b9ae09745da241ecca9ea3428c3459a32bd67943.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shirt_323d6b934e",
-    "name": "H&M Mens Casual Shirt 08",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "shirt",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "coffee_date",
-      "smart_casual",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Professional",
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Contemporary Classic"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/a3/bc/a3bc91052e3b4b3a193a7996175a2632d197ffe2.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shirt_2e3963dcdd",
-    "name": "H&M Mens Linen Shirt 09",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "shirt",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "coffee_date",
-      "smart_casual",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Professional",
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Contemporary Classic"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/48/cc/48ccb52754a775653d6437e297cb0019bf5b3767.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shirt_d24b6998eb",
-    "name": "H&M Mens Poplin Shirt 10",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "shirt",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "coffee_date",
-      "smart_casual",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Professional",
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Contemporary Classic"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/18/0d/180df06b890cf6181dddc7d68a2084d4f79e704d.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shirt_08f08c9cc3",
-    "name": "H&M Mens Oxford Shirt 11",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "shirt",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "coffee_date",
-      "smart_casual",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Professional",
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Contemporary Classic"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/43/97/439704bda7ba663857efcbe5b2c1f4a3c8e44153.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shirt_4c9809cf19",
-    "name": "H&M Mens Relaxed Shirt 12",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "shirt",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "coffee_date",
-      "smart_casual",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Professional",
-      "Refined Weekend",
-      "Smart Casual Edge",
-      "Contemporary Classic"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/bb/26/bb26a4e1f12bcc6376c611beab6b906955a4a8a1.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jeans_53f59a62af",
-    "name": "H&M Mens Dark Wash Jeans 01",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "jeans",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "startup_office",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Off-Duty Tailoring",
-      "Smart Casual Edge",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/64/17/6417bde3c7f79f30842585ef3cbfc7674006bb68.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jeans"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jeans_4ab6550018",
-    "name": "H&M Mens Straight Jeans 02",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "jeans",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "startup_office",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Off-Duty Tailoring",
-      "Smart Casual Edge",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/2c/b0/2cb0c457ce64b8a0774dddd529c1311bc70aa2ac.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jeans"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jeans_e7e7b878b8",
-    "name": "H&M Mens Slim Jeans 03",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "jeans",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "startup_office",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Off-Duty Tailoring",
-      "Smart Casual Edge",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/0a/e4/0ae44cf31b185b415e9a3e01979661daec0a09d5.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jeans"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jeans_c2ebc96841",
-    "name": "H&M Mens Tapered Jeans 04",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "jeans",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "startup_office",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Off-Duty Tailoring",
-      "Smart Casual Edge",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/28/62/2862674a065d1ee89ab9a0eb8465d99f43f822af.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jeans"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jeans_63acd15b01",
-    "name": "H&M Mens Light Wash Jeans 05",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "jeans",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "startup_office",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Off-Duty Tailoring",
-      "Smart Casual Edge",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/68/83/688313bbeeda87e0866875ac226c6309eb682b22.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jeans"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jeans_c9300fa8b8",
-    "name": "H&M Mens Dark Wash Jeans 06",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "jeans",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "startup_office",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Off-Duty Tailoring",
-      "Smart Casual Edge",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/b1/d4/b1d40e73b4396f9e31882f4744f23d6177d819fd.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jeans"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jeans_19b8fbf6b0",
-    "name": "H&M Mens Straight Jeans 07",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "jeans",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "startup_office",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Off-Duty Tailoring",
-      "Smart Casual Edge",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/83/65/8365741047a1ab9214a8880cbd71b2e8141c201c.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jeans"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jeans_8f8ce99db5",
-    "name": "H&M Mens Slim Jeans 08",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "jeans",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "startup_office",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Off-Duty Tailoring",
-      "Smart Casual Edge",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/d9/d2/d9d22770c6399170f81f951c3985a5df1af61949.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jeans"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jeans_f7ecbf4cc2",
-    "name": "H&M Mens Tapered Jeans 09",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "jeans",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "startup_office",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Off-Duty Tailoring",
-      "Smart Casual Edge",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/ed/a7/eda7c6c301ea1bf99c82f0c6f996d3298599e69b.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jeans"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jeans_ba74a6e262",
-    "name": "H&M Mens Light Wash Jeans 10",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "jeans",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "startup_office",
-      "weekend"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Off-Duty Tailoring",
-      "Smart Casual Edge",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/a2/28/a228951b1d17dde551a968c8f19c06c866094367.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jeans"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shorts_f85a963fd0",
-    "name": "H&M Mens Linen Shorts 01",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "shorts",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/59/aa/59aa1596bc09a8ebf34eec0230b7aa3bc47c7dd8.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shorts"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shorts_0002cdb7fa",
-    "name": "H&M Mens Cargo Shorts 02",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "shorts",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/2e/99/2e99620d474c0758e25bcd5c225f5ba338197412.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shorts"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shorts_573ce60e90",
-    "name": "H&M Mens Chino Shorts 03",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "shorts",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/03/b8/03b8152ad1d267739e8d68433f69e3261a1760f9.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shorts"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shorts_07cbdb673e",
-    "name": "H&M Mens Drawstring Shorts 04",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "shorts",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/2d/e1/2de194cfcf07f2ebc834609330554eaf89052eb6.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shorts"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shorts_1f809fc5c9",
-    "name": "H&M Mens Tailored Shorts 05",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "shorts",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/b1/89/b1894f64a101ddd3234d91e4ef78b7af944b2d57.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shorts"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shorts_3cd5d4b9f5",
-    "name": "H&M Mens Linen Shorts 06",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "shorts",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/b6/65/b66527c777ddbe9896638d17fec0d58de4306c77.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shorts"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shorts_0c0ba25252",
-    "name": "H&M Mens Cargo Shorts 07",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "shorts",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/72/ef/72ef027354c9a398d422f3297fd9cc47f0c298d2.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shorts"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shorts_c640aa68c9",
-    "name": "H&M Mens Chino Shorts 08",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "shorts",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/77/a8/77a8102a3dc4b13a6c6f2fa42bdd83529954e7d0.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shorts"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shorts_e39fb90f95",
-    "name": "H&M Mens Drawstring Shorts 09",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "shorts",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/45/6c/456ca7bda3c1d9b6e8bf30ede5e6dffb88cd7cd0.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shorts"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shorts_412b16e870",
-    "name": "H&M Mens Tailored Shorts 10",
-    "gender": "male",
-    "category": "bottom",
-    "subcategory": "shorts",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/44/5a/445acd30374cb60dd4e38bbf0ce85f8b96562f5b.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shorts"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jacket_05ceb4c17b",
-    "name": "H&M Mens Lightweight Jacket 01",
-    "gender": "male",
-    "category": "outerwear",
-    "subcategory": "jacket",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "travel",
-      "coffee_date",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Off-Duty Tailoring",
-      "Urban Minimalist"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/1a/de/1ade9eeb7f38900bd39b52411a9701c1b7870306.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jacket"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jacket_1605c6500f",
-    "name": "H&M Mens Utility Jacket 02",
-    "gender": "male",
-    "category": "outerwear",
-    "subcategory": "jacket",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "travel",
-      "coffee_date",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Off-Duty Tailoring",
-      "Urban Minimalist"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/75/96/75963dea30105cccf2a93165ce431f0139d3371e.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jacket"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jacket_2691ea0804",
-    "name": "H&M Mens Bomber Jacket 03",
-    "gender": "male",
-    "category": "outerwear",
-    "subcategory": "jacket",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "travel",
-      "coffee_date",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Off-Duty Tailoring",
-      "Urban Minimalist"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/91/fd/91fd307e8fe6e77d80097dc9d56a47bc9d409561.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jacket"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jacket_b8026b1fb4",
-    "name": "H&M Mens Overshirt 04",
-    "gender": "male",
-    "category": "outerwear",
-    "subcategory": "jacket",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "travel",
-      "coffee_date",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Off-Duty Tailoring",
-      "Urban Minimalist"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/67/68/67681396140f8f837a47545abcc896e798db0e0b.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jacket"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jacket_1340cdbe76",
-    "name": "H&M Mens Denim Jacket 05",
-    "gender": "male",
-    "category": "outerwear",
-    "subcategory": "jacket",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "travel",
-      "coffee_date",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Off-Duty Tailoring",
-      "Urban Minimalist"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/49/90/4990186b2306f01e07ebf39ddb26b4c4f7d0fee3.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jacket"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jacket_ef23870578",
-    "name": "H&M Mens Lightweight Jacket 06",
-    "gender": "male",
-    "category": "outerwear",
-    "subcategory": "jacket",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "travel",
-      "coffee_date",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Off-Duty Tailoring",
-      "Urban Minimalist"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/d6/1f/d61f30fa0acb689435d0f0efef2b05972a332045.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jacket"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jacket_0a76fdcb45",
-    "name": "H&M Mens Utility Jacket 07",
-    "gender": "male",
-    "category": "outerwear",
-    "subcategory": "jacket",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "travel",
-      "coffee_date",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Off-Duty Tailoring",
-      "Urban Minimalist"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/b8/7a/b87a33cd7ed8a260f13d14c1e6b0c4fae5b26e1d.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jacket"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jacket_9a82707289",
-    "name": "H&M Mens Bomber Jacket 08",
-    "gender": "male",
-    "category": "outerwear",
-    "subcategory": "jacket",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "travel",
-      "coffee_date",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Off-Duty Tailoring",
-      "Urban Minimalist"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/58/08/58081aa3fef585efb4959a7a852322b8bd101a7d.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jacket"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_jacket_333fb1012a",
-    "name": "H&M Mens Overshirt 09",
-    "gender": "male",
-    "category": "outerwear",
-    "subcategory": "jacket",
-    "colors": [],
-    "occasions": [
-      "startup_office",
-      "travel",
-      "coffee_date",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Off-Duty Tailoring",
-      "Urban Minimalist"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/33/6f/336ffcc24e80c8ea66e9e5868adf8cf096542a0c.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "jacket"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hoodie_sweatshirt_359477b5a3",
-    "name": "H&M Mens Essential Hoodie 01",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "hoodie_sweatshirt",
-    "colors": [],
-    "occasions": [
-      "casual_day",
-      "weekend",
-      "travel"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/f5/a6/f5a6dc25b55a179edab1d2882d61cb92f06060af.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hoodie_sweatshirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hoodie_sweatshirt_51da325845",
-    "name": "H&M Mens Crew Sweatshirt 02",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "hoodie_sweatshirt",
-    "colors": [],
-    "occasions": [
-      "casual_day",
-      "weekend",
-      "travel"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/90/82/908265eaea9476d9c7746a7aee8a5f8d5a682663.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hoodie_sweatshirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hoodie_sweatshirt_b28f7a8d6b",
-    "name": "H&M Mens Zip Hoodie 03",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "hoodie_sweatshirt",
-    "colors": [],
-    "occasions": [
-      "casual_day",
-      "weekend",
-      "travel"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/15/4f/154fc8cea8d1781a1700bcbd90ef1dbe506e4831.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hoodie_sweatshirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hoodie_sweatshirt_72a8ec2d1a",
-    "name": "H&M Mens Pullover Sweatshirt 04",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "hoodie_sweatshirt",
-    "colors": [],
-    "occasions": [
-      "casual_day",
-      "weekend",
-      "travel"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/eb/82/eb824370cd39e293543da2d4db737292d9da8cf6.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hoodie_sweatshirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hoodie_sweatshirt_9e4a6a1b81",
-    "name": "H&M Mens Oversized Hoodie 05",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "hoodie_sweatshirt",
-    "colors": [],
-    "occasions": [
-      "casual_day",
-      "weekend",
-      "travel"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/ef/a8/efa8690dd3aba51831f08ef3b81fbd278f441379.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hoodie_sweatshirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hoodie_sweatshirt_1a8c0caafa",
-    "name": "H&M Mens Essential Hoodie 06",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "hoodie_sweatshirt",
-    "colors": [],
-    "occasions": [
-      "casual_day",
-      "weekend",
-      "travel"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/df/e5/dfe513f8342fd18c02fac10c8283249c1d33c08c.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hoodie_sweatshirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hoodie_sweatshirt_85397d4e88",
-    "name": "H&M Mens Crew Sweatshirt 07",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "hoodie_sweatshirt",
-    "colors": [],
-    "occasions": [
-      "casual_day",
-      "weekend",
-      "travel"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/9a/39/9a397e6f5ce44abffc245b96091ca5c157d8972f.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hoodie_sweatshirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hoodie_sweatshirt_068ca836ab",
-    "name": "H&M Mens Zip Hoodie 08",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "hoodie_sweatshirt",
-    "colors": [],
-    "occasions": [
-      "casual_day",
-      "weekend",
-      "travel"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/bf/50/bf507ca3b752e753a8d731e031debddb5b34d59f.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hoodie_sweatshirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hoodie_sweatshirt_b4c93e2e32",
-    "name": "H&M Mens Pullover Sweatshirt 09",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "hoodie_sweatshirt",
-    "colors": [],
-    "occasions": [
-      "casual_day",
-      "weekend",
-      "travel"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/cd/2e/cd2e89e4c783c3fc093e00c13cdd7fb158efb279.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hoodie_sweatshirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hoodie_sweatshirt_959d3f283a",
-    "name": "H&M Mens Oversized Hoodie 10",
-    "gender": "male",
-    "category": "top",
-    "subcategory": "hoodie_sweatshirt",
-    "colors": [],
-    "occasions": [
-      "casual_day",
-      "weekend",
-      "travel"
-    ],
-    "archetypes": [
-      "Modern Utility",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/72/fa/72fa363af2853c9f6b58d5c59cd3a95f41968dd5.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hoodie_sweatshirt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sleepwear_2482666a7f",
-    "name": "H&M Mens Loungewear Set 01",
-    "gender": "male",
-    "category": "loungewear",
-    "subcategory": "sleepwear",
-    "colors": [],
-    "occasions": [
-      "loungewear"
-    ],
-    "archetypes": [],
-    "image_url": "https://image.hm.com/assets/hm/69/2f/692f3143a46c9ba59da0e841f12a6ba04f228ecd.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "inactive",
-    "asset_type": "reference",
-    "tags": [
-      "sleepwear"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sleepwear_414828509a",
-    "name": "H&M Mens Loungewear Set 02",
-    "gender": "male",
-    "category": "loungewear",
-    "subcategory": "sleepwear",
-    "colors": [],
-    "occasions": [
-      "loungewear"
-    ],
-    "archetypes": [],
-    "image_url": "https://image.hm.com/assets/hm/6d/1c/6d1cfa65831c6494e5cadc59cc059a3cf2083041.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "inactive",
-    "asset_type": "reference",
-    "tags": [
-      "sleepwear"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sleepwear_90ce898625",
-    "name": "H&M Mens Loungewear Set 03",
-    "gender": "male",
-    "category": "loungewear",
-    "subcategory": "sleepwear",
-    "colors": [],
-    "occasions": [
-      "loungewear"
-    ],
-    "archetypes": [],
-    "image_url": "https://image.hm.com/assets/hm/13/07/1307cb4a4a76fa91dcaa1528ea98d0a18028040a.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "inactive",
-    "asset_type": "reference",
-    "tags": [
-      "sleepwear"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sleepwear_b3182d5a4e",
-    "name": "H&M Mens Loungewear Set 04",
-    "gender": "male",
-    "category": "loungewear",
-    "subcategory": "sleepwear",
-    "colors": [],
-    "occasions": [
-      "loungewear"
-    ],
-    "archetypes": [],
-    "image_url": "https://image.hm.com/assets/hm/fb/3d/fb3d11835c02908f5978247edd6fd2ece73a48d5.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "inactive",
-    "asset_type": "reference",
-    "tags": [
-      "sleepwear"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sleepwear_9a2be2043b",
-    "name": "H&M Mens Loungewear Set 05",
-    "gender": "male",
-    "category": "loungewear",
-    "subcategory": "sleepwear",
-    "colors": [],
-    "occasions": [
-      "loungewear"
-    ],
-    "archetypes": [],
-    "image_url": "https://image.hm.com/assets/hm/dc/1b/dc1bc1287d711ba4431eefa969f41a2796ad9d39.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "inactive",
-    "asset_type": "reference",
-    "tags": [
-      "sleepwear"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sleepwear_99afb3974b",
-    "name": "H&M Mens Loungewear Set 06",
-    "gender": "male",
-    "category": "loungewear",
-    "subcategory": "sleepwear",
-    "colors": [],
-    "occasions": [
-      "loungewear"
-    ],
-    "archetypes": [],
-    "image_url": "https://image.hm.com/assets/hm/e8/9e/e89e209eb80978ca761d4f1c3b4c0097d0971578.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "inactive",
-    "asset_type": "reference",
-    "tags": [
-      "sleepwear"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sleepwear_adceaf5f33",
-    "name": "H&M Mens Loungewear Set 07",
-    "gender": "male",
-    "category": "loungewear",
-    "subcategory": "sleepwear",
-    "colors": [],
-    "occasions": [
-      "loungewear"
-    ],
-    "archetypes": [],
-    "image_url": "https://image.hm.com/assets/hm/bf/09/bf09455f9d16527918ab05c21185e139a52e1245.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "inactive",
-    "asset_type": "reference",
-    "tags": [
-      "sleepwear"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sleepwear_a687615964",
-    "name": "H&M Mens Loungewear Set 08",
-    "gender": "male",
-    "category": "loungewear",
-    "subcategory": "sleepwear",
-    "colors": [],
-    "occasions": [
-      "loungewear"
-    ],
-    "archetypes": [],
-    "image_url": "https://image.hm.com/assets/hm/d4/94/d4941d1f82a53a0ae90ea322c83c72f68061f8f5.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "inactive",
-    "asset_type": "reference",
-    "tags": [
-      "sleepwear"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sleepwear_14c2efc948",
-    "name": "H&M Mens Loungewear Set 09",
-    "gender": "male",
-    "category": "loungewear",
-    "subcategory": "sleepwear",
-    "colors": [],
-    "occasions": [
-      "loungewear"
-    ],
-    "archetypes": [],
-    "image_url": "https://image.hm.com/assets/hm/b6/63/b6639f53695c34800c10787c6cbd8deed6f59ddc.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "inactive",
-    "asset_type": "reference",
-    "tags": [
-      "sleepwear"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sleepwear_e62a891243",
-    "name": "H&M Mens Loungewear Set 10",
-    "gender": "male",
-    "category": "loungewear",
-    "subcategory": "sleepwear",
-    "colors": [],
-    "occasions": [
-      "loungewear"
-    ],
-    "archetypes": [],
-    "image_url": "https://image.hm.com/assets/hm/47/a4/47a49490181d23b1c178da7509eb97533d92c5c3.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "inactive",
-    "asset_type": "reference",
-    "tags": [
-      "sleepwear"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shoes_0145395ed2",
-    "name": "H&M Mens Clean Sneakers 01",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "shoes",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Polished Casual",
-      "Refined Weekend",
-      "Smart Casual Edge"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/80/20/802021aac07fa1e2bf02bb593097a2ba1061ecd4.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shoes"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shoes_25b7e81968",
-    "name": "H&M Mens Casual Loafers 02",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "shoes",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Polished Casual",
-      "Refined Weekend",
-      "Smart Casual Edge"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/ad/8f/ad8f4d082b596fa866f7578000bac3f4ca64f7e4.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shoes"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shoes_54894bae24",
-    "name": "H&M Mens Lace-Up Boots 03",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "shoes",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Polished Casual",
-      "Refined Weekend",
-      "Smart Casual Edge"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/7a/5d/7a5daa89197f672226b9340380c0ae997adfe057.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shoes"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shoes_92571b53c3",
-    "name": "H&M Mens Slip-On Sneakers 04",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "shoes",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Polished Casual",
-      "Refined Weekend",
-      "Smart Casual Edge"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/69/36/69362c8b4a0043d1d6675c5a0c47799d7a84920d.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shoes"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shoes_684ecc9453",
-    "name": "H&M Mens Suede Boots 05",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "shoes",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Polished Casual",
-      "Refined Weekend",
-      "Smart Casual Edge"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/e1/63/e163cde4909fcc7bc2fa56c3e95654068150cbba.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shoes"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shoes_72fa933d73",
-    "name": "H&M Mens Clean Sneakers 06",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "shoes",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Polished Casual",
-      "Refined Weekend",
-      "Smart Casual Edge"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/fc/f7/fcf716b8c876eda6855304c7a28262f0946f43c0.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shoes"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shoes_e489e2f69a",
-    "name": "H&M Mens Casual Loafers 07",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "shoes",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Polished Casual",
-      "Refined Weekend",
-      "Smart Casual Edge"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/e3/0c/e30c2aeb4b39f879d8c2a5a852ddbbbaa9b59b4b.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shoes"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shoes_efe358d220",
-    "name": "H&M Mens Lace-Up Boots 08",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "shoes",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Polished Casual",
-      "Refined Weekend",
-      "Smart Casual Edge"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/a2/36/a236fe051af7aa795dfae317b9534ef5c21b9f9b.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shoes"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shoes_791fd95699",
-    "name": "H&M Mens Slip-On Sneakers 09",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "shoes",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Polished Casual",
-      "Refined Weekend",
-      "Smart Casual Edge"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/9e/92/9e924cd75dccb195ce31ae6255e79008a75d33fb.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shoes"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_shoes_992c4ab465",
-    "name": "H&M Mens Suede Boots 10",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "shoes",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Polished Casual",
-      "Refined Weekend",
-      "Smart Casual Edge"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/ad/bc/adbc199bc8d552d36a4165754990cd184364b074.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "shoes"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_flip_flops_8b1a8cb27e",
-    "name": "H&M Mens Flip Flops 01",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "flip_flops",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/cc/b6/ccb6b41efb02b25d8da092351ccb600f4130dd4b.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "flip_flops"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_flip_flops_5e00b50314",
-    "name": "H&M Mens Flip Flops 02",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "flip_flops",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/1e/38/1e38f5a77e501f7feb1e07f378a3e528a368a4f4.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "flip_flops"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_flip_flops_d94ceff338",
-    "name": "H&M Mens Flip Flops 03",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "flip_flops",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/74/63/74639b035f0878cbdf71e6df42857c6caf8e3969.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "flip_flops"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_flip_flops_cf7d0d819c",
-    "name": "H&M Mens Flip Flops 04",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "flip_flops",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/80/8a/808aa25edf7ce175e11d7a44fddad10c7e0ba38a.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "flip_flops"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_flip_flops_c958dc1fb6",
-    "name": "H&M Mens Flip Flops 05",
-    "gender": "male",
-    "category": "footwear",
-    "subcategory": "flip_flops",
-    "colors": [],
-    "occasions": [
-      "beach",
-      "vacation",
-      "resort",
-      "casual_day"
-    ],
-    "archetypes": [
-      "Italian Summer",
-      "Resort Sophisticate",
-      "Relaxed Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/9d/c5/9dc5f522230ca1b9f7dc9adb1d62108ec6e697c4.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "flip_flops"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_bracelet_618af0db9f",
-    "name": "H&M Mens Bracelet 01",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "bracelet",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/36/e5/36e5854c5d35912a03a4db993ab49ae1b22b7b66.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "bracelet"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_bracelet_b9ed3986d6",
-    "name": "H&M Mens Bracelet 02",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "bracelet",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/e9/92/e992bfc5717fbf6e0c7fabeb17825da24fb64b86.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "bracelet"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_bracelet_9f6bd67a2c",
-    "name": "H&M Mens Bracelet 03",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "bracelet",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/79/55/795536cad01c16a2f1d5b9696fa24534ced55b11.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "bracelet"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_bracelet_0bbf0cc60e",
-    "name": "H&M Mens Bracelet 04",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "bracelet",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/44/65/4465b131ed14bc4ee1643e20a531af388f61f5df.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "bracelet"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_bracelet_e88929269b",
-    "name": "H&M Mens Bracelet 05",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "bracelet",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/85/7e/857e8fccee0014050ca90c6f15f981fd8a2fc370.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "bracelet"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_bracelet_93fa2c883b",
-    "name": "H&M Mens Bracelet 06",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "bracelet",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/2a/59/2a59734e5f2c530df5a5ac7c05393e90d552c7d9.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "bracelet"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_necklace_7bb21b4f03",
-    "name": "H&M Mens Necklace 01",
-    "gender": "unisex",
-    "category": "accessory",
-    "subcategory": "necklace",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/b0/a1/b0a16e3d1ed5369ab1c7da751583a683fb55982e.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "necklace"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_necklace_849dae51c7",
-    "name": "H&M Mens Necklace 02",
-    "gender": "unisex",
-    "category": "accessory",
-    "subcategory": "necklace",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/b2/7e/b27ee0ad01a0d18a339d728a8a407e8629d4b39b.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "necklace"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_necklace_f7dc290b92",
-    "name": "H&M Mens Necklace 03",
-    "gender": "unisex",
-    "category": "accessory",
-    "subcategory": "necklace",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/bd/98/bd9856cebcf0744cedb835b63cd0e7aeeb82c44e.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "necklace"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_necklace_807c617755",
-    "name": "H&M Mens Necklace 04",
-    "gender": "unisex",
-    "category": "accessory",
-    "subcategory": "necklace",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/a7/9a/a79aa1b9e44072f243cb4ab856801ffd7a1837e8.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "necklace"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_necklace_741b0af9ad",
-    "name": "H&M Mens Necklace 05",
-    "gender": "unisex",
-    "category": "accessory",
-    "subcategory": "necklace",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/af/12/af120cc96dffd46a31ce3f400ad0ebcca6fa9ac3.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "necklace"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_necklace_8d53f5ce2a",
-    "name": "H&M Mens Necklace 06",
-    "gender": "unisex",
-    "category": "accessory",
-    "subcategory": "necklace",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/5c/c9/5cc91811f3aa21da0249cfe0c8f7a0d2f18a2c33.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "necklace"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_necklace_b56e65d24d",
-    "name": "H&M Mens Necklace 07",
-    "gender": "unisex",
-    "category": "accessory",
-    "subcategory": "necklace",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/26/74/267455df7b5a909dc0621628118bfe3302d2858e.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "necklace"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_necklace_a6604b6d9c",
-    "name": "H&M Mens Necklace 08",
-    "gender": "unisex",
-    "category": "accessory",
-    "subcategory": "necklace",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/af/76/af766e84d6f77c3170c5622dd7d6a99199e2fd33.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "necklace"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_ring_0f094fcd9f",
-    "name": "H&M Mens Ring 01",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "ring",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/6a/f9/6af94088666208cf640f3089d701eba6a2207d03.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "ring"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_ring_6d11b170c4",
-    "name": "H&M Mens Ring 02",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "ring",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/fd/fb/fdfbff99f3f942d57c0dbe69badb19b85767626c.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "ring"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_ring_6c9357137b",
-    "name": "H&M Mens Ring 03",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "ring",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/af/38/af3813c4f7dd0960bef422b9a230fd9819be3f64.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "ring"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_ring_3ad5f5775f",
-    "name": "H&M Mens Ring 04",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "ring",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/76/3d/763d6df17cb864e29a3ab372844ee3e424bdda9b.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "ring"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_ring_9e5600452d",
-    "name": "H&M Mens Ring 05",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "ring",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/0b/b0/0bb02f8b301862260934c36be6acc53442ed99bd.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "ring"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_ring_de5d518cec",
-    "name": "H&M Mens Ring 06",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "ring",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/7b/4c/7b4cb7780c552e4d63a172ba1947ed8c590609ad.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "ring"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_ring_867529207a",
-    "name": "H&M Mens Ring 07",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "ring",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "date_night"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/1b/22/1b22ea56abe7c8d2f523905e9561752b1af71484.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "ring"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sunglasses_ee026ca38f",
-    "name": "H&M Mens Sunglasses 01",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "sunglasses",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/01/8b/018b3de0cb4826903e94a3de50c5c0934fdd13fe.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "sunglasses"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sunglasses_224034a705",
-    "name": "H&M Mens Sunglasses 02",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "sunglasses",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/d5/1f/d51f6d92586c8b6aca162184f99f13113194b2d2.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "sunglasses"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sunglasses_44390b4919",
-    "name": "H&M Mens Sunglasses 03",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "sunglasses",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/20/a5/20a5e23b50ae5657f7c28e15fa53e96e08563ed7.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "sunglasses"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sunglasses_8633ae9d45",
-    "name": "H&M Mens Sunglasses 04",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "sunglasses",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/78/6b/786b0530e4e82e2a1802a67f11d4e2f59aea67c3.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "sunglasses"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sunglasses_e85aa89e0f",
-    "name": "H&M Mens Sunglasses 05",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "sunglasses",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/cc/06/cc06a265e6ee89897c59ddaedc471ada6533d4ac.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "sunglasses"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sunglasses_88e2f41acf",
-    "name": "H&M Mens Sunglasses 06",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "sunglasses",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/97/86/9786a7057a389c78e4190af840e263c54b7f37e9.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "sunglasses"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sunglasses_382429e0c2",
-    "name": "H&M Mens Sunglasses 07",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "sunglasses",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/ce/c7/cec706172719a3c81c577fe41c1c9c205d962ca0.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "sunglasses"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_sunglasses_03ceffef77",
-    "name": "H&M Mens Sunglasses 08",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "sunglasses",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/5c/ba/5cba6f665ae6ccf01a2045f5064443e70d59006c.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "sunglasses"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_belt_af596d4e0a",
-    "name": "H&M Mens Leather Belt 01",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "belt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/42/b4/42b4169558ccd0835513c5f6875418953b62724e.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "belt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_belt_ec99e08bc9",
-    "name": "H&M Mens Leather Belt 02",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "belt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/f7/f7/f7f73cdfbdd7c4758383b1ab8d13915010da802b.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "belt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_belt_7ce9e46236",
-    "name": "H&M Mens Leather Belt 03",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "belt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/be/bc/bebc34f1570c83b6e7c3dc3ee22d134d3fdbe063.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "belt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_belt_7adfecea70",
-    "name": "H&M Mens Leather Belt 04",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "belt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/16/a3/16a39691c46b5a740a2a272ec53c5ef3887b552e.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "belt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_belt_eefc689ab3",
-    "name": "H&M Mens Leather Belt 05",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "belt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/03/f3/03f31198872555fcb1cc2ec9d959bacc3c55455a.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "belt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_belt_cb45e3c87f",
-    "name": "H&M Mens Leather Belt 06",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "belt",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "startup_office",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Quiet Luxury",
-      "Modern Professional",
-      "Refined Weekend"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/8e/73/8e736bf753e0ec4de0a706ffe3394487d2748784.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "belt"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hat_3829ce1c21",
-    "name": "H&M Mens Hat 01",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "hat",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/3f/f4/3ff462022987248ae3969aa010db8d495fd5711e.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hat"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hat_af19a5a88f",
-    "name": "H&M Mens Hat 02",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "hat",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/44/7c/447c27233a6aed48c35a9ab38f7f06dbaa87f08f.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hat"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hat_1a837158d1",
-    "name": "H&M Mens Hat 03",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "hat",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/96/8a/968af082f2cbf8d18c18ea6d9e2408945871b65d.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hat"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hat_9507cf79d0",
-    "name": "H&M Mens Hat 04",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "hat",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/45/dc/45dc4eed56ea4a7e277c858b3d68ba47d60533ff.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hat"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hat_5982bab127",
-    "name": "H&M Mens Hat 05",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "hat",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/29/d0/29d0c0b46f36a398a4a178eeb47ddda2121f85ac.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hat"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hat_d0505d1ab2",
-    "name": "H&M Mens Hat 06",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "hat",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/83/49/834999ce0955c73a4896a9519395b9053cc7ad09.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hat"
-    ]
-  },
-  {
-    "asset_id": "hm_mens_hat_df7b713548",
-    "name": "H&M Mens Hat 07",
-    "gender": "male",
-    "category": "accessory",
-    "subcategory": "hat",
-    "colors": [],
-    "occasions": [
-      "coffee_date",
-      "casual_day",
-      "travel"
-    ],
-    "archetypes": [
-      "Refined Weekend",
-      "Modern Utility"
-    ],
-    "image_url": "https://image.hm.com/assets/hm/8f/d9/8fd9f20860b7199d0c17004ec2184ade638249f5.jpg?imwidth=2160",
-    "source": "H&M",
-    "status": "active",
-    "asset_type": "reference",
-    "tags": [
-      "hat"
-    ]
-  }
+ {
+  "asset_id": "hm_mens_t_shirt_e5be53d1c4",
+  "name": "H&M Mens Essential T-Shirt 01",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "t_shirt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Polished Casual"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/cb/31/cb310db642518f58a358028107e5d38be82dee7e.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "t_shirt"
+  ],
+  "formality": 1,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "office",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_t_shirt_2af82d8ff6",
+  "name": "H&M Mens Crew T-Shirt 02",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "t_shirt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Polished Casual"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/d6/f1/d6f1a99748dfcb5e32f11432712ad182d9a8f65b.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "t_shirt"
+  ],
+  "formality": 1,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "office",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_t_shirt_97bf61b8ba",
+  "name": "H&M Mens Relaxed T-Shirt 03",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "t_shirt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Polished Casual"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/3b/33/3b3329bd93eac50bd9aee73b11ba5d9f6d2d6d8a.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "t_shirt"
+  ],
+  "formality": 1,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "office",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_t_shirt_98bd01d97f",
+  "name": "H&M Mens Pocket T-Shirt 04",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "t_shirt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Polished Casual"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/33/21/3321a6092a11d2ddb53366693a3c9cfbf6da5828.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "t_shirt"
+  ],
+  "formality": 1,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "office",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_t_shirt_8f084e26e5",
+  "name": "H&M Mens Slim Fit T-Shirt 05",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "t_shirt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Polished Casual"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/e1/23/e12388725a613b3ed99704657cc2e9d169a29254.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "t_shirt"
+  ],
+  "formality": 1,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "office",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_t_shirt_1de2423bdb",
+  "name": "H&M Mens Essential T-Shirt 06",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "t_shirt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Polished Casual"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/28/0b/280bbb575e798f4cc841d7fabf9b42510032dc54.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "t_shirt"
+  ],
+  "formality": 1,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "office",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_t_shirt_22945aa8c1",
+  "name": "H&M Mens Crew T-Shirt 07",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "t_shirt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Polished Casual"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/e8/bd/e8bdd04a444892518f81d611a4ba8c847ceea0a5.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "t_shirt"
+  ],
+  "formality": 1,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "office",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_t_shirt_59cf222a29",
+  "name": "H&M Mens Relaxed T-Shirt 08",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "t_shirt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Polished Casual"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/ad/83/ad83b6d69d91958390c86339b8b6aace4d8683d9.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "t_shirt"
+  ],
+  "formality": 1,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "office",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_t_shirt_d7d04de614",
+  "name": "H&M Mens Pocket T-Shirt 09",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "t_shirt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Polished Casual"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/36/91/369157f78ea0a36638ea42481d0723e9ca7cea58.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "t_shirt"
+  ],
+  "formality": 1,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "office",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_t_shirt_099cb3c78c",
+  "name": "H&M Mens Slim Fit T-Shirt 10",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "t_shirt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Polished Casual"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/63/60/6360969e09fbb606bacd6c9378e0d1cd1c231406.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "t_shirt"
+  ],
+  "formality": 1,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "office",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shirt_78e1c6836a",
+  "name": "H&M Mens Oxford Shirt 01",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "shirt",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "coffee_date",
+   "smart_casual",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Professional",
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Contemporary Classic"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/b1/a1/b1a168578c0031696cfd9cf22c945eda0dcdf851.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shirt"
+  ],
+  "formality": 5,
+  "movement": 3,
+  "energy": 3,
+  "aesthetic": "formal",
+  "avoid_for": [
+   "music festival",
+   "music_festival",
+   "festival",
+   "concert",
+   "rave",
+   "gig",
+   "edm",
+   "gym",
+   "beach"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shirt_b4dfba8f21",
+  "name": "H&M Mens Relaxed Shirt 02",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "shirt",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "coffee_date",
+   "smart_casual",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Professional",
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Contemporary Classic"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/10/04/1004c3378e99c5101ec7543bf2a42729e4ec0071.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shirt"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shirt_a012febfa4",
+  "name": "H&M Mens Casual Shirt 03",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "shirt",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "coffee_date",
+   "smart_casual",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Professional",
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Contemporary Classic"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/59/53/59535f019024c5abe0f1e4260fe6737786f2ee61.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shirt"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shirt_b4e8237be4",
+  "name": "H&M Mens Linen Shirt 04",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "shirt",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "coffee_date",
+   "smart_casual",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Professional",
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Contemporary Classic"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/6f/31/6f31e9a37f649635db75c253fa65b152f88a7c32.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shirt"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "relaxed",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shirt_1e0c52d10b",
+  "name": "H&M Mens Poplin Shirt 05",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "shirt",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "coffee_date",
+   "smart_casual",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Professional",
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Contemporary Classic"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/c6/f0/c6f0bdfac877c29e912b1b47e61cc24c9247661c.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shirt"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shirt_7778ddd252",
+  "name": "H&M Mens Oxford Shirt 06",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "shirt",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "coffee_date",
+   "smart_casual",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Professional",
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Contemporary Classic"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/ff/5b/ff5b2b09c092d1df5c91943f3ce98a5fe1b158e3.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shirt"
+  ],
+  "formality": 5,
+  "movement": 3,
+  "energy": 3,
+  "aesthetic": "formal",
+  "avoid_for": [
+   "music festival",
+   "music_festival",
+   "festival",
+   "concert",
+   "rave",
+   "gig",
+   "edm",
+   "gym",
+   "beach"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shirt_f5c5337c41",
+  "name": "H&M Mens Relaxed Shirt 07",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "shirt",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "coffee_date",
+   "smart_casual",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Professional",
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Contemporary Classic"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/b9/ae/b9ae09745da241ecca9ea3428c3459a32bd67943.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shirt"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shirt_323d6b934e",
+  "name": "H&M Mens Casual Shirt 08",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "shirt",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "coffee_date",
+   "smart_casual",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Professional",
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Contemporary Classic"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/a3/bc/a3bc91052e3b4b3a193a7996175a2632d197ffe2.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shirt"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shirt_2e3963dcdd",
+  "name": "H&M Mens Linen Shirt 09",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "shirt",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "coffee_date",
+   "smart_casual",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Professional",
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Contemporary Classic"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/48/cc/48ccb52754a775653d6437e297cb0019bf5b3767.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shirt"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "relaxed",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shirt_d24b6998eb",
+  "name": "H&M Mens Poplin Shirt 10",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "shirt",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "coffee_date",
+   "smart_casual",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Professional",
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Contemporary Classic"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/18/0d/180df06b890cf6181dddc7d68a2084d4f79e704d.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shirt"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shirt_08f08c9cc3",
+  "name": "H&M Mens Oxford Shirt 11",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "shirt",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "coffee_date",
+   "smart_casual",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Professional",
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Contemporary Classic"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/43/97/439704bda7ba663857efcbe5b2c1f4a3c8e44153.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shirt"
+  ],
+  "formality": 5,
+  "movement": 3,
+  "energy": 3,
+  "aesthetic": "formal",
+  "avoid_for": [
+   "music festival",
+   "music_festival",
+   "festival",
+   "concert",
+   "rave",
+   "gig",
+   "edm",
+   "gym",
+   "beach"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shirt_4c9809cf19",
+  "name": "H&M Mens Relaxed Shirt 12",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "shirt",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "coffee_date",
+   "smart_casual",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Professional",
+   "Refined Weekend",
+   "Smart Casual Edge",
+   "Contemporary Classic"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/bb/26/bb26a4e1f12bcc6376c611beab6b906955a4a8a1.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shirt"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jeans_53f59a62af",
+  "name": "H&M Mens Dark Wash Jeans 01",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "jeans",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "startup_office",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Off-Duty Tailoring",
+   "Smart Casual Edge",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/64/17/6417bde3c7f79f30842585ef3cbfc7674006bb68.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jeans"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jeans_4ab6550018",
+  "name": "H&M Mens Straight Jeans 02",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "jeans",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "startup_office",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Off-Duty Tailoring",
+   "Smart Casual Edge",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/2c/b0/2cb0c457ce64b8a0774dddd529c1311bc70aa2ac.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jeans"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jeans_e7e7b878b8",
+  "name": "H&M Mens Slim Jeans 03",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "jeans",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "startup_office",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Off-Duty Tailoring",
+   "Smart Casual Edge",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/0a/e4/0ae44cf31b185b415e9a3e01979661daec0a09d5.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jeans"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jeans_c2ebc96841",
+  "name": "H&M Mens Tapered Jeans 04",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "jeans",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "startup_office",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Off-Duty Tailoring",
+   "Smart Casual Edge",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/28/62/2862674a065d1ee89ab9a0eb8465d99f43f822af.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jeans"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jeans_63acd15b01",
+  "name": "H&M Mens Light Wash Jeans 05",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "jeans",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "startup_office",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Off-Duty Tailoring",
+   "Smart Casual Edge",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/68/83/688313bbeeda87e0866875ac226c6309eb682b22.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jeans"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jeans_c9300fa8b8",
+  "name": "H&M Mens Dark Wash Jeans 06",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "jeans",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "startup_office",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Off-Duty Tailoring",
+   "Smart Casual Edge",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/b1/d4/b1d40e73b4396f9e31882f4744f23d6177d819fd.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jeans"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jeans_19b8fbf6b0",
+  "name": "H&M Mens Straight Jeans 07",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "jeans",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "startup_office",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Off-Duty Tailoring",
+   "Smart Casual Edge",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/83/65/8365741047a1ab9214a8880cbd71b2e8141c201c.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jeans"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jeans_8f8ce99db5",
+  "name": "H&M Mens Slim Jeans 08",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "jeans",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "startup_office",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Off-Duty Tailoring",
+   "Smart Casual Edge",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/d9/d2/d9d22770c6399170f81f951c3985a5df1af61949.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jeans"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jeans_f7ecbf4cc2",
+  "name": "H&M Mens Tapered Jeans 09",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "jeans",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "startup_office",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Off-Duty Tailoring",
+   "Smart Casual Edge",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/ed/a7/eda7c6c301ea1bf99c82f0c6f996d3298599e69b.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jeans"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jeans_ba74a6e262",
+  "name": "H&M Mens Light Wash Jeans 10",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "jeans",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "startup_office",
+   "weekend"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Off-Duty Tailoring",
+   "Smart Casual Edge",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/a2/28/a228951b1d17dde551a968c8f19c06c866094367.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jeans"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shorts_f85a963fd0",
+  "name": "H&M Mens Linen Shorts 01",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "shorts",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/59/aa/59aa1596bc09a8ebf34eec0230b7aa3bc47c7dd8.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shorts"
+  ],
+  "formality": 1,
+  "movement": 8,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "office",
+   "wedding",
+   "funeral",
+   "temple",
+   "interview",
+   "conference"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shorts_0002cdb7fa",
+  "name": "H&M Mens Cargo Shorts 02",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "shorts",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/2e/99/2e99620d474c0758e25bcd5c225f5ba338197412.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shorts"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shorts_573ce60e90",
+  "name": "H&M Mens Chino Shorts 03",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "shorts",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/03/b8/03b8152ad1d267739e8d68433f69e3261a1760f9.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shorts"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "smart_casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shorts_07cbdb673e",
+  "name": "H&M Mens Drawstring Shorts 04",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "shorts",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/2d/e1/2de194cfcf07f2ebc834609330554eaf89052eb6.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shorts"
+  ],
+  "formality": 1,
+  "movement": 8,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "office",
+   "wedding",
+   "funeral",
+   "temple",
+   "interview",
+   "conference"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shorts_1f809fc5c9",
+  "name": "H&M Mens Tailored Shorts 05",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "shorts",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/b1/89/b1894f64a101ddd3234d91e4ef78b7af944b2d57.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shorts"
+  ],
+  "formality": 1,
+  "movement": 8,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "office",
+   "wedding",
+   "funeral",
+   "temple",
+   "interview",
+   "conference"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shorts_3cd5d4b9f5",
+  "name": "H&M Mens Linen Shorts 06",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "shorts",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/b6/65/b66527c777ddbe9896638d17fec0d58de4306c77.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shorts"
+  ],
+  "formality": 1,
+  "movement": 8,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "office",
+   "wedding",
+   "funeral",
+   "temple",
+   "interview",
+   "conference"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shorts_0c0ba25252",
+  "name": "H&M Mens Cargo Shorts 07",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "shorts",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/72/ef/72ef027354c9a398d422f3297fd9cc47f0c298d2.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shorts"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shorts_c640aa68c9",
+  "name": "H&M Mens Chino Shorts 08",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "shorts",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/77/a8/77a8102a3dc4b13a6c6f2fa42bdd83529954e7d0.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shorts"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "smart_casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shorts_e39fb90f95",
+  "name": "H&M Mens Drawstring Shorts 09",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "shorts",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/45/6c/456ca7bda3c1d9b6e8bf30ede5e6dffb88cd7cd0.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shorts"
+  ],
+  "formality": 1,
+  "movement": 8,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "office",
+   "wedding",
+   "funeral",
+   "temple",
+   "interview",
+   "conference"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shorts_412b16e870",
+  "name": "H&M Mens Tailored Shorts 10",
+  "gender": "male",
+  "category": "bottom",
+  "subcategory": "shorts",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/44/5a/445acd30374cb60dd4e38bbf0ce85f8b96562f5b.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shorts"
+  ],
+  "formality": 1,
+  "movement": 8,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": [
+   "office",
+   "wedding",
+   "funeral",
+   "temple",
+   "interview",
+   "conference"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_jacket_05ceb4c17b",
+  "name": "H&M Mens Lightweight Jacket 01",
+  "gender": "male",
+  "category": "outerwear",
+  "subcategory": "jacket",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "travel",
+   "coffee_date",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Off-Duty Tailoring",
+   "Urban Minimalist"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/1a/de/1ade9eeb7f38900bd39b52411a9701c1b7870306.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jacket"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jacket_1605c6500f",
+  "name": "H&M Mens Utility Jacket 02",
+  "gender": "male",
+  "category": "outerwear",
+  "subcategory": "jacket",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "travel",
+   "coffee_date",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Off-Duty Tailoring",
+   "Urban Minimalist"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/75/96/75963dea30105cccf2a93165ce431f0139d3371e.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jacket"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jacket_2691ea0804",
+  "name": "H&M Mens Bomber Jacket 03",
+  "gender": "male",
+  "category": "outerwear",
+  "subcategory": "jacket",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "travel",
+   "coffee_date",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Off-Duty Tailoring",
+   "Urban Minimalist"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/91/fd/91fd307e8fe6e77d80097dc9d56a47bc9d409561.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jacket"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jacket_b8026b1fb4",
+  "name": "H&M Mens Overshirt 04",
+  "gender": "male",
+  "category": "outerwear",
+  "subcategory": "jacket",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "travel",
+   "coffee_date",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Off-Duty Tailoring",
+   "Urban Minimalist"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/67/68/67681396140f8f837a47545abcc896e798db0e0b.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jacket"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "relaxed",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jacket_1340cdbe76",
+  "name": "H&M Mens Denim Jacket 05",
+  "gender": "male",
+  "category": "outerwear",
+  "subcategory": "jacket",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "travel",
+   "coffee_date",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Off-Duty Tailoring",
+   "Urban Minimalist"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/49/90/4990186b2306f01e07ebf39ddb26b4c4f7d0fee3.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jacket"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jacket_ef23870578",
+  "name": "H&M Mens Lightweight Jacket 06",
+  "gender": "male",
+  "category": "outerwear",
+  "subcategory": "jacket",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "travel",
+   "coffee_date",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Off-Duty Tailoring",
+   "Urban Minimalist"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/d6/1f/d61f30fa0acb689435d0f0efef2b05972a332045.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jacket"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jacket_0a76fdcb45",
+  "name": "H&M Mens Utility Jacket 07",
+  "gender": "male",
+  "category": "outerwear",
+  "subcategory": "jacket",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "travel",
+   "coffee_date",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Off-Duty Tailoring",
+   "Urban Minimalist"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/b8/7a/b87a33cd7ed8a260f13d14c1e6b0c4fae5b26e1d.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jacket"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jacket_9a82707289",
+  "name": "H&M Mens Bomber Jacket 08",
+  "gender": "male",
+  "category": "outerwear",
+  "subcategory": "jacket",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "travel",
+   "coffee_date",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Off-Duty Tailoring",
+   "Urban Minimalist"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/58/08/58081aa3fef585efb4959a7a852322b8bd101a7d.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jacket"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_jacket_333fb1012a",
+  "name": "H&M Mens Overshirt 09",
+  "gender": "male",
+  "category": "outerwear",
+  "subcategory": "jacket",
+  "colors": [],
+  "occasions": [
+   "startup_office",
+   "travel",
+   "coffee_date",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Off-Duty Tailoring",
+   "Urban Minimalist"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/33/6f/336ffcc24e80c8ea66e9e5868adf8cf096542a0c.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "jacket"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "relaxed",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_hoodie_sweatshirt_359477b5a3",
+  "name": "H&M Mens Essential Hoodie 01",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "hoodie_sweatshirt",
+  "colors": [],
+  "occasions": [
+   "casual_day",
+   "weekend",
+   "travel"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/f5/a6/f5a6dc25b55a179edab1d2882d61cb92f06060af.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hoodie_sweatshirt"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_hoodie_sweatshirt_51da325845",
+  "name": "H&M Mens Crew Sweatshirt 02",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "hoodie_sweatshirt",
+  "colors": [],
+  "occasions": [
+   "casual_day",
+   "weekend",
+   "travel"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/90/82/908265eaea9476d9c7746a7aee8a5f8d5a682663.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hoodie_sweatshirt"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_hoodie_sweatshirt_b28f7a8d6b",
+  "name": "H&M Mens Zip Hoodie 03",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "hoodie_sweatshirt",
+  "colors": [],
+  "occasions": [
+   "casual_day",
+   "weekend",
+   "travel"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/15/4f/154fc8cea8d1781a1700bcbd90ef1dbe506e4831.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hoodie_sweatshirt"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_hoodie_sweatshirt_72a8ec2d1a",
+  "name": "H&M Mens Pullover Sweatshirt 04",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "hoodie_sweatshirt",
+  "colors": [],
+  "occasions": [
+   "casual_day",
+   "weekend",
+   "travel"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/eb/82/eb824370cd39e293543da2d4db737292d9da8cf6.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hoodie_sweatshirt"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_hoodie_sweatshirt_9e4a6a1b81",
+  "name": "H&M Mens Oversized Hoodie 05",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "hoodie_sweatshirt",
+  "colors": [],
+  "occasions": [
+   "casual_day",
+   "weekend",
+   "travel"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/ef/a8/efa8690dd3aba51831f08ef3b81fbd278f441379.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hoodie_sweatshirt"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_hoodie_sweatshirt_1a8c0caafa",
+  "name": "H&M Mens Essential Hoodie 06",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "hoodie_sweatshirt",
+  "colors": [],
+  "occasions": [
+   "casual_day",
+   "weekend",
+   "travel"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/df/e5/dfe513f8342fd18c02fac10c8283249c1d33c08c.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hoodie_sweatshirt"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_hoodie_sweatshirt_85397d4e88",
+  "name": "H&M Mens Crew Sweatshirt 07",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "hoodie_sweatshirt",
+  "colors": [],
+  "occasions": [
+   "casual_day",
+   "weekend",
+   "travel"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/9a/39/9a397e6f5ce44abffc245b96091ca5c157d8972f.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hoodie_sweatshirt"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_hoodie_sweatshirt_068ca836ab",
+  "name": "H&M Mens Zip Hoodie 08",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "hoodie_sweatshirt",
+  "colors": [],
+  "occasions": [
+   "casual_day",
+   "weekend",
+   "travel"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/bf/50/bf507ca3b752e753a8d731e031debddb5b34d59f.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hoodie_sweatshirt"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_hoodie_sweatshirt_b4c93e2e32",
+  "name": "H&M Mens Pullover Sweatshirt 09",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "hoodie_sweatshirt",
+  "colors": [],
+  "occasions": [
+   "casual_day",
+   "weekend",
+   "travel"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/cd/2e/cd2e89e4c783c3fc093e00c13cdd7fb158efb279.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hoodie_sweatshirt"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_hoodie_sweatshirt_959d3f283a",
+  "name": "H&M Mens Oversized Hoodie 10",
+  "gender": "male",
+  "category": "top",
+  "subcategory": "hoodie_sweatshirt",
+  "colors": [],
+  "occasions": [
+   "casual_day",
+   "weekend",
+   "travel"
+  ],
+  "archetypes": [
+   "Modern Utility",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/72/fa/72fa363af2853c9f6b58d5c59cd3a95f41968dd5.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hoodie_sweatshirt"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_sleepwear_2482666a7f",
+  "name": "H&M Mens Loungewear Set 01",
+  "gender": "male",
+  "category": "loungewear",
+  "subcategory": "sleepwear",
+  "colors": [],
+  "occasions": [
+   "loungewear"
+  ],
+  "archetypes": [],
+  "image_url": "https://image.hm.com/assets/hm/69/2f/692f3143a46c9ba59da0e841f12a6ba04f228ecd.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "inactive",
+  "asset_type": "reference",
+  "tags": [
+   "sleepwear"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sleepwear_414828509a",
+  "name": "H&M Mens Loungewear Set 02",
+  "gender": "male",
+  "category": "loungewear",
+  "subcategory": "sleepwear",
+  "colors": [],
+  "occasions": [
+   "loungewear"
+  ],
+  "archetypes": [],
+  "image_url": "https://image.hm.com/assets/hm/6d/1c/6d1cfa65831c6494e5cadc59cc059a3cf2083041.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "inactive",
+  "asset_type": "reference",
+  "tags": [
+   "sleepwear"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sleepwear_90ce898625",
+  "name": "H&M Mens Loungewear Set 03",
+  "gender": "male",
+  "category": "loungewear",
+  "subcategory": "sleepwear",
+  "colors": [],
+  "occasions": [
+   "loungewear"
+  ],
+  "archetypes": [],
+  "image_url": "https://image.hm.com/assets/hm/13/07/1307cb4a4a76fa91dcaa1528ea98d0a18028040a.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "inactive",
+  "asset_type": "reference",
+  "tags": [
+   "sleepwear"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sleepwear_b3182d5a4e",
+  "name": "H&M Mens Loungewear Set 04",
+  "gender": "male",
+  "category": "loungewear",
+  "subcategory": "sleepwear",
+  "colors": [],
+  "occasions": [
+   "loungewear"
+  ],
+  "archetypes": [],
+  "image_url": "https://image.hm.com/assets/hm/fb/3d/fb3d11835c02908f5978247edd6fd2ece73a48d5.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "inactive",
+  "asset_type": "reference",
+  "tags": [
+   "sleepwear"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sleepwear_9a2be2043b",
+  "name": "H&M Mens Loungewear Set 05",
+  "gender": "male",
+  "category": "loungewear",
+  "subcategory": "sleepwear",
+  "colors": [],
+  "occasions": [
+   "loungewear"
+  ],
+  "archetypes": [],
+  "image_url": "https://image.hm.com/assets/hm/dc/1b/dc1bc1287d711ba4431eefa969f41a2796ad9d39.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "inactive",
+  "asset_type": "reference",
+  "tags": [
+   "sleepwear"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sleepwear_99afb3974b",
+  "name": "H&M Mens Loungewear Set 06",
+  "gender": "male",
+  "category": "loungewear",
+  "subcategory": "sleepwear",
+  "colors": [],
+  "occasions": [
+   "loungewear"
+  ],
+  "archetypes": [],
+  "image_url": "https://image.hm.com/assets/hm/e8/9e/e89e209eb80978ca761d4f1c3b4c0097d0971578.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "inactive",
+  "asset_type": "reference",
+  "tags": [
+   "sleepwear"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sleepwear_adceaf5f33",
+  "name": "H&M Mens Loungewear Set 07",
+  "gender": "male",
+  "category": "loungewear",
+  "subcategory": "sleepwear",
+  "colors": [],
+  "occasions": [
+   "loungewear"
+  ],
+  "archetypes": [],
+  "image_url": "https://image.hm.com/assets/hm/bf/09/bf09455f9d16527918ab05c21185e139a52e1245.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "inactive",
+  "asset_type": "reference",
+  "tags": [
+   "sleepwear"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sleepwear_a687615964",
+  "name": "H&M Mens Loungewear Set 08",
+  "gender": "male",
+  "category": "loungewear",
+  "subcategory": "sleepwear",
+  "colors": [],
+  "occasions": [
+   "loungewear"
+  ],
+  "archetypes": [],
+  "image_url": "https://image.hm.com/assets/hm/d4/94/d4941d1f82a53a0ae90ea322c83c72f68061f8f5.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "inactive",
+  "asset_type": "reference",
+  "tags": [
+   "sleepwear"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sleepwear_14c2efc948",
+  "name": "H&M Mens Loungewear Set 09",
+  "gender": "male",
+  "category": "loungewear",
+  "subcategory": "sleepwear",
+  "colors": [],
+  "occasions": [
+   "loungewear"
+  ],
+  "archetypes": [],
+  "image_url": "https://image.hm.com/assets/hm/b6/63/b6639f53695c34800c10787c6cbd8deed6f59ddc.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "inactive",
+  "asset_type": "reference",
+  "tags": [
+   "sleepwear"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sleepwear_e62a891243",
+  "name": "H&M Mens Loungewear Set 10",
+  "gender": "male",
+  "category": "loungewear",
+  "subcategory": "sleepwear",
+  "colors": [],
+  "occasions": [
+   "loungewear"
+  ],
+  "archetypes": [],
+  "image_url": "https://image.hm.com/assets/hm/47/a4/47a49490181d23b1c178da7509eb97533d92c5c3.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "inactive",
+  "asset_type": "reference",
+  "tags": [
+   "sleepwear"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shoes_0145395ed2",
+  "name": "H&M Mens Clean Sneakers 01",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "shoes",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Polished Casual",
+   "Refined Weekend",
+   "Smart Casual Edge"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/80/20/802021aac07fa1e2bf02bb593097a2ba1061ecd4.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shoes"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shoes_25b7e81968",
+  "name": "H&M Mens Casual Loafers 02",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "shoes",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Polished Casual",
+   "Refined Weekend",
+   "Smart Casual Edge"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/ad/8f/ad8f4d082b596fa866f7578000bac3f4ca64f7e4.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shoes"
+  ],
+  "formality": 4,
+  "movement": 4,
+  "energy": 3,
+  "aesthetic": "classic",
+  "avoid_for": [
+   "music festival",
+   "music_festival",
+   "festival",
+   "concert",
+   "rave",
+   "gig",
+   "edm",
+   "gym"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shoes_54894bae24",
+  "name": "H&M Mens Lace-Up Boots 03",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "shoes",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Polished Casual",
+   "Refined Weekend",
+   "Smart Casual Edge"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/7a/5d/7a5daa89197f672226b9340380c0ae997adfe057.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shoes"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "classic",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shoes_92571b53c3",
+  "name": "H&M Mens Slip-On Sneakers 04",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "shoes",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Polished Casual",
+   "Refined Weekend",
+   "Smart Casual Edge"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/69/36/69362c8b4a0043d1d6675c5a0c47799d7a84920d.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shoes"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shoes_684ecc9453",
+  "name": "H&M Mens Suede Boots 05",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "shoes",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Polished Casual",
+   "Refined Weekend",
+   "Smart Casual Edge"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/e1/63/e163cde4909fcc7bc2fa56c3e95654068150cbba.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shoes"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "classic",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shoes_72fa933d73",
+  "name": "H&M Mens Clean Sneakers 06",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "shoes",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Polished Casual",
+   "Refined Weekend",
+   "Smart Casual Edge"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/fc/f7/fcf716b8c876eda6855304c7a28262f0946f43c0.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shoes"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shoes_e489e2f69a",
+  "name": "H&M Mens Casual Loafers 07",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "shoes",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Polished Casual",
+   "Refined Weekend",
+   "Smart Casual Edge"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/e3/0c/e30c2aeb4b39f879d8c2a5a852ddbbbaa9b59b4b.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shoes"
+  ],
+  "formality": 4,
+  "movement": 4,
+  "energy": 3,
+  "aesthetic": "classic",
+  "avoid_for": [
+   "music festival",
+   "music_festival",
+   "festival",
+   "concert",
+   "rave",
+   "gig",
+   "edm",
+   "gym"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shoes_efe358d220",
+  "name": "H&M Mens Lace-Up Boots 08",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "shoes",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Polished Casual",
+   "Refined Weekend",
+   "Smart Casual Edge"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/a2/36/a236fe051af7aa795dfae317b9534ef5c21b9f9b.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shoes"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "classic",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_shoes_791fd95699",
+  "name": "H&M Mens Slip-On Sneakers 09",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "shoes",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Polished Casual",
+   "Refined Weekend",
+   "Smart Casual Edge"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/9e/92/9e924cd75dccb195ce31ae6255e79008a75d33fb.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shoes"
+  ],
+  "formality": 2,
+  "movement": 8,
+  "energy": 7,
+  "aesthetic": "street",
+  "avoid_for": [
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_shoes_992c4ab465",
+  "name": "H&M Mens Suede Boots 10",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "shoes",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Polished Casual",
+   "Refined Weekend",
+   "Smart Casual Edge"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/ad/bc/adbc199bc8d552d36a4165754990cd184364b074.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "shoes"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "classic",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_flip_flops_8b1a8cb27e",
+  "name": "H&M Mens Flip Flops 01",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "flip_flops",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/cc/b6/ccb6b41efb02b25d8da092351ccb600f4130dd4b.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "flip_flops"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "resort",
+  "avoid_for": [
+   "office",
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_flip_flops_5e00b50314",
+  "name": "H&M Mens Flip Flops 02",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "flip_flops",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/1e/38/1e38f5a77e501f7feb1e07f378a3e528a368a4f4.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "flip_flops"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "resort",
+  "avoid_for": [
+   "office",
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_flip_flops_d94ceff338",
+  "name": "H&M Mens Flip Flops 03",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "flip_flops",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/74/63/74639b035f0878cbdf71e6df42857c6caf8e3969.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "flip_flops"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "resort",
+  "avoid_for": [
+   "office",
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_flip_flops_cf7d0d819c",
+  "name": "H&M Mens Flip Flops 04",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "flip_flops",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/80/8a/808aa25edf7ce175e11d7a44fddad10c7e0ba38a.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "flip_flops"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "resort",
+  "avoid_for": [
+   "office",
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_flip_flops_c958dc1fb6",
+  "name": "H&M Mens Flip Flops 05",
+  "gender": "male",
+  "category": "footwear",
+  "subcategory": "flip_flops",
+  "colors": [],
+  "occasions": [
+   "beach",
+   "vacation",
+   "resort",
+   "casual_day"
+  ],
+  "archetypes": [
+   "Italian Summer",
+   "Resort Sophisticate",
+   "Relaxed Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/9d/c5/9dc5f522230ca1b9f7dc9adb1d62108ec6e697c4.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "flip_flops"
+  ],
+  "formality": 2,
+  "movement": 6,
+  "energy": 5,
+  "aesthetic": "resort",
+  "avoid_for": [
+   "office",
+   "wedding",
+   "funeral",
+   "interview"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_bracelet_618af0db9f",
+  "name": "H&M Mens Bracelet 01",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "bracelet",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/36/e5/36e5854c5d35912a03a4db993ab49ae1b22b7b66.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "bracelet"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_bracelet_b9ed3986d6",
+  "name": "H&M Mens Bracelet 02",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "bracelet",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/e9/92/e992bfc5717fbf6e0c7fabeb17825da24fb64b86.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "bracelet"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_bracelet_9f6bd67a2c",
+  "name": "H&M Mens Bracelet 03",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "bracelet",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/79/55/795536cad01c16a2f1d5b9696fa24534ced55b11.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "bracelet"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_bracelet_0bbf0cc60e",
+  "name": "H&M Mens Bracelet 04",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "bracelet",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/44/65/4465b131ed14bc4ee1643e20a531af388f61f5df.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "bracelet"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_bracelet_e88929269b",
+  "name": "H&M Mens Bracelet 05",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "bracelet",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/85/7e/857e8fccee0014050ca90c6f15f981fd8a2fc370.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "bracelet"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_bracelet_93fa2c883b",
+  "name": "H&M Mens Bracelet 06",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "bracelet",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/2a/59/2a59734e5f2c530df5a5ac7c05393e90d552c7d9.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "bracelet"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_necklace_7bb21b4f03",
+  "name": "H&M Mens Necklace 01",
+  "gender": "unisex",
+  "category": "accessory",
+  "subcategory": "necklace",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/b0/a1/b0a16e3d1ed5369ab1c7da751583a683fb55982e.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "necklace"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_necklace_849dae51c7",
+  "name": "H&M Mens Necklace 02",
+  "gender": "unisex",
+  "category": "accessory",
+  "subcategory": "necklace",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/b2/7e/b27ee0ad01a0d18a339d728a8a407e8629d4b39b.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "necklace"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_necklace_f7dc290b92",
+  "name": "H&M Mens Necklace 03",
+  "gender": "unisex",
+  "category": "accessory",
+  "subcategory": "necklace",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/bd/98/bd9856cebcf0744cedb835b63cd0e7aeeb82c44e.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "necklace"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_necklace_807c617755",
+  "name": "H&M Mens Necklace 04",
+  "gender": "unisex",
+  "category": "accessory",
+  "subcategory": "necklace",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/a7/9a/a79aa1b9e44072f243cb4ab856801ffd7a1837e8.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "necklace"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_necklace_741b0af9ad",
+  "name": "H&M Mens Necklace 05",
+  "gender": "unisex",
+  "category": "accessory",
+  "subcategory": "necklace",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/af/12/af120cc96dffd46a31ce3f400ad0ebcca6fa9ac3.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "necklace"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_necklace_8d53f5ce2a",
+  "name": "H&M Mens Necklace 06",
+  "gender": "unisex",
+  "category": "accessory",
+  "subcategory": "necklace",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/5c/c9/5cc91811f3aa21da0249cfe0c8f7a0d2f18a2c33.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "necklace"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_necklace_b56e65d24d",
+  "name": "H&M Mens Necklace 07",
+  "gender": "unisex",
+  "category": "accessory",
+  "subcategory": "necklace",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/26/74/267455df7b5a909dc0621628118bfe3302d2858e.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "necklace"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_necklace_a6604b6d9c",
+  "name": "H&M Mens Necklace 08",
+  "gender": "unisex",
+  "category": "accessory",
+  "subcategory": "necklace",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/af/76/af766e84d6f77c3170c5622dd7d6a99199e2fd33.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "necklace"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_ring_0f094fcd9f",
+  "name": "H&M Mens Ring 01",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "ring",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/6a/f9/6af94088666208cf640f3089d701eba6a2207d03.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "ring"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_ring_6d11b170c4",
+  "name": "H&M Mens Ring 02",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "ring",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/fd/fb/fdfbff99f3f942d57c0dbe69badb19b85767626c.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "ring"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_ring_6c9357137b",
+  "name": "H&M Mens Ring 03",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "ring",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/af/38/af3813c4f7dd0960bef422b9a230fd9819be3f64.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "ring"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_ring_3ad5f5775f",
+  "name": "H&M Mens Ring 04",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "ring",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/76/3d/763d6df17cb864e29a3ab372844ee3e424bdda9b.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "ring"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_ring_9e5600452d",
+  "name": "H&M Mens Ring 05",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "ring",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/0b/b0/0bb02f8b301862260934c36be6acc53442ed99bd.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "ring"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_ring_de5d518cec",
+  "name": "H&M Mens Ring 06",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "ring",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/7b/4c/7b4cb7780c552e4d63a172ba1947ed8c590609ad.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "ring"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_ring_867529207a",
+  "name": "H&M Mens Ring 07",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "ring",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "date_night"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/1b/22/1b22ea56abe7c8d2f523905e9561752b1af71484.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "ring"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 5,
+  "aesthetic": "minimal",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sunglasses_ee026ca38f",
+  "name": "H&M Mens Sunglasses 01",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "sunglasses",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/01/8b/018b3de0cb4826903e94a3de50c5c0934fdd13fe.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "sunglasses"
+  ],
+  "formality": 2,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sunglasses_224034a705",
+  "name": "H&M Mens Sunglasses 02",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "sunglasses",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/d5/1f/d51f6d92586c8b6aca162184f99f13113194b2d2.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "sunglasses"
+  ],
+  "formality": 2,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sunglasses_44390b4919",
+  "name": "H&M Mens Sunglasses 03",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "sunglasses",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/20/a5/20a5e23b50ae5657f7c28e15fa53e96e08563ed7.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "sunglasses"
+  ],
+  "formality": 2,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sunglasses_8633ae9d45",
+  "name": "H&M Mens Sunglasses 04",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "sunglasses",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/78/6b/786b0530e4e82e2a1802a67f11d4e2f59aea67c3.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "sunglasses"
+  ],
+  "formality": 2,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sunglasses_e85aa89e0f",
+  "name": "H&M Mens Sunglasses 05",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "sunglasses",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/cc/06/cc06a265e6ee89897c59ddaedc471ada6533d4ac.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "sunglasses"
+  ],
+  "formality": 2,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sunglasses_88e2f41acf",
+  "name": "H&M Mens Sunglasses 06",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "sunglasses",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/97/86/9786a7057a389c78e4190af840e263c54b7f37e9.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "sunglasses"
+  ],
+  "formality": 2,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sunglasses_382429e0c2",
+  "name": "H&M Mens Sunglasses 07",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "sunglasses",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/ce/c7/cec706172719a3c81c577fe41c1c9c205d962ca0.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "sunglasses"
+  ],
+  "formality": 2,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_sunglasses_03ceffef77",
+  "name": "H&M Mens Sunglasses 08",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "sunglasses",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/5c/ba/5cba6f665ae6ccf01a2045f5064443e70d59006c.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "sunglasses"
+  ],
+  "formality": 2,
+  "movement": 7,
+  "energy": 6,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_belt_af596d4e0a",
+  "name": "H&M Mens Leather Belt 01",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "belt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/42/b4/42b4169558ccd0835513c5f6875418953b62724e.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "belt"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 3,
+  "aesthetic": "classic",
+  "avoid_for": [
+   "music festival",
+   "music_festival",
+   "festival",
+   "concert",
+   "rave",
+   "gig",
+   "edm"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_belt_ec99e08bc9",
+  "name": "H&M Mens Leather Belt 02",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "belt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/f7/f7/f7f73cdfbdd7c4758383b1ab8d13915010da802b.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "belt"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 3,
+  "aesthetic": "classic",
+  "avoid_for": [
+   "music festival",
+   "music_festival",
+   "festival",
+   "concert",
+   "rave",
+   "gig",
+   "edm"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_belt_7ce9e46236",
+  "name": "H&M Mens Leather Belt 03",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "belt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/be/bc/bebc34f1570c83b6e7c3dc3ee22d134d3fdbe063.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "belt"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 3,
+  "aesthetic": "classic",
+  "avoid_for": [
+   "music festival",
+   "music_festival",
+   "festival",
+   "concert",
+   "rave",
+   "gig",
+   "edm"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_belt_7adfecea70",
+  "name": "H&M Mens Leather Belt 04",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "belt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/16/a3/16a39691c46b5a740a2a272ec53c5ef3887b552e.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "belt"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 3,
+  "aesthetic": "classic",
+  "avoid_for": [
+   "music festival",
+   "music_festival",
+   "festival",
+   "concert",
+   "rave",
+   "gig",
+   "edm"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_belt_eefc689ab3",
+  "name": "H&M Mens Leather Belt 05",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "belt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/03/f3/03f31198872555fcb1cc2ec9d959bacc3c55455a.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "belt"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 3,
+  "aesthetic": "classic",
+  "avoid_for": [
+   "music festival",
+   "music_festival",
+   "festival",
+   "concert",
+   "rave",
+   "gig",
+   "edm"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_belt_cb45e3c87f",
+  "name": "H&M Mens Leather Belt 06",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "belt",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "startup_office",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Quiet Luxury",
+   "Modern Professional",
+   "Refined Weekend"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/8e/73/8e736bf753e0ec4de0a706ffe3394487d2748784.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "belt"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 3,
+  "aesthetic": "classic",
+  "avoid_for": [
+   "music festival",
+   "music_festival",
+   "festival",
+   "concert",
+   "rave",
+   "gig",
+   "edm"
+  ]
+ },
+ {
+  "asset_id": "hm_mens_hat_3829ce1c21",
+  "name": "H&M Mens Hat 01",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "hat",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/3f/f4/3ff462022987248ae3969aa010db8d495fd5711e.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hat"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_hat_af19a5a88f",
+  "name": "H&M Mens Hat 02",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "hat",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/44/7c/447c27233a6aed48c35a9ab38f7f06dbaa87f08f.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hat"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_hat_1a837158d1",
+  "name": "H&M Mens Hat 03",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "hat",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/96/8a/968af082f2cbf8d18c18ea6d9e2408945871b65d.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hat"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_hat_9507cf79d0",
+  "name": "H&M Mens Hat 04",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "hat",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/45/dc/45dc4eed56ea4a7e277c858b3d68ba47d60533ff.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hat"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_hat_5982bab127",
+  "name": "H&M Mens Hat 05",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "hat",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/29/d0/29d0c0b46f36a398a4a178eeb47ddda2121f85ac.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hat"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_hat_d0505d1ab2",
+  "name": "H&M Mens Hat 06",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "hat",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/83/49/834999ce0955c73a4896a9519395b9053cc7ad09.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hat"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ },
+ {
+  "asset_id": "hm_mens_hat_df7b713548",
+  "name": "H&M Mens Hat 07",
+  "gender": "male",
+  "category": "accessory",
+  "subcategory": "hat",
+  "colors": [],
+  "occasions": [
+   "coffee_date",
+   "casual_day",
+   "travel"
+  ],
+  "archetypes": [
+   "Refined Weekend",
+   "Modern Utility"
+  ],
+  "image_url": "https://image.hm.com/assets/hm/8f/d9/8fd9f20860b7199d0c17004ec2184ade638249f5.jpg?imwidth=2160",
+  "source": "H&M",
+  "status": "active",
+  "asset_type": "reference",
+  "tags": [
+   "hat"
+  ],
+  "formality": 3,
+  "movement": 5,
+  "energy": 4,
+  "aesthetic": "casual",
+  "avoid_for": []
+ }
 ]

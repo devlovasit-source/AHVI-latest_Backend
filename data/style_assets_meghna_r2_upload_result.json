@@ -1,0 +1,2180 @@
+{
+  "generated_at": "2026-06-15T09:00:46.546005+00:00",
+  "bucket": "style-boards",
+  "public_base": "https://pub-43484c7ec0d741cabcac4df01e98344b.r2.dev",
+  "summary": {
+    "total": 271,
+    "uploaded": 271,
+    "converted": 25
+  },
+  "results": [
+    {
+      "asset_id": "meghna_female_accessory_beige_shell_bag",
+      "target_r2_key": "female-assets/accessory/beige_shell_bag.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 162079
+    },
+    {
+      "asset_id": "meghna_female_accessory_black_card_case",
+      "target_r2_key": "female-assets/accessory/black_card_case.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 119005
+    },
+    {
+      "asset_id": "meghna_female_accessory_black_clutch",
+      "target_r2_key": "female-assets/accessory/black_clutch.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 98140
+    },
+    {
+      "asset_id": "meghna_female_accessory_black_top_handle_bag",
+      "target_r2_key": "female-assets/accessory/black_top_handle_bag.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 128483
+    },
+    {
+      "asset_id": "meghna_female_accessory_blue_card_case",
+      "target_r2_key": "female-assets/accessory/blue_card_case.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 111188
+    },
+    {
+      "asset_id": "meghna_female_accessory_blue_wallet",
+      "target_r2_key": "female-assets/accessory/blue_wallet.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 22048
+    },
+    {
+      "asset_id": "meghna_female_footwear_brown_sandals",
+      "target_r2_key": "female-assets/footwear/brown_sandals.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 264231
+    },
+    {
+      "asset_id": "meghna_female_accessory_brown_shoulder_bag",
+      "target_r2_key": "female-assets/accessory/brown_shoulder_bag.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 177288
+    },
+    {
+      "asset_id": "meghna_female_accessory_brown_wallet",
+      "target_r2_key": "female-assets/accessory/brown_wallet.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 12217
+    },
+    {
+      "asset_id": "meghna_female_accessory_green_stripes_canvas_tote",
+      "target_r2_key": "female-assets/accessory/green_stripes_canvas_tote.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 211314
+    },
+    {
+      "asset_id": "meghna_female_accessory_grey_suede_bag",
+      "target_r2_key": "female-assets/accessory/grey_suede_bag.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 238935
+    },
+    {
+      "asset_id": "meghna_female_footwear_leopard_flipflops",
+      "target_r2_key": "female-assets/footwear/leopard_flipflops.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 337868
+    },
+    {
+      "asset_id": "meghna_female_accessory_light_brown_top_handle_bag",
+      "target_r2_key": "female-assets/accessory/light_brown_top_handle_bag.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 214882
+    },
+    {
+      "asset_id": "meghna_female_accessory_olive_green_woven_handbag",
+      "target_r2_key": "female-assets/accessory/olive_green_woven_handbag.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 290963
+    },
+    {
+      "asset_id": "meghna_female_accessory_orange_and_pink_woven_beach_tot",
+      "target_r2_key": "female-assets/accessory/orange_and_pink_woven_beach_tot.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 156111
+    },
+    {
+      "asset_id": "meghna_female_accessory_pink_wallet",
+      "target_r2_key": "female-assets/accessory/pink_wallet.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 16480
+    },
+    {
+      "asset_id": "meghna_female_accessory_purple_wallet",
+      "target_r2_key": "female-assets/accessory/purple_wallet.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 22915
+    },
+    {
+      "asset_id": "meghna_female_accessory_tan_top_handle_shoulder_bag",
+      "target_r2_key": "female-assets/accessory/tan_top_handle_shoulder_bag.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 180110
+    },
+    {
+      "asset_id": "meghna_female_accessory_travel_tote_pink",
+      "target_r2_key": "female-assets/accessory/travel_tote_pink.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 23503
+    },
+    {
+      "asset_id": "meghna_female_bottom_acid_wash_jeans",
+      "target_r2_key": "female-assets/bottom/acid_wash_jeans.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 371680
+    },
+    {
+      "asset_id": "meghna_female_bottom_beige_pants_high_waisted",
+      "target_r2_key": "female-assets/bottom/beige_pants_high_waisted.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 96827
+    },
+    {
+      "asset_id": "meghna_female_bottom_black_and_white_polka_dot_shorts",
+      "target_r2_key": "female-assets/bottom/black_and_white_polka_dot_shorts.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 105294
+    },
+    {
+      "asset_id": "meghna_female_bottom_black_jeans",
+      "target_r2_key": "female-assets/bottom/black_jeans.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 87621
+    },
+    {
+      "asset_id": "meghna_female_accessory_black_leather_fringe_midi_skirt",
+      "target_r2_key": "female-assets/accessory/black_leather_fringe_midi_skirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 255938
+    },
+    {
+      "asset_id": "meghna_female_bottom_black_midi_skirt",
+      "target_r2_key": "female-assets/bottom/black_midi_skirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 17831
+    },
+    {
+      "asset_id": "meghna_female_bottom_black_wide_leg_trouser",
+      "target_r2_key": "female-assets/bottom/black_wide_leg_trouser.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 52254
+    },
+    {
+      "asset_id": "meghna_female_bottom_blue_block_print_maxi_skirt",
+      "target_r2_key": "female-assets/bottom/blue_block_print_maxi_skirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 315122
+    },
+    {
+      "asset_id": "meghna_female_bottom_blue_denim_maxi_skirt",
+      "target_r2_key": "female-assets/bottom/blue_denim_maxi_skirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 132283
+    },
+    {
+      "asset_id": "meghna_female_bottom_blue_floral_maxi_skirt",
+      "target_r2_key": "female-assets/bottom/blue_floral_maxi_skirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 410922
+    },
+    {
+      "asset_id": "meghna_female_bottom_blue_ginghem_middi_skirt",
+      "target_r2_key": "female-assets/bottom/blue_ginghem_middi_skirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 220023
+    },
+    {
+      "asset_id": "meghna_female_bottom_blue_jeans",
+      "target_r2_key": "female-assets/bottom/blue_jeans.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 383229
+    },
+    {
+      "asset_id": "meghna_female_bottom_blue_light_jeans",
+      "target_r2_key": "female-assets/bottom/blue_light_jeans.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 336308
+    },
+    {
+      "asset_id": "meghna_female_bottom_blue_torn_jeans",
+      "target_r2_key": "female-assets/bottom/blue_torn_jeans.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 358193
+    },
+    {
+      "asset_id": "meghna_female_bottom_brown_cycling_shorts",
+      "target_r2_key": "female-assets/bottom/brown_cycling_shorts.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 144998
+    },
+    {
+      "asset_id": "meghna_female_bottom_brown_skirt",
+      "target_r2_key": "female-assets/bottom/brown_skirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 109950
+    },
+    {
+      "asset_id": "meghna_female_bottom_burnt_red_cycling_shorts",
+      "target_r2_key": "female-assets/bottom/burnt_red_cycling_shorts.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 147614
+    },
+    {
+      "asset_id": "meghna_female_bottom_charcoal_tailored_trouser",
+      "target_r2_key": "female-assets/bottom/charcoal_tailored_trouser.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 62808
+    },
+    {
+      "asset_id": "meghna_female_bottom_cream_cycling_shorts",
+      "target_r2_key": "female-assets/bottom/cream_cycling_shorts.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 67044
+    },
+    {
+      "asset_id": "meghna_female_bottom_cream_midi_skirt_with_slit",
+      "target_r2_key": "female-assets/bottom/cream_midi_skirt_with_slit.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 32651
+    },
+    {
+      "asset_id": "meghna_female_bottom_cream_wide_leg_trouser",
+      "target_r2_key": "female-assets/bottom/cream_wide_leg_trouser.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 49110
+    },
+    {
+      "asset_id": "meghna_female_bottom_dark_blue_denim_skirt_knee_length",
+      "target_r2_key": "female-assets/bottom/dark_blue_denim_skirt_knee_length.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 66058
+    },
+    {
+      "asset_id": "meghna_female_bottom_dark_blue_jeans",
+      "target_r2_key": "female-assets/bottom/dark_blue_jeans.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 378527
+    },
+    {
+      "asset_id": "meghna_female_bottom_dark_grey_jeans",
+      "target_r2_key": "female-assets/bottom/dark_grey_jeans.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 236875
+    },
+    {
+      "asset_id": "meghna_female_bottom_denim_skirt_short",
+      "target_r2_key": "female-assets/bottom/denim_skirt_short.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 213712
+    },
+    {
+      "asset_id": "meghna_female_bottom_ecru_jean",
+      "target_r2_key": "female-assets/bottom/ecru_jean.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 63170
+    },
+    {
+      "asset_id": "meghna_female_accessory_leather_fringe_pants",
+      "target_r2_key": "female-assets/accessory/leather_fringe_pants.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 173511
+    },
+    {
+      "asset_id": "meghna_female_bottom_light_blue_jeans",
+      "target_r2_key": "female-assets/bottom/light_blue_jeans.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 229287
+    },
+    {
+      "asset_id": "meghna_female_bottom_medium_denim_shorts_high_waisted",
+      "target_r2_key": "female-assets/bottom/medium_denim_shorts_high_waisted.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 277082
+    },
+    {
+      "asset_id": "meghna_female_bottom_navy_blue_denim_shorts_high_waisted",
+      "target_r2_key": "female-assets/bottom/navy_blue_denim_shorts_high_waisted.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 99334
+    },
+    {
+      "asset_id": "meghna_female_bottom_navy_blue_high_rise_jeans",
+      "target_r2_key": "female-assets/bottom/navy_blue_high_rise_jeans.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 224522
+    },
+    {
+      "asset_id": "meghna_female_bottom_navy_blue_jeans",
+      "target_r2_key": "female-assets/bottom/navy_blue_jeans.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 266567
+    },
+    {
+      "asset_id": "meghna_female_bottom_pink_block_print_maxi_skirt",
+      "target_r2_key": "female-assets/bottom/pink_block_print_maxi_skirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 317066
+    },
+    {
+      "asset_id": "meghna_female_accessory_red_high_waisted_belted_pants",
+      "target_r2_key": "female-assets/accessory/red_high_waisted_belted_pants.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 91878
+    },
+    {
+      "asset_id": "meghna_female_bottom_red_pleated_maxi_skirt",
+      "target_r2_key": "female-assets/bottom/red_pleated_maxi_skirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 50887
+    },
+    {
+      "asset_id": "meghna_female_bottom_straight_blue_jean",
+      "target_r2_key": "female-assets/bottom/straight_blue_jean.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 85163
+    },
+    {
+      "asset_id": "meghna_female_bottom_white_jeans",
+      "target_r2_key": "female-assets/bottom/white_jeans.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 88674
+    },
+    {
+      "asset_id": "meghna_female_bottom_yellow_pleated_midi_skirt",
+      "target_r2_key": "female-assets/bottom/yellow_pleated_midi_skirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 190902
+    },
+    {
+      "asset_id": "meghna_female_dress_baby_blue_midi_dress",
+      "target_r2_key": "female-assets/dress/baby_blue_midi_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 44394
+    },
+    {
+      "asset_id": "meghna_female_dress_barbiepinkboatneckdress",
+      "target_r2_key": "female-assets/dress/barbiepinkboatneckdress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 55534
+    },
+    {
+      "asset_id": "meghna_female_dress_beaded_black_sleeveless_dress",
+      "target_r2_key": "female-assets/dress/beaded_black_sleeveless_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 72637
+    },
+    {
+      "asset_id": "meghna_female_dress_black_and_white_polka_dot_dress",
+      "target_r2_key": "female-assets/dress/black_and_white_polka_dot_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 195793
+    },
+    {
+      "asset_id": "meghna_female_dress_black_lace_dress",
+      "target_r2_key": "female-assets/dress/black_lace_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 132607
+    },
+    {
+      "asset_id": "meghna_female_dress_black_minimal_midi_dress",
+      "target_r2_key": "female-assets/dress/black_minimal_midi_dress.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 59744
+    },
+    {
+      "asset_id": "meghna_female_dress_black_velvet_short_dress",
+      "target_r2_key": "female-assets/dress/black_velvet_short_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 142596
+    },
+    {
+      "asset_id": "meghna_female_dress_blackandwhiteboatneckmini",
+      "target_r2_key": "female-assets/dress/blackandwhiteboatneckmini.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 30620
+    },
+    {
+      "asset_id": "meghna_female_dress_blackboatneckmidi",
+      "target_r2_key": "female-assets/dress/blackboatneckmidi.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 23473
+    },
+    {
+      "asset_id": "meghna_female_dress_blackboatneckmini",
+      "target_r2_key": "female-assets/dress/blackboatneckmini.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 19685
+    },
+    {
+      "asset_id": "meghna_female_dress_blue_and_brown_stripes_crochet_dress",
+      "target_r2_key": "female-assets/dress/blue_and_brown_stripes_crochet_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 368308
+    },
+    {
+      "asset_id": "meghna_female_dress_blue_instripe_shirt_dress",
+      "target_r2_key": "female-assets/dress/blue_instripe_shirt_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 189747
+    },
+    {
+      "asset_id": "meghna_female_dress_blue_short_dress",
+      "target_r2_key": "female-assets/dress/blue_short_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 235180
+    },
+    {
+      "asset_id": "meghna_female_dress_blueboatneckhalfsleevedress",
+      "target_r2_key": "female-assets/dress/blueboatneckhalfsleevedress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 32953
+    },
+    {
+      "asset_id": "meghna_female_dress_brown_short_dress",
+      "target_r2_key": "female-assets/dress/brown_short_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 222678
+    },
+    {
+      "asset_id": "meghna_female_dress_colared_short_dress",
+      "target_r2_key": "female-assets/dress/colared_short_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 39203
+    },
+    {
+      "asset_id": "meghna_female_dress_cream_column_dress",
+      "target_r2_key": "female-assets/dress/cream_column_dress.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 59047
+    },
+    {
+      "asset_id": "meghna_female_dress_cream_knit_midi_dress_with_collar",
+      "target_r2_key": "female-assets/dress/cream_knit_midi_dress_with_collar.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 22334
+    },
+    {
+      "asset_id": "meghna_female_dress_cream_midi_dress",
+      "target_r2_key": "female-assets/dress/cream_midi_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 90835
+    },
+    {
+      "asset_id": "meghna_female_dress_crochet_colorful_dress",
+      "target_r2_key": "female-assets/dress/crochet_colorful_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 321962
+    },
+    {
+      "asset_id": "meghna_female_dress_dark_blue_midi_dress",
+      "target_r2_key": "female-assets/dress/dark_blue_midi_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 79970
+    },
+    {
+      "asset_id": "meghna_female_dress_denim_dress",
+      "target_r2_key": "female-assets/dress/denim_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 404198
+    },
+    {
+      "asset_id": "meghna_female_dress_denimsweetheartneckdress",
+      "target_r2_key": "female-assets/dress/denimsweetheartneckdress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 251246
+    },
+    {
+      "asset_id": "meghna_female_dress_floral_midi_dress",
+      "target_r2_key": "female-assets/dress/floral_midi_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 193128
+    },
+    {
+      "asset_id": "meghna_female_dress_florallayeredgreencreamdress",
+      "target_r2_key": "female-assets/dress/florallayeredgreencreamdress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 231004
+    },
+    {
+      "asset_id": "meghna_female_dress_light_blue_denim_midi_dress",
+      "target_r2_key": "female-assets/dress/light_blue_denim_midi_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 248594
+    },
+    {
+      "asset_id": "meghna_female_dress_lightblueboatneckmididress",
+      "target_r2_key": "female-assets/dress/lightblueboatneckmididress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 37876
+    },
+    {
+      "asset_id": "meghna_female_dress_maroonboatneckmidi",
+      "target_r2_key": "female-assets/dress/maroonboatneckmidi.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 23911
+    },
+    {
+      "asset_id": "meghna_female_dress_maroonboatneck_2",
+      "target_r2_key": "female-assets/dress/maroonboatneckmini.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 46959
+    },
+    {
+      "asset_id": "meghna_female_dress_multicolour_boho_maxi_dress",
+      "target_r2_key": "female-assets/dress/multicolour_boho_maxi_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 134419
+    },
+    {
+      "asset_id": "meghna_female_outerwear_navy_blazer_mini_dress",
+      "target_r2_key": "female-assets/outerwear/navy_blazer_mini_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 36234
+    },
+    {
+      "asset_id": "meghna_female_dress_offshouldercreammididress",
+      "target_r2_key": "female-assets/dress/offshouldercreammididress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 30500
+    },
+    {
+      "asset_id": "meghna_female_dress_offshoulderdressminiblackandgrey",
+      "target_r2_key": "female-assets/dress/offshoulderdressminiblackandgrey.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 125803
+    },
+    {
+      "asset_id": "meghna_female_dress_offshouldershirtdressblueandblack",
+      "target_r2_key": "female-assets/dress/offshouldershirtdressblueandblack.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 88550
+    },
+    {
+      "asset_id": "meghna_female_dress_one_shoulder_green_sequins_dress_faux_fur",
+      "target_r2_key": "female-assets/dress/one_shoulder_green_sequins_dress_faux_fur.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 70156
+    },
+    {
+      "asset_id": "meghna_female_dress_orangegoldbutterflyminidress",
+      "target_r2_key": "female-assets/dress/orangegoldbutterflyminidress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 145247
+    },
+    {
+      "asset_id": "meghna_female_dress_pink_floral_short_dress",
+      "target_r2_key": "female-assets/dress/pink_floral_short_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 270407
+    },
+    {
+      "asset_id": "meghna_female_dress_pink_orange_shaded_sequins_dress",
+      "target_r2_key": "female-assets/dress/pink_orange_shaded_sequins_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 57878
+    },
+    {
+      "asset_id": "meghna_female_dress_pink_sequin_shaded_dress",
+      "target_r2_key": "female-assets/dress/pink_sequin_shaded_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 59905
+    },
+    {
+      "asset_id": "meghna_female_dress_pink_sequins_jumpsuit",
+      "target_r2_key": "female-assets/dress/pink_sequins_jumpsuit.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 246366
+    },
+    {
+      "asset_id": "meghna_female_dress_pinksequinboatneckdress",
+      "target_r2_key": "female-assets/dress/pinksequinboatneckdress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 217794
+    },
+    {
+      "asset_id": "meghna_female_dress_polkadotwhiteboatneckminidress",
+      "target_r2_key": "female-assets/dress/polkadotwhiteboatneckminidress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 54534
+    },
+    {
+      "asset_id": "meghna_female_dress_purpleboatneckmidi",
+      "target_r2_key": "female-assets/dress/purpleboatneckmidi.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 39122
+    },
+    {
+      "asset_id": "meghna_female_dress_red_corset_strapless_faux_fur_midi_dress",
+      "target_r2_key": "female-assets/dress/red_corset_strapless_faux_fur_midi_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 23846
+    },
+    {
+      "asset_id": "meghna_female_dress_redginghamsweetheartshortdress",
+      "target_r2_key": "female-assets/dress/redginghamsweetheartshortdress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 152193
+    },
+    {
+      "asset_id": "meghna_female_dress_redginghamvneckshortdress",
+      "target_r2_key": "female-assets/dress/redginghamvneckshortdress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 83962
+    },
+    {
+      "asset_id": "meghna_female_dress_silver_shimmer_midi_dress",
+      "target_r2_key": "female-assets/dress/silver_shimmer_midi_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 259440
+    },
+    {
+      "asset_id": "meghna_female_dress_strapless_dress_pink_tie_die",
+      "target_r2_key": "female-assets/dress/strapless_dress_pink_tie_die.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 35214
+    },
+    {
+      "asset_id": "meghna_female_dress_stripesboatneckmidi",
+      "target_r2_key": "female-assets/dress/stripesboatneckmidi.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 96976
+    },
+    {
+      "asset_id": "meghna_female_dress_taupe_knit_dress",
+      "target_r2_key": "female-assets/dress/taupe_knit_dress.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 85574
+    },
+    {
+      "asset_id": "meghna_female_dress_whiteboatneckmidi",
+      "target_r2_key": "female-assets/dress/whiteboatneckmidi.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 16885
+    },
+    {
+      "asset_id": "meghna_female_dress_whitespagettistrappscalloplayerdress",
+      "target_r2_key": "female-assets/dress/whitespagettistrappscalloplayerdress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 27744
+    },
+    {
+      "asset_id": "meghna_female_dress_yellow_midi_dress",
+      "target_r2_key": "female-assets/dress/yellow_midi_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 16464
+    },
+    {
+      "asset_id": "meghna_female_dress_yellowboatneckmidi",
+      "target_r2_key": "female-assets/dress/yellowboatneckmidi.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 33824
+    },
+    {
+      "asset_id": "meghna_female_dress_yellowsweetheartcorsetdress",
+      "target_r2_key": "female-assets/dress/yellowsweetheartcorsetdress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 47154
+    },
+    {
+      "asset_id": "meghna_female_footwear_black_flat_sandals",
+      "target_r2_key": "female-assets/footwear/black_flat_sandals.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 185717
+    },
+    {
+      "asset_id": "meghna_female_footwear_black_flip_flops",
+      "target_r2_key": "female-assets/footwear/black_flip_flops.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 335622
+    },
+    {
+      "asset_id": "meghna_female_footwear_black_heel",
+      "target_r2_key": "female-assets/footwear/black_heel.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 25039
+    },
+    {
+      "asset_id": "meghna_female_footwear_blacknikerunningshoe",
+      "target_r2_key": "female-assets/footwear/blacknikerunningshoe.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 76176
+    },
+    {
+      "asset_id": "meghna_female_footwear_blackrainboot",
+      "target_r2_key": "female-assets/footwear/blackrainboot.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 14764
+    },
+    {
+      "asset_id": "meghna_female_footwear_blckboots",
+      "target_r2_key": "female-assets/footwear/blckboots.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 23280
+    },
+    {
+      "asset_id": "meghna_female_footwear_brownbirkinstock",
+      "target_r2_key": "female-assets/footwear/brownbirkinstock.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 22611
+    },
+    {
+      "asset_id": "meghna_female_footwear_brownboots",
+      "target_r2_key": "female-assets/footwear/brownboots.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 32812
+    },
+    {
+      "asset_id": "meghna_female_footwear_conversesneakers",
+      "target_r2_key": "female-assets/footwear/conversesneakers.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 35888
+    },
+    {
+      "asset_id": "meghna_female_footwear_goldflatsandal",
+      "target_r2_key": "female-assets/footwear/goldflatsandal.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 42448
+    },
+    {
+      "asset_id": "meghna_female_footwear_goldheel",
+      "target_r2_key": "female-assets/footwear/goldheel.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 66843
+    },
+    {
+      "asset_id": "meghna_female_footwear_kohlapuriwedge",
+      "target_r2_key": "female-assets/footwear/kohlapuriwedge.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 46454
+    },
+    {
+      "asset_id": "meghna_female_footwear_silverheel",
+      "target_r2_key": "female-assets/footwear/silverheel.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 82413
+    },
+    {
+      "asset_id": "meghna_female_footwear_tan_flats",
+      "target_r2_key": "female-assets/footwear/tan_flats.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 74047
+    },
+    {
+      "asset_id": "meghna_female_footwear_white_sneaker",
+      "target_r2_key": "female-assets/footwear/white_sneaker.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 38414
+    },
+    {
+      "asset_id": "meghna_female_footwear_whiteflipflop",
+      "target_r2_key": "female-assets/footwear/whiteflipflop.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 44929
+    },
+    {
+      "asset_id": "meghna_female_dress_offshoulder_burnt_red_gown",
+      "target_r2_key": "female-assets/dress/offshoulder_burnt_red_gown.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 32061
+    },
+    {
+      "asset_id": "meghna_female_dress_pastelpinkgown",
+      "target_r2_key": "female-assets/dress/pastelpinkgown.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 117881
+    },
+    {
+      "asset_id": "meghna_female_dress_red_faux_fur_dress",
+      "target_r2_key": "female-assets/dress/red_faux_fur_dress.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 43433
+    },
+    {
+      "asset_id": "meghna_female_accessory_black_bobbie_pins",
+      "target_r2_key": "female-assets/accessory/black_bobbie_pins.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 18627
+    },
+    {
+      "asset_id": "meghna_female_accessory_black_clip",
+      "target_r2_key": "female-assets/accessory/black_clip.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 58009
+    },
+    {
+      "asset_id": "meghna_female_accessory_black_scrunchie",
+      "target_r2_key": "female-assets/accessory/black_scrunchie.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 27384
+    },
+    {
+      "asset_id": "meghna_female_accessory_black_tic_tac_clips",
+      "target_r2_key": "female-assets/accessory/black_tic_tac_clips.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 22417
+    },
+    {
+      "asset_id": "meghna_female_accessory_blue_passport",
+      "target_r2_key": "female-assets/accessory/blue_passport.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 23502
+    },
+    {
+      "asset_id": "meghna_female_accessory_green_passport",
+      "target_r2_key": "female-assets/accessory/green_passport.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 170518
+    },
+    {
+      "asset_id": "meghna_female_accessory_hair_dryer",
+      "target_r2_key": "female-assets/accessory/hair_dryer.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 52157
+    },
+    {
+      "asset_id": "meghna_female_accessory_hair_straightener",
+      "target_r2_key": "female-assets/accessory/hair_straightener.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 31469
+    },
+    {
+      "asset_id": "meghna_female_accessory_pink_cosmetic_bag",
+      "target_r2_key": "female-assets/accessory/pink_cosmetic_bag.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 31074
+    },
+    {
+      "asset_id": "meghna_female_accessory_pink_packing_cubes",
+      "target_r2_key": "female-assets/accessory/pink_packing_cubes.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 81024
+    },
+    {
+      "asset_id": "meghna_female_accessory_pink_passport",
+      "target_r2_key": "female-assets/accessory/pink_passport.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 48448
+    },
+    {
+      "asset_id": "meghna_female_accessory_pink_travel_carry_on",
+      "target_r2_key": "female-assets/accessory/pink_travel_carry_on.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 42836
+    },
+    {
+      "asset_id": "meghna_female_accessory_purple_packing_cubes",
+      "target_r2_key": "female-assets/accessory/purple_packing_cubes.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 187586
+    },
+    {
+      "asset_id": "meghna_female_accessory_travel_containers",
+      "target_r2_key": "female-assets/accessory/travel_containers.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 135128
+    },
+    {
+      "asset_id": "meghna_female_accessory_brown_cap",
+      "target_r2_key": "female-assets/accessory/brown_cap.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 236356
+    },
+    {
+      "asset_id": "meghna_female_accessory_burgundy_straw_hat",
+      "target_r2_key": "female-assets/accessory/burgundy_straw_hat.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 206571
+    },
+    {
+      "asset_id": "meghna_female_accessory_cream_hat",
+      "target_r2_key": "female-assets/accessory/cream_hat.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 194647
+    },
+    {
+      "asset_id": "meghna_female_accessory_black_and_white_rings",
+      "target_r2_key": "female-assets/accessory/black_and_white_rings.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 66486
+    },
+    {
+      "asset_id": "meghna_female_ethnic_greenbrocadepinksleevelesskurtaset",
+      "target_r2_key": "female-assets/ethnic/greenbrocadepinksleevelesskurtaset.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 132835
+    },
+    {
+      "asset_id": "meghna_female_ethnic_purplebandhanipinkspagettistrapkurtaset",
+      "target_r2_key": "female-assets/ethnic/purplebandhanipinkspagettistrapkurtaset.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 188415
+    },
+    {
+      "asset_id": "meghna_female_ethnic_yellowsleevelesskurtaset",
+      "target_r2_key": "female-assets/ethnic/yellowsleevelesskurtaset.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 183316
+    },
+    {
+      "asset_id": "meghna_female_ethnic_pink_kurti_top",
+      "target_r2_key": "female-assets/ethnic/pink_kurti_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 55717
+    },
+    {
+      "asset_id": "meghna_female_ethnic_yellow_kurti_top",
+      "target_r2_key": "female-assets/ethnic/yellow_kurti_top.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 137192
+    },
+    {
+      "asset_id": "meghna_female_top_yellowmirrorworkspagettistraptop",
+      "target_r2_key": "female-assets/top/yellowmirrorworkspagettistraptop.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 173028
+    },
+    {
+      "asset_id": "meghna_female_ethnic_black_and_gold_lehenga",
+      "target_r2_key": "female-assets/ethnic/black_and_gold_lehenga.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 161440
+    },
+    {
+      "asset_id": "meghna_female_ethnic_bluegoldembroidaryoffshoulderlehenga",
+      "target_r2_key": "female-assets/ethnic/bluegoldembroidaryoffshoulderlehenga.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 171166
+    },
+    {
+      "asset_id": "meghna_female_ethnic_chiliredsleevelesslehenga",
+      "target_r2_key": "female-assets/ethnic/chiliredsleevelesslehenga.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 103260
+    },
+    {
+      "asset_id": "meghna_female_ethnic_dark_blue_lehenga",
+      "target_r2_key": "female-assets/ethnic/dark_blue_lehenga.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 140789
+    },
+    {
+      "asset_id": "meghna_female_ethnic_loive_green_lehenga",
+      "target_r2_key": "female-assets/ethnic/loive_green_lehenga.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 192894
+    },
+    {
+      "asset_id": "meghna_female_ethnic_pale_pink_lehenga",
+      "target_r2_key": "female-assets/ethnic/pale_pink_lehenga.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 52547
+    },
+    {
+      "asset_id": "meghna_female_ethnic_red_lehenga",
+      "target_r2_key": "female-assets/ethnic/red_lehenga.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 41209
+    },
+    {
+      "asset_id": "meghna_female_ethnic_yellow_lehenga",
+      "target_r2_key": "female-assets/ethnic/yellow_lehenga.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 84345
+    },
+    {
+      "asset_id": "meghna_female_outerwear_beige_fur_coat",
+      "target_r2_key": "female-assets/outerwear/beige_fur_coat.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 315373
+    },
+    {
+      "asset_id": "meghna_female_outerwear_black_blazer",
+      "target_r2_key": "female-assets/outerwear/black_blazer.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 68956
+    },
+    {
+      "asset_id": "meghna_female_outerwear_black_leather_biker_jacket",
+      "target_r2_key": "female-assets/outerwear/black_leather_biker_jacket.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 160971
+    },
+    {
+      "asset_id": "meghna_female_outerwear_black_leat_2",
+      "target_r2_key": "female-assets/outerwear/black_leather_jacket.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 221527
+    },
+    {
+      "asset_id": "meghna_female_outerwear_black_trench_coat",
+      "target_r2_key": "female-assets/outerwear/black_trench_coat.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 175444
+    },
+    {
+      "asset_id": "meghna_female_outerwear_brown_suede_biker_jacket",
+      "target_r2_key": "female-assets/outerwear/brown_suede_biker_jacket.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 208201
+    },
+    {
+      "asset_id": "meghna_female_outerwear_cream_blazer",
+      "target_r2_key": "female-assets/outerwear/cream_blazer.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 67823
+    },
+    {
+      "asset_id": "meghna_female_outerwear_dark_blue_denim_jacket",
+      "target_r2_key": "female-assets/outerwear/dark_blue_denim_jacket.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 448531
+    },
+    {
+      "asset_id": "meghna_female_outerwear_fur_coat_brown",
+      "target_r2_key": "female-assets/outerwear/fur_coat_brown.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 239537
+    },
+    {
+      "asset_id": "meghna_female_outerwear_grey_wool_blazer",
+      "target_r2_key": "female-assets/outerwear/grey_wool_blazer.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 118324
+    },
+    {
+      "asset_id": "meghna_female_outerwear_light_blue_denim_jacket",
+      "target_r2_key": "female-assets/outerwear/light_blue_denim_jacket.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 405393
+    },
+    {
+      "asset_id": "meghna_female_outerwear_medium_blue_denim_jacket",
+      "target_r2_key": "female-assets/outerwear/medium_blue_denim_jacket.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 465260
+    },
+    {
+      "asset_id": "meghna_female_outerwear_polka_dot_puffer_jacket",
+      "target_r2_key": "female-assets/outerwear/polka_dot_puffer_jacket.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 193807
+    },
+    {
+      "asset_id": "meghna_female_outerwear_tan_suede_jacket",
+      "target_r2_key": "female-assets/outerwear/tan_suede_jacket.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 143425
+    },
+    {
+      "asset_id": "meghna_female_outerwear_white_and_black_polka_dot_jacket",
+      "target_r2_key": "female-assets/outerwear/white_and_black_polka_dot_jacket.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 80997
+    },
+    {
+      "asset_id": "meghna_female_ethnic_blue_and_white_shaded_saree",
+      "target_r2_key": "female-assets/ethnic/blue_and_white_shaded_saree.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 41122
+    },
+    {
+      "asset_id": "meghna_female_ethnic_bluelehengawithgoldembroidaryblousesleeveless",
+      "target_r2_key": "female-assets/ethnic/bluelehengawithgoldembroidaryblousesleeveless.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 121601
+    },
+    {
+      "asset_id": "meghna_female_ethnic_dark_green_saee",
+      "target_r2_key": "female-assets/ethnic/dark_green_saee.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 42016
+    },
+    {
+      "asset_id": "meghna_female_ethnic_gold_embroidered_cocktail_saree",
+      "target_r2_key": "female-assets/ethnic/gold_embroidered_cocktail_saree.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 54840
+    },
+    {
+      "asset_id": "meghna_female_ethnic_laender_pastel_saree",
+      "target_r2_key": "female-assets/ethnic/laender_pastel_saree.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 165595
+    },
+    {
+      "asset_id": "meghna_female_ethnic_lavender_saree",
+      "target_r2_key": "female-assets/ethnic/lavender_saree.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 49810
+    },
+    {
+      "asset_id": "meghna_female_ethnic_light_blue_tissue_saee",
+      "target_r2_key": "female-assets/ethnic/light_blue_tissue_saee.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 121927
+    },
+    {
+      "asset_id": "meghna_female_ethnic_light_green_saree",
+      "target_r2_key": "female-assets/ethnic/light_green_saree.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 105468
+    },
+    {
+      "asset_id": "meghna_female_ethnic_maroon_velvet_saree",
+      "target_r2_key": "female-assets/ethnic/maroon_velvet_saree.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 44861
+    },
+    {
+      "asset_id": "meghna_female_ethnic_offshoulderblousebluesaree",
+      "target_r2_key": "female-assets/ethnic/offshoulderblousebluesaree.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 81314
+    },
+    {
+      "asset_id": "meghna_female_ethnic_orange_saree",
+      "target_r2_key": "female-assets/ethnic/orange_saree.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 63843
+    },
+    {
+      "asset_id": "meghna_female_ethnic_pastel_pink_saee",
+      "target_r2_key": "female-assets/ethnic/pastel_pink_saee.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 170934
+    },
+    {
+      "asset_id": "meghna_female_ethnic_peacock_blue_cocktail_saree",
+      "target_r2_key": "female-assets/ethnic/peacock_blue_cocktail_saree.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 107374
+    },
+    {
+      "asset_id": "meghna_female_ethnic_greenshararaworkset",
+      "target_r2_key": "female-assets/ethnic/greenshararaworkset.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 75272
+    },
+    {
+      "asset_id": "meghna_female_ethnic_light_blue_sharara",
+      "target_r2_key": "female-assets/ethnic/light_blue_sharara.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 60189
+    },
+    {
+      "asset_id": "meghna_female_ethnic_lime_green_sharara",
+      "target_r2_key": "female-assets/ethnic/lime_green_sharara.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 37685
+    },
+    {
+      "asset_id": "meghna_female_ethnic_red_sharara_set",
+      "target_r2_key": "female-assets/ethnic/red_sharara_set.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 51407
+    },
+    {
+      "asset_id": "meghna_female_ethnic_red_sharara",
+      "target_r2_key": "female-assets/ethnic/red_sharara.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 55976
+    },
+    {
+      "asset_id": "meghna_female_bottom_pantyliner",
+      "target_r2_key": "female-assets/bottom/pantyliner.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 112877
+    },
+    {
+      "asset_id": "meghna_female_accessory_puffyhairband",
+      "target_r2_key": "female-assets/accessory/puffyhairband.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 19435
+    },
+    {
+      "asset_id": "meghna_female_accessory_walletdinor",
+      "target_r2_key": "female-assets/accessory/walletdinor.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 70732
+    },
+    {
+      "asset_id": "meghna_female_accessory_brown_cat_eye_sunglasses",
+      "target_r2_key": "female-assets/accessory/brown_cat_eye_sunglasses.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 71207
+    },
+    {
+      "asset_id": "meghna_female_accessory_brown_sunglasses",
+      "target_r2_key": "female-assets/accessory/brown_sunglasses.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 90967
+    },
+    {
+      "asset_id": "meghna_female_top_black_and_blue_bralette_top",
+      "target_r2_key": "female-assets/top/black_and_blue_bralette_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 218096
+    },
+    {
+      "asset_id": "meghna_female_top_black_and_white_stripe_tshirt",
+      "target_r2_key": "female-assets/top/black_and_white_stripe_tshirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 139179
+    },
+    {
+      "asset_id": "meghna_female_top_black_bandau_top",
+      "target_r2_key": "female-assets/top/black_bandau_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 45740
+    },
+    {
+      "asset_id": "meghna_female_accessory_black_fringe_leather_top",
+      "target_r2_key": "female-assets/accessory/black_fringe_leather_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 215604
+    },
+    {
+      "asset_id": "meghna_female_top_black_sequin_top",
+      "target_r2_key": "female-assets/top/black_sequin_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 329381
+    },
+    {
+      "asset_id": "meghna_female_top_blacktop",
+      "target_r2_key": "female-assets/top/blacktop.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 22133
+    },
+    {
+      "asset_id": "meghna_female_top_brown_sports_vest_top",
+      "target_r2_key": "female-assets/top/brown_sports_vest_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 163824
+    },
+    {
+      "asset_id": "meghna_female_top_browntop",
+      "target_r2_key": "female-assets/top/browntop.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 66043
+    },
+    {
+      "asset_id": "meghna_female_top_burnt_red_sports_vest_top",
+      "target_r2_key": "female-assets/top/burnt_red_sports_vest_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 116945
+    },
+    {
+      "asset_id": "meghna_female_top_cream_top",
+      "target_r2_key": "female-assets/top/cream_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 293842
+    },
+    {
+      "asset_id": "meghna_female_top_creamcrewneck",
+      "target_r2_key": "female-assets/top/creamcrewneck.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 41520
+    },
+    {
+      "asset_id": "meghna_female_top_creamknittop",
+      "target_r2_key": "female-assets/top/creamknittop.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 95823
+    },
+    {
+      "asset_id": "meghna_female_top_creamtank",
+      "target_r2_key": "female-assets/top/creamtank.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 200276
+    },
+    {
+      "asset_id": "meghna_female_top_dark_blue_tshirt",
+      "target_r2_key": "female-assets/top/dark_blue_tshirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 149038
+    },
+    {
+      "asset_id": "meghna_female_top_electric_blue_tshirt",
+      "target_r2_key": "female-assets/top/electric_blue_tshirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 199352
+    },
+    {
+      "asset_id": "meghna_female_top_floral_top",
+      "target_r2_key": "female-assets/top/floral_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 344118
+    },
+    {
+      "asset_id": "meghna_female_top_gingem_blue_spagetti_strap_top",
+      "target_r2_key": "female-assets/top/gingem_blue_spagetti_strap_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 50365
+    },
+    {
+      "asset_id": "meghna_female_top_greyfineknittop",
+      "target_r2_key": "female-assets/top/greyfineknittop.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 98271
+    },
+    {
+      "asset_id": "meghna_female_top_leather_black_top",
+      "target_r2_key": "female-assets/top/leather_black_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 172684
+    },
+    {
+      "asset_id": "meghna_female_top_light_blue_gingem_one_shoulder_top",
+      "target_r2_key": "female-assets/top/light_blue_gingem_one_shoulder_top.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 106197
+    },
+    {
+      "asset_id": "meghna_female_top_light_pink_off_shoulder_top",
+      "target_r2_key": "female-assets/top/light_pink_off_shoulder_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 32423
+    },
+    {
+      "asset_id": "meghna_female_top_light_pink_swquin_top_sleeveless",
+      "target_r2_key": "female-assets/top/light_pink_swquin_top_sleeveless.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 26693
+    },
+    {
+      "asset_id": "meghna_female_top_light_pink_tshirt",
+      "target_r2_key": "female-assets/top/light_pink_tshirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 63210
+    },
+    {
+      "asset_id": "meghna_female_top_lightblueshirt",
+      "target_r2_key": "female-assets/top/lightblueshirt.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 48552
+    },
+    {
+      "asset_id": "meghna_female_top_orange_tshirt",
+      "target_r2_key": "female-assets/top/orange_tshirt.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 173026
+    },
+    {
+      "asset_id": "meghna_female_top_orangetop",
+      "target_r2_key": "female-assets/top/orangetop.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 19410
+    },
+    {
+      "asset_id": "meghna_female_accessory_silver_fringe_top",
+      "target_r2_key": "female-assets/accessory/silver_fringe_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 510229
+    },
+    {
+      "asset_id": "meghna_female_top_white_bow_top",
+      "target_r2_key": "female-assets/top/white_bow_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 100645
+    },
+    {
+      "asset_id": "meghna_female_top_white_spagetti_strap_top",
+      "target_r2_key": "female-assets/top/white_spagetti_strap_top.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 68293
+    },
+    {
+      "asset_id": "meghna_female_top_whitecrewneck",
+      "target_r2_key": "female-assets/top/whitecrewneck.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 36022
+    },
+    {
+      "asset_id": "meghna_female_top_whiteshirt",
+      "target_r2_key": "female-assets/top/whiteshirt.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 40722
+    },
+    {
+      "asset_id": "meghna_female_top_whitetank",
+      "target_r2_key": "female-assets/top/whitetank.jpg",
+      "needs_conversion": true,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 189230
+    },
+    {
+      "asset_id": "meghna_female_top_whitetop",
+      "target_r2_key": "female-assets/top/whitetop.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 14991
+    },
+    {
+      "asset_id": "meghna_female_accessory_airpods",
+      "target_r2_key": "female-assets/accessory/airpods.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 13940
+    },
+    {
+      "asset_id": "meghna_female_accessory_backpack",
+      "target_r2_key": "female-assets/accessory/backpack.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 30793
+    },
+    {
+      "asset_id": "meghna_female_accessory_black_brush",
+      "target_r2_key": "female-assets/accessory/black_brush.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 27016
+    },
+    {
+      "asset_id": "meghna_female_accessory_black_powerbank",
+      "target_r2_key": "female-assets/accessory/black_powerbank.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 42814
+    },
+    {
+      "asset_id": "meghna_female_accessory_blackdrinkflask",
+      "target_r2_key": "female-assets/accessory/blackdrinkflask.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 114619
+    },
+    {
+      "asset_id": "meghna_female_accessory_blue_neck_pillow",
+      "target_r2_key": "female-assets/accessory/blue_neck_pillow.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 22308
+    },
+    {
+      "asset_id": "meghna_female_accessory_breathstips",
+      "target_r2_key": "female-assets/accessory/breathstips.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 16003
+    },
+    {
+      "asset_id": "meghna_female_accessory_c_type_charger",
+      "target_r2_key": "female-assets/accessory/c_type_charger.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 24675
+    },
+    {
+      "asset_id": "meghna_female_accessory_chewinggum",
+      "target_r2_key": "female-assets/accessory/chewinggum.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 78328
+    },
+    {
+      "asset_id": "meghna_female_accessory_documentholder",
+      "target_r2_key": "female-assets/accessory/documentholder.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 182233
+    },
+    {
+      "asset_id": "meghna_female_accessory_drinkflask",
+      "target_r2_key": "female-assets/accessory/drinkflask.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 41158
+    },
+    {
+      "asset_id": "meghna_female_accessory_dufflebag",
+      "target_r2_key": "female-assets/accessory/dufflebag.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 52900
+    },
+    {
+      "asset_id": "meghna_female_accessory_foldable_umberella",
+      "target_r2_key": "female-assets/accessory/foldable_umberella.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 25905
+    },
+    {
+      "asset_id": "meghna_female_accessory_hairclutch",
+      "target_r2_key": "female-assets/accessory/hairclutch.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 35267
+    },
+    {
+      "asset_id": "meghna_female_accessory_medicalkit",
+      "target_r2_key": "female-assets/accessory/medicalkit.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 67048
+    },
+    {
+      "asset_id": "meghna_female_accessory_mouthfreshener",
+      "target_r2_key": "female-assets/accessory/mouthfreshener.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 40491
+    },
+    {
+      "asset_id": "meghna_female_accessory_pink_foldable_umberella",
+      "target_r2_key": "female-assets/accessory/pink_foldable_umberella.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 29640
+    },
+    {
+      "asset_id": "meghna_female_accessory_pink_handfan",
+      "target_r2_key": "female-assets/accessory/pink_handfan.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 27198
+    },
+    {
+      "asset_id": "meghna_female_accessory_pink_neck_pillow",
+      "target_r2_key": "female-assets/accessory/pink_neck_pillow.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 23424
+    },
+    {
+      "asset_id": "meghna_female_accessory_pink_powerbank",
+      "target_r2_key": "female-assets/accessory/pink_powerbank.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 25248
+    },
+    {
+      "asset_id": "meghna_female_accessory_pink_scrunchie",
+      "target_r2_key": "female-assets/accessory/pink_scrunchie.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 32017
+    },
+    {
+      "asset_id": "meghna_female_accessory_pinkflask",
+      "target_r2_key": "female-assets/accessory/pinkflask.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 17379
+    },
+    {
+      "asset_id": "meghna_female_accessory_purple_foldable_umberella",
+      "target_r2_key": "female-assets/accessory/purple_foldable_umberella.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 60222
+    },
+    {
+      "asset_id": "meghna_female_accessory_purple_neck_pillow",
+      "target_r2_key": "female-assets/accessory/purple_neck_pillow.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 17854
+    },
+    {
+      "asset_id": "meghna_female_accessory_purpleflask",
+      "target_r2_key": "female-assets/accessory/purpleflask.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 23505
+    },
+    {
+      "asset_id": "meghna_female_accessory_tail_comb",
+      "target_r2_key": "female-assets/accessory/tail_comb.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 73543
+    },
+    {
+      "asset_id": "meghna_female_accessory_travelfileorganiser",
+      "target_r2_key": "female-assets/accessory/travelfileorganiser.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 36148
+    },
+    {
+      "asset_id": "meghna_female_accessory_travelweighingscale",
+      "target_r2_key": "female-assets/accessory/travelweighingscale.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 61483
+    },
+    {
+      "asset_id": "meghna_female_accessory_tumbler_white",
+      "target_r2_key": "female-assets/accessory/tumbler_white.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 15163
+    },
+    {
+      "asset_id": "meghna_female_accessory_white_headphones",
+      "target_r2_key": "female-assets/accessory/white_headphones.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 28808
+    },
+    {
+      "asset_id": "meghna_female_accessory_white_powerbank",
+      "target_r2_key": "female-assets/accessory/white_powerbank.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 54154
+    },
+    {
+      "asset_id": "meghna_female_accessory_wide_tooth_comb",
+      "target_r2_key": "female-assets/accessory/wide_tooth_comb.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 29044
+    },
+    {
+      "asset_id": "meghna_female_accessory_wireless_earphones",
+      "target_r2_key": "female-assets/accessory/wireless_earphones.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 15016
+    },
+    {
+      "asset_id": "meghna_female_accessory_blue_beanie",
+      "target_r2_key": "female-assets/accessory/blue_beanie.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 150000
+    },
+    {
+      "asset_id": "meghna_female_accessory_ear_covers",
+      "target_r2_key": "female-assets/accessory/ear_covers.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 96746
+    },
+    {
+      "asset_id": "meghna_female_accessory_pink_beanie",
+      "target_r2_key": "female-assets/accessory/pink_beanie.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 111932
+    },
+    {
+      "asset_id": "meghna_female_accessory_pink_snow_gloves",
+      "target_r2_key": "female-assets/accessory/pink_snow_gloves.jpg",
+      "needs_conversion": false,
+      "status": "uploaded",
+      "error": "",
+      "bytes": 106741
+    }
+  ]
+}

@@ -1,0 +1,530 @@
+asset_id,name,missing_colors,missing_occasions,missing_archetype,invalid_gender,invalid_category,priority_score
+hm_mens_sleepwear_e62a891243,H&M Mens Loungewear Set 10,1,1,1,0,1,8
+hm_mens_sleepwear_14c2efc948,H&M Mens Loungewear Set 09,1,1,1,0,1,8
+hm_mens_sleepwear_a687615964,H&M Mens Loungewear Set 08,1,1,1,0,1,8
+hm_mens_sleepwear_adceaf5f33,H&M Mens Loungewear Set 07,1,1,1,0,1,8
+hm_mens_sleepwear_99afb3974b,H&M Mens Loungewear Set 06,1,1,1,0,1,8
+hm_mens_sleepwear_9a2be2043b,H&M Mens Loungewear Set 05,1,1,1,0,1,8
+hm_mens_sleepwear_b3182d5a4e,H&M Mens Loungewear Set 04,1,1,1,0,1,8
+hm_mens_sleepwear_90ce898625,H&M Mens Loungewear Set 03,1,1,1,0,1,8
+hm_mens_sleepwear_414828509a,H&M Mens Loungewear Set 02,1,1,1,0,1,8
+hm_mens_sleepwear_2482666a7f,H&M Mens Loungewear Set 01,1,1,1,0,1,8
+mens_assets_travel_wireless_earphones,Mens Wireless Earphones,1,0,0,0,1,5
+mens_assets_travel_wide_tooth_comb,Mens Wide Tooth Comb,1,0,0,0,1,5
+mens_assets_travel_travelweighingscale,Mens Travelweighingscale,1,0,0,0,1,5
+mens_assets_travel_tail_comb,Mens Tail Comb,1,0,0,0,1,5
+mens_assets_travel_suitcase,Mens Suitcase,1,0,0,0,1,5
+mens_assets_travel_mouthfreshener,Mens Mouthfreshener,1,0,0,0,1,5
+mens_assets_travel_medicalkit,Mens Medicalkit,1,0,0,0,1,5
+mens_assets_travel_handfan,Mens Handfan,1,0,0,0,1,5
+mens_assets_travel_foldable_umberella,Mens Foldable Umberella,1,0,0,0,1,5
+mens_assets_travel_face_mask,Mens Face Mask,1,0,0,0,1,5
+mens_assets_travel_documentholder,Mens Documentholder,1,0,0,0,1,5
+mens_assets_travel_chewinggum,Mens Chewinggum,1,0,0,0,1,5
+mens_assets_travel_carry_on,Mens Carry On,1,0,0,0,1,5
+mens_assets_travel_c_type_charger,Mens C Type Charger,1,0,0,0,1,5
+mens_assets_travel_breathstips,Mens Breathstips,1,0,0,0,1,5
+mens_assets_travel_airpods,Mens Airpods,1,0,0,0,1,5
+mens_assets_skincare_toothpaste,Mens Toothpaste,1,0,0,0,1,5
+mens_assets_skincare_rollon,Mens Rollon,1,0,0,0,1,5
+mens_assets_skincare_retinol,Mens Retinol,1,0,0,0,1,5
+mens_assets_skincare_perfume,Mens Perfume,1,0,0,0,1,5
+mens_assets_skincare_lipbalm,Mens Lipbalm,1,0,0,0,1,5
+mens_assets_skincare_grooming_kit,Mens Grooming Kit,1,0,0,0,1,5
+mens_assets_skincare_facewash,Mens Facewash,1,0,0,0,1,5
+mens_assets_skincare_facemask,Mens Facemask,1,0,0,0,1,5
+test_asset,Test Asset,1,1,1,0,0,5
+hm_mens_hat_df7b713548,H&M Mens Hat 07,1,1,1,0,0,5
+hm_mens_hat_d0505d1ab2,H&M Mens Hat 06,1,1,1,0,0,5
+hm_mens_hat_5982bab127,H&M Mens Hat 05,1,1,1,0,0,5
+hm_mens_hat_9507cf79d0,H&M Mens Hat 04,1,1,1,0,0,5
+hm_mens_hat_1a837158d1,H&M Mens Hat 03,1,1,1,0,0,5
+hm_mens_hat_af19a5a88f,H&M Mens Hat 02,1,1,1,0,0,5
+hm_mens_hat_3829ce1c21,H&M Mens Hat 01,1,1,1,0,0,5
+hm_mens_belt_cb45e3c87f,H&M Mens Leather Belt 06,1,1,1,0,0,5
+hm_mens_belt_eefc689ab3,H&M Mens Leather Belt 05,1,1,1,0,0,5
+hm_mens_belt_7adfecea70,H&M Mens Leather Belt 04,1,1,1,0,0,5
+hm_mens_belt_7ce9e46236,H&M Mens Leather Belt 03,1,1,1,0,0,5
+hm_mens_belt_ec99e08bc9,H&M Mens Leather Belt 02,1,1,1,0,0,5
+hm_mens_belt_af596d4e0a,H&M Mens Leather Belt 01,1,1,1,0,0,5
+hm_mens_sunglasses_03ceffef77,H&M Mens Sunglasses 08,1,1,1,0,0,5
+hm_mens_sunglasses_382429e0c2,H&M Mens Sunglasses 07,1,1,1,0,0,5
+hm_mens_sunglasses_88e2f41acf,H&M Mens Sunglasses 06,1,1,1,0,0,5
+hm_mens_sunglasses_e85aa89e0f,H&M Mens Sunglasses 05,1,1,1,0,0,5
+hm_mens_sunglasses_8633ae9d45,H&M Mens Sunglasses 04,1,1,1,0,0,5
+hm_mens_sunglasses_44390b4919,H&M Mens Sunglasses 03,1,1,1,0,0,5
+hm_mens_sunglasses_224034a705,H&M Mens Sunglasses 02,1,1,1,0,0,5
+hm_mens_sunglasses_ee026ca38f,H&M Mens Sunglasses 01,1,1,1,0,0,5
+hm_mens_ring_867529207a,H&M Mens Ring 07,1,1,1,0,0,5
+hm_mens_ring_de5d518cec,H&M Mens Ring 06,1,1,1,0,0,5
+hm_mens_ring_9e5600452d,H&M Mens Ring 05,1,1,1,0,0,5
+hm_mens_ring_3ad5f5775f,H&M Mens Ring 04,1,1,1,0,0,5
+hm_mens_ring_6c9357137b,H&M Mens Ring 03,1,1,1,0,0,5
+hm_mens_ring_6d11b170c4,H&M Mens Ring 02,1,1,1,0,0,5
+hm_mens_ring_0f094fcd9f,H&M Mens Ring 01,1,1,1,0,0,5
+hm_mens_necklace_a6604b6d9c,H&M Mens Necklace 08,1,1,1,0,0,5
+hm_mens_necklace_b56e65d24d,H&M Mens Necklace 07,1,1,1,0,0,5
+hm_mens_necklace_8d53f5ce2a,H&M Mens Necklace 06,1,1,1,0,0,5
+hm_mens_necklace_741b0af9ad,H&M Mens Necklace 05,1,1,1,0,0,5
+hm_mens_necklace_807c617755,H&M Mens Necklace 04,1,1,1,0,0,5
+hm_mens_necklace_f7dc290b92,H&M Mens Necklace 03,1,1,1,0,0,5
+hm_mens_necklace_849dae51c7,H&M Mens Necklace 02,1,1,1,0,0,5
+hm_mens_necklace_7bb21b4f03,H&M Mens Necklace 01,1,1,1,0,0,5
+hm_mens_bracelet_93fa2c883b,H&M Mens Bracelet 06,1,1,1,0,0,5
+hm_mens_bracelet_e88929269b,H&M Mens Bracelet 05,1,1,1,0,0,5
+hm_mens_bracelet_0bbf0cc60e,H&M Mens Bracelet 04,1,1,1,0,0,5
+hm_mens_bracelet_9f6bd67a2c,H&M Mens Bracelet 03,1,1,1,0,0,5
+hm_mens_bracelet_b9ed3986d6,H&M Mens Bracelet 02,1,1,1,0,0,5
+hm_mens_bracelet_618af0db9f,H&M Mens Bracelet 01,1,1,1,0,0,5
+hm_mens_flip_flops_c958dc1fb6,H&M Mens Flip Flops 05,1,1,1,0,0,5
+hm_mens_flip_flops_cf7d0d819c,H&M Mens Flip Flops 04,1,1,1,0,0,5
+hm_mens_flip_flops_d94ceff338,H&M Mens Flip Flops 03,1,1,1,0,0,5
+hm_mens_flip_flops_5e00b50314,H&M Mens Flip Flops 02,1,1,1,0,0,5
+hm_mens_flip_flops_8b1a8cb27e,H&M Mens Flip Flops 01,1,1,1,0,0,5
+hm_mens_shoes_992c4ab465,H&M Mens Suede Boots 10,1,1,1,0,0,5
+hm_mens_shoes_791fd95699,H&M Mens Slip-On Sneakers 09,1,1,1,0,0,5
+hm_mens_shoes_efe358d220,H&M Mens Lace-Up Boots 08,1,1,1,0,0,5
+hm_mens_shoes_e489e2f69a,H&M Mens Casual Loafers 07,1,1,1,0,0,5
+hm_mens_shoes_72fa933d73,H&M Mens Clean Sneakers 06,1,1,1,0,0,5
+hm_mens_shoes_684ecc9453,H&M Mens Suede Boots 05,1,1,1,0,0,5
+hm_mens_shoes_92571b53c3,H&M Mens Slip-On Sneakers 04,1,1,1,0,0,5
+hm_mens_shoes_54894bae24,H&M Mens Lace-Up Boots 03,1,1,1,0,0,5
+hm_mens_shoes_25b7e81968,H&M Mens Casual Loafers 02,1,1,1,0,0,5
+hm_mens_shoes_0145395ed2,H&M Mens Clean Sneakers 01,1,1,1,0,0,5
+hm_mens_hoodie_sweatshirt_959d3f283a,H&M Mens Oversized Hoodie 10,1,1,1,0,0,5
+hm_mens_hoodie_sweatshirt_b4c93e2e32,H&M Mens Pullover Sweatshirt 09,1,1,1,0,0,5
+hm_mens_hoodie_sweatshirt_068ca836ab,H&M Mens Zip Hoodie 08,1,1,1,0,0,5
+hm_mens_hoodie_sweatshirt_85397d4e88,H&M Mens Crew Sweatshirt 07,1,1,1,0,0,5
+hm_mens_hoodie_sweatshirt_1a8c0caafa,H&M Mens Essential Hoodie 06,1,1,1,0,0,5
+hm_mens_hoodie_sweatshirt_9e4a6a1b81,H&M Mens Oversized Hoodie 05,1,1,1,0,0,5
+hm_mens_hoodie_sweatshirt_72a8ec2d1a,H&M Mens Pullover Sweatshirt 04,1,1,1,0,0,5
+hm_mens_hoodie_sweatshirt_b28f7a8d6b,H&M Mens Zip Hoodie 03,1,1,1,0,0,5
+hm_mens_hoodie_sweatshirt_51da325845,H&M Mens Crew Sweatshirt 02,1,1,1,0,0,5
+hm_mens_hoodie_sweatshirt_359477b5a3,H&M Mens Essential Hoodie 01,1,1,1,0,0,5
+hm_mens_jacket_333fb1012a,H&M Mens Overshirt 09,1,1,1,0,0,5
+hm_mens_jacket_9a82707289,H&M Mens Bomber Jacket 08,1,1,1,0,0,5
+hm_mens_jacket_0a76fdcb45,H&M Mens Utility Jacket 07,1,1,1,0,0,5
+hm_mens_jacket_ef23870578,H&M Mens Lightweight Jacket 06,1,1,1,0,0,5
+hm_mens_jacket_1340cdbe76,H&M Mens Denim Jacket 05,1,1,1,0,0,5
+hm_mens_jacket_b8026b1fb4,H&M Mens Overshirt 04,1,1,1,0,0,5
+hm_mens_jacket_2691ea0804,H&M Mens Bomber Jacket 03,1,1,1,0,0,5
+hm_mens_jacket_1605c6500f,H&M Mens Utility Jacket 02,1,1,1,0,0,5
+hm_mens_jacket_05ceb4c17b,H&M Mens Lightweight Jacket 01,1,1,1,0,0,5
+hm_mens_shorts_e39fb90f95,H&M Mens Drawstring Shorts 09,1,1,1,0,0,5
+hm_mens_shorts_c640aa68c9,H&M Mens Chino Shorts 08,1,1,1,0,0,5
+hm_mens_shorts_0c0ba25252,H&M Mens Cargo Shorts 07,1,1,1,0,0,5
+hm_mens_shorts_3cd5d4b9f5,H&M Mens Linen Shorts 06,1,1,1,0,0,5
+hm_mens_shorts_07cbdb673e,H&M Mens Drawstring Shorts 04,1,1,1,0,0,5
+hm_mens_shorts_573ce60e90,H&M Mens Chino Shorts 03,1,1,1,0,0,5
+hm_mens_shorts_0002cdb7fa,H&M Mens Cargo Shorts 02,1,1,1,0,0,5
+hm_mens_shorts_f85a963fd0,H&M Mens Linen Shorts 01,1,1,1,0,0,5
+hm_mens_jeans_ba74a6e262,H&M Mens Light Wash Jeans 10,1,1,1,0,0,5
+hm_mens_jeans_8f8ce99db5,H&M Mens Slim Jeans 08,1,1,1,0,0,5
+hm_mens_jeans_19b8fbf6b0,H&M Mens Straight Jeans 07,1,1,1,0,0,5
+hm_mens_jeans_c9300fa8b8,H&M Mens Dark Wash Jeans 06,1,1,1,0,0,5
+hm_mens_jeans_63acd15b01,H&M Mens Light Wash Jeans 05,1,1,1,0,0,5
+hm_mens_jeans_e7e7b878b8,H&M Mens Slim Jeans 03,1,1,1,0,0,5
+hm_mens_jeans_4ab6550018,H&M Mens Straight Jeans 02,1,1,1,0,0,5
+hm_mens_jeans_53f59a62af,H&M Mens Dark Wash Jeans 01,1,1,1,0,0,5
+hm_mens_shirt_4c9809cf19,H&M Mens Relaxed Shirt 12,1,1,1,0,0,5
+hm_mens_shirt_08f08c9cc3,H&M Mens Oxford Shirt 11,1,1,1,0,0,5
+hm_mens_shirt_d24b6998eb,H&M Mens Poplin Shirt 10,1,1,1,0,0,5
+hm_mens_shirt_2e3963dcdd,H&M Mens Linen Shirt 09,1,1,1,0,0,5
+hm_mens_shirt_323d6b934e,H&M Mens Casual Shirt 08,1,1,1,0,0,5
+hm_mens_shirt_f5c5337c41,H&M Mens Relaxed Shirt 07,1,1,1,0,0,5
+hm_mens_shirt_7778ddd252,H&M Mens Oxford Shirt 06,1,1,1,0,0,5
+hm_mens_shirt_1e0c52d10b,H&M Mens Poplin Shirt 05,1,1,1,0,0,5
+hm_mens_shirt_b4e8237be4,H&M Mens Linen Shirt 04,1,1,1,0,0,5
+hm_mens_shirt_a012febfa4,H&M Mens Casual Shirt 03,1,1,1,0,0,5
+hm_mens_shirt_b4dfba8f21,H&M Mens Relaxed Shirt 02,1,1,1,0,0,5
+hm_mens_shirt_78e1c6836a,H&M Mens Oxford Shirt 01,1,1,1,0,0,5
+hm_mens_t_shirt_099cb3c78c,H&M Mens Slim Fit T-Shirt 10,1,1,1,0,0,5
+hm_mens_t_shirt_d7d04de614,H&M Mens Pocket T-Shirt 09,1,1,1,0,0,5
+hm_mens_t_shirt_59cf222a29,H&M Mens Relaxed T-Shirt 08,1,1,1,0,0,5
+hm_mens_t_shirt_22945aa8c1,H&M Mens Crew T-Shirt 07,1,1,1,0,0,5
+hm_mens_t_shirt_1de2423bdb,H&M Mens Essential T-Shirt 06,1,1,1,0,0,5
+hm_mens_t_shirt_8f084e26e5,H&M Mens Slim Fit T-Shirt 05,1,1,1,0,0,5
+hm_mens_t_shirt_98bd01d97f,H&M Mens Pocket T-Shirt 04,1,1,1,0,0,5
+hm_mens_t_shirt_97bf61b8ba,H&M Mens Relaxed T-Shirt 03,1,1,1,0,0,5
+hm_mens_t_shirt_2af82d8ff6,H&M Mens Crew T-Shirt 02,1,1,1,0,0,5
+hm_mens_t_shirt_e5be53d1c4,H&M Mens Essential T-Shirt 01,1,1,1,0,0,5
+meghna_female_accessory_travelweighingscale,Travelweighingscale,1,0,1,0,0,3
+meghna_female_accessory_travelfileorganiser,Travelfileorganiser,1,0,1,0,0,3
+meghna_female_accessory_mouthfreshener,Mouthfreshener,1,0,1,0,0,3
+meghna_female_accessory_medicalkit,Medicalkit,1,0,1,0,0,3
+meghna_female_accessory_hairclutch,Hairclutch,1,0,1,0,0,3
+meghna_female_accessory_foldable_umberella,Foldable Umberella,1,0,1,0,0,3
+meghna_female_accessory_dufflebag,Dufflebag,1,0,1,0,0,3
+meghna_female_accessory_drinkflask,Drinkflask,1,0,1,0,0,3
+meghna_female_accessory_documentholder,Documentholder,1,0,1,0,0,3
+meghna_female_accessory_chewinggum,Chewinggum,1,0,1,0,0,3
+meghna_female_accessory_breathstips,Breathstips,1,0,1,0,0,3
+meghna_female_accessory_backpack,Backpack,1,0,1,0,0,3
+meghna_female_accessory_airpods,Airpods,1,0,1,0,0,3
+meghna_female_top_lightblueshirt,Lightblueshirt,1,0,1,0,0,3
+meghna_female_top_floral_top,Floral Top,1,0,1,0,0,3
+meghna_female_accessory_walletdinor,Walletdinor,1,0,1,0,0,3
+meghna_female_accessory_puffyhairband,Puffyhairband,1,0,1,0,0,3
+meghna_female_outerwear_polka_dot_puffer_jacket,Polka Dot Puffer Jacket,1,0,1,0,0,3
+meghna_female_accessory_travel_containers,Travel Containers,1,0,1,0,0,3
+meghna_female_accessory_hair_straightener,Hair Straightener,1,0,1,0,0,3
+meghna_female_accessory_hair_dryer,Hair Dryer,1,0,1,0,0,3
+meghna_female_footwear_kohlapuriwedge,Kohlapuriwedge,1,0,1,0,0,3
+meghna_female_footwear_conversesneakers,Conversesneakers,1,0,1,0,0,3
+meghna_female_footwear_blckboots,Blckboots,1,0,1,0,0,3
+meghna_female_dress_taupe_knit_dress,Taupe Knit Dress,1,0,1,0,0,3
+meghna_female_dress_stripesboatneckmidi,Stripesboatneckmidi,1,0,1,0,0,3
+meghna_female_dress_polkadotwhiteboatneckminidress,Polkadotwhiteboatneckminidress,1,0,1,0,0,3
+meghna_female_dress_offshouldershirtdressblueandblack,Offshouldershirtdressblueandblack,1,0,1,0,0,3
+meghna_female_dress_offshoulderdressminiblackandgrey,Offshoulderdressminiblackandgrey,1,0,1,0,0,3
+meghna_female_dress_offshouldercreammididress,Offshouldercreammididress,1,0,1,0,0,3
+meghna_female_dress_multicolour_boho_maxi_dress,Multicolour Boho Maxi Dress,1,0,1,0,0,3
+meghna_female_dress_lightblueboatneckmididress,Lightblueboatneckmididress,1,0,1,0,0,3
+meghna_female_dress_florallayeredgreencreamdress,Florallayeredgreencreamdress,1,0,1,0,0,3
+meghna_female_dress_floral_midi_dress,Floral Midi Dress,1,0,1,0,0,3
+meghna_female_dress_denimsweetheartneckdress,Denimsweetheartneckdress,1,0,1,0,0,3
+meghna_female_dress_denim_dress,Denim Dress,1,0,1,0,0,3
+meghna_female_dress_crochet_colorful_dress,Crochet Colorful Dress,1,0,1,0,0,3
+meghna_female_dress_colared_short_dress,Colared Short Dress,1,0,1,0,0,3
+meghna_female_dress_barbiepinkboatneckdress,Barbiepinkboatneckdress,1,0,1,0,0,3
+meghna_female_bottom_medium_denim_shorts_high_waisted,Medium Denim Shorts High Waisted,1,0,1,0,0,3
+meghna_female_accessory_leather_fringe_pants,Leather Fringe Pants,1,0,1,0,0,3
+meghna_female_bottom_denim_skirt_short,Denim Skirt Short,1,0,1,0,0,3
+hm_mens_jeans_c2ebc96841,H&M Mens Tapered Jeans 04,0,1,1,0,0,3
+hm_mens_jeans_f7ecbf4cc2,H&M Mens Tapered Jeans 09,0,1,1,0,0,3
+hm_mens_shorts_1f809fc5c9,H&M Mens Tailored Shorts 05,0,1,1,0,0,3
+hm_mens_shorts_412b16e870,H&M Mens Tailored Shorts 10,0,1,1,0,0,3
+mens_assets_travel_white_powerbank,Mens White Powerbank,0,0,0,0,1,3
+mens_assets_travel_blue_neck_pillow,Mens Blue Neck Pillow,0,0,0,0,1,3
+mens_assets_travel_blacktumbler,Mens Blacktumbler,0,0,0,0,1,3
+mens_assets_travel_black_powerbank,Mens Black Powerbank,0,0,0,0,1,3
+mens_assets_travel_black_brush,Mens Black Brush,0,0,0,0,1,3
+meghna_female_ethnic_offshoulderblousebluesaree,Offshoulderblousebluesaree,1,0,0,0,0,2
+meghna_female_ethnic_laender_pastel_saree,Laender Pastel Saree,1,0,0,0,0,2
+meghna_female_ethnic_chiliredsleevelesslehenga,Chiliredsleevelesslehenga,1,0,0,0,0,2
+meghna_female_dress_pastelpinkgown,Pastelpinkgown,1,0,0,0,0,2
+meghna_female_bottom_acid_wash_jeans,Acid Wash Jeans,1,0,0,0,0,2
+mens_assets_tops_burgendystripeshirt,Mens Burgendystripeshirt,1,0,0,0,0,2
+mens_assets_tops_burgendyhalfhandsshirt,Mens Burgendyhalfhandsshirt,1,0,0,0,0,2
+mens_assets_outerwear_waistcoat,Mens Waistcoat,1,0,0,0,0,2
+mens_assets_outerwear_trenchcoat,Mens Trenchcoat,1,0,0,0,0,2
+mens_assets_outerwear_scarf,Mens Scarf,1,0,0,0,0,2
+mens_assets_outerwear_baseballjacket,Mens Baseballjacket,1,0,0,0,0,2
+mens_assets_jewellery_beadedbracelet,Mens Beadedbracelet,1,0,0,0,0,2
+mens_assets_indian_ocassion_set_bandhgalaset,Mens Bandhgalaset,1,0,0,0,0,2
+mens_assets_footwear_birkinstocksandal,Mens Birkinstocksandal,1,0,0,0,0,2
+mens_assets_bottoms_brwonjeans,Mens Brwonjeans,1,0,0,0,0,2
+mens_assets_bags_menswallet,Mens Menswallet,1,0,0,0,0,2
+mens_assets_bags_laptopbag,Mens Laptopbag,1,0,0,0,0,2
+mens_assets_bags_cardcase,Mens Cardcase,1,0,0,0,0,2
+meghna_female_accessory_pink_beanie,Pink Beanie,0,0,1,0,0,1
+meghna_female_accessory_blue_beanie,Blue Beanie,0,0,1,0,0,1
+meghna_female_accessory_tumbler_white,Tumbler White,0,0,1,0,0,1
+meghna_female_accessory_purpleflask,Purpleflask,0,0,1,0,0,1
+meghna_female_accessory_purple_foldable_umberella,Purple Foldable Umberella,0,0,1,0,0,1
+meghna_female_accessory_pinkflask,Pinkflask,0,0,1,0,0,1
+meghna_female_accessory_pink_scrunchie,Pink Scrunchie,0,0,1,0,0,1
+meghna_female_accessory_pink_handfan,Pink Handfan,0,0,1,0,0,1
+meghna_female_accessory_pink_foldable_umberella,Pink Foldable Umberella,0,0,1,0,0,1
+meghna_female_accessory_blackdrinkflask,Blackdrinkflask,0,0,1,0,0,1
+meghna_female_accessory_black_brush,Black Brush,0,0,1,0,0,1
+meghna_female_top_whitetop,Whitetop,0,0,1,0,0,1
+meghna_female_top_whitetank,Whitetank,0,0,1,0,0,1
+meghna_female_top_whiteshirt,Whiteshirt,0,0,1,0,0,1
+meghna_female_top_whitecrewneck,Whitecrewneck,0,0,1,0,0,1
+meghna_female_top_white_spagetti_strap_top,White Spagetti Strap Top,0,0,1,0,0,1
+meghna_female_top_white_bow_top,White Bow Top,0,0,1,0,0,1
+meghna_female_accessory_silver_fringe_top,Silver Fringe Top,0,0,1,0,0,1
+meghna_female_top_orangetop,Orangetop,0,0,1,0,0,1
+meghna_female_top_orange_tshirt,Orange Tshirt,0,0,1,0,0,1
+meghna_female_top_light_pink_tshirt,Light Pink Tshirt,0,0,1,0,0,1
+meghna_female_top_light_pink_swquin_top_sleeveless,Light Pink Swquin Top Sleeveless,0,0,1,0,0,1
+meghna_female_top_light_pink_off_shoulder_top,Light Pink Off Shoulder Top,0,0,1,0,0,1
+meghna_female_top_light_blue_gingem_one_shoulder_top,Light Blue Gingem One Shoulder Top,0,0,1,0,0,1
+meghna_female_top_leather_black_top,Leather Black Top,0,0,1,0,0,1
+meghna_female_top_greyfineknittop,Greyfineknittop,0,0,1,0,0,1
+meghna_female_top_gingem_blue_spagetti_strap_top,Gingem Blue Spagetti Strap Top,0,0,1,0,0,1
+meghna_female_top_electric_blue_tshirt,Electric Blue Tshirt,0,0,1,0,0,1
+meghna_female_top_dark_blue_tshirt,Dark Blue Tshirt,0,0,1,0,0,1
+meghna_female_top_creamtank,Creamtank,0,0,1,0,0,1
+meghna_female_top_creamknittop,Creamknittop,0,0,1,0,0,1
+meghna_female_top_creamcrewneck,Creamcrewneck,0,0,1,0,0,1
+meghna_female_top_cream_top,Cream Top,0,0,1,0,0,1
+meghna_female_top_burnt_red_sports_vest_top,Burnt Red Sports Vest Top,0,0,1,0,0,1
+meghna_female_top_browntop,Browntop,0,0,1,0,0,1
+meghna_female_top_brown_sports_vest_top,Brown Sports Vest Top,0,0,1,0,0,1
+meghna_female_top_blacktop,Blacktop,0,0,1,0,0,1
+meghna_female_top_black_sequin_top,Black Sequin Top,0,0,1,0,0,1
+meghna_female_accessory_black_fringe_leather_top,Black Fringe Leather Top,0,0,1,0,0,1
+meghna_female_top_black_bandau_top,Black Bandau Top,0,0,1,0,0,1
+meghna_female_top_black_and_white_stripe_tshirt,Black And White Stripe Tshirt,0,0,1,0,0,1
+meghna_female_accessory_brown_sunglasses,Brown Sunglasses,0,0,1,0,0,1
+meghna_female_accessory_brown_cat_eye_sunglasses,Brown Cat Eye Sunglasses,0,0,1,0,0,1
+meghna_female_outerwear_white_and_black_polka_dot_jacket,White And Black Polka Dot Jacket,0,0,1,0,0,1
+meghna_female_outerwear_tan_suede_jacket,Tan Suede Jacket,0,0,1,0,0,1
+meghna_female_outerwear_medium_blue_denim_jacket,Medium Blue Denim Jacket,0,0,1,0,0,1
+meghna_female_outerwear_light_blue_denim_jacket,Light Blue Denim Jacket,0,0,1,0,0,1
+meghna_female_outerwear_fur_coat_brown,Fur Coat Brown,0,0,1,0,0,1
+meghna_female_outerwear_dark_blue_denim_jacket,Dark Blue Denim Jacket,0,0,1,0,0,1
+meghna_female_outerwear_brown_suede_biker_jacket,Brown Suede Biker Jacket,0,0,1,0,0,1
+meghna_female_outerwear_black_trench_coat,Black Trench Coat,0,0,1,0,0,1
+meghna_female_outerwear_black_leat_2,Black Leather Jacket,0,0,1,0,0,1
+meghna_female_outerwear_black_leather_biker_jacket,Black Leather Biker Jacket,0,0,1,0,0,1
+meghna_female_outerwear_beige_fur_coat,Beige Fur Coat,0,0,1,0,0,1
+meghna_female_top_yellowmirrorworkspagettistraptop,Yellowmirrorworkspagettistraptop,0,0,1,0,0,1
+meghna_female_accessory_black_and_white_rings,Black And White Rings,0,0,1,0,0,1
+meghna_female_accessory_cream_hat,Cream Hat,0,0,1,0,0,1
+meghna_female_accessory_burgundy_straw_hat,Burgundy Straw Hat,0,0,1,0,0,1
+meghna_female_accessory_brown_cap,Brown Cap,0,0,1,0,0,1
+meghna_female_accessory_purple_packing_cubes,Purple Packing Cubes,0,0,1,0,0,1
+meghna_female_accessory_pink_travel_carry_on,Pink Travel Carry On,0,0,1,0,0,1
+meghna_female_accessory_pink_packing_cubes,Pink Packing Cubes,0,0,1,0,0,1
+meghna_female_accessory_pink_cosmetic_bag,Pink Cosmetic Bag,0,0,1,0,0,1
+meghna_female_accessory_black_tic_tac_clips,Black Tic Tac Clips,0,0,1,0,0,1
+meghna_female_accessory_black_scrunchie,Black Scrunchie,0,0,1,0,0,1
+meghna_female_accessory_black_clip,Black Clip,0,0,1,0,0,1
+meghna_female_accessory_black_bobbie_pins,Black Bobbie Pins,0,0,1,0,0,1
+meghna_female_dress_red_faux_fur_dress,Red Faux Fur Dress,0,0,1,0,0,1
+meghna_female_footwear_whiteflipflop,Whiteflipflop,0,0,1,0,0,1
+meghna_female_footwear_white_sneaker,White Sneaker,0,0,1,0,0,1
+meghna_female_footwear_tan_flats,Tan Flats,0,0,1,0,0,1
+meghna_female_footwear_goldflatsandal,Goldflatsandal,0,0,1,0,0,1
+meghna_female_footwear_brownboots,Brownboots,0,0,1,0,0,1
+meghna_female_footwear_brownbirkinstock,Brownbirkinstock,0,0,1,0,0,1
+meghna_female_footwear_blackrainboot,Blackrainboot,0,0,1,0,0,1
+meghna_female_footwear_blacknikerunningshoe,Blacknikerunningshoe,0,0,1,0,0,1
+meghna_female_footwear_black_flip_flops,Black Flip Flops,0,0,1,0,0,1
+meghna_female_footwear_black_flat_sandals,Black Flat Sandals,0,0,1,0,0,1
+meghna_female_dress_yellowsweetheartcorsetdress,Yellowsweetheartcorsetdress,0,0,1,0,0,1
+meghna_female_dress_yellowboatneckmidi,Yellowboatneckmidi,0,0,1,0,0,1
+meghna_female_dress_yellow_midi_dress,Yellow Midi Dress,0,0,1,0,0,1
+meghna_female_dress_whitespagettistrappscalloplayerdress,Whitespagettistrappscalloplayerdress,0,0,1,0,0,1
+meghna_female_dress_whiteboatneckmidi,Whiteboatneckmidi,0,0,1,0,0,1
+meghna_female_dress_strapless_dress_pink_tie_die,Strapless Dress Pink Tie Die,0,0,1,0,0,1
+meghna_female_dress_silver_shimmer_midi_dress,Silver Shimmer Midi Dress,0,0,1,0,0,1
+meghna_female_dress_redginghamvneckshortdress,Redginghamvneckshortdress,0,0,1,0,0,1
+meghna_female_dress_redginghamsweetheartshortdress,Redginghamsweetheartshortdress,0,0,1,0,0,1
+meghna_female_dress_red_corset_strapless_faux_fur_midi_dress,Red Corset Strapless Faux Fur Midi Dress,0,0,1,0,0,1
+meghna_female_dress_purpleboatneckmidi,Purpleboatneckmidi,0,0,1,0,0,1
+meghna_female_dress_pink_floral_short_dress,Pink Floral Short Dress,0,0,1,0,0,1
+meghna_female_dress_orangegoldbutterflyminidress,Orangegoldbutterflyminidress,0,0,1,0,0,1
+meghna_female_dress_maroonboatneck_2,Maroonboatneckmini,0,0,1,0,0,1
+meghna_female_dress_maroonboatneckmidi,Maroonboatneckmidi,0,0,1,0,0,1
+meghna_female_dress_light_blue_denim_midi_dress,Light Blue Denim Midi Dress,0,0,1,0,0,1
+meghna_female_dress_dark_blue_midi_dress,Dark Blue Midi Dress,0,0,1,0,0,1
+meghna_female_dress_cream_midi_dress,Cream Midi Dress,0,0,1,0,0,1
+meghna_female_dress_cream_knit_midi_dress_with_collar,Cream Knit Midi Dress With Collar,0,0,1,0,0,1
+meghna_female_dress_cream_column_dress,Cream Column Dress,0,0,1,0,0,1
+meghna_female_dress_brown_short_dress,Brown Short Dress,0,0,1,0,0,1
+meghna_female_dress_blueboatneckhalfsleevedress,Blueboatneckhalfsleevedress,0,0,1,0,0,1
+meghna_female_dress_blue_short_dress,Blue Short Dress,0,0,1,0,0,1
+meghna_female_dress_blue_instripe_shirt_dress,Blue Instripe Shirt Dress,0,0,1,0,0,1
+meghna_female_dress_blue_and_brown_stripes_crochet_dress,Blue And Brown Stripes Crochet Dress,0,0,1,0,0,1
+meghna_female_dress_blackboatneckmini,Blackboatneckmini,0,0,1,0,0,1
+meghna_female_dress_blackboatneckmidi,Blackboatneckmidi,0,0,1,0,0,1
+meghna_female_dress_blackandwhiteboatneckmini,Blackandwhiteboatneckmini,0,0,1,0,0,1
+meghna_female_dress_black_minimal_midi_dress,Black Minimal Midi Dress,0,0,1,0,0,1
+meghna_female_dress_black_and_white_polka_dot_dress,Black And White Polka Dot Dress,0,0,1,0,0,1
+meghna_female_dress_baby_blue_midi_dress,Baby Blue Midi Dress,0,0,1,0,0,1
+meghna_female_bottom_yellow_pleated_midi_skirt,Yellow Pleated Midi Skirt,0,0,1,0,0,1
+meghna_female_bottom_straight_blue_jean,Straight Blue Jean,0,0,1,0,0,1
+meghna_female_bottom_red_pleated_maxi_skirt,Red Pleated Maxi Skirt,0,0,1,0,0,1
+meghna_female_accessory_red_high_waisted_belted_pants,Red High Waisted Belted Pants,0,0,1,0,0,1
+meghna_female_bottom_pink_block_print_maxi_skirt,Pink Block Print Maxi Skirt,0,0,1,0,0,1
+meghna_female_bottom_navy_blue_denim_shorts_high_waisted,Navy Blue Denim Shorts High Waisted,0,0,1,0,0,1
+meghna_female_bottom_ecru_jean,Ecru Jean,0,0,1,0,0,1
+meghna_female_bottom_dark_blue_denim_skirt_knee_length,Dark Blue Denim Skirt Knee Length,0,0,1,0,0,1
+meghna_female_bottom_cream_midi_skirt_with_slit,Cream Midi Skirt With Slit,0,0,1,0,0,1
+meghna_female_bottom_cream_cycling_shorts,Cream Cycling Shorts,0,0,1,0,0,1
+meghna_female_bottom_burnt_red_cycling_shorts,Burnt Red Cycling Shorts,0,0,1,0,0,1
+meghna_female_bottom_brown_skirt,Brown Skirt,0,0,1,0,0,1
+meghna_female_bottom_brown_cycling_shorts,Brown Cycling Shorts,0,0,1,0,0,1
+meghna_female_bottom_blue_ginghem_middi_skirt,Blue Ginghem Middi Skirt,0,0,1,0,0,1
+meghna_female_bottom_blue_floral_maxi_skirt,Blue Floral Maxi Skirt,0,0,1,0,0,1
+meghna_female_bottom_blue_denim_maxi_skirt,Blue Denim Maxi Skirt,0,0,1,0,0,1
+meghna_female_bottom_blue_block_print_maxi_skirt,Blue Block Print Maxi Skirt,0,0,1,0,0,1
+meghna_female_bottom_black_midi_skirt,Black Midi Skirt,0,0,1,0,0,1
+meghna_female_accessory_black_leather_fringe_midi_skirt,Black Leather Fringe Midi Skirt,0,0,1,0,0,1
+meghna_female_bottom_black_and_white_polka_dot_shorts,Black And White Polka Dot Shorts,0,0,1,0,0,1
+meghna_female_accessory_travel_tote_pink,Travel Tote Pink,0,0,1,0,0,1
+meghna_female_accessory_tan_top_handle_shoulder_bag,Tan Top Handle Shoulder Bag,0,0,1,0,0,1
+meghna_female_accessory_purple_wallet,Purple Wallet,0,0,1,0,0,1
+meghna_female_accessory_pink_wallet,Pink Wallet,0,0,1,0,0,1
+meghna_female_accessory_orange_and_pink_woven_beach_tot,Orange And Pink Woven Beach Tot,0,0,1,0,0,1
+meghna_female_accessory_olive_green_woven_handbag,Olive Green Woven Handbag,0,0,1,0,0,1
+meghna_female_accessory_light_brown_top_handle_bag,Light Brown Top Handle Bag,0,0,1,0,0,1
+meghna_female_footwear_leopard_flipflops,Leopard Flipflops,0,0,1,0,0,1
+meghna_female_accessory_grey_suede_bag,Grey Suede Bag,0,0,1,0,0,1
+meghna_female_accessory_green_stripes_canvas_tote,Green Stripes Canvas Tote,0,0,1,0,0,1
+meghna_female_accessory_brown_wallet,Brown Wallet,0,0,1,0,0,1
+meghna_female_accessory_brown_shoulder_bag,Brown Shoulder Bag,0,0,1,0,0,1
+meghna_female_footwear_brown_sandals,Brown Sandals,0,0,1,0,0,1
+meghna_female_accessory_blue_wallet,Blue Wallet,0,0,1,0,0,1
+meghna_female_accessory_blue_card_case,Blue Card Case,0,0,1,0,0,1
+meghna_female_accessory_black_top_handle_bag,Black Top Handle Bag,0,0,1,0,0,1
+meghna_female_accessory_black_clutch,Black Clutch,0,0,1,0,0,1
+meghna_female_accessory_black_card_case,Black Card Case,0,0,1,0,0,1
+meghna_female_accessory_beige_shell_bag,Beige Shell Bag,0,0,1,0,0,1
+meghna_female_ethnic_red_sharara,Red Sharara,0,0,0,0,0,0
+meghna_female_ethnic_red_sharara_set,Red Sharara Set,0,0,0,0,0,0
+meghna_female_ethnic_lime_green_sharara,Lime Green Sharara,0,0,0,0,0,0
+meghna_female_ethnic_light_blue_sharara,Light Blue Sharara,0,0,0,0,0,0
+meghna_female_ethnic_greenshararaworkset,Greenshararaworkset,0,0,0,0,0,0
+meghna_female_ethnic_peacock_blue_cocktail_saree,Peacock Blue Cocktail Saree,0,0,0,0,0,0
+meghna_female_ethnic_pastel_pink_saee,Pastel Pink Saee,0,0,0,0,0,0
+meghna_female_ethnic_orange_saree,Orange Saree,0,0,0,0,0,0
+meghna_female_ethnic_maroon_velvet_saree,Maroon Velvet Saree,0,0,0,0,0,0
+meghna_female_ethnic_light_green_saree,Light Green Saree,0,0,0,0,0,0
+meghna_female_ethnic_light_blue_tissue_saee,Light Blue Tissue Saee,0,0,0,0,0,0
+meghna_female_ethnic_lavender_saree,Lavender Saree,0,0,0,0,0,0
+meghna_female_ethnic_gold_embroidered_cocktail_saree,Gold Embroidered Cocktail Saree,0,0,0,0,0,0
+meghna_female_ethnic_dark_green_saee,Dark Green Saee,0,0,0,0,0,0
+meghna_female_ethnic_bluelehengawithgoldembroidaryblousesleeveless,Bluelehengawithgoldembroidaryblousesleeveless,0,0,0,0,0,0
+meghna_female_ethnic_blue_and_white_shaded_saree,Blue And White Shaded Saree,0,0,0,0,0,0
+meghna_female_outerwear_grey_wool_blazer,Grey Wool Blazer,0,0,0,0,0,0
+meghna_female_outerwear_cream_blazer,Cream Blazer,0,0,0,0,0,0
+meghna_female_outerwear_black_blazer,Black Blazer,0,0,0,0,0,0
+meghna_female_ethnic_yellow_lehenga,Yellow Lehenga,0,0,0,0,0,0
+meghna_female_ethnic_red_lehenga,Red Lehenga,0,0,0,0,0,0
+meghna_female_ethnic_pale_pink_lehenga,Pale Pink Lehenga,0,0,0,0,0,0
+meghna_female_ethnic_loive_green_lehenga,Loive Green Lehenga,0,0,0,0,0,0
+meghna_female_ethnic_dark_blue_lehenga,Dark Blue Lehenga,0,0,0,0,0,0
+meghna_female_ethnic_bluegoldembroidaryoffshoulderlehenga,Bluegoldembroidaryoffshoulderlehenga,0,0,0,0,0,0
+meghna_female_ethnic_black_and_gold_lehenga,Black And Gold Lehenga,0,0,0,0,0,0
+meghna_female_ethnic_yellow_kurti_top,Yellow Kurti Top,0,0,0,0,0,0
+meghna_female_ethnic_pink_kurti_top,Pink Kurti Top,0,0,0,0,0,0
+meghna_female_ethnic_yellowsleevelesskurtaset,Yellowsleevelesskurtaset,0,0,0,0,0,0
+meghna_female_ethnic_purplebandhanipinkspagettistrapkurtaset,Purplebandhanipinkspagettistrapkurtaset,0,0,0,0,0,0
+meghna_female_ethnic_greenbrocadepinksleevelesskurtaset,Greenbrocadepinksleevelesskurtaset,0,0,0,0,0,0
+meghna_female_dress_offshoulder_burnt_red_gown,Offshoulder Burnt Red Gown,0,0,0,0,0,0
+meghna_female_footwear_silverheel,Silverheel,0,0,0,0,0,0
+meghna_female_footwear_goldheel,Goldheel,0,0,0,0,0,0
+meghna_female_footwear_black_heel,Black Heel,0,0,0,0,0,0
+meghna_female_dress_pinksequinboatneckdress,Pinksequinboatneckdress,0,0,0,0,0,0
+meghna_female_dress_pink_sequins_jumpsuit,Pink Sequins Jumpsuit,0,0,0,0,0,0
+meghna_female_dress_pink_sequin_shaded_dress,Pink Sequin Shaded Dress,0,0,0,0,0,0
+meghna_female_dress_pink_orange_shaded_sequins_dress,Pink Orange Shaded Sequins Dress,0,0,0,0,0,0
+meghna_female_dress_one_shoulder_green_sequins_dress_faux_fur,One Shoulder Green Sequins Dress Faux Fur,0,0,0,0,0,0
+meghna_female_outerwear_navy_blazer_mini_dress,Navy Blazer Mini Dress,0,0,0,0,0,0
+meghna_female_dress_black_velvet_short_dress,Black Velvet Short Dress,0,0,0,0,0,0
+meghna_female_dress_black_lace_dress,Black Lace Dress,0,0,0,0,0,0
+meghna_female_dress_beaded_black_sleeveless_dress,Beaded Black Sleeveless Dress,0,0,0,0,0,0
+meghna_female_bottom_white_jeans,White Jeans,0,0,0,0,0,0
+meghna_female_bottom_navy_blue_jeans,Navy Blue Jeans,0,0,0,0,0,0
+meghna_female_bottom_navy_blue_high_rise_jeans,Navy Blue High Rise Jeans,0,0,0,0,0,0
+meghna_female_bottom_light_blue_jeans,Light Blue Jeans,0,0,0,0,0,0
+meghna_female_bottom_dark_grey_jeans,Dark Grey Jeans,0,0,0,0,0,0
+meghna_female_bottom_dark_blue_jeans,Dark Blue Jeans,0,0,0,0,0,0
+meghna_female_bottom_cream_wide_leg_trouser,Cream Wide Leg Trouser,0,0,0,0,0,0
+meghna_female_bottom_charcoal_tailored_trouser,Charcoal Tailored Trouser,0,0,0,0,0,0
+meghna_female_bottom_blue_torn_jeans,Blue Torn Jeans,0,0,0,0,0,0
+meghna_female_bottom_blue_light_jeans,Blue Light Jeans,0,0,0,0,0,0
+meghna_female_bottom_blue_jeans,Blue Jeans,0,0,0,0,0,0
+meghna_female_bottom_black_wide_leg_trouser,Black Wide Leg Trouser,0,0,0,0,0,0
+meghna_female_bottom_black_jeans,Black Jeans,0,0,0,0,0,0
+meghna_female_bottom_beige_pants_high_waisted,Beige Pants High Waisted,0,0,0,0,0,0
+mens_assets_indian_ocassion_set_marronbandhgala,Mens Marronbandhgala,0,0,0,0,0,0
+mens_assets_outerwear_blackbeanie,Mens Blackbeanie,0,0,0,0,0,0
+mens_assets_outerwear_whitebeanie,Mens Whitebeanie,0,0,0,0,0,0
+mens_assets_tops_whitetshirt,Mens Whitetshirt,0,0,0,0,0,0
+mens_assets_tops_whiteshirt,Mens Whiteshirt,0,0,0,0,0,0
+mens_assets_tops_mintgreenpoloshirt,Mens Mintgreenpoloshirt,0,0,0,0,0,0
+mens_assets_tops_mensolivegreenshirt,Mens Mensolivegreenshirt,0,0,0,0,0,0
+mens_assets_tops_mensblackharlfhandsshirt,Mens Mensblackharlfhandsshirt,0,0,0,0,0,0
+mens_assets_tops_lightbluepoloshirt,Mens Lightbluepoloshirt,0,0,0,0,0,0
+mens_assets_tops_greentshirt,Mens Greentshirt,0,0,0,0,0,0
+mens_assets_tops_creamshirt,Mens Creamshirt,0,0,0,0,0,0
+mens_assets_tops_creampoloshirt,Mens Creampoloshirt,0,0,0,0,0,0
+mens_assets_tops_bluetshirt,Mens Bluetshirt,0,0,0,0,0,0
+mens_assets_tops_blueshirt,Mens Blueshirt,0,0,0,0,0,0
+mens_assets_tops_bluepoloshirt,Mens Bluepoloshirt,0,0,0,0,0,0
+mens_assets_tops_bluehalfhandsshirt,Mens Bluehalfhandsshirt,0,0,0,0,0,0
+mens_assets_tops_blacktshirt,Mens Blacktshirt,0,0,0,0,0,0
+mens_assets_tops_blackshirt,Mens Blackshirt,0,0,0,0,0,0
+mens_assets_outerwear_whitehoodie,Mens Whitehoodie,0,0,0,0,0,0
+mens_assets_outerwear_leatherglovesbrown,Mens Leatherglovesbrown,0,0,0,0,0,0
+mens_assets_outerwear_greenhoodie,Mens Greenhoodie,0,0,0,0,0,0
+mens_assets_outerwear_brownletherjacket,Mens Brownletherjacket,0,0,0,0,0,0
+mens_assets_outerwear_blueblazer,Mens Blueblazer,0,0,0,0,0,0
+mens_assets_outerwear_blackscarf,Mens Blackscarf,0,0,0,0,0,0
+mens_assets_outerwear_blackpufferjacket,Mens Blackpufferjacket,0,0,0,0,0,0
+mens_assets_outerwear_blackplaidscarf,Mens Blackplaidscarf,0,0,0,0,0,0
+mens_assets_outerwear_blackleatherjacket,Mens Blackleatherjacket,0,0,0,0,0,0
+mens_assets_outerwear_blackhoodie,Mens Blackhoodie,0,0,0,0,0,0
+mens_assets_outerwear_blackgloves,Mens Blackgloves,0,0,0,0,0,0
+mens_assets_outerwear_blackcoat,Mens Blackcoat,0,0,0,0,0,0
+mens_assets_outerwear_blackblazer,Mens Blackblazer,0,0,0,0,0,0
+mens_assets_other_accessories_wovencreambelt,Mens Wovencreambelt,0,0,0,0,0,0
+mens_assets_other_accessories_whitecap,Mens Whitecap,0,0,0,0,0,0
+mens_assets_other_accessories_redcap,Mens Redcap,0,0,0,0,0,0
+mens_assets_other_accessories_greencap,Mens Greencap,0,0,0,0,0,0
+mens_assets_other_accessories_goldsunglasses,Mens Goldsunglasses,0,0,0,0,0,0
+mens_assets_other_accessories_darkbrownbelt,Mens Darkbrownbelt,0,0,0,0,0,0
+mens_assets_other_accessories_creamcap,Mens Creamcap,0,0,0,0,0,0
+mens_assets_other_accessories_bluesunglasses,Mens Bluesunglasses,0,0,0,0,0,0
+mens_assets_other_accessories_blueca,Mens Blueca,0,0,0,0,0,0
+mens_assets_other_accessories_blacksunglasses,Mens Blacksunglasses,0,0,0,0,0,0
+mens_assets_other_accessories_blackcap,Mens Blackcap,0,0,0,0,0,0
+mens_assets_other_accessories_blackbelt,Mens Blackbelt,0,0,0,0,0,0
+mens_assets_other_accessories_blackaviators,Mens Blackaviators,0,0,0,0,0,0
+mens_assets_jewellery_watchlinkgoldbracelet,Mens Watchlinkgoldbracelet,0,0,0,0,0,0
+mens_assets_jewellery_silverbracelet,Mens Silverbracelet,0,0,0,0,0,0
+mens_assets_indian_ocassion_set_greybandhgalaset,Mens Greybandhgalaset,0,0,0,0,0,0
+mens_assets_indian_ocassion_set_greensherwani,Mens Greensherwani,0,0,0,0,0,0
+mens_assets_indian_ocassion_set_creamsherwani,Mens Creamsherwani,0,0,0,0,0,0
+mens_assets_indian_ocassion_set_blueformalsuit,Mens Blueformalsuit,0,0,0,0,0,0
+mens_assets_indian_ocassion_set_blackformalsuit,Mens Blackformalsuit,0,0,0,0,0,0
+mens_assets_footwear_whitesneakers,Mens Whitesneakers,0,0,0,0,0,0
+mens_assets_footwear_whiteslides,Mens Whiteslides,0,0,0,0,0,0
+mens_assets_footwear_suedeblueshoe,Mens Suedeblueshoe,0,0,0,0,0,0
+mens_assets_footwear_nikebluesneaker,Mens Nikebluesneaker,0,0,0,0,0,0
+mens_assets_footwear_nikeblacksneakers,Mens Nikeblacksneakers,0,0,0,0,0,0
+mens_assets_footwear_nikeblackrunnigshoes,Mens Nikeblackrunnigshoes,0,0,0,0,0,0
+mens_assets_footwear_lightbrownloafers,Mens Lightbrownloafers,0,0,0,0,0,0
+mens_assets_footwear_lightbrownformalshoe,Mens Lightbrownformalshoe,0,0,0,0,0,0
+mens_assets_footwear_greyloafers,Mens Greyloafers,0,0,0,0,0,0
+mens_assets_footwear_creamsuedeloafers,Mens Creamsuedeloafers,0,0,0,0,0,0
+mens_assets_footwear_brownsandal,Mens Brownsandal,0,0,0,0,0,0
+mens_assets_footwear_brownloafers,Mens Brownloafers,0,0,0,0,0,0
+mens_assets_footwear_brownformalshoe,Mens Brownformalshoe,0,0,0,0,0,0
+mens_assets_footwear_brownflipflop,Mens Brownflipflop,0,0,0,0,0,0
+mens_assets_footwear_bluebirkinstock,Mens Bluebirkinstock,0,0,0,0,0,0
+mens_assets_footwear_blacksuedeloafers,Mens Blacksuedeloafers,0,0,0,0,0,0
+mens_assets_footwear_blacksneakers,Mens Blacksneakers,0,0,0,0,0,0
+mens_assets_footwear_blackslides,Mens Blackslides,0,0,0,0,0,0
+mens_assets_footwear_blacksandals,Mens Blacksandals,0,0,0,0,0,0
+mens_assets_footwear_blacksandalcasual,Mens Blacksandalcasual,0,0,0,0,0,0
+mens_assets_footwear_blackloafers,Mens Blackloafers,0,0,0,0,0,0
+mens_assets_footwear_blackformalshoe,Mens Blackformalshoe,0,0,0,0,0,0
+mens_assets_festive_sets_yellowkurtaset,Mens Yellowkurtaset,0,0,0,0,0,0
+mens_assets_festive_sets_redkurtaset,Mens Redkurtaset,0,0,0,0,0,0
+mens_assets_festive_sets_khakikurta,Mens Khakikurta,0,0,0,0,0,0
+mens_assets_festive_sets_greenkurtaset,Mens Greenkurtaset,0,0,0,0,0,0
+mens_assets_festive_sets_bluekurtaset,Mens Bluekurtaset,0,0,0,0,0,0
+mens_assets_festive_sets_bluekurta1,Mens Bluekurta1,0,0,0,0,0,0
+mens_assets_festive_sets_bluekurta,Mens Bluekurta,0,0,0,0,0,0
+mens_assets_bottoms_whitepant,Mens Whitepant,0,0,0,0,0,0
+mens_assets_bottoms_terrygreyshorts,Mens Terrygreyshorts,0,0,0,0,0,0
+mens_assets_bottoms_terryblackshorts,Mens Terryblackshorts,0,0,0,0,0,0
+mens_assets_bottoms_navybluetrouser,Mens Navybluetrouser,0,0,0,0,0,0
+mens_assets_bottoms_lightgreytrouser,Mens Lightgreytrouser,0,0,0,0,0,0
+mens_assets_bottoms_lightbluejeans,Mens Lightbluejeans,0,0,0,0,0,0
+mens_assets_bottoms_greytrouser,Mens Greytrouser,0,0,0,0,0,0
+mens_assets_bottoms_greycargopants,Mens Greycargopants,0,0,0,0,0,0
+mens_assets_bottoms_greenchino,Mens Greenchino,0,0,0,0,0,0
+mens_assets_bottoms_greencargopants,Mens Greencargopants,0,0,0,0,0,0
+mens_assets_bottoms_creamshorts,Mens Creamshorts,0,0,0,0,0,0
+mens_assets_bottoms_creamcargoshorts,Mens Creamcargoshorts,0,0,0,0,0,0
+mens_assets_bottoms_browncargopants,Mens Browncargopants,0,0,0,0,0,0
+mens_assets_bottoms_blueswimshorts,Mens Blueswimshorts,0,0,0,0,0,0
+mens_assets_bottoms_blueshorts,Mens Blueshorts,0,0,0,0,0,0
+mens_assets_bottoms_bluejeans,Mens Bluejeans,0,0,0,0,0,0
+mens_assets_bottoms_blackshorts,Mens Blackshorts,0,0,0,0,0,0
+mens_assets_bottoms_blackpant,Mens Blackpant,0,0,0,0,0,0
+mens_assets_bottoms_blackjoggers,Mens Blackjoggers,0,0,0,0,0,0
+mens_assets_bottoms_blackgymshorts,Mens Blackgymshorts,0,0,0,0,0,0
+mens_assets_bottoms_beigechinos,Mens Beigechinos,0,0,0,0,0,0
+mens_assets_bottoms_armycargopants,Mens Armycargopants,0,0,0,0,0,0
+mens_assets_bags_greymessengerbag,Mens Greymessengerbag,0,0,0,0,0,0
+mens_assets_bags_blackdufflebag,Mens Blackdufflebag,0,0,0,0,0,0
+mens_assets_bags_blackbackpack,Mens Blackbackpack,0,0,0,0,0,0
