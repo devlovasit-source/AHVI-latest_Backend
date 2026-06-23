@@ -3041,6 +3041,7 @@ def _best_style_asset(
     allow_feminine_accessory: bool = False,
     placement: str | None = None,
     brief: Dict[str, Any] | None = None,
+    exclude_urls: set[str] | None = None,
 ) -> Dict[str, Any] | None:
     matches = _best_style_assets(
         assets,
@@ -3052,8 +3053,52 @@ def _best_style_asset(
         limit=1,
         placement=placement,
         brief=brief,
+        exclude_urls=exclude_urls,
     )
     return matches[0] if matches else None
+
+
+def _best_asset_for_role(
+    assets: List[Dict[str, Any]],
+    *,
+    role: str,
+    direction: Dict[str, Any],
+    occasion: str,
+    target_gender: str = "unknown",
+    allow_feminine_accessory: bool = False,
+    exclude_urls: set[str] | None = None,
+    brief: Dict[str, Any] | None = None,
+) -> Dict[str, Any] | None:
+    """Pick the best catalog asset for a specific board role (top/bottom/
+    footwear). Used to complete a look when the hero only filled one main slot.
+    Reuses the same gender/non-fashion/context gates and scorer as hero
+    matching, but selects by resolved board role and honours cross-direction
+    dedup via exclude_urls."""
+    best: Dict[str, Any] | None = None
+    best_score = 0
+    for raw_asset in assets:
+        asset = dict(raw_asset)
+        asset["_allow_feminine_accessory"] = allow_feminine_accessory
+        image_url = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
+        if not image_url or (exclude_urls and image_url in exclude_urls):
+            continue
+        if _is_nonfashion_asset(asset):
+            continue
+        if not _asset_allowed_for_gender(asset, target_gender):
+            continue
+        if _board_item_role(asset.get("name"), asset.get("category")) != role:
+            continue
+        if not _asset_allowed_for_context(
+            asset, occasion=occasion, placement="complete", target_text=role
+        ):
+            continue
+        score = _asset_score(
+            asset, direction=direction, occasion=occasion, target_gender=target_gender, brief=brief
+        )
+        if score > best_score:
+            best_score = score
+            best = asset
+    return best
 
 
 def _best_style_assets(
@@ -3067,6 +3112,7 @@ def _best_style_assets(
     limit: int = 3,
     placement: str | None = None,
     brief: Dict[str, Any] | None = None,
+    exclude_urls: set[str] | None = None,
 ) -> List[Dict[str, Any]]:
     # Resolve placement so the central policy can gate + score correctly.
     if placement is None:
@@ -3085,6 +3131,10 @@ def _best_style_assets(
         asset["_allow_feminine_accessory"] = allow_feminine_accessory
         image_url = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
         if not image_url:
+            continue
+        # Cross-direction dedup: skip assets already placed on another look so
+        # the same hero/accessory cutout is not repeated across directions.
+        if exclude_urls and image_url in exclude_urls:
             continue
         if _is_nonfashion_asset(asset):
             logger.info(
@@ -3865,6 +3915,72 @@ def _build_board_items(
     return items
 
 
+def _asset_to_board_item(asset: Dict[str, Any], role: str) -> Dict[str, Any] | None:
+    """Build a single board_item dict from a catalog asset (mirrors the `add`
+    closure in _build_board_items). Returns None when the asset has no usable
+    image so callers can skip it."""
+    resolved = _board_image_resolution(asset)
+    url = resolved.get("image_url", "")
+    if not url or role not in _BOARD_ALLOWED_ROLES:
+        return None
+    item: Dict[str, Any] = {
+        "name": _asset_text(asset.get("name") or asset.get("title") or asset.get("label")),
+        "role": role,
+        "image_url": url,
+        "source": "asset",
+        "owned": False,
+        "board_status": resolved.get("board_status") or "catalog_fallback",
+        "image_source": resolved.get("used") or "catalog_fallback",
+    }
+    if resolved.get("board_image_url"):
+        item["board_image_url"] = resolved["board_image_url"]
+    if resolved.get("catalog_image_url"):
+        item["catalog_image_url"] = resolved["catalog_image_url"]
+    return item
+
+
+def _complete_board_items(
+    board_items: List[Dict[str, Any]],
+    assets: List[Dict[str, Any]],
+    *,
+    direction: Dict[str, Any],
+    occasion: str,
+    target_gender: str,
+    allow_feminine_accessory: bool,
+    used_urls: set[str],
+    brief: Dict[str, Any] | None,
+) -> List[Dict[str, Any]]:
+    """Ensure a catalog look carries the core slots (top + bottom + footwear).
+    The hero only fills one main garment, so a top-led look has no bottom (and
+    vice-versa); fill the missing core slots with the best unused asset of that
+    role. Dress-led looks are left alone (a dress replaces top+bottom)."""
+    present_roles = {bi.get("role") for bi in board_items}
+    if "dress" in present_roles:
+        return board_items
+    current_urls = {bi.get("image_url") for bi in board_items}
+    for role in ("top", "bottom", "footwear"):
+        if role in present_roles:
+            continue
+        asset = _best_asset_for_role(
+            assets,
+            role=role,
+            direction=direction,
+            occasion=occasion,
+            target_gender=target_gender,
+            allow_feminine_accessory=allow_feminine_accessory,
+            exclude_urls=used_urls | current_urls,
+            brief=brief,
+        )
+        if not asset:
+            continue
+        item = _asset_to_board_item(asset, role)
+        if item and item["image_url"] not in current_urls:
+            board_items.append(item)
+            current_urls.add(item["image_url"])
+            present_roles.add(role)
+    return board_items
+
+
 def _board_items_viable(items: List[Dict[str, Any]]) -> bool:
     roles = {i.get("role") for i in items}
     classic = {"top", "bottom", "footwear"}.issubset(roles)
@@ -4088,6 +4204,9 @@ def _enrich_visual_directions_with_assets(
     assets = _style_asset_rows()
     occasion_text = _asset_text(occasion)
     enriched: List[Dict[str, Any]] = []
+    # Track catalog image_urls already placed on an earlier look so the same
+    # cutout is not repeated across directions (each look stays distinct).
+    used_urls: set[str] = set()
     for idx, direction in enumerate(visual_directions):
         out = _sanitize_direction_for_gender(
             dict(direction),
@@ -4132,7 +4251,17 @@ def _enrich_visual_directions_with_assets(
                 out.pop("asset_id", None)
                 image_url = ""
         if not image_url and assets:
+            # Prefer a hero not already used on an earlier look; fall back to
+            # the global best if dedup would leave this look with no hero.
             asset = _best_style_asset(
+                assets,
+                direction=out,
+                occasion=occasion_text,
+                target_gender=target_gender,
+                allow_feminine_accessory=allow_feminine_accessory,
+                brief=brief,
+                exclude_urls=used_urls,
+            ) or _best_style_asset(
                 assets,
                 direction=out,
                 occasion=occasion_text,
@@ -4162,6 +4291,7 @@ def _enrich_visual_directions_with_assets(
                 allow_feminine_accessory=allow_feminine_accessory,
                 limit=3,
                 brief=brief,
+                exclude_urls=used_urls,
             )
             if accessory_assets:
                 complete = _sanitize_complete_the_look(
@@ -4200,6 +4330,25 @@ def _enrich_visual_directions_with_assets(
         )
         # Itemized board contract for the 85 board (additive — legacy fields kept).
         board_items = _build_board_items(out, wardrobe_intent=wardrobe_intent)
+        # Catalog looks: the hero fills only one main garment, so complete the
+        # core slots (top + bottom + footwear) from unused assets so a look is
+        # never just a shirt + shoes. Wardrobe-intent stays owned-only.
+        if not wardrobe_intent and assets:
+            board_items = _complete_board_items(
+                board_items,
+                assets,
+                direction=out,
+                occasion=occasion_text,
+                target_gender=target_gender,
+                allow_feminine_accessory=allow_feminine_accessory,
+                used_urls=used_urls,
+                brief=brief,
+            )
+        # Reserve every image placed on this look so later looks stay distinct.
+        for bi in board_items:
+            bi_url = _asset_text(bi.get("image_url"))
+            if bi_url:
+                used_urls.add(bi_url)
         viable = _board_items_viable(board_items)
         if wardrobe_intent and not viable:
             out["board_status"] = "insufficient_wardrobe_items"
