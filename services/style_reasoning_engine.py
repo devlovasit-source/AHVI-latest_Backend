@@ -773,7 +773,12 @@ def _hero_expected_slot(hero_text: str) -> str | None:
         return None
     if tokens.intersection({"pants", "pant", "trouser", "trousers", "chino", "chinos", "jeans", "jean", "shorts", "short"}):
         return "bottom"
-    if tokens.intersection({"loafer", "loafers", "sneaker", "sneakers", "boot", "boots", "shoe", "shoes", "footwear"}) or (
+    if tokens.intersection({
+        "loafer", "loafers", "sneaker", "sneakers", "boot", "boots",
+        "shoe", "shoes", "footwear",
+        "heel", "heels", "sandal", "sandals", "pump", "pumps",
+        "flat", "flats", "mule", "mules", "wedge", "wedges",
+    }) or (
         "oxford" in tokens and tokens.intersection({"shoe", "shoes"})
     ):
         return "footwear"
@@ -3868,6 +3873,207 @@ def _board_items_viable(items: List[Dict[str, Any]]) -> bool:
     return classic or dress or known >= 3
 
 
+# ── Visual board sanitizer ──────────────────────────────────────────────────
+# Single entry point that repairs a RAW wardrobe dump into a viable, slot-based
+# visual board. The frontend must never receive an un-deduped wardrobe list
+# (two pants, two belts, duplicate images). Reuses the production board-role
+# detector (_board_item_role) and family detector (_wardrobe_item_family).
+_BOARD_ACCESSORY_CAP = 2  # belt/watch/bag/sunglasses combined, max 2 on a board.
+_BAG_FAMILIES: set[str] = {
+    "bag",
+    "laptop_bag",
+    "messenger_bag",
+    "backpack",
+    "duffle_bag",
+    "briefcase",
+}
+
+
+def _count_summary(values: Any) -> str:
+    """Compact "key:n,key:n" tally for aggregate logs (sorted, empties dropped)."""
+    counts: Dict[str, int] = {}
+    for v in values:
+        key = str(v or "").strip()
+        if not key:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+    return ",".join(f"{k}:{counts[k]}" for k in sorted(counts)) or "-"
+
+
+def sanitize_board_items_for_visual_board(
+    items: Any,
+    occasion: str = "",
+    style_direction: str = "",
+) -> Dict[str, Any] | None:
+    """Repair a raw wardrobe list into a viable, slot-based visual board.
+
+    - normalises each item into a board role/family
+    - removes duplicate item_id / image_url / normalized name
+    - enforces family caps: max 1 bottom, 1 belt, 1 footwear, 1 bag,
+      max 2 accessories total
+    - applies the dress/full-body exclusion (a dress drops a separate
+      top + bottom)
+    - validates outfit viability
+
+    Returns structured visual slots::
+
+        {"primary", "bottom", "footwear", "outerwear", "accessories", "items"}
+
+    or ``None`` when no viable outfit can be assembled (e.g. an
+    accessory-only or footwear-only dump). Callers MUST treat ``None`` as
+    "do not return a visual board" and fall back to text/cards.
+    """
+    rows = _wardrobe_normalised(items)
+    input_n = len(rows)
+
+    seen_ids: set[str] = set()
+    seen_images: set[str] = set()
+    seen_names: set[str] = set()
+
+    tops: List[Dict[str, Any]] = []
+    bottoms: List[Dict[str, Any]] = []
+    dresses: List[Dict[str, Any]] = []
+    outer: List[Dict[str, Any]] = []
+    footwear: List[Dict[str, Any]] = []
+    accessories: List[Dict[str, Any]] = []
+    belt_used = False
+    bag_used = False
+    # Aggregate drop counters (logged once, never per-item).
+    dropped_duplicate = 0
+    dropped_family_cap = 0
+    dropped_incompatible = 0
+
+    for row in rows:
+        if _wardrobe_item_blocked(row):
+            dropped_incompatible += 1
+            continue
+        name = _asset_text(row.get("name"))
+        if not name:
+            dropped_incompatible += 1
+            continue
+        role = _board_item_role(name, row.get("category"))
+        if role not in _BOARD_ALLOWED_ROLES:
+            dropped_incompatible += 1
+            continue
+        ident = _asset_text(row.get("id")) or name.lower()
+        norm_name = name.strip().lower()
+        image = _asset_text(row.get("image_url"))
+        if ident in seen_ids or norm_name in seen_names:
+            dropped_duplicate += 1
+            continue
+        if image and image in seen_images:
+            dropped_duplicate += 1
+            continue
+        family = _wardrobe_item_family(row)
+        # Hard per-family caps that the accessory bucket alone can't express.
+        if family == "belt":
+            if belt_used:
+                dropped_family_cap += 1
+                continue
+            belt_used = True
+        elif family in _BAG_FAMILIES:
+            if bag_used:
+                dropped_family_cap += 1
+                continue
+            bag_used = True
+        seen_ids.add(ident)
+        seen_names.add(norm_name)
+        if image:
+            seen_images.add(image)
+        slot_item = {
+            "id": row.get("id", ""),
+            "name": name,
+            "role": role,
+            "family": family,
+            "category": row.get("category", ""),
+            "image_url": image,
+            "owned": True,
+        }
+        if role == "dress":
+            dresses.append(slot_item)
+        elif role == "top":
+            tops.append(slot_item)
+        elif role == "bottom":
+            bottoms.append(slot_item)
+        elif role == "outerwear":
+            outer.append(slot_item)
+        elif role == "footwear":
+            footwear.append(slot_item)
+        elif role == "accessory":
+            accessories.append(slot_item)
+
+    is_dress = bool(dresses)
+    if is_dress:
+        # Full-body item excludes a separate top + bottom.
+        primary = dresses[0]
+        bottom = None
+        # Extra dresses -> family cap; discarded top/bottom -> incompatible.
+        dropped_family_cap += max(0, len(dresses) - 1)
+        dropped_incompatible += len(tops) + len(bottoms)
+    else:
+        primary = tops[0] if tops else None
+        bottom = bottoms[0] if bottoms else None
+        dropped_family_cap += max(0, len(tops) - 1) + max(0, len(bottoms) - 1)
+
+    kept_accessories = accessories[:_BOARD_ACCESSORY_CAP]
+    dropped_family_cap += (
+        max(0, len(footwear) - 1)
+        + max(0, len(outer) - 1)
+        + max(0, len(accessories) - len(kept_accessories))
+    )
+
+    slots: Dict[str, Any] = {
+        "primary": primary,
+        "bottom": bottom,
+        "footwear": footwear[0] if footwear else None,
+        "outerwear": outer[0] if outer else None,
+        "accessories": kept_accessories,
+    }
+
+    ordered: List[Dict[str, Any]] = []
+    for key in ("primary", "bottom", "outerwear", "footwear"):
+        if slots[key]:
+            ordered.append(slots[key])
+    ordered.extend(slots["accessories"])
+    slots["items"] = ordered
+
+    roles_summary = _count_summary(i.get("role") for i in ordered)
+    families_summary = _count_summary(i.get("family") for i in ordered)
+
+    # Viability: need a primary (top or dress) + footwear, and for a top-led
+    # board a bottom too. Accessory-only / footwear-only dumps are rejected.
+    viable = (
+        primary is not None
+        and slots["footwear"] is not None
+        and (is_dress or bottom is not None)
+    )
+    if not viable:
+        logger.info(
+            "AHVI_BOARD_SANITIZER_RESULT status=rejected reason=no_viable_board "
+            "occasion=%r input=%d roles=%s families=%s",
+            occasion,
+            input_n,
+            roles_summary,
+            families_summary,
+        )
+        return None
+    logger.info(
+        "AHVI_BOARD_SANITIZER_RESULT status=ok occasion=%r input=%d output=%d "
+        "roles=%s families=%s accessories=%d dropped_duplicate=%d "
+        "dropped_family_cap=%d dropped_incompatible=%d",
+        occasion,
+        input_n,
+        len(ordered),
+        roles_summary,
+        families_summary,
+        len(slots["accessories"]),
+        dropped_duplicate,
+        dropped_family_cap,
+        dropped_incompatible,
+    )
+    return slots
+
+
 def _enrich_visual_directions_with_assets(
     visual_directions: List[Dict[str, Any]],
     *,
@@ -5321,6 +5527,16 @@ _OWNERSHIP_ALLOWED_FAMILIES: dict[str, str] = {
     "jewellery": "jewellery",
 }
 
+# Per-bucket caps for owned-item lists. Keeps a styled look from collecting
+# two bottoms / two bags / three accessories out of a noisy wardrobe match.
+_OWNED_BUCKET_CAPS: dict[str, int] = {
+    "bottom": 1,
+    "footwear": 1,
+    "bag": 1,
+    "outerwear": 1,
+    "accessory": 2,
+}
+
 _OWNERSHIP_BLOCKED_NAME_TOKENS: tuple[str, ...] = (
     "charger",
     "cable",
@@ -5475,7 +5691,16 @@ def _build_owned_items(
     if not pieces:
         return [], 0, 0
     seen_ids: set[str] = set()
+    seen_images: set[str] = set()
+    seen_names: set[str] = set()
+    bucket_counts: Dict[str, int] = {}
     owned: List[Dict[str, Any]] = []
+    has_full_body = False
+    # Aggregate guard counters (logged once, never per-item).
+    matched = 0
+    skipped_duplicate = 0
+    skipped_family_cap = 0
+    skipped_dress_conflict = 0
     for piece in pieces:
         match = _ownership_match(piece, wardrobe)
         if not match:
@@ -5486,10 +5711,44 @@ def _build_owned_items(
         bucket = _OWNERSHIP_ALLOWED_FAMILIES.get(family)
         if not bucket:
             continue
+        matched += 1
         identifier = match.get("id") or match["name"].lower()
-        if identifier in seen_ids:
+        norm_name = str(match["name"]).strip().lower()
+        image = str(match.get("image_url") or "").strip()
+        # De-dupe by id, normalized name, and image_url.
+        if identifier in seen_ids or norm_name in seen_names:
+            skipped_duplicate += 1
+            continue
+        if image and image in seen_images:
+            skipped_duplicate += 1
+            continue
+        # Dress / full-body item excludes a separate top + bottom (and vice
+        # versa): never let a one-piece coexist with a top/bottom.
+        if bucket in {"dress", "ethnicwear"}:
+            if any(b in bucket_counts for b in ("top", "bottom")):
+                skipped_dress_conflict += 1
+                continue
+            has_full_body = True
+        elif bucket in {"top", "bottom"} and has_full_body:
+            skipped_dress_conflict += 1
+            continue
+        # Family caps: max 1 bottom, 1 footwear, 1 bag, 1 belt; max 2
+        # accessories total. ``belt`` lives in the accessory bucket so the
+        # accessory cap covers a second belt, but we cap belt by family too.
+        cap = _OWNED_BUCKET_CAPS.get(bucket)
+        if cap is not None and bucket_counts.get(bucket, 0) >= cap:
+            skipped_family_cap += 1
+            continue
+        if family == "belt" and bucket_counts.get("__belt", 0) >= 1:
+            skipped_family_cap += 1
             continue
         seen_ids.add(identifier)
+        seen_names.add(norm_name)
+        if image:
+            seen_images.add(image)
+        bucket_counts[bucket] = bucket_counts.get(bucket, 0) + 1
+        if family == "belt":
+            bucket_counts["__belt"] = bucket_counts.get("__belt", 0) + 1
         owned.append(
             {
                 "id": match.get("id", ""),
@@ -5500,6 +5759,18 @@ def _build_owned_items(
                 "owned": True,
             }
         )
+    logger.info(
+        "AHVI_OWNED_ITEMS_GUARD status=ok requested=%d matched=%d output=%d "
+        "skipped_duplicate=%d skipped_family_cap=%d skipped_dress_conflict=%d "
+        "accessories=%d",
+        len(pieces),
+        matched,
+        len(owned),
+        skipped_duplicate,
+        skipped_family_cap,
+        skipped_dress_conflict,
+        bucket_counts.get("accessory", 0),
+    )
     return owned, len(owned), len(pieces)
 
 
