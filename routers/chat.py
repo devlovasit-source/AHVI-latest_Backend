@@ -1862,6 +1862,22 @@ def _is_use_wardrobe_action(*, action: Any = "", prompt: str = "") -> bool:
             "with my clothes",
             "from my closet",
         )
+    ) or any(
+        # Substring (not just startswith) so natural mid-sentence prompts match:
+        # "office outfit using my wardrobe", "...with my wardrobe".
+        phrase in q
+        for phrase in (
+            "using my wardrobe",
+            "using wardrobe",
+            "using my closet",
+            "use my wardrobe",
+            "with my wardrobe",
+            "from my wardrobe",
+            "with my clothes",
+            "from my closet",
+            "my wardrobe",
+            "my closet",
+        )
     )
 
 
@@ -1947,12 +1963,12 @@ def _should_default_visual_inspiration(
         return False
 
     if multi_event:
-        # Multi-event/transition prompts must run the dedicated transition
-        # reasoning path (which injects sub_occasions/style_strategy so the LLM
-        # emits a transition_plan). Forcing visual-first here routed them to the
-        # inspiration path whose context lacks sub_occasions, so transition_plan
-        # came back null even though is_transition was true.
-        return False
+        # Multi-event/transition prompts stay visual-first (image cards). The
+        # transition_plan is delivered by injecting sub_occasions/style_strategy
+        # into the reason() context (see text_chat), NOT by changing the mode —
+        # the visual_inspiration prompt already carries the MULTI-EVENT
+        # instruction, so it emits transition_plan when sub_occasions are present.
+        return True
     if resolved_mode in {
         STYLE_ADVICE,
         VISUAL_INSPIRATION,
@@ -4551,6 +4567,15 @@ def text_chat(request: TextChatRequest, http_request: Request):
         action=request.action or request.style_action,
         prompt=english_input,
     )
+    # Wardrobe intent must beat default visual inspiration. If the user pointed
+    # at their wardrobe (even mid-sentence, e.g. "office outfit using my
+    # wardrobe"), never fall into VISUAL_INSPIRATION.
+    has_wardrobe_intent = bool(
+        wardrobe_override
+        or is_wardrobe_style_request(english_input, module_context=request.module_context or "")
+    )
+    if has_wardrobe_intent:
+        visual_first = False
     selected_mode = VISUAL_INSPIRATION if visual_first else style_mode
     logger.info(
         "AHVI_VISUAL_FIRST_ROUTE endpoint=text toggle=%s selected_mode=%s intent=%s occasion=%s wardrobe_override=%s",
@@ -4559,6 +4584,15 @@ def text_chat(request: TextChatRequest, http_request: Request):
         intent,
         _ahvi_style_occasion(english_input),
         wardrobe_override,
+    )
+    logger.info(
+        "AHVI_STYLE_ROUTE_DECISION raw_message=%r has_wardrobe_intent=%s "
+        "has_visual_inspiration_intent=%s selected_route=%s route_reason=%s",
+        english_input[:120],
+        has_wardrobe_intent,
+        bool(visual_first),
+        "WARDROBE_STYLE" if has_wardrobe_intent else selected_mode,
+        "wardrobe_intent" if has_wardrobe_intent else ("visual_first" if visual_first else "style_mode"),
     )
     reasoning_intent = (
         {"intent": VISUAL_INSPIRATION, "confidence": 0.95}
@@ -4630,7 +4664,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             _CHAT_CACHE.set(cache_key, response)
         return response
 
-    if style_mode == WARDROBE_STYLE or reasoning.get("should_use_wardrobe"):
+    if style_mode == WARDROBE_STYLE or reasoning.get("should_use_wardrobe") or has_wardrobe_intent:
         intent = "occasion_outfit"
         visual_context = True
         logger.info(

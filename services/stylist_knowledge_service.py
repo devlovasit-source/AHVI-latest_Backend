@@ -66,12 +66,23 @@ def is_wardrobe_style_request(
     explicit = (
         "use my wardrobe",
         "use wardrobe",
+        # Gerund / natural mid-sentence phrasings — substring matched below, so
+        # "office outfit using my wardrobe" is caught (was missed -> routed to
+        # visual inspiration).
+        "using my wardrobe",
+        "using wardrobe",
+        "using my closet",
         "from my wardrobe",
         "with my wardrobe",
         "with my clothes",
         "use my clothes",
         "with my closet",
         "from my closet",
+        "my wardrobe",
+        "my closet",
+        "make a look from my wardrobe",
+        "look from my wardrobe",
+        "outfit from my wardrobe",
         "build a look from my closet",
         "build a look from my wardrobe",
         "build an outfit from my wardrobe",

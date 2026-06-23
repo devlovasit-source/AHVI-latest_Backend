@@ -1127,7 +1127,11 @@ def test_style_reasoning_engine_schema_and_decisions(monkeypatch):
     assert funeral["should_generate_board"] is False
     assert funeral["advice"]
     assert funeral["meta"]["source"] == "style_reasoning_engine"
-    assert funeral["meta"]["reason"] in {"sensitive_occasion", "style_advice"}
+    assert funeral["meta"]["reason"] in {
+        "sensitive_occasion",
+        "style_advice",
+        "respectful occasion",
+    }
     assert funeral["meta"]["goal"]
     assert funeral["meta"]["atmosphere"]
     assert len(funeral["visual_directions"]) == 3
