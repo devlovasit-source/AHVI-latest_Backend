@@ -1947,7 +1947,12 @@ def _should_default_visual_inspiration(
         return False
 
     if multi_event:
-        return True
+        # Multi-event/transition prompts must run the dedicated transition
+        # reasoning path (which injects sub_occasions/style_strategy so the LLM
+        # emits a transition_plan). Forcing visual-first here routed them to the
+        # inspiration path whose context lacks sub_occasions, so transition_plan
+        # came back null even though is_transition was true.
+        return False
     if resolved_mode in {
         STYLE_ADVICE,
         VISUAL_INSPIRATION,
@@ -4540,6 +4545,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
         intent=style_mode or intent,
         module_context=request.module_context or "",
         style_action=style_action,
+        multi_event=_multi_event_route,
     )
     wardrobe_override = _is_use_wardrobe_action(
         action=request.action or request.style_action,
@@ -4578,10 +4584,14 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "show_closest_option": closest_requested,
             # Real situational data for the Stylist Brain V2 context builder.
             "user_id": user_id,
-            "occasion": _ahvi_style_occasion(english_input),
+            "occasion": "multi_event" if _multi_event_route else _ahvi_style_occasion(english_input),
             "wardrobe": request.wardrobe if isinstance(request.wardrobe, list) else [],
             "weather": weather_data if "weather_data" in locals() else {},
             "last_style_context": _last_style_context,
+            # Surface multi-event/transition so the engine emits a transition_plan.
+            "multi_event": _multi_event_route or None,
+            "sub_occasions": (_multi_event_route or {}).get("sub_occasions"),
+            "style_strategy": (_multi_event_route or {}).get("style_strategy"),
         },
         wardrobe_summary={
             "provided_count": len(request.wardrobe or [])
