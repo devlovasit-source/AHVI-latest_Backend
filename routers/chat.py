@@ -4810,6 +4810,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
                         build_style_context,
                         build_editorial_wardrobe_board,
                     )
+                    from services.style_reasoning_engine import (
+                        sanitize_board_items_for_visual_board,
+                    )
 
                     _ctx = build_style_context(
                         query=english_input,
@@ -4818,22 +4821,38 @@ def text_chat(request: TextChatRequest, http_request: Request):
                         wardrobe_items=_items,
                         user_profile=effective_user_profile,
                     )
-                    _occ_label = str(interpreted_occasion or "Your Look").replace("_", " ").title()
-                    _board = build_editorial_wardrobe_board(
-                        title=f"{_occ_label} — From Your Wardrobe",
-                        goal=str((style_payload.get("meta") or {}).get("goal") or ""),
-                        impression="",
-                        stylist_reasoning=str(style_payload.get("message_text") or "").strip(),
-                        wardrobe_items=_ctx.get("wardrobe_items", []),
-                        palette=[],
-                        why_it_works="",
+                    # Never dump raw wardrobe_items into a visual board. Repair
+                    # into deduped, family-capped, slot-based items first. If the
+                    # sanitizer can't assemble a viable outfit, skip the visual
+                    # board entirely and let the text/cards stand.
+                    _slots = sanitize_board_items_for_visual_board(
+                        _ctx.get("wardrobe_items", []),
+                        occasion=str(interpreted_occasion or ""),
+                        style_direction=str(style_payload.get("message_text") or ""),
                     )
-                    if _board:
-                        existing = style_payload.get("blocks")
-                        style_payload["blocks"] = (
-                            existing if isinstance(existing, list) else []
-                        ) + [_board]
-                        style_payload["data"]["editorial_wardrobe_board"] = _board
+                    if _slots:
+                        _occ_label = str(interpreted_occasion or "Your Look").replace("_", " ").title()
+                        _board = build_editorial_wardrobe_board(
+                            title=f"{_occ_label} — From Your Wardrobe",
+                            goal=str((style_payload.get("meta") or {}).get("goal") or ""),
+                            impression="",
+                            stylist_reasoning=str(style_payload.get("message_text") or "").strip(),
+                            wardrobe_items=_slots["items"],
+                            palette=[],
+                            why_it_works="",
+                        )
+                        if _board:
+                            existing = style_payload.get("blocks")
+                            style_payload["blocks"] = (
+                                existing if isinstance(existing, list) else []
+                            ) + [_board]
+                            style_payload["data"]["editorial_wardrobe_board"] = _board
+                    else:
+                        logger.info(
+                            "ahvi.editorial_board_skipped reason=no_viable_board occ=%r items=%d",
+                            interpreted_occasion,
+                            len(_items),
+                        )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("ahvi.editorial_board_failed err=%s", str(exc)[:140])
             return style_payload
