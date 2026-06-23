@@ -1556,6 +1556,27 @@ def _occasion_asset_block_reason(
     blob = _asset_policy_blob(asset)
     context = f"{occasion or ''} {target_text or ''}".lower().replace("_", " ")
     occasion_family = _visual_occasion_family(occasion, target_text)
+    # Casual footwear (flip-flops / slides / slippers) is never appropriate for
+    # a dressy or formal context — no one wears a slipper to a party or office.
+    # Beach/pool/home stay exempt so resort looks can still use them.
+    dressy_context = any(
+        term in context
+        for term in (
+            "party", "cocktail", "formal", "wedding", "reception", "office",
+            "work", "dinner", "date", "club", "evening", "gala", "ceremony",
+            "celebration", "festive", "interview", "meeting",
+        )
+    )
+    casual_only_context = any(
+        term in context for term in ("beach", "pool", "home", "lounge", "resort", "vacation")
+    )
+    if (
+        placement != "hero"
+        and dressy_context
+        and not casual_only_context
+        and _asset_family(asset) in {"flip_flops", "slide", "slipper"}
+    ):
+        return "casual_footwear_in_dressy_context"
     outdoor = any(term in context for term in ("beach", "outdoor", "daytime", "sunny", "park"))
     cold = any(term in context for term in ("cold", "winter", "snow", "freezing", "chilly"))
     business_travel = any(
@@ -3087,6 +3108,13 @@ def _best_asset_for_role(
         if not _asset_allowed_for_gender(asset, target_gender):
             continue
         if _board_item_role(asset.get("name"), asset.get("category")) != role:
+            continue
+        # Occasion-appropriateness: same gates the hero/accessory matcher uses,
+        # so completeness never fills an occasion-wrong piece (e.g. a slipper or
+        # flip-flop on a party board, a beanie at the office).
+        if _occasion_asset_block_reason(
+            asset, occasion=occasion, placement="complete", target_text=role
+        ):
             continue
         if not _asset_allowed_for_context(
             asset, occasion=occasion, placement="complete", target_text=role
