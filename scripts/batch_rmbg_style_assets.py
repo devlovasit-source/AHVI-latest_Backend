@@ -196,13 +196,16 @@ def _category_filter(value: Any) -> str:
 
 
 def _select_p0_assets(
-    rows: Iterable[Dict[str, Any]], *, limit: int = 0, category: str = ""
+    rows: Iterable[Dict[str, Any]], *, limit: int = 0, category: str = "", gender: str = ""
 ) -> List[Dict[str, Any]]:
     selected: List[Dict[str, Any]] = []
     counts: Counter[str] = Counter()
     rows_by_role: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     wanted = _category_filter(category)
+    want_gender = _norm(gender)
     for asset in rows:
+        if want_gender and _norm(asset.get("gender")) != want_gender:
+            continue
         role = _asset_role(asset)
         if role in P0_TARGETS:
             rows_by_role[role].append(asset)
@@ -222,10 +225,30 @@ def _select_p0_assets(
     return selected
 
 
-def process_assets(*, apply: bool, scan_limit: int, limit: int = 0, category: str = "") -> Dict[str, Any]:
+def _rmbg_configured() -> bool:
+    return bool(os.getenv("RMBG_SERVICE_URL", "").strip())
+
+
+def _preflight_rmbg(apply: bool) -> None:
+    """Hard guard: never run RMBG/Appwrite/R2 writes without a configured
+    RMBG service. Empty RMBG_SERVICE_URL makes bg_service fail open to the
+    original JPG, producing opaque PNGs that fail alpha validation and
+    falsely mark cutout_status=failed."""
+    if _rmbg_configured():
+        return
+    msg = "RMBG_SERVICE_URL is required for style asset cutout generation. Aborting before Appwrite/R2 writes."
+    if apply:
+        print(msg, file=sys.stderr)
+        sys.exit(2)
+    # Dry-run still calls RMBG per asset; warn loudly so results aren't trusted.
+    print(f"[WARN] {msg} (dry-run: results will be opaque/invalid)", file=sys.stderr)
+
+
+def process_assets(*, apply: bool, scan_limit: int, limit: int = 0, category: str = "", gender: str = "") -> Dict[str, Any]:
+    _preflight_rmbg(apply)
     proxy = AppwriteProxy()
     storage = R2Storage()
-    selected = _select_p0_assets(_list_style_assets(scan_limit), limit=limit, category=category)
+    selected = _select_p0_assets(_list_style_assets(scan_limit), limit=limit, category=category, gender=gender)
     selected_by_role = Counter(_asset_role(asset) for asset in selected)
     selected_by_gender = Counter(_norm(asset.get("gender") or "unknown") or "unknown" for asset in selected)
     samples = [
@@ -309,12 +332,14 @@ def main() -> None:
     parser.add_argument("--scan-limit", type=int, default=500)
     parser.add_argument("--limit", type=int, default=0, help="Cap processed assets after P0 selection.")
     parser.add_argument("--category", default="", help="Optional role/category filter: tops, bottoms, footwear, dresses, outerwear, accessories.")
+    parser.add_argument("--gender", default="", help="Optional gender filter: male, female, unisex.")
     args = parser.parse_args()
     stats = process_assets(
         apply=bool(args.apply),
         scan_limit=max(1, args.scan_limit),
         limit=max(0, args.limit),
         category=args.category,
+        gender=args.gender,
     )
     print(json.dumps({"success": True, "dry_run": not args.apply, "stats": stats}, indent=2, sort_keys=True))
 
