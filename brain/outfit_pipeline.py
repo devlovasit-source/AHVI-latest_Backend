@@ -3196,16 +3196,16 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
                     kept_ids.extend(ids)
         return kept_ids
 
-    color_source = combinations[:combo_stage_cap]
-    color_keep = _filter_stage("color_combo", color_source, color_stage_cap)
-    color_filtered = [
-        c for c in color_source if str(c.get("combo_id")) in set(color_keep)
-    ] or color_source[:color_stage_cap]
-
-    pattern_keep = _filter_stage("pattern_combo", color_filtered, pattern_stage_cap)
+    # Single combined color+pattern harmony pass. The LLM prompt already sends
+    # palette AND patterns and asks for wearable harmony, so the previous two
+    # sequential filter stages were ~redundant and doubled board latency
+    # (~27s each). One pass halves it with no quality change.
+    filter_source = combinations[:combo_stage_cap]
+    combo_keep = _filter_stage("color_pattern_combo", filter_source, pattern_stage_cap)
     pattern_filtered = [
-        c for c in color_filtered if str(c.get("combo_id")) in set(pattern_keep)
-    ] or color_filtered[:pattern_stage_cap]
+        c for c in filter_source if str(c.get("combo_id")) in set(combo_keep)
+    ] or filter_source[:pattern_stage_cap]
+    color_filtered = pattern_filtered
 
     logging.getLogger("ahvi.outfit_pipeline").info(
         "outfit_pipeline.diversity_trace user=%s stage=color_filter heroes=%s",
