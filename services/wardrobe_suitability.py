@@ -14,7 +14,7 @@ PRIVATE_WEAR_ALIASES = {
     "boxers",
     "boxer shorts",
     "briefs",
-    "brief",
+    "mens brief",
     "underwear",
     "undergarment",
     "innerwear",
@@ -109,7 +109,22 @@ def item_text_blob(item: Dict[str, Any]) -> str:
 def is_private_wear_item(item: Dict[str, Any]) -> bool:
     if not isinstance(item, dict):
         return False
-    blob = item_text_blob(item)
+    # Only garment-identifying fields — NOT prose (story/explanation/why_it_works
+    # /styling_tip). LLM board copy legitimately says "base layer" / "layer this",
+    # and item_text_blob (which scans everything) was matching the private alias
+    # "base layer" and false-flagging entire office boards as private wear.
+    blob = _norm(
+        " ".join(
+            str(item.get(k) or "")
+            for k in (
+                "name", "title", "label", "garment_type", "type",
+                "category", "sub_category", "subcategory",
+                "normalizedCategory", "normalized_category",
+                "normalizedSubCategory", "normalized_sub_category",
+                "style_role",
+            )
+        )
+    )
     if _contains_private_alias(blob):
         return True
     normalized = _norm(
