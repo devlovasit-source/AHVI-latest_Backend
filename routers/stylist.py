@@ -415,6 +415,30 @@ _LITE_MISSING = {
     "dress": {"label": "A standout dress", "reason": "Gives the accessory something to sit on.", "cta": "Find this"},
 }
 
+
+def _lite_fill_from_assets(role: str, is_dress: bool) -> Optional[Dict[str, Any]]:
+    """Pull one style_asset that fills the missing slot role. Prefers items with an image."""
+    try:
+        assets = AppwriteProxy().list_documents("style_assets", limit=80) or []
+        cands = [a for a in assets if isinstance(a, dict) and _lite_role(a) == role]
+        if is_dress and role == "footwear":
+            cands = [c for c in cands if not _is_bad_dress_footwear(c)]
+        if not cands:
+            return None
+        cands.sort(key=lambda c: 0 if _lite_image(c) else 1)
+        return cands[0]
+    except Exception:
+        return None
+
+
+def _generate_styling_note(items: List[Dict[str, Any]]) -> str:
+    names = [_txt(i.get("name")) for i in items if _txt(i.get("name")) and not i.get("is_anchor")]
+    if not names:
+        return "Styled around your selected piece."
+    joined = ", ".join(names[:2])
+    suffix = f" and {len(names) - 2} more" if len(names) > 2 else ""
+    return f"Pair with {joined}{suffix} for a complete look."
+
 _LITE_STYLE_DIRECTIONS = [
     ("Casual Brunch", ("sneaker", "flat", "loafer", "mule"), "Relaxed and easy — let the piece breathe."),
     ("Date Night", ("heel", "sandal", "boot", "pump"), "A touch sharper for the evening."),
@@ -520,12 +544,19 @@ def _lite_build_outfit(
     prefer=(),
     note: str = "",
     variant: int = 0,
+    fallback_to_assets: bool = False,
 ) -> Dict[str, Any]:
     is_dress = _anchor_is_dress(anchor) or _lite_role(anchor) == "dress"
     anchor_role = "dress" if is_dress else _lite_role(anchor)
+    if anchor_role == "unknown":
+        anchor_role = "top"
     groups = _lite_group(wardrobe, _item_id_of(anchor))
-    items = [_lite_item(anchor, "hero")]
+
+    anchor_out = {**_lite_item(anchor, anchor_role), "is_anchor": True, "source": "wardrobe"}
+    items: List[Dict[str, Any]] = [anchor_out]
     missing: List[Dict[str, Any]] = []
+    filled_from_assets = False
+
     for slot in _lite_needed_slots(anchor_role):
         pick = _lite_pick(
             groups, slot, is_dress,
@@ -533,15 +564,32 @@ def _lite_build_outfit(
             variant=variant,
         )
         if pick:
-            items.append(_lite_item(pick, "accent" if slot == "accessory" else "support"))
+            items.append({**_lite_item(pick, slot), "is_anchor": False, "source": "wardrobe"})
             groups[slot] = [g for g in groups[slot] if _item_id_of(g) != _item_id_of(pick)]
+        elif fallback_to_assets:
+            asset = _lite_fill_from_assets(slot, is_dress)
+            if asset:
+                items.append({**_lite_item(asset, slot), "is_anchor": False, "source": "style_assets"})
+                filled_from_assets = True
+            else:
+                missing.append(_lite_missing(slot, is_dress))
         else:
             missing.append(_lite_missing(slot, is_dress))
+
+    styling_note = note or _generate_styling_note(items)
     return {
+        # legacy keys (used by _lite_directions + old frontend)
         "title": title or _outfit_title(occasion),
         "items": items,
         "missing_items": missing,
-        "reason": note or "Built from pieces you already own, anchored on this item.",
+        "reason": styling_note,
+        # new ANCHOR_OUTFIT_BOARD keys
+        "payload_type": "ANCHOR_OUTFIT_BOARD",
+        "anchor_item_id": _item_id_of(anchor),
+        "occasion": _txt(occasion),
+        "board_items": items,
+        "styling_notes": styling_note,
+        "missing_slots_filled_from_assets": filled_from_assets,
     }
 
 
@@ -583,7 +631,7 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
             )
             return {"success": True, "mode": mode, "anchor_item": anchor, "style_directions": directions}
 
-        outfit = _lite_build_outfit(anchor, wardrobe, request.occasion)
+        outfit = _lite_build_outfit(anchor, wardrobe, request.occasion, fallback_to_assets=True)
         logger.info(
             "stylist.item_style mode=build_outfit item_id=%s items=%d missing=%d wardrobe=%d",
             item_id, len(outfit["items"]), len(outfit["missing_items"]), len(wardrobe),
