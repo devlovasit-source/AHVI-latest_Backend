@@ -3158,18 +3158,32 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
 
         group_list = [g for g in groups.values() if g]
 
+        # The per-hero LLM filter routes through the slow "styling" policy
+        # (pro model, 45s timeout) and in practice returns Python/prose, not
+        # JSON, so it parse-fails and we fall back to the deterministic rules
+        # anyway — paying ~55s/request for a discarded result. Default OFF:
+        # skip straight to the rules (byte-identical boards, ~55s faster).
+        # Flip OUTFIT_LLM_COMBO_FILTER=true to restore the LLM judgment.
+        _use_llm_filter = str(
+            os.getenv("OUTFIT_LLM_COMBO_FILTER", "false")
+        ).strip().lower() in {"1", "true", "yes", "on"}
+
         def _filter_one_group(group_combos: List[Dict[str, Any]]) -> List[str]:
             hero_master = (
                 group_combos[0].get("top") or group_combos[0].get("dress") or {}
             )
             hero_master_type = "dress" if group_combos[0].get("dress") else "top"
-            ids = _llm_filter_combo_ids(
-                occasion=occasion,
-                stage=stage_name,
-                master_type=hero_master_type,
-                master_piece=hero_master,
-                combos=group_combos,
-                max_ids=filter_cap,
+            ids = (
+                _llm_filter_combo_ids(
+                    occasion=occasion,
+                    stage=stage_name,
+                    master_type=hero_master_type,
+                    master_piece=hero_master,
+                    combos=group_combos,
+                    max_ids=filter_cap,
+                )
+                if _use_llm_filter
+                else []
             )
             if not ids:
                 if stage_name == "color_combo":
