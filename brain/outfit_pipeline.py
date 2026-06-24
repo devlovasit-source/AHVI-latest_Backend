@@ -3156,7 +3156,14 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         n_heroes = max(1, len(groups))
         per_hero_cap = max(2, min(8, (stage_cap + n_heroes - 1) // n_heroes))
 
+        # Each hero group is one LLM filter call (~25s on flash). We only need a
+        # handful of final boards, so cap the hero groups (richest first) — with
+        # all valid combos surviving there were ~18 groups, blowing past the
+        # app timeout. Env-tunable via OUTFIT_MAX_FILTER_HEROES.
+        _max_heroes = max(1, int(os.getenv("OUTFIT_MAX_FILTER_HEROES", "6")))
         group_list = [g for g in groups.values() if g]
+        group_list.sort(key=len, reverse=True)
+        group_list = group_list[:_max_heroes]
 
         def _filter_one_group(group_combos: List[Dict[str, Any]]) -> List[str]:
             hero_master = (
