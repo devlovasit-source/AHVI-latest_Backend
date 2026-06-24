@@ -488,7 +488,8 @@ _SHORTS_MAX_ASPECT = 1.25
 
 _TROUSER_TOKENS = (
     "trouser", "trousers", "pant", "pants", "chino", "chinos",
-    "jean", "jeans", "slack", "slacks",
+    "jean", "jeans", "slack", "slacks", "cargo", "cargos",
+    "legging", "leggings", "jogger", "joggers"
 )
 _SHORTS_TOKENS = ("short", "shorts")
 
@@ -572,10 +573,7 @@ def reconcile_bottom_label(
             new_name = (f"{name} Trousers".strip() if name else "Trousers")
         return (new_name, "Trousers", "detector_shorts_but_crop_trousers")
     if heuristic == "shorts" and detector_trouser and not detector_shorts:
-        new_name = _swap_name(name, "Shorts")
-        if not _label_says(new_name.lower(), _SHORTS_TOKENS):
-            new_name = (f"{name} Shorts".strip() if name else "Shorts")
-        return (new_name, "Shorts", "detector_trousers_but_crop_shorts")
+        return (name, sub_category, "detector_trousers_but_crop_shorts_needs_review")
     return None
 
 
@@ -605,15 +603,23 @@ def apply_bottom_length_guard(item: Dict[str, Any], image_bytes: bytes) -> Dict[
             return item
         new_name, new_sub, reason = result
         out = dict(item)
-        out["name"] = new_name
-        out["sub_category"] = new_sub
-        out["subcategory"] = new_sub
-        out["_bottom_length_corrected"] = reason
-        logger.info(
-            "ahvi.taxonomy.bottom_length_corrected original_name=%r original_sub_category=%r "
-            "new_name=%r new_sub_category=%r aspect_ratio=%s reason=%s",
-            name, sub, new_name, new_sub, ar, reason,
-        )
+        if reason == "detector_trousers_but_crop_shorts_needs_review":
+            out["needs_review"] = True
+            out["_bottom_length_corrected"] = reason
+            logger.info(
+                "ahvi.taxonomy.bottom_length_needs_review original_name=%r original_sub_category=%r aspect_ratio=%s reason=%s",
+                name, sub, ar, reason,
+            )
+        else:
+            out["name"] = new_name
+            out["sub_category"] = new_sub
+            out["subcategory"] = new_sub
+            out["_bottom_length_corrected"] = reason
+            logger.info(
+                "ahvi.taxonomy.bottom_length_corrected original_name=%r original_sub_category=%r "
+                "new_name=%r new_sub_category=%r aspect_ratio=%s reason=%s",
+                name, sub, new_name, new_sub, ar, reason,
+            )
         return out
     except Exception as exc:  # noqa: BLE001 — guard must never break save.
         logger.warning("ahvi.taxonomy.bottom_length_guard_error err=%s", repr(exc)[:160])

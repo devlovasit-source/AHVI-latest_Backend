@@ -52,12 +52,13 @@ def test_actual_shorts_unchanged():
 
 
 # pants mislabeled as... actually a wide cutout + trouser label -> corrected to shorts
-def test_trouser_label_but_wide_crop_becomes_shorts():
+def test_trouser_label_but_wide_crop_stays_trousers_needs_review():
     item = {"category": "Bottoms", "sub_category": "Trousers", "name": "Khaki Trousers"}
     out = wt.apply_bottom_length_guard(item, _wide())
-    assert out["sub_category"] == "Shorts"
-    assert "shorts" in out["name"].lower()
-    assert out["_bottom_length_corrected"] == "detector_trousers_but_crop_shorts"
+
+    assert out["sub_category"] == "Trousers"
+    assert out["name"] == "Khaki Trousers"
+    assert out.get("needs_review") is True
 
 
 # 3. ambiguous bottom remains unchanged
@@ -105,6 +106,14 @@ def test_dress_pants_routes_to_bottoms_not_dresses():
     assert cat == "Bottoms"
     assert sub == "Trousers"
 
+def test_jeans_label_but_wide_crop_stays_jeans_needs_review():
+    item = {"category": "Bottoms", "sub_category": "Jeans", "name": "Blue Jeans"}
+    out = wt.apply_bottom_length_guard(item, _wide())
+
+    assert out["sub_category"] == "Jeans"
+    assert out["name"] == "Blue Jeans"
+    assert out.get("needs_review") is True
+    assert "short" not in out["name"].lower()
 
 def test_dress_trousers_routes_to_bottoms():
     cat, _ = wt.normalize(category="Bottoms", name="Charcoal Dress Trousers", sub_category="")

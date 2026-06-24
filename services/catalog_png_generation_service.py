@@ -209,6 +209,17 @@ Fashion catalog quality.{anchor}{final_anchor}"""
             "This item is a bottom garment. Reconstruct the waistband and upper garment "
             "boundary if the crop is incomplete or occluded."
         )
+        blob_bottom = f"{subcategory} {name}".lower()
+        is_full_length = any(t in blob_bottom for t in (
+            "trouser", "trousers", "pant", "pants", "chino", "chinos",
+            "jean", "jeans", "slack", "slacks", "cargo", "cargos", 
+            "legging", "leggings", "jogger", "joggers"
+        ))
+        if is_full_length:
+            details.append(
+                "Keep exactly the same hemline length and pant length. "
+                "NEVER convert full-length pants, trousers, or jeans into shorts."
+            )
     elif cat in {"accessory", "bag", "footwear", "jewellery", "jewelry"}:
         details.append(
             "This item is an accessory. Preserve the exact shape, proportions, color, "
@@ -913,6 +924,33 @@ def validate_catalog_png(image_bytes: bytes, *, original_bytes: bytes = b"", ite
         result["ok"] = False
     else:
         result["ok"] = bool(score.get("ok")) and all(checks.values())
+
+    if normalize_catalog_category((item_metadata or {}).get("category")) == "bottom":
+        meta = item_metadata or {}
+        meta_blob = f"{meta.get('sub_category') or ''} {meta.get('name') or ''}".lower()
+        is_full_length = any(t in meta_blob for t in (
+            "trouser", "trousers", "pant", "pants", "chino", "chinos",
+            "jean", "jeans", "slack", "slacks", "cargo", "cargos", 
+            "legging", "leggings", "jogger", "joggers"
+        ))
+        if is_full_length:
+            try:
+                rgba = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+                bbox = rgba.getchannel("A").getbbox()
+                if not bbox:
+                    from services.image_normalizer import _trim_near_white_bounds
+                    trimmed = _trim_near_white_bounds(rgba)
+                    if trimmed.size != rgba.size:
+                        bbox = rgba.getbbox()
+                if bbox:
+                    gen_w = max(1, bbox[2] - bbox[0])
+                    gen_h = max(1, bbox[3] - bbox[1])
+                    if (gen_h / gen_w) <= 1.25:
+                        result["ok"] = False
+                        result["reason"] = "full_length_bottom_shortened"
+            except Exception:
+                pass
+
     return result
 
 

@@ -538,6 +538,9 @@ _PAD_ACCESSORY = (0.13, 0.13, 0.13)      # bag/footwear/sunglasses/jewelry/watch
 _TALL_GARMENT_TERMS = (
     "dress", "saree", "sari", "lehenga", "gown", "coat", "jacket",
     "jumpsuit", "maxi", "anarkali", "abaya", "kaftan",
+    "jeans", "jean", "trousers", "trouser", "pants", "pant",
+    "chino", "chinos", "cargo", "cargos", "legging", "leggings",
+    "jogger", "joggers", "slack", "slacks"
 )
 _TOP_GARMENT_TERMS = (
     "top", "shirt", "blouse", "kurta", "t-shirt", "tee", "sweater",

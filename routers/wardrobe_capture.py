@@ -3736,6 +3736,11 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
             if _guard_bytes:
                 from services.wardrobe_taxonomy import apply_bottom_length_guard
 
+                item["_orig_capture_name"] = item.get("name")
+                item["_orig_capture_sub"] = item.get("sub_category")
+                item["_orig_capture_gemini_name"] = item.get("gemini_name")
+                item["_orig_capture_gemini_sub"] = item.get("gemini_sub_category")
+                item["_orig_capture_label"] = item.get("label")
                 item = apply_bottom_length_guard(item, _guard_bytes)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
@@ -3890,8 +3895,33 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
                 repr(exc)[:160],
             )
 
+        processed_item = _apply_display_image_fields(item)
+        cat_lower = str(processed_item.get("category") or "").strip().lower()
+        if cat_lower in {"bottoms", "bottom"}:
+            from services.wardrobe_taxonomy import _TROUSER_TOKENS, _SHORTS_TOKENS
+            orig_blob = " ".join(str(v or "") for v in (
+                item.get("_orig_capture_name"),
+                item.get("_orig_capture_sub"),
+                item.get("_orig_capture_gemini_name"),
+                item.get("_orig_capture_gemini_sub"),
+                item.get("_orig_capture_label")
+            )).lower()
+            
+            is_full_length = any(t in orig_blob for t in _TROUSER_TOKENS)
+            was_shorts = any(t in orig_blob for t in _SHORTS_TOKENS)
+            final_blob = f"{processed_item.get('sub_category') or ''} {processed_item.get('name') or ''}".lower()
+            
+            if is_full_length and not was_shorts and any(t in final_blob for t in _SHORTS_TOKENS):
+                processed_item["needs_review"] = True
+                if processed_item.get("validation_status") == "ok":
+                    processed_item["validation_status"] = "needs_review"
+                logger.info(
+                    "ahvi.capture.save_selected.bottom_length_mismatch item_id=%s orig_blob=%r final_blob=%r",
+                    processed_item.get("item_id"), orig_blob, final_blob
+                )
+
         normalized_items.append(
-            apply_metadata_guard(_apply_display_image_fields(item), source="save_selected_request")
+            apply_metadata_guard(processed_item, source="save_selected_request")
         )
 
     if unsafe_catalog_skipped_ids:
