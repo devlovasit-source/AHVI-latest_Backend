@@ -1509,7 +1509,7 @@ Rules:
 """
     try:
         parsed = ai_gateway.generate_json_object(
-            prompt, signals={"context_mode": "styling"}
+            prompt, signals={"context_mode": "combo_filter"}
         )
         selected = (
             parsed.get("selected_combo_ids", []) if isinstance(parsed, dict) else []

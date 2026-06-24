@@ -27,6 +27,13 @@ _POLICIES: Dict[str, GatewayPolicy] = {
     "general": GatewayPolicy(timeout_seconds=35, model=None),
     "styling": GatewayPolicy(timeout_seconds=45, model=None),
     "intent": GatewayPolicy(timeout_seconds=20, model=None),
+    # Outfit combo color/pattern filtering is mechanical ID selection, not deep
+    # reasoning — pin a fast model so the per-hero x 2-stage fan-out (the
+    # dominant board latency, ~68s on a 59-item wardrobe) runs quick.
+    "combo_filter": GatewayPolicy(
+        timeout_seconds=20,
+        model=os.getenv("OUTFIT_COMBO_FILTER_MODEL", "gemini-2.0-flash-001"),
+    ),
     "vision": GatewayPolicy(
         timeout_seconds=int(os.getenv("OLLAMA_VISION_TIMEOUT_SECONDS", "8")),
         model=None,
