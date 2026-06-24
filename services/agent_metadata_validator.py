@@ -442,6 +442,14 @@ def item_metadata_v2_reject_reason(
         raw_meta if isinstance(raw_meta, dict) else {},
         base_item=item,
     )
+    # Hard-rejects must come from REAL V2 metadata, not values inferred from the
+    # bare item name/category. Inferring "festive" from "embroidery" was
+    # false-rejecting office-tagged shirts and collapsing whole wardrobe boards
+    # to a weak match. With no real metadata_v2, defer to the deterministic
+    # occasion/private-wear gates elsewhere instead of a guessy hard-reject.
+    has_real_v2 = isinstance(raw_meta, dict) and bool(raw_meta)
+    if not has_real_v2:
+        return ""
     occ = _norm_key(occasion)
     arch = str(archetype or item.get("style_archetype") or "").strip().lower()
     flags = {_norm_key(flag) for flag in _coerce_list(meta.get("risk_flags"))}
