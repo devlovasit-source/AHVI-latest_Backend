@@ -497,7 +497,19 @@ def item_metadata_v2_reject_reason(
         "interview",
         "boardroom",
     }
-    if professional:
+    # An item explicitly tagged for a professional occasion (by capture/catalog
+    # enrichment or the user) is vetted as appropriate — don't let an INFERRED
+    # risk flag (e.g. "festive" guessed from "embroidery") hard-reject it. This
+    # was killing office boards built from office-tagged shirts -> weak match.
+    pro_occasions = {
+        "office", "office_meeting", "client_meeting", "client_presentation",
+        "business", "interview", "boardroom", "work", "professional",
+    }
+    self_occasions = {
+        _norm_key(o) for o in _coerce_list(item.get("occasions"))
+    } | best
+    professional_self_tagged = bool(self_occasions & pro_occasions)
+    if professional and not professional_self_tagged:
         if (not accessory_like) and flags & {
             "beachwear",
             "gymwear",
