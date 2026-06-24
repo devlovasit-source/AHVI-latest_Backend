@@ -64,7 +64,11 @@ def is_wardrobe_style_request(
         return True
 
     explicit = (
+        "using me wardrobe",
+        "use me wardrobe",
+        "me wardrobe",
         "use my wardrobe",
+        "using my wardrobe",
         "use wardrobe",
         "from my wardrobe",
         "with my wardrobe",

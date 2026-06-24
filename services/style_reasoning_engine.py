@@ -23,6 +23,7 @@ from services.stylist_knowledge_service import (
     WARDROBE_STYLE,
     classify_style_mode,
 )
+from services.occasion_style_rules import derive_occasion_brief, validate_board_candidate_for_occasion
 
 GENERAL = "general"
 VISUAL_INSPIRATION = "visual_inspiration"
@@ -4085,8 +4086,17 @@ def _enrich_visual_directions_with_assets(
 ) -> List[Dict[str, Any]]:
     if not visual_directions:
         return visual_directions
-    assets = _style_asset_rows()
+    
     occasion_text = _asset_text(occasion)
+    occasion_brief = derive_occasion_brief(occasion_text)
+    
+    raw_assets = _style_asset_rows()
+    assets = []
+    for asset in raw_assets:
+        is_valid, _ = validate_board_candidate_for_occasion(asset, occasion_brief, "visual_direction_board")
+        if is_valid:
+            assets.append(asset)
+            
     enriched: List[Dict[str, Any]] = []
     for idx, direction in enumerate(visual_directions):
         out = _sanitize_direction_for_gender(
@@ -4246,6 +4256,7 @@ def _enrich_visual_directions_with_assets(
         sum(1 for item in enriched if item.get("image_url")),
         target_gender,
     )
+    logger.info(f"AHVI_VISUAL_BOARD_VALIDATED occasion='{occasion_text}' items={total_board_items}")
     logger.info(
         "ahvi.style_board_items_contract direction_count=%d board_items_count=%d "
         "roles_present=%s cutout_ready_count=%d wardrobe_intent=%s status=%s",

@@ -9,6 +9,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from services.category_taxonomy import infer_style_attributes
+from services.occasion_style_rules import derive_occasion_brief, validate_board_candidate_for_occasion
 from services.wardrobe_suitability import outfit_contains_private_wear
 
 try:
@@ -625,24 +626,26 @@ def _sanitize_office_board(
 ) -> tuple[dict, list[str]]:
     """Return (sanitized_card, removed_item_names).
 
-    For office-style occasions, drop items that read as underwear/lounge/
-    swim/beach/cap/sunglasses. Leave non-office occasions untouched.
+    Drop items that violate the derived occasion rules.
     """
     if not isinstance(card, dict):
         return card, []
-    if not _is_office_occasion(occasion):
-        return card, []
+    
+    occasion_brief = derive_occasion_brief(occasion)
+    
     items = card.get("items")
     if not isinstance(items, list):
         return card, []
     kept: list = []
     removed: list[str] = []
     for item in items:
-        if isinstance(item, dict) and _is_office_bad_item(item):
-            removed.append(
-                str(item.get("name") or item.get("title") or item.get("id") or "")
-            )
-            continue
+        if isinstance(item, dict):
+            is_valid, _ = validate_board_candidate_for_occasion(item, occasion_brief, card.get("title", ""))
+            if not is_valid:
+                removed.append(
+                    str(item.get("name") or item.get("title") or item.get("id") or "")
+                )
+                continue
         kept.append(item)
     if not removed:
         return card, []
