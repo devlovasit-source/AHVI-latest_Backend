@@ -3774,6 +3774,20 @@ def _board_item_role(name: Any, category: Any = "") -> str:
     blob = f"{_asset_text(name)} {_asset_text(category)}".strip()
     if not blob:
         return ""
+    # Trust an explicit category field first. Catalog assets carry a clean
+    # category ("bottom"/"top"/...), but their names are concatenated
+    # ("Mens Greytrouser"), so the token/name parser below misses them and the
+    # board lost its bottom. The category map is authoritative when present.
+    _cat_role = {
+        "bottom": "bottom", "bottoms": "bottom",
+        "top": "top", "tops": "top",
+        "footwear": "footwear", "shoe": "footwear", "shoes": "footwear",
+        "outerwear": "outerwear",
+        "dress": "dress", "dresses": "dress",
+        "accessory": "accessory", "accessories": "accessory",
+    }.get(_norm(_asset_text(category)))
+    if _cat_role:
+        return _cat_role
     tokens = _style_tokens(_norm(blob))
     if tokens.intersection(
         {"dress", "gown", "saree", "sari", "lehenga", "lehnga", "anarkali", "jumpsuit", "frock"}
