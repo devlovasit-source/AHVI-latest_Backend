@@ -109,7 +109,24 @@ def item_text_blob(item: Dict[str, Any]) -> str:
 def is_private_wear_item(item: Dict[str, Any]) -> bool:
     if not isinstance(item, dict):
         return False
-    blob = item_text_blob(item)
+    # Only garment-identifying fields — NOT prose / metadata vocabularies.
+    # item_text_blob scans everything (style_metadata, occasion lists), so an
+    # occasion-appropriateness vocabulary that merely lists "sleepwear"/"base
+    # layer" false-flagged plain trousers as private wear, dropping every
+    # office combo -> weak_occasion_match. (Regression: this fix was lost in a
+    # merge; restored. Mirrors the frontend board_renderer fix.)
+    blob = _norm(
+        " ".join(
+            str(item.get(k) or "")
+            for k in (
+                "name", "title", "label", "garment_type", "type",
+                "category", "sub_category", "subcategory",
+                "normalizedCategory", "normalized_category",
+                "normalizedSubCategory", "normalized_sub_category",
+                "style_role",
+            )
+        )
+    )
     if _contains_private_alias(blob):
         return True
     normalized = _norm(

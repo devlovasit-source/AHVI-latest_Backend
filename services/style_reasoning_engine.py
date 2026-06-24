@@ -4164,11 +4164,25 @@ def _enrich_visual_directions_with_assets(
                 brief=brief,
             )
             if accessory_assets:
+                # Keep essential outfit pieces (bottom/footwear/top/outerwear)
+                # AHEAD of accessories so the limit=3 cap can't evict the pant.
+                # Previously accessories were prepended, so 3 accessories (bag +
+                # hat + belt) crowded out the bottom and shipped a pant-less board.
+                existing = [item for item in complete if isinstance(item, dict)]
+
+                def _is_essential_piece(item: Dict[str, Any]) -> bool:
+                    return _board_item_role(
+                        _asset_text(item.get("name")), item.get("category")
+                    ) in {"top", "bottom", "outerwear", "dress", "footwear"}
+
+                essential_items = [it for it in existing if _is_essential_piece(it)]
+                extra_items = [it for it in existing if not _is_essential_piece(it)]
+                accessory_items = [
+                    _accessory_asset_to_complete_item(asset, out)
+                    for asset in accessory_assets
+                ]
                 complete = _sanitize_complete_the_look(
-                    [
-                    *[_accessory_asset_to_complete_item(asset, out) for asset in accessory_assets],
-                    *[item for item in complete if isinstance(item, dict)],
-                    ],
+                    [*essential_items, *accessory_items, *extra_items],
                     target_gender=target_gender,
                     allow_feminine=allow_feminine_accessory,
                     limit=3,
@@ -4191,6 +4205,53 @@ def _enrich_visual_directions_with_assets(
             occasion_text,
             out,
         )
+        # Guarantee a bottom on top-led catalog boards. If neither the hero nor
+        # the completed pieces carry a bottom (e.g. accessories filled the slots),
+        # retrieve the best bottom asset so the board never ships pant-less.
+        if not wardrobe_intent and assets:
+            hero_role = _board_item_role(_asset_text(out.get("hero_piece")))
+            has_bottom = hero_role in {"bottom", "dress"} or any(
+                _board_item_role(_asset_text(it.get("name")), it.get("category"))
+                in {"bottom", "dress"}
+                for it in complete
+                if isinstance(it, dict)
+            )
+            if not has_bottom:
+                # Score against a BOTTOM hero so the retrieval surfaces bottoms
+                # (scoring against the real top-hero only returns tops).
+                bottom_dir = dict(out)
+                bottom_dir["hero_piece"] = "tailored trousers"
+                bottom_dir.pop("complete_the_look", None)
+                bottom_candidates = _best_style_assets(
+                    assets,
+                    direction=bottom_dir,
+                    occasion=occasion_text,
+                    accessory_only=False,
+                    target_gender=target_gender,
+                    allow_feminine_accessory=allow_feminine_accessory,
+                    limit=25,
+                    brief=brief,
+                )
+                bottom_asset = next(
+                    (
+                        a
+                        for a in bottom_candidates
+                        if _board_item_role(_asset_text(a.get("name")), a.get("category"))
+                        == "bottom"
+                    ),
+                    None,
+                )
+                if bottom_asset:
+                    bottom_item = _accessory_asset_to_complete_item(bottom_asset, out)
+                    # Bottom leads; keep essentials, then accessories — cap at 3.
+                    complete = [bottom_item] + [
+                        it for it in complete if isinstance(it, dict)
+                    ]
+                    logger.info(
+                        "AHVI_BOARD_BOTTOM_BACKFILL occasion=%s asset=%s",
+                        occasion_text,
+                        _asset_text(bottom_asset.get("name")),
+                    )
         out["complete_the_look"] = complete[:3]
         out = _validate_visual_direction_consistency(
             out,

@@ -472,6 +472,10 @@ def _style_reasoning_chat_response(
             "image_url": str(item.get("image_url") or item.get("imageUrl") or ""),
             "asset_id": str(item.get("asset_id") or ""),
             "complete_the_look": item.get("complete_the_look") if isinstance(item.get("complete_the_look"), list) else [],
+            # Itemized, role-tagged, image-bearing pieces — the frontend renders
+            # the visual board from board_items; without it the catalog/visual-
+            # inspiration directions showed as a checklist instead of a board.
+            "board_items": item.get("board_items") if isinstance(item.get("board_items"), list) else [],
         }
         for item in visual_directions
         if isinstance(item, dict)
@@ -529,7 +533,10 @@ def _style_reasoning_chat_response(
         "response": message,
         "text": message,
         "cards": summary_cards + visual_cards,
-        "style_boards": [],
+        # Expose the visual-direction boards under style_boards so the frontend
+        # board extractor renders them (it reads style_boards/data.outfits, not
+        # `cards`). Empty for non-visual modes since visual_cards is empty then.
+        "style_boards": visual_cards,
         "chips": chips,
         "board_ids": "",
         "data": {
@@ -1844,6 +1851,23 @@ def _is_use_wardrobe_action(*, action: Any = "", prompt: str = "") -> bool:
     action_key = _normalize_action_key(action)
     q = re.sub(r"[^a-z0-9\s]", " ", str(prompt or "").lower())
     q = re.sub(r"\s+", " ", q).strip()
+    # Substring match (not just prefix): "office outfit using my wardrobe" has
+    # the wardrobe cue mid-sentence. Includes the gerund "using my wardrobe".
+    # (Lost-in-merge regression; restored.)
+    _wardrobe_phrases = (
+        "use my wardrobe",
+        "use wardrobe",
+        "using my wardrobe",
+        "using wardrobe",
+        "show wardrobe matches",
+        "build from my wardrobe",
+        "from my wardrobe",
+        "with my wardrobe",
+        "with my clothes",
+        "from my closet",
+        "in my wardrobe",
+        "my wardrobe",
+    )
     return action_key in {
         "use_wardrobe",
         "use_my_wardrobe",
@@ -1852,17 +1876,7 @@ def _is_use_wardrobe_action(*, action: Any = "", prompt: str = "") -> bool:
         "from_my_wardrobe",
         "with_my_clothes",
         "from_my_closet",
-    } or q.startswith(
-        (
-            "use my wardrobe",
-            "use wardrobe",
-            "show wardrobe matches",
-            "build from my wardrobe",
-            "from my wardrobe",
-            "with my clothes",
-            "from my closet",
-        )
-    )
+    } or any(phrase in q for phrase in _wardrobe_phrases)
 
 
 def _wardrobe_action_prompt(prompt: str) -> str:

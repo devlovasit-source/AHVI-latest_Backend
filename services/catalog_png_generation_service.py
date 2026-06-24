@@ -212,7 +212,7 @@ Fashion catalog quality.{anchor}{final_anchor}"""
         blob_bottom = f"{subcategory} {name}".lower()
         is_full_length = any(t in blob_bottom for t in (
             "trouser", "trousers", "pant", "pants", "chino", "chinos",
-            "jean", "jeans", "slack", "slacks", "cargo", "cargos", 
+            "jean", "jeans", "slack", "slacks", "cargo", "cargos",
             "legging", "leggings", "jogger", "joggers"
         ))
         if is_full_length:
@@ -925,29 +925,41 @@ def validate_catalog_png(image_bytes: bytes, *, original_bytes: bytes = b"", ite
     else:
         result["ok"] = bool(score.get("ok")) and all(checks.values())
 
-    if normalize_catalog_category((item_metadata or {}).get("category")) == "bottom":
+    # The full-length-bottom shape guard (h/w <= 1.25 -> "shortened") rejects
+    # folded/square denim even when the generated render is fine, forcing a
+    # cutout fallback. Env-gated so it can be turned off without a redeploy.
+    if (
+        _env_enabled("CATALOG_ENFORCE_FULL_LENGTH_BOTTOM", "true")
+        and normalize_catalog_category((item_metadata or {}).get("category")) == "bottom"
+    ):
         meta = item_metadata or {}
         meta_blob = f"{meta.get('sub_category') or ''} {meta.get('name') or ''}".lower()
         is_full_length = any(t in meta_blob for t in (
             "trouser", "trousers", "pant", "pants", "chino", "chinos",
-            "jean", "jeans", "slack", "slacks", "cargo", "cargos", 
+            "jean", "jeans", "slack", "slacks", "cargo", "cargos",
             "legging", "leggings", "jogger", "joggers"
         ))
         if is_full_length:
             try:
+                from services.image_normalizer import _trim_near_white_bounds
+
                 rgba = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-                bbox = rgba.getchannel("A").getbbox()
-                if not bbox:
-                    from services.image_normalizer import _trim_near_white_bounds
+                width, height = rgba.size
+                alpha_bbox = rgba.getchannel("A").getbbox()
+                # Nano Banana returns a WHITE-BACKGROUND (opaque) image, so the
+                # alpha bbox is the whole canvas — measuring it gives the image
+                # aspect ratio, not the garment, and false-rejects square output.
+                # When the alpha bbox covers (nearly) the full frame, trim the
+                # near-white background to find the real garment extent.
+                if alpha_bbox and alpha_bbox != (0, 0, width, height):
+                    gen_w = max(1, alpha_bbox[2] - alpha_bbox[0])
+                    gen_h = max(1, alpha_bbox[3] - alpha_bbox[1])
+                else:
                     trimmed = _trim_near_white_bounds(rgba)
-                    if trimmed.size != rgba.size:
-                        bbox = rgba.getbbox()
-                if bbox:
-                    gen_w = max(1, bbox[2] - bbox[0])
-                    gen_h = max(1, bbox[3] - bbox[1])
-                    if (gen_h / gen_w) <= 1.25:
-                        result["ok"] = False
-                        result["reason"] = "full_length_bottom_shortened"
+                    gen_w, gen_h = (max(1, trimmed.width), max(1, trimmed.height))
+                if (gen_h / gen_w) <= 1.25:
+                    result["ok"] = False
+                    result["reason"] = "full_length_bottom_shortened"
             except Exception:
                 pass
 
