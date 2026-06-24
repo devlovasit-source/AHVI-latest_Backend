@@ -4378,7 +4378,7 @@ def finalize_style_response_payload(
             {
                 k: v
                 for k, v in {
-                    "gender": ctx.get("target_gender") or ctx.get("gender") or style_identity.get("gender"),
+                    "gender": ctx.get("target_gender") or ctx.get("gender") or _dict(ctx.get("style_identity")).get("gender"),
                     "style_gender": ctx.get("style_gender"),
                     "target_gender": ctx.get("target_gender"),
                 }.items()
@@ -4891,7 +4891,7 @@ def build_style_flow_response(
             {
                 k: v
                 for k, v in {
-                    "gender": ctx.get("target_gender") or ctx.get("gender") or style_identity.get("gender"),
+                    "gender": ctx.get("target_gender") or ctx.get("gender") or _dict(ctx.get("style_identity")).get("gender"),
                     "style_gender": ctx.get("style_gender"),
                     "target_gender": ctx.get("target_gender"),
                 }.items()
