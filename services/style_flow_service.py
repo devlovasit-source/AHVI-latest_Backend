@@ -4328,6 +4328,41 @@ def finalize_style_response_payload(
         threshold, closest_option_requested,
     )
 
+    # Itemized board contract for the frontend renderer. Wardrobe cards carry
+    # their pieces under `items` (name/role/image_url = transparent cutout) but
+    # NOT `board_items`; the renderer reads `board_items` and only trusts an
+    # image when it sees board_image_url / cutout_ready, so without this it
+    # dropped every piece and rendered a checklist instead of a board.
+    for _card in cards:
+        if not isinstance(_card, dict) or _card.get("board_items"):
+            continue
+        _board_items: List[Dict[str, Any]] = []
+        for _it in _card.get("items") or []:
+            if not isinstance(_it, dict):
+                continue
+            _url = str(
+                _it.get("image_url")
+                or _it.get("board_image_url")
+                or _it.get("normalized_url")
+                or _it.get("masked_url")
+                or ""
+            ).strip()
+            _name = str(_it.get("name") or _it.get("title") or _it.get("label") or "").strip()
+            if not _url or not _name:
+                continue
+            _board_items.append(
+                {
+                    **_it,
+                    "name": _name,
+                    "role": _it.get("role") or "",
+                    "image_url": _url,
+                    "board_image_url": _url,
+                    "board_status": "cutout_ready",
+                }
+            )
+        if _board_items:
+            _card["board_items"] = _board_items
+
     data = {
         "outfits": cards,
         "visual_intelligence": visual_intelligence_from_outfit(raw_outfits[0]) if raw_outfits and isinstance(raw_outfits[0], dict) else {},
