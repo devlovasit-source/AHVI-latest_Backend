@@ -12,6 +12,7 @@ from prompts.core_prompts import AHVI_SYSTEM_PROMPT
 from prompts.styling_prompts import OCCASION_INTERPRETER_PROMPT
 from services.ai_gateway import generate_text, parse_json_object
 from services.stylist_knowledge_service import (
+    ARCHETYPE_LIBRARY,
     BODY_PROPORTION_ADVICE,
     COLOR_ADVICE,
     COLOR_BODY_ADVICE,
@@ -6326,6 +6327,69 @@ def _apply_style_guard(
     return out or directions
 
 
+def _recognized_archetype_names() -> set[str]:
+    """Authoritative set of archetype names we treat as already-curated.
+
+    Any archetype on a direction whose (case/space-normalised) name is in this
+    set is considered a genuine, intentional archetype and is PRESERVED as-is.
+    Anything outside the set is free-text the LLM invented (e.g. "Polished
+    Daily") and gets remapped to the best-fit curated-library name.
+
+    The set is the union of:
+      * the persona / visual-inspiration registry (`ARCHETYPE_LIBRARY` — the
+        source `select_archetypes` draws from; includes "Creative Executive",
+        "Approachable Executive", "Resort Sophisticate", and every festive /
+        ceremony persona),
+      * the generic curated visual strategies (`_GENERIC_VISUAL_STRATEGIES`),
+      * the occasion-specific festive replacement archetypes
+        (`_festive_visual_direction_replacements()`).
+    """
+    global _RECOGNIZED_ARCHETYPE_NAMES_CACHE
+    cached = globals().get("_RECOGNIZED_ARCHETYPE_NAMES_CACHE")
+    if cached is not None:
+        return cached
+    names: set[str] = set()
+
+    def _add(raw: Any) -> None:
+        norm = _normalize_archetype_key(raw)
+        if norm:
+            names.add(norm)
+
+    try:
+        for entry in ARCHETYPE_LIBRARY or []:
+            if isinstance(entry, dict):
+                _add(entry.get("name"))
+    except Exception:  # noqa: BLE001
+        pass
+    for entry in _GENERIC_VISUAL_STRATEGIES:
+        _add(entry.get("archetype"))
+    try:
+        for entry in _festive_visual_direction_replacements():
+            _add(entry.get("archetype"))
+    except Exception:  # noqa: BLE001
+        pass
+    _RECOGNIZED_ARCHETYPE_NAMES_CACHE = names
+    return names
+
+
+def _normalize_archetype_key(value: Any) -> str:
+    """Lower-case, whitespace-collapsed key for archetype-name comparison."""
+    text = _clean_direction_title(value)
+    if not text:
+        return ""
+    return " ".join(text.lower().split())
+
+
+_RECOGNIZED_ARCHETYPE_NAMES_CACHE: set[str] | None = None
+
+
+def _is_recognized_archetype(value: Any) -> bool:
+    key = _normalize_archetype_key(value)
+    if not key:
+        return False
+    return key in _recognized_archetype_names()
+
+
 def _assign_curated_archetype(direction: Dict[str, Any], occasion: Any) -> str:
     """Deterministically pick a curated-library archetype for a direction.
 
@@ -6409,12 +6473,17 @@ def _apply_editorial_polish(
         polished = dict(direction)
         polished["title"] = _clean_direction_title(polished.get("title"))
         polished["archetype"] = _clean_direction_title(polished.get("archetype"))
-        # If the direction arrived without a curated archetype (the common case
-        # on the wardrobe / visual-inspiration paths), assign the best-fit
-        # library archetype deterministically so the card renders a real
-        # archetype title instead of a generic LLM title. Preserve any
-        # archetype already enforced upstream (e.g. the archetype-route path).
-        if not polished["archetype"]:
+        # Curated-archetype assignment. Two cases get the best-fit library
+        # archetype assigned deterministically:
+        #   1. the direction arrived WITHOUT an archetype (wardrobe /
+        #      visual-inspiration paths often omit it), and
+        #   2. the direction carries a FREE-TEXT archetype the LLM invented
+        #      that is not in any recognized registry (e.g. "Polished Daily").
+        # Genuine persona / curated / occasion archetypes (anything in
+        # `_recognized_archetype_names()` — Creative Executive, Approachable
+        # Executive, Resort Sophisticate, Festive Heritage, etc.) are
+        # AUTHORITATIVE and preserved exactly as-is.
+        if not polished["archetype"] or not _is_recognized_archetype(polished["archetype"]):
             polished["archetype"] = _assign_curated_archetype(polished, occasion)
         archetype = polished["archetype"] or polished["title"]
         direction_name = _clean_direction_title(

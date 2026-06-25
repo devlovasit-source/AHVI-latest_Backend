@@ -334,3 +334,65 @@ def test_owned_items_absent_without_wardrobe_signal():
     assert polished["owned_count"] == 0
     # total_items reflects the styled look size even without wardrobe data.
     assert polished["total_items"] == 2
+
+
+# ---------- curated-archetype replace-vs-preserve (BUG 2) ----------
+
+def test_free_text_archetype_is_replaced_with_curated_name():
+    """An LLM-invented free-text archetype like 'Polished Daily' is NOT in any
+    recognized registry, so it must be remapped to a real curated-library
+    archetype name."""
+    direction = {
+        "archetype": "Polished Daily",
+        "title": "Everyday Ease",
+        "hero_piece": "Navy Blazer",
+        "items": ["Navy Blazer", "White Shirt", "Tailored Trouser", "Loafers"],
+        "pieces": ["Navy Blazer", "White Shirt", "Tailored Trouser", "Loafers"],
+        "palette": ["navy", "white", "tan"],
+    }
+    out = engine._apply_editorial_polish(
+        [direction], occasion="office", wardrobe_items=None
+    )[0]
+    assert out["archetype"] != "Polished Daily"
+    # The replacement must be a genuine recognized curated/persona archetype.
+    assert engine._is_recognized_archetype(out["archetype"])
+
+
+def test_persona_archetype_is_preserved():
+    """A genuine persona archetype produced by the visual_inspiration path
+    (e.g. 'Creative Executive') is authoritative and must be preserved."""
+    for persona in ("Creative Executive", "Approachable Executive", "Resort Sophisticate"):
+        direction = {
+            "archetype": persona,
+            "title": "Direction",
+            "items": ["Blazer", "Trouser", "Loafers"],
+            "pieces": ["Blazer", "Trouser", "Loafers"],
+        }
+        out = engine._apply_editorial_polish(
+            [direction], occasion="office", wardrobe_items=None
+        )[0]
+        assert out["archetype"] == persona, f"{persona} should be preserved"
+
+
+def test_blank_archetype_still_assigned():
+    """The original case — no archetype at all — still gets a curated name."""
+    direction = {
+        "title": "Direction",
+        "items": ["Linen Shirt", "Linen Trouser", "Espadrilles"],
+        "pieces": ["Linen Shirt", "Linen Trouser", "Espadrilles"],
+    }
+    out = engine._apply_editorial_polish(
+        [direction], occasion="resort", wardrobe_items=None
+    )[0]
+    assert out["archetype"]
+    assert engine._is_recognized_archetype(out["archetype"])
+
+
+def test_recognized_archetype_names_includes_all_registries():
+    names = engine._recognized_archetype_names()
+    # persona library
+    assert engine._normalize_archetype_key("Creative Executive") in names
+    # generic visual strategies
+    assert engine._normalize_archetype_key("Structured Ease") in names
+    # festive replacements
+    assert engine._normalize_archetype_key("Vibrant Celebration") in names
