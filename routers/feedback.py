@@ -75,12 +75,16 @@ def feedback_board(request: BoardFeedbackRequest):
             }
 
         embedding = encode_metadata(request.board_payload)
-        point_id = qdrant_service.upsert_user_memory(
+        # QdrantService.upsert_user_memory accepts (user_id, vector, payload);
+        # carry the like/dislike signal inside the payload (no memory_type kwarg).
+        qdrant_service.upsert_user_memory(
             user_id=request.user_id,
             vector=embedding,
-            memory_type="liked" if action == "like" else "disliked",
             payload={
                 "source": "feedback.board",
+                "memory_type": "liked" if action == "like" else "disliked",
+                "action": action,
+                "user_id": request.user_id,
                 "board": str(request.board_payload.get("board") or ""),
                 "type": str(request.board_payload.get("type") or ""),
             },
@@ -89,7 +93,6 @@ def feedback_board(request: BoardFeedbackRequest):
         return {
             "success": True,
             "message": "Board feedback recorded",
-            "memory_point_id": point_id,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
