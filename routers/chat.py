@@ -447,7 +447,8 @@ def _style_reasoning_chat_response(
     visual_cards = [] if is_missing_pieces else [
         {
             "type": "visual_direction",
-            "archetype": str(item.get("archetype") or ""),
+            "archetype": str(item.get("archetype") or item.get("direction_name") or item.get("title") or ""),
+            "direction_name": str(item.get("direction_name") or ""),
             "title": str(item.get("title") or "Style Direction"),
             "subtitle": str(item.get("subtitle") or item.get("style_direction") or ""),
             "impression": str(item.get("impression") or ""),
