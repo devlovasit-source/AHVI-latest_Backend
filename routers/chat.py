@@ -471,6 +471,9 @@ def _style_reasoning_chat_response(
             "wardrobe_alignment": item.get("wardrobe_alignment"),
             "style_dna_alignment": item.get("style_dna_alignment") or item.get("dna_alignment"),
             "persona_fit_reason": item.get("persona_fit_reason"),
+            # Wardrobe-match pill: the reasoning engine sets wardrobe_match_pct
+            # on each direction; forward it so the frontend can render the pill.
+            "wardrobe_match_pct": item.get("wardrobe_match_pct"),
             "image_url": str(item.get("image_url") or item.get("imageUrl") or ""),
             "asset_id": str(item.get("asset_id") or ""),
             "complete_the_look": item.get("complete_the_look") if isinstance(item.get("complete_the_look"), list) else [],
