@@ -34,6 +34,7 @@ from services.style_flow_service import (
     curate_wardrobe_boards,
     finalize_style_response_payload,
     interpret_occasion,
+    _build_composition_brief,
 )
 from services.module_chat_service import handle_module_chat
 from services.style_reasoning_engine import VISUAL_INSPIRATION, style_reasoning_engine
@@ -476,6 +477,13 @@ def _style_reasoning_chat_response(
             # the visual board from board_items; without it the catalog/visual-
             # inspiration directions showed as a checklist instead of a board.
             "board_items": item.get("board_items") if isinstance(item.get("board_items"), list) else [],
+            # Additive styling-intent brief for the frontend board renderer.
+            "composition_brief": _build_composition_brief(
+                item.get("board_items") if isinstance(item.get("board_items"), list)
+                else (item.get("pieces") if isinstance(item.get("pieces"), list)
+                      else (item.get("items") if isinstance(item.get("items"), list) else [])),
+                str(reasoning.get("occasion") or reasoning.get("formality") or item.get("use_case") or ""),
+            ),
         }
         for item in visual_directions
         if isinstance(item, dict)

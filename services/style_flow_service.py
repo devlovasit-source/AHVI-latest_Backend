@@ -3874,6 +3874,183 @@ def _style_signature_hash(signatures: List[str]) -> str:
     return hashlib.sha1("|".join(signatures).encode("utf-8")).hexdigest() if signatures else ""
 
 
+_STRUCTURED_OCCASION_TOKENS = (
+    "office",
+    "work",
+    "formal",
+    "interview",
+    "business",
+    "corporate",
+    "professional",
+    "meeting",
+    "boardroom",
+)
+
+_COMPOSITION_PROPORTION_DEFAULTS = {
+    "top": 1.0,
+    "bottom": 0.95,
+    "footwear": 0.55,
+    "outerwear": 0.9,
+    "accessory": 0.35,
+    "dress": 1.0,
+}
+
+
+def _normalize_brief_role(raw_role: Any, name: str = "") -> str:
+    """Map a free-form item role/name onto a canonical composition role."""
+    role = str(raw_role or "").strip().lower()
+    blob = f"{role} {str(name or '').lower()}"
+    if any(t in blob for t in ("dress", "gown", "jumpsuit", "saree", "sari", "kurta set")):
+        if "dress" in role or "gown" in blob or "jumpsuit" in blob:
+            return "dress"
+    if any(t in blob for t in ("jacket", "blazer", "coat", "outer", "overcoat", "cardigan", "shrug")):
+        return "outerwear"
+    if any(t in blob for t in ("shoe", "footwear", "boot", "sneaker", "heel", "sandal", "loafer", "flat")):
+        return "footwear"
+    if any(t in blob for t in ("bag", "belt", "watch", "jewel", "accessor", "scarf", "hat", "sunglass", "tie", "clutch", "purse")):
+        return "accessory"
+    if any(t in blob for t in ("pant", "trouser", "jean", "skirt", "short", "bottom", "chino", "legging")):
+        return "bottom"
+    if any(t in blob for t in ("top", "shirt", "tee", "t-shirt", "blouse", "sweater", "knit", "hoodie", "kurta", "kurti")):
+        return "top"
+    # Fall back to whatever canonical bucket the raw role already names.
+    if role in _COMPOSITION_PROPORTION_DEFAULTS or role == "dress":
+        return role
+    return "top"
+
+
+def _build_composition_brief(
+    board_items: Optional[List[Dict[str, Any]]],
+    occasion: Any = "",
+) -> Dict[str, Any]:
+    """v1 rule-based styling-intent brief for the frontend board renderer.
+
+    Purely additive and defensive: never raises on missing/odd fields. Encodes
+    hero role, layout mode, per-role size weights, layering order, mood, accent
+    placement, and a best-effort palette anchor derived from item color fields.
+    """
+    try:
+        items = [it for it in (board_items or []) if isinstance(it, dict)]
+
+        roles: List[str] = []
+        for it in items:
+            role = _normalize_brief_role(
+                it.get("role"),
+                str(it.get("name") or it.get("title") or it.get("label") or ""),
+            )
+            roles.append(role)
+        role_set = set(roles)
+
+        has_dress = "dress" in role_set
+        has_outerwear = "outerwear" in role_set
+        has_top = "top" in role_set
+
+        # hero_role
+        if has_dress:
+            hero_role = "dress"
+        elif has_outerwear:
+            hero_role = "outerwear"
+        else:
+            hero_role = "top"
+
+        # layout_mode
+        if has_dress:
+            layout_mode = "dress_focused"
+        elif has_outerwear:
+            layout_mode = "layered"
+        elif role_set and role_set.issubset({"accessory", "footwear"}):
+            layout_mode = "accessory_heavy"
+        else:
+            layout_mode = "flat"
+
+        # proportions: only for roles actually present (fallback to all defaults).
+        if role_set:
+            proportions = {
+                r: _COMPOSITION_PROPORTION_DEFAULTS.get(r, 1.0)
+                for r in role_set
+                if r in _COMPOSITION_PROPORTION_DEFAULTS
+            } or dict(_COMPOSITION_PROPORTION_DEFAULTS)
+        else:
+            proportions = dict(_COMPOSITION_PROPORTION_DEFAULTS)
+
+        # layering: top sits in front of outerwear when both present.
+        layering: List[Dict[str, str]] = []
+        if has_outerwear and has_top:
+            layering.append({"front": "top", "behind": "outerwear"})
+
+        # mood
+        occ = str(occasion or "").lower()
+        mood = "structured" if any(t in occ for t in _STRUCTURED_OCCASION_TOKENS) else "relaxed"
+
+        # accents
+        accents = {"placement": "negative_space", "roles": ["accessory"]}
+
+        # palette: best-effort from first item carrying a color/color_code field.
+        anchor_color = None
+        warmth = None
+        for it in items:
+            color = it.get("color") or it.get("color_name") or it.get("dominant_color")
+            color_code = it.get("color_code") or it.get("hex") or it.get("color_hex")
+            if color or color_code:
+                anchor_color = str(color or color_code).strip() or None
+                warmth = _color_warmth(str(color or color_code))
+                break
+        palette = (
+            {"anchor_color": anchor_color, "warmth": warmth}
+            if anchor_color is not None
+            else None
+        )
+
+        return {
+            "hero_role": hero_role,
+            "layout_mode": layout_mode,
+            "proportions": proportions,
+            "layering": layering,
+            "mood": mood,
+            "accents": accents,
+            "palette": palette,
+        }
+    except Exception:  # noqa: BLE001 - brief is purely additive, never break the board
+        return {
+            "hero_role": "top",
+            "layout_mode": "flat",
+            "proportions": dict(_COMPOSITION_PROPORTION_DEFAULTS),
+            "layering": [],
+            "mood": "relaxed",
+            "accents": {"placement": "negative_space", "roles": ["accessory"]},
+            "palette": None,
+        }
+
+
+def _color_warmth(value: str) -> Optional[str]:
+    """Crude warm/cool/neutral classification from a color name or hex code."""
+    v = str(value or "").strip().lower()
+    if not v:
+        return None
+    warm_names = ("red", "orange", "yellow", "gold", "brown", "tan", "beige", "coral", "rust", "amber", "peach", "maroon")
+    cool_names = ("blue", "green", "teal", "navy", "purple", "violet", "indigo", "mint", "cyan", "aqua")
+    neutral_names = ("black", "white", "grey", "gray", "charcoal", "silver", "cream", "ivory")
+    if any(n in v for n in warm_names):
+        return "warm"
+    if any(n in v for n in cool_names):
+        return "cool"
+    if any(n in v for n in neutral_names):
+        return "neutral"
+    # Hex path: #RRGGBB -> compare red vs blue channel.
+    hexv = v.lstrip("#")
+    if len(hexv) == 6:
+        try:
+            r = int(hexv[0:2], 16)
+            g = int(hexv[2:4], 16)
+            b = int(hexv[4:6], 16)
+            if abs(r - b) <= 24 and abs(r - g) <= 24:
+                return "neutral"
+            return "warm" if r >= b else "cool"
+        except ValueError:
+            return None
+    return None
+
+
 def _board_metadata_summary(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     summary: List[Dict[str, Any]] = []
     for idx, card in enumerate(cards or []):
@@ -4334,7 +4511,14 @@ def finalize_style_response_payload(
     # image when it sees board_image_url / cutout_ready, so without this it
     # dropped every piece and rendered a checklist instead of a board.
     for _card in cards:
-        if not isinstance(_card, dict) or _card.get("board_items"):
+        if not isinstance(_card, dict):
+            continue
+        if _card.get("board_items"):
+            # Pieces already present; still attach the additive composition brief.
+            _card["composition_brief"] = _build_composition_brief(
+                _card.get("board_items"),
+                normalized_occasion,
+            )
             continue
         _board_items: List[Dict[str, Any]] = []
         for _it in _card.get("items") or []:
@@ -4362,6 +4546,11 @@ def finalize_style_response_payload(
             )
         if _board_items:
             _card["board_items"] = _board_items
+        # Additive styling-intent brief for the frontend board renderer.
+        _card["composition_brief"] = _build_composition_brief(
+            _card.get("board_items") or _board_items,
+            normalized_occasion,
+        )
 
     data = {
         "outfits": cards,
