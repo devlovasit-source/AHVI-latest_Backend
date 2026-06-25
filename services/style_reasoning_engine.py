@@ -6326,6 +6326,70 @@ def _apply_style_guard(
     return out or directions
 
 
+def _assign_curated_archetype(direction: Dict[str, Any], occasion: Any) -> str:
+    """Deterministically pick a curated-library archetype for a direction.
+
+    Rule-based (NO LLM). Scores the direction's hero piece / items / palette /
+    title against the curated library entries and returns the best-fit
+    archetype name. For festive/traditional occasions the festive archetype set
+    is preferred. ALWAYS returns a non-empty name.
+    """
+    if not isinstance(direction, dict):
+        return _GENERIC_VISUAL_STRATEGIES[0]["archetype"]
+
+    is_festive = _visual_occasion_family(occasion) == "indian_festive"
+
+    # Build the candidate library: festive set first when the occasion calls for
+    # it, otherwise the generic set. We score every candidate and pick the best.
+    if is_festive:
+        candidates = _festive_visual_direction_replacements()
+        fallback = candidates[0]["archetype"]
+    else:
+        candidates = _GENERIC_VISUAL_STRATEGIES
+        fallback = candidates[0]["archetype"]
+
+    # Tokenise the incoming direction's descriptive signal.
+    dir_blob = " ".join(
+        [
+            _asset_text(direction.get("hero_piece") or direction.get("heroPiece")),
+            " ".join(_safe_list(direction.get("items") or direction.get("pieces"), limit=8)),
+            _asset_text(direction.get("title")),
+            _asset_text(direction.get("subtitle")),
+        ]
+    )
+    dir_tokens = _style_tokens(dir_blob)
+    dir_palette = set(_style_tokens(" ".join(_safe_list(direction.get("palette") or direction.get("colors"), limit=6))))
+    dir_hero_cat = _style_category(direction.get("hero_piece") or direction.get("heroPiece"))
+
+    best_name = fallback
+    best_score = -1.0
+    for cand in candidates:
+        cand_blob = " ".join(
+            [
+                _asset_text(cand.get("hero_piece")),
+                " ".join(_safe_list(cand.get("items"), limit=8)),
+                _asset_text(cand.get("title")),
+            ]
+        )
+        cand_tokens = _style_tokens(cand_blob)
+        cand_palette = set(_style_tokens(" ".join(_safe_list(cand.get("palette"), limit=6))))
+        score = 0.0
+        # Garment/term overlap is the primary signal.
+        if dir_tokens and cand_tokens:
+            score += 2.0 * len(dir_tokens & cand_tokens) / max(1, len(cand_tokens))
+        # Palette overlap is a secondary signal.
+        if dir_palette and cand_palette:
+            score += 1.0 * len(dir_palette & cand_palette) / max(1, len(cand_palette))
+        # Hero category match is a strong tie-breaker.
+        if dir_hero_cat and dir_hero_cat == _style_category(cand.get("hero_piece")):
+            score += 1.5
+        if score > best_score:
+            best_score = score
+            best_name = str(cand.get("archetype") or fallback)
+
+    return _clean_direction_title(best_name) or fallback
+
+
 def _apply_editorial_polish(
     directions: List[Dict[str, Any]],
     *,
@@ -6345,6 +6409,13 @@ def _apply_editorial_polish(
         polished = dict(direction)
         polished["title"] = _clean_direction_title(polished.get("title"))
         polished["archetype"] = _clean_direction_title(polished.get("archetype"))
+        # If the direction arrived without a curated archetype (the common case
+        # on the wardrobe / visual-inspiration paths), assign the best-fit
+        # library archetype deterministically so the card renders a real
+        # archetype title instead of a generic LLM title. Preserve any
+        # archetype already enforced upstream (e.g. the archetype-route path).
+        if not polished["archetype"]:
+            polished["archetype"] = _assign_curated_archetype(polished, occasion)
         archetype = polished["archetype"] or polished["title"]
         direction_name = _clean_direction_title(
             archetype or polished["title"] or "Curated Direction"
