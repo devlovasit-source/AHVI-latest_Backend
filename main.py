@@ -557,9 +557,11 @@ async def auth_guard_middleware(request: Request, call_next):
         or path.startswith("/docs")
         or path.startswith("/openapi")
         or path == "/api/wardrobe/diagnostics"
+        or path == "/api/wardrobe/rmbg-warm"
     ):
         # Note: dispatch-due is intentionally bypassed here — the route enforces
-        # its own NOTIFICATIONS_DISPATCH_SECRET.
+        # its own NOTIFICATIONS_DISPATCH_SECRET. rmbg-warm likewise enforces its
+        # own RMBG_WARM_SECRET and only pings the RMBG model (no user data).
         return await call_next(request)
     try:
         request.state.user = await get_current_user(request)
