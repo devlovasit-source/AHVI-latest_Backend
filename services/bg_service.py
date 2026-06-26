@@ -93,20 +93,27 @@ async def warm_rmbg() -> dict:
     """
     if not RMBG_SERVICE_URL:
         return {"ok": False, "reason": "RMBG_SERVICE_URL unset"}
-    import base64
+    import io
     import time as _time
 
-    # 8x8 PNG — enough to trigger a real inference pass.
-    tiny = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFElEQVR4nGP8z8BQz0AEYBxV"
-        "SF8FAP2FBPhE5gV2AAAAAElFTkSuQmCC"
-    )
+    from PIL import Image, ImageDraw
+
+    # A real 256x256 image with a clear foreground subject on a contrasting
+    # background, so RMBG runs an actual inference pass (a trivial/blank image
+    # is rejected pre-inference and would NOT keep the model resident).
+    _img = Image.new("RGB", (256, 256), (245, 245, 245))
+    _draw = ImageDraw.Draw(_img)
+    _draw.ellipse((64, 64, 192, 192), fill=(40, 90, 160))
+    _buf = io.BytesIO()
+    _img.save(_buf, format="PNG")
+    warm_bytes = _buf.getvalue()
+
     t0 = _time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             res = await client.post(
                 RMBG_SERVICE_URL,
-                files={"file": ("warm.png", tiny, "image/png")},
+                files={"file": ("warm.png", warm_bytes, "image/png")},
             )
         ms = int((_time.perf_counter() - t0) * 1000)
         print(f"[RMBG WARM] status={res.status_code} ms={ms}")
