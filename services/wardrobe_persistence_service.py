@@ -9,7 +9,7 @@ import requests
 
 from services.embedding_service import embedding_service
 from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
-from services.category_taxonomy import infer_style_attributes, normalize_category_from_label
+from services.category_taxonomy import infer_style_attributes, normalize_category_from_label, is_face_risk_category
 from services.qdrant_service import qdrant_service
 from services.wardrobe_taxonomy import normalize as _taxonomy_normalize
 from services.wardrobe_intelligence_service import enrich_wardrobe_item
@@ -833,7 +833,9 @@ def _build_appwrite_doc(
     # assets below without breaking Appwrite writes.
     privacy_catalog_only = str(
         os.getenv("WARDROBE_PRIVACY_CATALOG_ONLY", "false")
-    ).strip().lower() in {"1", "true", "yes", "on"}
+    ).strip().lower() in {"1", "true", "yes", "on"} and is_face_risk_category(
+        category, sub_category, name
+    )
     if privacy_catalog_only:
         # Privacy: only the regenerated catalog image (face-free) is stored. The
         # raw crop and RMBG cutout can contain the user's face on worn/selfie
@@ -954,7 +956,9 @@ def persist_selected_items(
 
             _privacy_catalog_only = str(
                 os.getenv("WARDROBE_PRIVACY_CATALOG_ONLY", "false")
-            ).strip().lower() in {"1", "true", "yes", "on"}
+            ).strip().lower() in {"1", "true", "yes", "on"} and is_face_risk_category(
+                item.get("category"), item.get("sub_category"), item.get("name")
+            )
 
             if _privacy_catalog_only:
                 # Privacy: the stored image must be a real catalog (face-free).

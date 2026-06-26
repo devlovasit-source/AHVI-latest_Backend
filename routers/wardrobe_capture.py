@@ -2188,13 +2188,20 @@ def _try_upload_inline_images(
     prefer_inline: bool = False,
 ) -> Dict[str, Any]:
     if _privacy_catalog_only():
-        # Privacy: never upload the raw crop or RMBG cutout — they can contain
-        # the user's face (worn/selfie). The catalog generator reads the
-        # in-memory *_image_base64 and uploads its own face-free PNG, which
-        # becomes the only stored/displayed image. No catalog -> no image
-        # (handled at persist as needs_review), never the face.
-        item["_save_image_source"] = "privacy_catalog_only_skip_upload"
-        return item
+        from services.category_taxonomy import is_face_risk_category
+
+        if is_face_risk_category(
+            item.get("category"), item.get("sub_category"), item.get("name")
+        ):
+            # Privacy: for face-risk items (worn apparel, head/neck), never
+            # upload the raw crop or RMBG cutout — they can contain the user's
+            # face. The catalog generator reads the in-memory *_image_base64 and
+            # uploads its own face-free PNG, which becomes the only stored image.
+            # No catalog -> item not saved (handled at persist), never a face.
+            # Non-face-risk accessories (footwear, bags, belts, watches) fall
+            # through to the normal upload below.
+            item["_save_image_source"] = "privacy_catalog_only_skip_upload"
+            return item
 
     if allow_fast_mode_skip and _env_enabled("WARDROBE_CAPTURE_FAST_MODE", "true"):
         item["upload_error"] = (
