@@ -2971,6 +2971,18 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
         _env_enabled("WARDROBE_CAPTURE_VISION_ENRICHMENT", "false"),
     )
 
+    # Cache each crop server-side so the SAVE can reference it by token instead
+    # of re-uploading the base64. base64 stays in this response for the preview.
+    if _image_cache_enabled():
+        for _it in items:
+            if not isinstance(_it, dict):
+                continue
+            _b64 = _it.get("raw_image_base64") or _it.get("masked_image_base64")
+            if _b64:
+                _tok = await _image_cache_put_async(str(_b64))
+                if _tok:
+                    _it["image_cache_token"] = _tok
+
     return {
         "success": True,
         "count": len(items),
@@ -3662,6 +3674,61 @@ def _privacy_catalog_only() -> bool:
     }
 
 
+# --- WARDROBE_ANALYZE_IMAGE_CACHE -------------------------------------------
+# Cache the analyzed crop bytes server-side (Redis, short TTL) keyed by a token,
+# so the SAVE call can reference the image by token instead of re-uploading the
+# ~MB base64 (the slow client-side step). Privacy-safe: Redis is private and
+# transient — the image never lands on the public R2 bucket.
+def _image_cache_enabled() -> bool:
+    return str(os.getenv("WARDROBE_ANALYZE_IMAGE_CACHE", "false")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _image_cache_ttl() -> int:
+    try:
+        return max(60, int(os.getenv("WARDROBE_ANALYZE_IMAGE_CACHE_TTL", "900")))
+    except (TypeError, ValueError):
+        return 900
+
+
+async def _image_cache_put_async(data_b64: str) -> str:
+    """Cache a base64 image string, return a token (or '' if unavailable)."""
+    if not data_b64:
+        return ""
+    try:
+        from services.bg_service import redis_client as _rc
+
+        if _rc is None:
+            return ""
+        token = uuid.uuid4().hex
+        await _rc.setex(f"imgcache:{token}", _image_cache_ttl(), data_b64)
+        return token
+    except Exception:  # noqa: BLE001 — caching is best-effort
+        return ""
+
+
+def _image_cache_get_sync(token: str) -> str:
+    """Fetch a cached base64 image by token from the sync save path."""
+    token = str(token or "").strip()
+    if not token:
+        return ""
+    try:
+        from services.bg_service import redis_client as _rc
+
+        if _rc is None:
+            return ""
+        val = asyncio.run(_rc.get(f"imgcache:{token}"))
+        if val is None:
+            return ""
+        return val.decode("utf-8") if isinstance(val, (bytes, bytearray)) else str(val)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _run_bg_finalize_rmbg(user_id: str, cleanup_items: List[Dict[str, Any]]) -> None:
     """Background (post-response) finalize for WARDROBE_ASYNC_RMBG: run RMBG on
     the raw crops, upload the cutout to R2, then patch each already-saved doc's
@@ -3723,6 +3790,26 @@ def save_selected(
         [i for i in detected_items if isinstance(i, dict)],
         user_id=user_id,
     )
+
+    # WARDROBE_ANALYZE_IMAGE_CACHE: when the client sent an image_cache_token
+    # instead of the base64 (to avoid re-uploading ~MB), restore the crop bytes
+    # from the server-side Redis cache so all downstream steps (RMBG, catalog,
+    # persist) work unchanged.
+    if _image_cache_enabled():
+        _cache_hits = 0
+        for _it in detected_items:
+            if not isinstance(_it, dict):
+                continue
+            _tok = str(_it.get("image_cache_token") or "").strip()
+            if _tok and not _it.get("raw_image_base64"):
+                _cached_b64 = _image_cache_get_sync(_tok)
+                if _cached_b64:
+                    _it["raw_image_base64"] = _cached_b64
+                    _cache_hits += 1
+        if _cache_hits:
+            logger.info(
+                "ahvi.capture.save_selected.image_cache_restored items=%d", _cache_hits
+            )
 
     # Deferred RMBG cleanup for Gemini multi fast-path previews: the preview
     # returned raw crops; clean only the items the user actually selected.
