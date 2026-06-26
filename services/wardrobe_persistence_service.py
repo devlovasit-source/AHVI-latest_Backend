@@ -1241,6 +1241,49 @@ def _patch_document(
     )
 
 
+def update_wardrobe_item_images(
+    *,
+    user_id: str,
+    item_id: str,
+    masked_url: str = "",
+    image_status: str = "",
+) -> bool:
+    """Best-effort patch of a wardrobe item's cutout fields after async RMBG
+    finishes in the background. Returns True on success. Never raises — the
+    item is already saved with its catalog image; this only fills the masked
+    (cutout) fallback fields. Unknown attributes are dropped by _patch_document.
+    """
+    log = logging.getLogger("ahvi.wardrobe_persistence")
+    item_id = _safe_text(item_id)
+    if not item_id:
+        return False
+    patch: Dict[str, Any] = {}
+    if masked_url:
+        patch["masked_url"] = masked_url
+    if image_status:
+        patch["image_status"] = image_status
+    if not patch:
+        return False
+    try:
+        _patch_document(item_id, patch)
+        log.info(
+            "ahvi.async_rmbg.patched user_id=%s item_id=%s masked_url=%s status=%s",
+            user_id,
+            item_id,
+            masked_url,
+            image_status,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001 — background, must never raise
+        log.warning(
+            "ahvi.async_rmbg.patch_failed user_id=%s item_id=%s err=%s",
+            user_id,
+            item_id,
+            exc,
+        )
+        return False
+
+
 def _delete_document_at_location(
     document_id: str,
     *,

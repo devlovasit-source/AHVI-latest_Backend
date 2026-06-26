@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import requests
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
 from PIL import Image, ImageOps
 
@@ -32,6 +32,7 @@ from services.wardrobe_persistence_service import (
     delete_wardrobe_item,
     persist_selected_items,
     update_item_labels,
+    update_wardrobe_item_images,
 )
 from services.wardrobe_suitability import apply_metadata_guard
 from services.wardrobe_taxonomy import (
@@ -3613,9 +3614,60 @@ def _run_save_rmbg_cleanup_sync(items: List[Dict[str, Any]]) -> "tuple[int, int]
         return pool.submit(asyncio.run, _save_rmbg_cleanup(items)).result()
 
 
+def _async_rmbg_enabled() -> bool:
+    return str(os.getenv("WARDROBE_ASYNC_RMBG", "false")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _run_bg_finalize_rmbg(user_id: str, cleanup_items: List[Dict[str, Any]]) -> None:
+    """Background (post-response) finalize for WARDROBE_ASYNC_RMBG: run RMBG on
+    the raw crops, upload the cutout to R2, then patch each already-saved doc's
+    masked_url. The item is already persisted with its catalog image; this only
+    fills the cutout fallback. Best-effort; never raises."""
+    try:
+        _run_save_rmbg_cleanup_sync(cleanup_items)  # sets masked_image_base64
+        for it in cleanup_items:
+            if not isinstance(it, dict):
+                continue
+            item_id = str(it.get("item_id") or "").strip()
+            if not item_id or str(it.get("imageStatus") or "") != "rmbg_complete":
+                continue
+            try:
+                _try_upload_inline_images(
+                    it, allow_fast_mode_skip=False, prefer_inline=True
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "ahvi.async_rmbg.upload_failed item_id=%s err=%s",
+                    item_id,
+                    str(exc)[:160],
+                )
+                continue
+            masked_url = str(it.get("masked_url") or it.get("maskedUrl") or "").strip()
+            if not masked_url:
+                continue
+            update_wardrobe_item_images(
+                user_id=user_id,
+                item_id=item_id,
+                masked_url=masked_url,
+                image_status="rmbg_complete",
+            )
+    except Exception as exc:  # noqa: BLE001 — background must never raise
+        logger.warning("ahvi.async_rmbg.finalize_failed err=%s", str(exc)[:200])
+
+
 @router.post("/save-selected")
-def save_selected(http_request: Request, request: SaveSelectedRequest):
+def save_selected(
+    http_request: Request,
+    request: SaveSelectedRequest,
+    background_tasks: BackgroundTasks,
+):
     user_id = _effective_user_id(http_request, request.user_id)
+    _async_rmbg = _async_rmbg_enabled()
 
     # Per-stage latency timers (RMBG -> catalog -> persist). Initialized to the
     # start so the summary log is safe even when a stage is skipped.
@@ -3659,7 +3711,18 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
     ]
     cleanup_ok = 0
     cleanup_failed = 0
-    if cleanup_items:
+    # WARDROBE_ASYNC_RMBG: defer the ~37s RMBG cutout to a post-response
+    # background task so the save returns with the catalog image in ~22s. The
+    # cutout (masked_url) is only the display fallback, so deferring it is safe.
+    if cleanup_items and _async_rmbg:
+        for i in cleanup_items:
+            if isinstance(i, dict):
+                i["imageStatus"] = "rmbg_pending"
+                i["image_status"] = "rmbg_pending"
+        logger.info(
+            "ahvi.capture.save_selected.rmbg_deferred items=%d", len(cleanup_items)
+        )
+    elif cleanup_items:
         try:
             cleanup_ok, cleanup_failed = _run_save_rmbg_cleanup_sync(cleanup_items)
         except Exception as exc:  # noqa: BLE001 - save must never fail on RMBG
@@ -4103,6 +4166,25 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         )
     except Exception:
         pass
+
+    # WARDROBE_ASYNC_RMBG: finalize the deferred cutout off the response path.
+    if _async_rmbg and cleanup_items:
+        _approved = set(approved_selected_ids)
+        _to_finalize = [
+            i
+            for i in cleanup_items
+            if isinstance(i, dict)
+            and str(i.get("item_id") or "").strip() in _approved
+        ]
+        if _to_finalize:
+            background_tasks.add_task(
+                _run_bg_finalize_rmbg, user_id, _to_finalize
+            )
+            logger.info(
+                "ahvi.async_rmbg.scheduled user_id=%s items=%d",
+                user_id,
+                len(_to_finalize),
+            )
 
     # Per-stage latency for the 30s-save target: upload+RMBG -> catalog -> persist.
     logger.info(
