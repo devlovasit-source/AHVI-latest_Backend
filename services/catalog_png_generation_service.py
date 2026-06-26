@@ -100,6 +100,31 @@ Quality priority:
 - premium product presentation"""
 
 
+# Ghost / invisible-mannequin variant (behind CATALOG_GHOST_MANNEQUIN). Produces
+# the premium "worn 3D form on an invisible body" look for wearable garments,
+# instead of the flat repair/cleanup the default prompt yields.
+GHOST_MANNEQUIN_PROMPT = """Create a premium fashion e-commerce catalog photo of this garment on an INVISIBLE (ghost) mannequin.
+
+Render the garment in its natural worn 3D form — structured shoulders, filled sleeves, natural drape and volume from neckline to hem — as if worn on a body, but with NO visible body, person, face, hands, mannequin, hanger, hook, or prop. The garment holds a realistic worn shape on its own.
+
+Reconstruct any parts hidden, flattened, or distorted in the source (collar, shoulders, sleeves, hemline) so the COMPLETE garment is shown front-facing, upright, centered, top to hem.
+
+Preserve EXACTLY: the same garment, its color, print/pattern, fabric texture, silhouette, proportions, neckline, sleeves, straps, and hemline length. Do NOT redesign, recolor, or alter the print. Never convert full-length to short.
+
+Background: pure white studio, soft even lighting, a subtle natural contact shadow under the garment only.
+
+Output ONE clean catalog image: garment only on an invisible mannequin. No text, watermark, border, frame, card, template, person, visible mannequin, hanger, or background clutter."""
+
+
+def _ghost_mannequin_enabled() -> bool:
+    return str(os.getenv("CATALOG_GHOST_MANNEQUIN", "false")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _build_catalog_prompt(category: Any, metadata: Optional[Dict[str, Any]] = None) -> str:
     meta = metadata or {}
     cat = normalize_catalog_category(category)
@@ -122,6 +147,17 @@ def _build_catalog_prompt(category: Any, metadata: Optional[Dict[str, Any]] = No
     anchor = ""
     if anchor_parts:
         anchor = "\n\nMETADATA ANCHOR:\n" + "\n".join(anchor_parts)
+    # Ghost / invisible-mannequin look for wearable garments (flag-gated). This
+    # supersedes the flat repair/cleanup prompt so the garment renders in a
+    # premium worn 3D form on an invisible body.
+    if _ghost_mannequin_enabled() and cat in {
+        "dress",
+        "top",
+        "outerwear",
+        "ethnic",
+        "bottom",
+    }:
+        return GHOST_MANNEQUIN_PROMPT + anchor
     details = []
     if cat == "dress" or "dress" in blob:
         descriptor_parts = []
