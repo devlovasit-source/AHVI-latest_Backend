@@ -827,6 +827,31 @@ def _build_appwrite_doc(
         }
     )
 
+    # Backfill the display `occasions` when the detector/preview-validator left
+    # it empty (true for most non-ethnic items, since the preview Gemini
+    # validator only runs for risky/low-confidence items). Derive from the
+    # already-computed occasion_fitness scores so every item gets meaningful
+    # tags. Only fills when empty — never overrides occasions already set.
+    if not occasions and str(
+        os.getenv("WARDROBE_DERIVE_OCCASIONS", "true")
+    ).strip().lower() in {"1", "true", "yes", "on"}:
+        try:
+            _occ_min = float(os.getenv("WARDROBE_DERIVE_OCCASIONS_MIN", "0.6"))
+        except (TypeError, ValueError):
+            _occ_min = 0.6
+        _fitness = style_attrs.get("occasion_fitness") if isinstance(style_attrs, dict) else None
+        if isinstance(_fitness, dict):
+            _ranked = sorted(
+                (
+                    (str(k), float(v))
+                    for k, v in _fitness.items()
+                    if isinstance(v, (int, float))
+                ),
+                key=lambda kv: kv[1],
+                reverse=True,
+            )
+            occasions = [k for k, v in _ranked if v >= _occ_min][:4]
+
     # Must match Appwrite outfits collection schema exactly.
     # Keep raw_url out of the Appwrite document unless the collection schema
     # explicitly adds it. Qdrant/search payloads can still use cleaner masked
