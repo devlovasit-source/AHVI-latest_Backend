@@ -81,6 +81,43 @@ async def _release_lock(lock_key: str):
 
 
 # =========================
+# KEEP-WARM PING
+# =========================
+async def warm_rmbg() -> dict:
+    """Cache-bypassing RMBG ping to keep the GCE model resident.
+
+    `remove_bg_bytes` caches by image hash, so a repeated identical payload
+    would short-circuit and never reach RMBG — letting the model go cold. This
+    posts a tiny image straight to the service (no cache), forcing a real
+    inference so the model stays loaded. Returns status + measured latency.
+    """
+    if not RMBG_SERVICE_URL:
+        return {"ok": False, "reason": "RMBG_SERVICE_URL unset"}
+    import base64
+    import time as _time
+
+    # 8x8 PNG — enough to trigger a real inference pass.
+    tiny = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFElEQVR4nGP8z8BQz0AEYBxV"
+        "SF8FAP2FBPhE5gV2AAAAAElFTkSuQmCC"
+    )
+    t0 = _time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            res = await client.post(
+                RMBG_SERVICE_URL,
+                files={"file": ("warm.png", tiny, "image/png")},
+            )
+        ms = int((_time.perf_counter() - t0) * 1000)
+        print(f"[RMBG WARM] status={res.status_code} ms={ms}")
+        return {"ok": res.status_code == 200, "status": res.status_code, "rmbg_ms": ms}
+    except Exception as exc:  # noqa: BLE001 — warm must never raise
+        ms = int((_time.perf_counter() - t0) * 1000)
+        print("[RMBG WARM ERROR]", exc)
+        return {"ok": False, "error": str(exc)[:200], "rmbg_ms": ms}
+
+
+# =========================
 # MAIN FUNCTION
 # =========================
 async def remove_bg_bytes(image_bytes: bytes) -> bytes:

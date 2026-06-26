@@ -135,6 +135,20 @@ def wardrobe_diagnostics(http_request: Request):
     }
 
 
+@wardrobe_router.post("/rmbg-warm")
+async def rmbg_warm(http_request: Request):
+    """Keep-warm ping for the remote RMBG (GCE) model. Whitelisted from JWT in
+    main.py auth_guard; gated by RMBG_WARM_SECRET when set. Meant to be called
+    by Cloud Scheduler every few minutes so the model never goes cold (a cold
+    model adds ~37s to the first save, blowing the 30s target)."""
+    secret = os.getenv("RMBG_WARM_SECRET", "").strip()
+    if secret and http_request.headers.get("x-warm-secret", "") != secret:
+        raise HTTPException(status_code=403, detail="forbidden")
+    from services.bg_service import warm_rmbg
+
+    return await warm_rmbg()
+
+
 @wardrobe_router.delete("/{item_id}")
 def delete_wardrobe_item_route(item_id: str, http_request: Request):
     log = logging.getLogger("ahvi.wardrobe.delete")
