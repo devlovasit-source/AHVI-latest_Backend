@@ -831,19 +831,35 @@ def _build_appwrite_doc(
     # Keep raw_url out of the Appwrite document unless the collection schema
     # explicitly adds it. Qdrant/search payloads can still use cleaner masked
     # assets below without breaking Appwrite writes.
-    final_image_url = normalized_url or masked_url or raw_url
-    original_image_url = raw_url or item.get("image_url") or item.get("imageUrl") or final_image_url
+    privacy_catalog_only = str(
+        os.getenv("WARDROBE_PRIVACY_CATALOG_ONLY", "false")
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if privacy_catalog_only:
+        # Privacy: only the regenerated catalog image (face-free) is stored. The
+        # raw crop and RMBG cutout can contain the user's face on worn/selfie
+        # photos, so they are never persisted and never used as a fallback. If
+        # no catalog was produced, the item is stored without an image rather
+        # than leaking a face.
+        garment_url = normalized_url
+        stored_image_url = garment_url
+        stored_masked_url = garment_url
+        stored_normalized_url = garment_url
+    else:
+        final_image_url = normalized_url or masked_url or raw_url
+        stored_image_url = raw_url or item.get("image_url") or item.get("imageUrl") or final_image_url
+        stored_masked_url = masked_url or final_image_url
+        stored_normalized_url = normalized_url or final_image_url
     pixel_hash = _safe_text(
         item.get("pixel_hash") or item.get("pixelHash") or item.get("masked_pixel_hash")
     )
 
     doc = {
-        "image_url": original_image_url,
+        "image_url": stored_image_url,
         "category": category,
         "userId": user_id,
         "status": "active",
-        "masked_url": masked_url or final_image_url,
-        "normalized_url": normalized_url or final_image_url,
+        "masked_url": stored_masked_url,
+        "normalized_url": stored_normalized_url,
         "image_id": file_id,
         "masked_id": file_id,
         "name": name,
@@ -936,16 +952,34 @@ def persist_selected_items(
                 "cutoutUrl",
             )
 
-            # Legacy clients may only send image_url/imageUrl. Treat that as the
-            # best available display image, not necessarily the raw original.
-            legacy_image_url = _first_url(item, "image_url", "imageUrl", "url")
+            _privacy_catalog_only = str(
+                os.getenv("WARDROBE_PRIVACY_CATALOG_ONLY", "false")
+            ).strip().lower() in {"1", "true", "yes", "on"}
 
-            if not normalized_url:
-                normalized_url = masked_url or legacy_image_url
-            if not masked_url:
-                masked_url = normalized_url or legacy_image_url or raw_url
-            if not raw_url:
-                raw_url = legacy_image_url or masked_url or normalized_url
+            if _privacy_catalog_only:
+                # Privacy: the stored image must be a real catalog (face-free).
+                # Drop the raw crop / cutout entirely and NEVER backfill the
+                # garment image from them or a client-supplied original (those
+                # can contain the user's face on worn/selfie). No catalog ->
+                # all empty -> item skipped below, never a face stored.
+                _catalog_ok = str(
+                    item.get("catalogStatus") or item.get("catalog_status") or ""
+                ).strip() in {"catalog_generated", "catalog_ready"}
+                raw_url = ""
+                masked_url = ""
+                if not _catalog_ok:
+                    normalized_url = ""
+            else:
+                # Legacy clients may only send image_url/imageUrl. Treat that as
+                # the best available display image, not necessarily the raw original.
+                legacy_image_url = _first_url(item, "image_url", "imageUrl", "url")
+
+                if not normalized_url:
+                    normalized_url = masked_url or legacy_image_url
+                if not masked_url:
+                    masked_url = normalized_url or legacy_image_url or raw_url
+                if not raw_url:
+                    raw_url = legacy_image_url or masked_url or normalized_url
 
             if not raw_url and not masked_url and not normalized_url:
                 skipped += 1
