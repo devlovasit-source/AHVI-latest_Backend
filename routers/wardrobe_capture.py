@@ -1938,7 +1938,18 @@ def _save_selected_block_reason(item: Dict[str, Any]) -> str:
 def _resolve_catalog_source_bytes(item: Dict[str, Any]) -> tuple[bytes, str]:
     """Find usable image bytes for catalog generation, regardless of whether
     RMBG cleanup ran. Order: inline masked b64 -> inline raw b64 -> fetch a
-    resolved image URL (masked/normalized/raw). Returns (bytes, source)."""
+    resolved image URL (masked/normalized/raw). Returns (bytes, source).
+
+    When CATALOG_NANOBANANA_FROM_RAW is on, prefer the RAW image so Nano Banana
+    renders a clean product shot from the original photo instead of polishing
+    the degraded RMBG cutout."""
+    _from_raw = str(
+        os.getenv("CATALOG_NANOBANANA_FROM_RAW", "false")
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if _from_raw:
+        b = _decode_inline_image(item.get("raw_image_base64"))
+        if b:
+            return b, "raw_b64_nb_from_raw"
     b = _decode_inline_image(item.get("masked_image_base64"))
     if b:
         return b, "masked_b64"

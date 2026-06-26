@@ -1361,13 +1361,36 @@ def generate_catalog_png(
             category,
         )
 
-    canvas, rotation, bounds, reason = _transparent_catalog_canvas(cutout_bytes, category)
-    if canvas is None:
-        return {"success": False, "status": "catalog_failed", "reason": reason or "transparent_canvas_failed"}
-    deterministic_bytes = _encode_png(canvas)
-    deterministic_validation = validate_catalog_png(
-        deterministic_bytes, original_bytes=cutout_bytes, item_metadata={**meta, "category": category}
-    )
+    nb_from_raw = provider_name == "nanobanana" and str(
+        os.getenv("CATALOG_NANOBANANA_FROM_RAW", "false")
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if nb_from_raw:
+        # Feed Nano Banana the clean ORIGINAL image (the caller supplies raw
+        # bytes when this flag is on) instead of the RMBG-cutout-on-canvas, so
+        # it renders a fresh product shot from scratch (matching manual Gemini
+        # quality) rather than polishing a degraded cutout. Skip the
+        # deterministic canvas + its quality gate so generation always runs.
+        deterministic_bytes = cutout_bytes
+        rotation, bounds = 0, None
+        deterministic_validation = {
+            "ok": False,
+            "score": 0,
+            "reason": "nanobanana_from_raw",
+        }
+        logger.info(
+            "ahvi.catalog.nanobanana_from_raw item_id=%s category=%s raw_bytes=%s",
+            meta.get("item_id"),
+            category,
+            len(cutout_bytes or b""),
+        )
+    else:
+        canvas, rotation, bounds, reason = _transparent_catalog_canvas(cutout_bytes, category)
+        if canvas is None:
+            return {"success": False, "status": "catalog_failed", "reason": reason or "transparent_canvas_failed"}
+        deterministic_bytes = _encode_png(canvas)
+        deterministic_validation = validate_catalog_png(
+            deterministic_bytes, original_bytes=cutout_bytes, item_metadata={**meta, "category": category}
+        )
     unsafe_source_reason = _unsafe_source_reason(meta, deterministic_validation)
     # Allow masked-cutout fallback for clean apparel even if a downstream
     # provider validation flags a remnant, as long as there is NO explicit
