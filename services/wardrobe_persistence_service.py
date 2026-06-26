@@ -1068,9 +1068,27 @@ def persist_selected_items(
                             "occasion_fitness": style_attrs.get("occasion_fitness"),
                         },
                     )
+                try:
+                    created["qdrant_indexed"] = True
+                except Exception:  # noqa: BLE001 — marker is best-effort
+                    pass
             except Exception as exc:
-                # Do not fail wardrobe save because Qdrant failed.
-                print("[qdrant error]", exc)
+                # Do not fail wardrobe save because Qdrant failed — but surface
+                # it loudly. A silent failure causes Appwrite<->Qdrant drift:
+                # the item persists to the wardrobe yet is never embedded, so it
+                # is invisible to similarity / board generation. The
+                # qdrant_indexed=False marker lets a backfill job find and retry.
+                logger.error(
+                    "qdrant_upsert_failed user_id=%s file_id=%s err=%s",
+                    user_id,
+                    file_id,
+                    exc,
+                    exc_info=True,
+                )
+                try:
+                    created["qdrant_indexed"] = False
+                except Exception:  # noqa: BLE001
+                    pass
 
             saved_items.append(created)
 

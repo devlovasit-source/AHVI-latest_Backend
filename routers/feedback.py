@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Any, Dict
 import logging
 
 from services.qdrant_service import qdrant_service
 from services.embedding_service import encode_metadata
+from services.auth_helpers import enforce_owner
 
 router = APIRouter(prefix="/api/feedback")
 logger = logging.getLogger("ahvi.feedback")
@@ -43,7 +44,10 @@ class BoardFeedbackRequest(BaseModel):
 
 
 @router.post("/board")
-def feedback_board(request: BoardFeedbackRequest):
+def feedback_board(request: BoardFeedbackRequest, http_request: Request):
+    # Bind to the authenticated user; never trust the body user_id.
+    # enforce_owner returns the authed id and 403s on a mismatched supplied id.
+    user_id = enforce_owner(http_request, request.user_id)
     action = request.action.lower()
     passive_actions = {"shown", "saved", "dismissed", "regenerated", "clicked", "shared"}
 
@@ -57,7 +61,7 @@ def feedback_board(request: BoardFeedbackRequest):
         board = request.board_payload or {}
         logger.info(
             "style_board.behavior user=%s action=%s board_id=%s title=%s signature=%s core_signature=%s archetype=%s direction=%s",
-            request.user_id,
+            user_id,
             action,
             board.get("board_id") or board.get("id") or board.get("card_id") or "",
             board.get("title") or board.get("label") or "",
@@ -78,13 +82,13 @@ def feedback_board(request: BoardFeedbackRequest):
         # QdrantService.upsert_user_memory accepts (user_id, vector, payload);
         # carry the like/dislike signal inside the payload (no memory_type kwarg).
         qdrant_service.upsert_user_memory(
-            user_id=request.user_id,
+            user_id=user_id,
             vector=embedding,
             payload={
                 "source": "feedback.board",
                 "memory_type": "liked" if action == "like" else "disliked",
                 "action": action,
-                "user_id": request.user_id,
+                "user_id": user_id,
                 "board": str(request.board_payload.get("board") or ""),
                 "type": str(request.board_payload.get("type") or ""),
             },

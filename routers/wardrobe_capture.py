@@ -3603,6 +3603,11 @@ def _run_save_rmbg_cleanup_sync(items: List[Dict[str, Any]]) -> "tuple[int, int]
 def save_selected(http_request: Request, request: SaveSelectedRequest):
     user_id = _effective_user_id(http_request, request.user_id)
 
+    # Per-stage latency timers (RMBG -> catalog -> persist). Initialized to the
+    # start so the summary log is safe even when a stage is skipped.
+    _t0 = time.perf_counter()
+    _t_rmbg = _t_catalog = _t_persist = _t0
+
     max_selectable = 6
     selected_item_ids = list(request.selected_item_ids or [])[:max_selectable]
     detected_items = [
@@ -3654,6 +3659,8 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
                 "ahvi.capture.save_selected.rmbg_failed item_id=batch reason=%s",
                 str(exc)[:160],
             )
+
+    _t_rmbg = time.perf_counter()
 
     normalized_items: List[Dict[str, Any]] = []
     upload_fixed = 0
@@ -3768,6 +3775,8 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         )
         with ThreadPoolExecutor(max_workers=_cat_workers) as _cat_pool:
             list(_cat_pool.map(_maybe_generate_catalog_image, prepared_items))
+
+    _t_catalog = time.perf_counter()
 
     # Phase 3 (sequential, cheap): catalog-status accounting, save-gating, append.
     for item in prepared_items:
@@ -3962,6 +3971,8 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         detected_items=normalized_items,
     )
 
+    _t_persist = time.perf_counter()
+
     if isinstance(result, dict):
         if isinstance(result.get("items"), list):
             result["items"] = [
@@ -4078,6 +4089,17 @@ def save_selected(http_request: Request, request: SaveSelectedRequest):
         )
     except Exception:
         pass
+
+    # Per-stage latency for the 30s-save target: upload+RMBG -> catalog -> persist.
+    logger.info(
+        "ahvi.save_selected.latency user_id=%s rmbg_ms=%s catalog_ms=%s persist_ms=%s total_ms=%s items=%s",
+        user_id,
+        int((_t_rmbg - _t0) * 1000),
+        int((_t_catalog - _t_rmbg) * 1000),
+        int((_t_persist - _t_catalog) * 1000),
+        int((time.perf_counter() - _t0) * 1000),
+        len(approved_selected_ids),
+    )
 
     return result
 
