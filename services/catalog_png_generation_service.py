@@ -1206,9 +1206,49 @@ class CatalogProviderNanoBanana(CatalogProvider):
             image_bytes = _extract_generated_image_bytes(response)
             if image_bytes:
                 return CatalogProviderResult(True, image_bytes=image_bytes, provider=self.name)
+            logger.warning(
+                "ahvi.catalog.nanobanana.no_image model=%s diag=%s",
+                self.model,
+                _no_image_diagnostics(response),
+            )
             return CatalogProviderResult(False, reason="nanobanana_returned_no_image", provider=self.name)
         except Exception as exc:  # noqa: BLE001
             return CatalogProviderResult(False, reason=repr(exc), provider=self.name)
+
+
+def _no_image_diagnostics(response: Any) -> str:
+    """Best-effort summary of WHY an image-gen response carried no image
+    (safety block, text-only/refusal, empty) so nanobanana_returned_no_image
+    is debuggable. Never raises."""
+    bits: list = []
+    try:
+        pf = getattr(response, "prompt_feedback", None)
+        br = getattr(pf, "block_reason", None) if pf is not None else None
+        if br:
+            bits.append(f"prompt_block={br}")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        for cand in (getattr(response, "candidates", None) or []):
+            fr = getattr(cand, "finish_reason", None)
+            if fr:
+                bits.append(f"finish={fr}")
+            srs = getattr(cand, "safety_ratings", None) or []
+            blocked = [
+                str(getattr(s, "category", "?"))
+                for s in srs
+                if getattr(s, "blocked", False)
+            ]
+            if blocked:
+                bits.append(f"safety_blocked={blocked}")
+            content = getattr(cand, "content", None)
+            for part in (getattr(content, "parts", None) or []):
+                txt = getattr(part, "text", None)
+                if txt:
+                    bits.append(f"text={str(txt)[:200]!r}")
+    except Exception:  # noqa: BLE001
+        pass
+    return " ".join(bits) or "no_diagnostics"
 
 
 def _extract_generated_image_bytes(response: Any) -> bytes:
