@@ -2187,6 +2187,22 @@ def _try_upload_inline_images(
     allow_fast_mode_skip: bool = True,
     prefer_inline: bool = False,
 ) -> Dict[str, Any]:
+    if _privacy_catalog_only():
+        from services.category_taxonomy import is_face_risk_category
+
+        if is_face_risk_category(
+            item.get("category"), item.get("sub_category"), item.get("name")
+        ):
+            # Privacy: for face-risk items (worn apparel, head/neck), never
+            # upload the raw crop or RMBG cutout — they can contain the user's
+            # face. The catalog generator reads the in-memory *_image_base64 and
+            # uploads its own face-free PNG, which becomes the only stored image.
+            # No catalog -> item not saved (handled at persist), never a face.
+            # Non-face-risk accessories (footwear, bags, belts, watches) fall
+            # through to the normal upload below.
+            item["_save_image_source"] = "privacy_catalog_only_skip_upload"
+            return item
+
     if allow_fast_mode_skip and _env_enabled("WARDROBE_CAPTURE_FAST_MODE", "true"):
         item["upload_error"] = (
             str(item.get("upload_error") or "") + "; fast_mode_upload_skipped"
@@ -3616,6 +3632,18 @@ def _run_save_rmbg_cleanup_sync(items: List[Dict[str, Any]]) -> "tuple[int, int]
 
 def _async_rmbg_enabled() -> bool:
     return str(os.getenv("WARDROBE_ASYNC_RMBG", "false")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _privacy_catalog_only() -> bool:
+    """When on, only the regenerated catalog image (face-free) may be stored.
+    The raw crop and RMBG cutout can contain the user's face on worn/selfie
+    photos, so they are never uploaded to R2 or written to the wardrobe doc."""
+    return str(os.getenv("WARDROBE_PRIVACY_CATALOG_ONLY", "false")).strip().lower() in {
         "1",
         "true",
         "yes",

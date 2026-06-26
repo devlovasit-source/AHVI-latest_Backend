@@ -549,6 +549,31 @@ def infer_style_attributes(item: dict) -> Dict[str, object]:
     }
 
 
+# Items shot away from the face — a worn/selfie photo of these does NOT include
+# the user's face, so the privacy "catalog-only" rule does not apply to them
+# (they save via the normal flow even when no catalog is generated).
+_NO_FACE_RISK_TOKENS: tuple[str, ...] = (
+    "footwear", "shoe", "sneaker", "trainer", "sandal", "heel", "boot",
+    "loafer", "flip-flop", "flip flop", "slipper", "mule", "espadrille",
+    "bag", "handbag", "backpack", "clutch", "purse", "tote", "sling", "wallet",
+    "belt", "watch", "sock", "socks",
+)
+
+
+def is_face_risk_category(category: object = "", sub_category: object = "", name: object = "") -> bool:
+    """True if a worn/selfie photo of this item could include the user's face.
+
+    Apparel (upper/full body) and head/neck items (eyewear, headwear, neckwear)
+    are face-risk. Items shot away from the face (footwear, bags, belts,
+    watches, socks) are not. Defaults to True (privacy-safe) for anything not
+    explicitly recognized as a no-face-risk accessory.
+    """
+    blob = " ".join(str(x or "").lower() for x in (category, sub_category, name))
+    if any(tok in blob for tok in _NO_FACE_RISK_TOKENS):
+        return False
+    return True
+
+
 __all__ = (
     "CANONICAL_CATEGORY_KEYWORDS",
     "CANONICAL_CATEGORIES",
@@ -556,4 +581,5 @@ __all__ = (
     "categorize_for_chat",
     "infer_style_attributes",
     "normalize_category_from_label",
+    "is_face_risk_category",
 )
