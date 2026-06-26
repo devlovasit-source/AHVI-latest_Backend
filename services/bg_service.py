@@ -83,13 +83,13 @@ async def _release_lock(lock_key: str):
 # =========================
 # KEEP-WARM PING
 # =========================
-async def warm_rmbg() -> dict:
-    """Cache-bypassing RMBG ping to keep the GCE model resident.
-
-    `remove_bg_bytes` caches by image hash, so a repeated identical payload
-    would short-circuit and never reach RMBG — letting the model go cold. This
-    posts a tiny image straight to the service (no cache), forcing a real
-    inference so the model stays loaded. Returns status + measured latency.
+async def warm_rmbg(size: int = 256) -> dict:
+    """RMBG latency probe (cache-bypassing). Posts a real subject image straight
+    to RMBG_SERVICE_URL and returns {ok, status, rmbg_ms}; `size` varies the
+    input dimension. Bypasses the remove_bg_bytes hash cache so it always
+    measures a real inference. NOTE: RMBG-2.0 already keeps its model resident
+    and upscales every input to 1024^2, so latency is ~constant regardless of
+    `size` and CPU-bound on the GPU-less VM — this measures, it does not warm.
     """
     if not RMBG_SERVICE_URL:
         return {"ok": False, "reason": "RMBG_SERVICE_URL unset"}
@@ -101,9 +101,10 @@ async def warm_rmbg() -> dict:
     # A real 256x256 image with a clear foreground subject on a contrasting
     # background, so RMBG runs an actual inference pass (a trivial/blank image
     # is rejected pre-inference and would NOT keep the model resident).
-    _img = Image.new("RGB", (256, 256), (245, 245, 245))
+    _s = max(16, min(1024, int(size or 256)))
+    _img = Image.new("RGB", (_s, _s), (245, 245, 245))
     _draw = ImageDraw.Draw(_img)
-    _draw.ellipse((64, 64, 192, 192), fill=(40, 90, 160))
+    _draw.ellipse((_s // 4, _s // 4, _s * 3 // 4, _s * 3 // 4), fill=(40, 90, 160))
     _buf = io.BytesIO()
     _img.save(_buf, format="PNG")
     warm_bytes = _buf.getvalue()

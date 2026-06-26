@@ -137,16 +137,24 @@ def wardrobe_diagnostics(http_request: Request):
 
 @wardrobe_router.post("/rmbg-warm")
 async def rmbg_warm(http_request: Request):
-    """Keep-warm ping for the remote RMBG (GCE) model. Whitelisted from JWT in
-    main.py auth_guard; gated by RMBG_WARM_SECRET when set. Meant to be called
-    by Cloud Scheduler every few minutes so the model never goes cold (a cold
-    model adds ~37s to the first save, blowing the 30s target)."""
+    """RMBG latency probe for the remote RMBG (GCE) service. Whitelisted from
+    JWT in main.py auth_guard; gated by RMBG_WARM_SECRET when set. Posts a real
+    image straight to RMBG and returns {ok, status, rmbg_ms}; `?size=` varies the
+    input. NOTE: this does NOT meaningfully "warm" anything — RMBG-2.0 keeps its
+    model resident and resizes every input to 1024^2, so latency is ~constant
+    (~37s) and CPU-compute-bound on the GPU-less VM. Use it to monitor RMBG
+    health/latency, not to hit the 30s save target (that needs GPU / lower
+    resolution / async save on the RMBG host)."""
     secret = os.getenv("RMBG_WARM_SECRET", "").strip()
     if secret and http_request.headers.get("x-warm-secret", "") != secret:
         raise HTTPException(status_code=403, detail="forbidden")
     from services.bg_service import warm_rmbg
 
-    return await warm_rmbg()
+    try:
+        _size = int(http_request.query_params.get("size", "256"))
+    except (TypeError, ValueError):
+        _size = 256
+    return await warm_rmbg(size=_size)
 
 
 @wardrobe_router.delete("/{item_id}")
