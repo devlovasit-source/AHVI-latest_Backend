@@ -5679,7 +5679,9 @@ def _apply_curation(
     }.get(strategy, strategy)
     if strategy not in _LOOK_STRATEGY_ORDER:
         strategy = _LOOK_STRATEGY_ORDER[min(index, len(_LOOK_STRATEGY_ORDER) - 1)]
-    title = _clean_editorial_copy(row.get("title"), "")
+    archetype_title = _clean_editorial_copy(out.get("title"), "")
+    gemini_title = _clean_editorial_copy(row.get("title"), "")
+    title = archetype_title if archetype_title and archetype_title.lower() not in ("considered look", "") else gemini_title
     why = _clean_editorial_copy(row.get("why_it_works"), _safe_text(out.get("why_it_works")))
 
     # P3: board_storyteller fallback when Gemini title/why is missing or weak.
