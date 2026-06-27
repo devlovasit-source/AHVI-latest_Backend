@@ -1,11 +1,19 @@
 ﻿from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+try:
+    from zoneinfo import ZoneInfo
+except Exception:  # pragma: no cover
+    ZoneInfo = None  # type: ignore
+
 from services.appwrite_proxy import AppwriteProxy
+
+logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
@@ -19,6 +27,36 @@ def _safe_text(value: Any) -> str:
 def _hash_id(prefix: str, raw: str, *, length: int = 32) -> str:
     digest = hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
     return f"{prefix}_{digest[: max(8, min(length, 48))]}"
+
+
+def _tz(name: str = "Asia/Kolkata"):
+    if ZoneInfo is None:
+        return timezone.utc
+    try:
+        return ZoneInfo(name or "Asia/Kolkata")
+    except Exception:
+        return ZoneInfo("Asia/Kolkata")
+
+
+def _parse_time_for_today(raw: Any, *, now: datetime, tz_name: str) -> Optional[datetime]:
+    text = _safe_text(raw)
+    if not text:
+        return None
+    zone = _tz(tz_name)
+    lowered = text.lower().replace(".", "").strip()
+    for fmt in ("%H:%M", "%I:%M %p", "%I %p"):
+        try:
+            parsed = datetime.strptime(lowered.upper(), fmt).time()
+            return datetime.combine(now.astimezone(zone).date(), parsed, tzinfo=zone)
+        except Exception:
+            pass
+    try:
+        parsed_iso = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed_iso.tzinfo is None:
+            parsed_iso = parsed_iso.replace(tzinfo=zone)
+        return parsed_iso.astimezone(zone)
+    except Exception:
+        return None
 
 
 class NotificationStore:
@@ -126,18 +164,22 @@ class NotificationStore:
                 continue
 
             doc_id = _hash_id("rem", f"{uid}|{eid}|{send_at}|{message}", length=32)
+            source_value = _safe_text(source)
+            status_value = _safe_text(r.get("status") or "scheduled")
+            if source_value in {"medicine", "medi"} and status_value == "pending":
+                status_value = "scheduled"
             data = {
                 "userId": uid,
                 "eventId": eid,
                 # Default scheduled (not pending) so the dispatch task, which
                 # only picks status=="scheduled", can actually send them.
-                "status": _safe_text(r.get("status") or "scheduled"),
+                "status": status_value,
                 "priority": _safe_text(r.get("priority") or "normal"),
                 "toneProfile": _safe_text(r.get("toneProfile") or ""),
                 "offsetMinutes": int(r.get("offsetMinutes") or 0),
                 "message": message,
                 "sendAtISO": send_at,
-                "source": _safe_text(source),
+                "source": source_value,
                 "lastError": _safe_text(r.get("lastError") or ""),
                 "updatedAtISO": _utcnow().isoformat(),
             }
@@ -152,6 +194,14 @@ class NotificationStore:
                     scheduled += 1
                 except Exception:
                     continue
+            if source_value in {"medicine", "medi"}:
+                logger.info(
+                    "AHVI_MED_REMINDER_SCHEDULED user_id=%s event_id=%s send_at=%s status=%s",
+                    uid,
+                    eid,
+                    send_at,
+                    status_value,
+                )
 
         return {"success": True, "scheduled": scheduled}
 
@@ -174,7 +224,11 @@ class NotificationStore:
         for r in rows or []:
             if not isinstance(r, dict):
                 continue
-            if str(r.get("status") or "").lower() != "scheduled":
+            status = str(r.get("status") or "").lower()
+            source = str(r.get("source") or "").lower()
+            if status != "scheduled" and not (
+                status == "pending" and source in {"medicine", "medi"}
+            ):
                 continue
             send_at = _safe_text(r.get("sendAtISO") or "")
             try:
@@ -184,6 +238,95 @@ class NotificationStore:
             if send_dt.timestamp() <= cutoff:
                 due.append(r)
         return due
+
+    def list_due_medicine_reminders(
+        self, *, now: Optional[datetime] = None, window_seconds: int = 60
+    ) -> List[Dict[str, Any]]:
+        now_dt = now or _utcnow()
+        cutoff = now_dt.timestamp() + float(max(5, int(window_seconds)))
+        try:
+            rows = self._appwrite.list_documents("meds", limit=self.max_scan)
+        except Exception:
+            return []
+
+        due: List[Dict[str, Any]] = []
+        for med in rows or []:
+            if not isinstance(med, dict):
+                continue
+            user_id = _safe_text(med.get("userId") or med.get("user_id"))
+            med_id = _safe_text(med.get("$id") or med.get("id"))
+            if not user_id or not med_id:
+                continue
+            if med.get("reminder") is False or med.get("reminder_enabled") is False:
+                continue
+            if med.get("active") is False or med.get("isActive") is False:
+                continue
+            if _safe_text(med.get("status")).lower() in {
+                "inactive",
+                "paused",
+                "archived",
+                "deleted",
+            }:
+                continue
+
+            tz_name = _safe_text(med.get("timezone") or med.get("tz") or "Asia/Kolkata")
+            scheduled = _parse_time_for_today(
+                med.get("time") or med.get("scheduleTime") or med.get("reminderTime"),
+                now=now_dt,
+                tz_name=tz_name,
+            )
+            if scheduled is None:
+                continue
+            scheduled_utc = scheduled.astimezone(timezone.utc)
+            if scheduled_utc.timestamp() < now_dt.timestamp() - 60:
+                continue
+            if scheduled_utc.timestamp() > cutoff:
+                continue
+
+            name = _safe_text(
+                med.get("name") or med.get("medName") or med.get("medicine") or "Medicine"
+            )
+            notification_key = f"med:{user_id}:{med_id}:{scheduled_utc.isoformat()}"
+            logger.info(
+                "AHVI_MED_REMINDER_SCHEDULED user_id=%s event_id=%s send_at=%s status=%s",
+                user_id,
+                notification_key,
+                scheduled_utc.isoformat(),
+                "scheduled",
+            )
+            due.append(
+                {
+                    "$id": _hash_id("medrem", notification_key, length=32),
+                    "userId": user_id,
+                    "eventId": notification_key,
+                    "status": "scheduled",
+                    "source": "medicine",
+                    "message": f"Time to take {name}.",
+                    "sendAtISO": scheduled_utc.isoformat(),
+                    "medId": med_id,
+                    "medName": name,
+                    "notificationKey": notification_key,
+                }
+            )
+        return due
+
+    def was_notification_sent(self, *, notification_key: str) -> bool:
+        key = _safe_text(notification_key)
+        if not key:
+            return False
+        try:
+            rows = self._appwrite.list_documents(self.reminders_resource, limit=self.max_scan)
+        except Exception:
+            return False
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            if (
+                _safe_text(row.get("eventId")) == key
+                and _safe_text(row.get("status")).lower() == "sent"
+            ):
+                return True
+        return False
 
     def mark_reminder(
         self, *, reminder_doc_id: str, status: str, error: str | None = None
@@ -198,6 +341,44 @@ class NotificationStore:
             self._appwrite.update_document(self.reminders_resource, rid, patch)
         except Exception:
             return
+
+    def mark_medicine_reminder(
+        self,
+        *,
+        reminder_doc_id: str,
+        user_id: str,
+        notification_key: str,
+        send_at_iso: str,
+        message: str,
+        status: str,
+        error: str | None = None,
+    ) -> None:
+        rid = _safe_text(reminder_doc_id)
+        key = _safe_text(notification_key)
+        if not rid or not key:
+            return
+        data = {
+            "userId": _safe_text(user_id),
+            "eventId": key,
+            "status": _safe_text(status),
+            "priority": "normal",
+            "toneProfile": "",
+            "offsetMinutes": 0,
+            "message": _safe_text(message),
+            "sendAtISO": _safe_text(send_at_iso),
+            "source": "medicine",
+            "lastError": _safe_text(error or "")[:600],
+            "updatedAtISO": _utcnow().isoformat(),
+        }
+        try:
+            self._appwrite.update_document(self.reminders_resource, rid, data)
+        except Exception:
+            try:
+                self._appwrite.create_document(
+                    self.reminders_resource, data, document_id=rid
+                )
+            except Exception:
+                return
 
 
 notification_store = NotificationStore()

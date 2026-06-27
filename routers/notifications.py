@@ -66,6 +66,53 @@ def _require_dispatch_secret(request: Request) -> None:
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
+def _truthy(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _is_medicine_reminder(reminder: Dict[str, Any]) -> bool:
+    source = str(reminder.get("source") or "").strip().lower()
+    return source in {"medicine", "medi"} or bool(
+        reminder.get("medId") or reminder.get("med_id")
+    )
+
+
+def _notification_key(reminder: Dict[str, Any]) -> str:
+    key = str(
+        reminder.get("notificationKey") or reminder.get("notification_key") or ""
+    ).strip()
+    if key:
+        return key
+    user_id = str(reminder.get("userId") or reminder.get("user_id") or "").strip()
+    med_id = str(
+        reminder.get("medId") or reminder.get("med_id") or reminder.get("eventId") or ""
+    ).strip()
+    scheduled_for = str(reminder.get("sendAtISO") or reminder.get("scheduledFor") or "").strip()
+    if user_id and med_id and scheduled_for:
+        return f"med:{user_id}:{med_id}:{scheduled_for}"
+    return ""
+
+
+def _push_payload(reminder: Dict[str, Any], reminder_id: str) -> Dict[str, str]:
+    if not _is_medicine_reminder(reminder):
+        return {"type": "reminder"}
+    med_id = str(
+        reminder.get("medId") or reminder.get("med_id") or reminder.get("eventId") or ""
+    ).strip()
+    scheduled_for = str(reminder.get("sendAtISO") or reminder.get("scheduledFor") or "").strip()
+    return {
+        "type": "reminder",
+        "action": "med_reminder",
+        "medId": med_id,
+        "medName": str(
+            reminder.get("medName") or reminder.get("med_name") or "Medicine"
+        ),
+        "scheduledFor": scheduled_for,
+        "screen": "medi",
+        "deepLink": f"ahvi://medi/reminder/{reminder_id}",
+    }
+
+
 @router.get("/health")
 def notifications_health():
     return {
@@ -111,14 +158,28 @@ def schedule_reminders(req: ScheduleRemindersRequest, user=Depends(get_current_u
 
 
 @router.post("/dispatch-due")
-def dispatch_due(request: Request, window_seconds: int = 60):
+def dispatch_due(
+    request: Request,
+    window_seconds: int = 60,
+    window_minutes: int | None = None,
+    dry_run: bool = False,
+):
     _require_dispatch_secret(request)
 
     try:
+        if window_minutes is not None:
+            window_seconds = max(1, int(window_minutes)) * 60
+        dry_run = bool(dry_run) or _truthy(request.query_params.get("dry_run"))
+
         due = notification_store.list_due_reminders(window_seconds=int(window_seconds))
+        due.extend(
+            notification_store.list_due_medicine_reminders(window_seconds=int(window_seconds))
+        )
         sent = 0
         failed = 0
+        skipped = 0
         processed = 0
+        due_items: List[Dict[str, Any]] = []
 
         for rem in due:
             processed += 1
@@ -132,6 +193,50 @@ def dispatch_due(request: Request, window_seconds: int = 60):
                 or ""
             )
             title = "AHVI"
+            is_medicine = _is_medicine_reminder(rem)
+            notification_key = _notification_key(rem) if is_medicine else ""
+
+            if (
+                is_medicine
+                and notification_key
+                and notification_store.was_notification_sent(
+                    notification_key=notification_key
+                )
+            ):
+                skipped += 1
+                logger.info(
+                    "AHVI_MED_REMINDER_DUPLICATE_SKIPPED user_id=%s med_id=%s scheduled_for=%s key=%s",
+                    user_id,
+                    rem.get("medId") or rem.get("med_id") or "",
+                    rem.get("sendAtISO") or "",
+                    notification_key,
+                )
+                continue
+
+            payload = _push_payload(rem, doc_id)
+            if dry_run:
+                due_items.append(
+                    {
+                        "id": doc_id,
+                        "userId": user_id,
+                        "source": rem.get("source") or "",
+                        "medId": payload.get("medId") or "",
+                        "medName": payload.get("medName") or "",
+                        "scheduledFor": payload.get("scheduledFor")
+                        or rem.get("sendAtISO")
+                        or "",
+                        "notificationKey": notification_key,
+                    }
+                )
+                if is_medicine:
+                    logger.info(
+                        "AHVI_MED_REMINDER_DISPATCH_DRY_RUN user_id=%s med_id=%s scheduled_for=%s key=%s",
+                        user_id,
+                        payload.get("medId") or "",
+                        payload.get("scheduledFor") or "",
+                        notification_key,
+                    )
+                continue
 
             devices = notification_store.list_devices(user_id=user_id)
             tokens = [
@@ -139,25 +244,78 @@ def dispatch_due(request: Request, window_seconds: int = 60):
                 for d in devices
                 if str(d.get("token") or "").strip()
             ]
+            if not tokens:
+                skipped += 1
+                if is_medicine:
+                    logger.info(
+                        "AHVI_MED_REMINDER_FAILED user_id=%s med_id=%s scheduled_for=%s reason=no_tokens",
+                        user_id,
+                        payload.get("medId") or "",
+                        payload.get("scheduledFor") or "",
+                    )
+                continue
             resp = firebase_push_service.send_to_tokens(
-                tokens=tokens, title=title, body=message, data={"type": "reminder"}
+                tokens=tokens, title=title, body=message, data=payload
             )
             if resp.get("success") and int(resp.get("sent") or 0) > 0:
                 sent += int(resp.get("sent") or 0)
-                if doc_id:
+                if is_medicine and notification_key:
+                    notification_store.mark_medicine_reminder(
+                        reminder_doc_id=doc_id,
+                        user_id=user_id,
+                        notification_key=notification_key,
+                        send_at_iso=str(rem.get("sendAtISO") or ""),
+                        message=message,
+                        status="sent",
+                    )
+                    logger.info(
+                        "AHVI_MED_REMINDER_SENT user_id=%s med_id=%s scheduled_for=%s sent=%s key=%s",
+                        user_id,
+                        payload.get("medId") or "",
+                        payload.get("scheduledFor") or "",
+                        int(resp.get("sent") or 0),
+                        notification_key,
+                    )
+                elif doc_id:
                     notification_store.mark_reminder(
                         reminder_doc_id=doc_id, status="sent"
                     )
             else:
                 failed += int(resp.get("failed") or 1)
-                if doc_id:
+                if is_medicine and notification_key:
+                    notification_store.mark_medicine_reminder(
+                        reminder_doc_id=doc_id,
+                        user_id=user_id,
+                        notification_key=notification_key,
+                        send_at_iso=str(rem.get("sendAtISO") or ""),
+                        message=message,
+                        status="failed",
+                        error=str(resp.get("error") or ""),
+                    )
+                    logger.info(
+                        "AHVI_MED_REMINDER_FAILED user_id=%s med_id=%s scheduled_for=%s error=%s",
+                        user_id,
+                        payload.get("medId") or "",
+                        payload.get("scheduledFor") or "",
+                        str(resp.get("error") or ""),
+                    )
+                elif doc_id:
                     notification_store.mark_reminder(
                         reminder_doc_id=doc_id,
                         status="failed",
                         error=str(resp.get("error") or ""),
                     )
 
-        return {"success": True, "processed": processed, "sent": sent, "failed": failed}
+        return {
+            "success": True,
+            "dry_run": dry_run,
+            "window_seconds": int(window_seconds),
+            "processed": processed,
+            "sent": sent,
+            "failed": failed,
+            "skipped": skipped,
+            "due": due_items if dry_run else [],
+        }
 
     except Exception:
         logger.error("dispatch-due failed:\n%s", traceback.format_exc())
