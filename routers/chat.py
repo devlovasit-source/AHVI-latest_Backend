@@ -317,7 +317,8 @@ def _style_clarification_response(query: str, interpretation: Dict[str, Any]) ->
 
     occasion_label = str(occasion or "").strip()
     if occasion_label:
-        pretty = occasion_label.replace("_", " ").title()
+        from services.style_reasoning_engine import _occasion_display_name
+        pretty = _occasion_display_name(occasion_label)
         message = (
             f"{pretty} — got it. What are you dressing for?"
         )

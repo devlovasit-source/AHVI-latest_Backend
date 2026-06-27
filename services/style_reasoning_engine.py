@@ -5465,12 +5465,54 @@ def _occasion_key_for_editorial(occasion: Any) -> str:
     return re.sub(r"\s+", "_", str(occasion or "").strip().lower())
 
 
+_OCCASION_DISPLAY_NAMES: Dict[str, str] = {
+    "corporate_office": "Office",
+    "client_meeting": "Client Meeting",
+    "business_formal": "Business Formal",
+    "business_casual": "Business Casual",
+    "smart_casual": "Smart Casual",
+    "smart_casual_office": "Smart Office",
+    "casual": "Casual",
+    "date_night": "Date Night",
+    "wedding": "Wedding",
+    "wedding_function": "Wedding",
+    "cocktail": "Cocktail",
+    "black_tie": "Black Tie",
+    "beach": "Beach",
+    "festival": "Festival",
+    "party": "Party",
+    "brunch": "Brunch",
+    "dinner": "Dinner",
+    "interview": "Interview",
+    "travel": "Travel",
+    "gym": "Gym",
+    "outdoor": "Outdoors",
+    "street": "Street Style",
+    "streetwear": "Street Style",
+    "lounge": "Lounge",
+    "evening": "Evening",
+    "formal": "Formal",
+    "resort": "Resort",
+    "weekend": "Weekend",
+    "today": "Today",
+    "basketball_game": "Game Day",
+    "concert": "Concert",
+    "concert_social": "Night Out",
+}
+
+
+def _occasion_display_name(occasion: Any) -> str:
+    key = str(occasion or "").strip().lower()
+    if key in _OCCASION_DISPLAY_NAMES:
+        return _OCCASION_DISPLAY_NAMES[key]
+    return key.replace("_", " ").title()
+
+
 def _occasion_label_for_editorial(occasion: Any) -> str:
     text = str(occasion or "").strip()
     if not text:
         return "Curated Look"
-    cleaned = text.replace("_", " ").strip()
-    return cleaned.upper()
+    return _occasion_display_name(text).upper()
 
 
 def _direction_adjectives_from_archetype(archetype: Any) -> list[str]:
