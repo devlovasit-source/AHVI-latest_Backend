@@ -37,7 +37,7 @@ from services.style_flow_service import (
     _build_composition_brief,
 )
 from services.module_chat_service import handle_module_chat
-from services.style_reasoning_engine import VISUAL_INSPIRATION, style_reasoning_engine
+from services.style_reasoning_engine import VISUAL_INSPIRATION, style_reasoning_engine, _occasion_display_name
 from services.stylist_knowledge_service import (
     COLOR_BODY_ADVICE,
     SHOPPING_ASSIST,
@@ -317,7 +317,6 @@ def _style_clarification_response(query: str, interpretation: Dict[str, Any]) ->
 
     occasion_label = str(occasion or "").strip()
     if occasion_label:
-        from services.style_reasoning_engine import _occasion_display_name
         pretty = _occasion_display_name(occasion_label)
         message = (
             f"{pretty} — got it. What are you dressing for?"
@@ -345,7 +344,7 @@ def _style_clarification_response(query: str, interpretation: Dict[str, Any]) ->
             "intent": "style",
             "requires_clarification": True,
             "original_prompt": query,
-            "interpreted_occasion": occasion_label or None,
+            "interpreted_occasion": _occasion_display_name(occasion_label) if occasion_label else None,
             "clarification": {
                 "prompt": query,
                 "questions": ["occasion", "weather/timing", "mood/style", "comfort/dress code"],
@@ -4818,7 +4817,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             style_payload["meta"] = {
                 **(style_payload.get("meta") or {}),
                 "fast_style_route": True,
-                "interpreted_occasion": interpreted_occasion,
+                "interpreted_occasion": _occasion_display_name(interpreted_occasion) if interpreted_occasion else interpreted_occasion,
             }
             # Phase 6: editorial wardrobe board, built from the user's ACTUAL
             # wardrobe items (real images), when this is a wardrobe-style ask.
@@ -4858,7 +4857,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
                         style_direction=str(style_payload.get("message_text") or ""),
                     )
                     if _slots:
-                        _occ_label = str(interpreted_occasion or "Your Look").replace("_", " ").title()
+                        _occ_label = _occasion_display_name(interpreted_occasion) if interpreted_occasion else "Your Look"
                         _board = build_editorial_wardrobe_board(
                             title=f"{_occ_label} — From Your Wardrobe",
                             goal=str((style_payload.get("meta") or {}).get("goal") or ""),
