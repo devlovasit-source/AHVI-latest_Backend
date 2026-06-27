@@ -8,7 +8,12 @@ from pydantic import BaseModel, Field
 from brain.personalization.style_dna_engine import style_dna_engine
 from services import ai_gateway
 from services.appwrite_proxy import AppwriteProxy
-from services.style_flow_service import build_style_flow_response, item_role
+from services.style_flow_service import (
+    build_style_flow_response,
+    item_role,
+    _is_professional_safe,
+    _is_office_occasion,
+)
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.stylist")
@@ -421,6 +426,49 @@ _LITE_STYLE_DIRECTIONS = [
     ("Vacation Day", ("sandal", "flat", "sneaker", "espadrille"), "Light, breezy, low-effort."),
 ]
 
+# Occasions on which anchor-item safety is enforced (same set as
+# _PROFESSIONAL_OCCASIONS in style_flow_service.py).
+_LITE_PROFESSIONAL_OCCASIONS = frozenset(
+    {
+        "office", "client_meeting", "client meeting", "corporate_office",
+        "corporate office", "interview", "business_formal", "business formal",
+        "business_casual", "business casual", "presentation", "startup_office",
+    }
+)
+
+
+def _is_lite_professional(occasion: Optional[str]) -> bool:
+    if not occasion:
+        return False
+    key = str(occasion).strip().lower().replace(" ", "_")
+    return key in {o.strip().lower().replace(" ", "_") for o in _LITE_PROFESSIONAL_OCCASIONS}
+
+
+def _anchor_safe_for_occasion(anchor: Dict[str, Any], occasion: Optional[str]) -> tuple:
+    """Return (is_safe: bool, reason: str).
+
+    Calls the shared _is_professional_safe checker from style_flow_service.
+    Always returns (True, "") for non-professional occasions so the lite path
+    is unaffected for casual / date / party etc.
+    """
+    if not _is_lite_professional(occasion):
+        return True, ""
+    return _is_professional_safe(anchor, occasion or "")
+
+
+def _filter_wardrobe_for_occasion(
+    wardrobe: List[Dict[str, Any]], occasion: Optional[str]
+) -> List[Dict[str, Any]]:
+    """Drop unsafe items from wardrobe before pairing for professional occasions."""
+    if not _is_lite_professional(occasion):
+        return wardrobe
+    safe = []
+    for item in wardrobe:
+        ok, _ = _is_professional_safe(item, occasion or "")
+        if ok:
+            safe.append(item)
+    return safe
+
 
 def _lite_role(item: Dict[str, Any]) -> str:
     blob = " ".join(
@@ -521,9 +569,13 @@ def _lite_build_outfit(
     note: str = "",
     variant: int = 0,
 ) -> Dict[str, Any]:
+    # For professional occasions, filter supporting items so only safe pieces
+    # are considered as pairing candidates.  The anchor safety check is handled
+    # by the caller (style_wardrobe_item) before _lite_build_outfit is invoked.
+    safe_wardrobe = _filter_wardrobe_for_occasion(wardrobe, occasion)
     is_dress = _anchor_is_dress(anchor) or _lite_role(anchor) == "dress"
     anchor_role = "dress" if is_dress else _lite_role(anchor)
-    groups = _lite_group(wardrobe, _item_id_of(anchor))
+    groups = _lite_group(safe_wardrobe, _item_id_of(anchor))
     items = [_lite_item(anchor, "hero")]
     missing: List[Dict[str, Any]] = []
     for slot in _lite_needed_slots(anchor_role):
@@ -567,6 +619,13 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
     mode=style_this -> 3 editorial styling directions.
     mode=build_outfit -> 1 practical outfit anchored on the item.
     Never raises: returns a friendly fallback so the UI never dead-ends.
+
+    Professional occasion guardrail (new):
+    - If occasion is professional (client_meeting, office, interview, etc.) and
+      the anchor item is unsafe for that occasion (camo, shiny gold shirt, etc.),
+      the anchor is NOT forced into the outfit.  Instead we return a fallback
+      outfit from safe wardrobe items and signal anchor_blocked=True so the UI
+      can surface a helpful message.
     """
     mode = _txt(request.mode).lower()
     if mode not in {"build_outfit", "style_this"}:
@@ -574,21 +633,107 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
     wardrobe = _resolve_wardrobe(request)
     anchor = _resolve_anchor(request, item_id, wardrobe)
 
-    try:
-        if mode == "style_this":
-            directions = _lite_directions(anchor, wardrobe)
-            logger.info(
-                "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d",
-                item_id, len(directions), len(wardrobe),
-            )
-            return {"success": True, "mode": mode, "anchor_item": anchor, "style_directions": directions}
+    # --- Professional anchor safety check ---
+    occasion = _txt(request.occasion) or None
+    anchor_safe, anchor_block_reason = _anchor_safe_for_occasion(anchor, occasion)
+    is_professional = _is_lite_professional(occasion)
 
-        outfit = _lite_build_outfit(anchor, wardrobe, request.occasion)
+    # Response metadata fields (contract addition)
+    response_meta: Dict[str, Any] = {
+        "occasion": occasion,
+        "formality": "professional" if is_professional else "casual",
+        "source": "wardrobe",
+        "validation_passed": anchor_safe or not is_professional,
+        "anchor_blocked": not anchor_safe and is_professional,
+    }
+    if not anchor_safe and is_professional:
+        response_meta["anchor_block_reason"] = anchor_block_reason
+
+    try:
+        # style_this mode: always built from wardrobe (occasion-aware filtering
+        # happens inside _lite_build_outfit via safe_wardrobe), anchor included
+        # only if it passes professional check.
+        if mode == "style_this":
+            if anchor_safe or not is_professional:
+                directions = _lite_directions(anchor, wardrobe)
+            else:
+                # Build directions from safe wardrobe, without anchoring on the
+                # blocked item.  Use the first safe owned item if one exists.
+                safe_wardrobe = _filter_wardrobe_for_occasion(wardrobe, occasion)
+                safe_alt = next(
+                    (i for i in safe_wardrobe if _item_id_of(i) != _item_id_of(anchor)),
+                    None,
+                )
+                if safe_alt:
+                    directions = _lite_directions(safe_alt, safe_wardrobe)
+                else:
+                    directions = [
+                        {
+                            "title": t,
+                            "items": [],
+                            "missing_items": [{"label": "Office-ready pieces", "reason": "Add professional wardrobe items to get styling suggestions.", "cta": "Find this"}],
+                            "styling_note": f"This item works better for party or evening occasions. I don't see enough {occasion} pieces in your wardrobe yet.",
+                        }
+                        for t, _, _ in _LITE_STYLE_DIRECTIONS
+                    ]
+                anchor_name = _txt(anchor.get("name") or anchor.get("label")) or "This item"
+                for d in directions:
+                    d["_anchor_note"] = f"{anchor_name} works better for party/evening occasions. Here's a {occasion} look from your wardrobe instead."
+            logger.info(
+                "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d anchor_blocked=%s",
+                item_id, len(directions), len(wardrobe), response_meta["anchor_blocked"],
+            )
+            return {
+                "success": True,
+                "mode": mode,
+                "anchor_item": anchor,
+                "style_directions": directions,
+                **response_meta,
+            }
+
+        # build_outfit mode
+        if anchor_safe or not is_professional:
+            outfit = _lite_build_outfit(anchor, wardrobe, occasion)
+        else:
+            # Anchor is unsafe for the professional occasion — do not force it.
+            # Build an outfit from safe wardrobe items instead.
+            safe_wardrobe = _filter_wardrobe_for_occasion(wardrobe, occasion)
+            safe_alt = next(
+                (i for i in safe_wardrobe if _item_id_of(i) != _item_id_of(anchor)),
+                None,
+            )
+            if safe_alt:
+                outfit = _lite_build_outfit(safe_alt, safe_wardrobe, occasion)
+                anchor_name = _txt(anchor.get("name") or anchor.get("label")) or "This item"
+                outfit["_anchor_note"] = (
+                    f"{anchor_name} works better for party/evening occasions. "
+                    f"Here's a {occasion} look from your wardrobe instead."
+                )
+            else:
+                outfit = {
+                    "title": _outfit_title(occasion),
+                    "items": [],
+                    "missing_items": [
+                        {
+                            "label": "Office-ready pieces",
+                            "reason": "I don't see enough client-meeting pieces in your wardrobe yet.",
+                            "cta": "Find this",
+                        }
+                    ],
+                    "reason": f"I don't see enough {occasion} pieces in your wardrobe yet.",
+                }
         logger.info(
-            "stylist.item_style mode=build_outfit item_id=%s items=%d missing=%d wardrobe=%d",
-            item_id, len(outfit["items"]), len(outfit["missing_items"]), len(wardrobe),
+            "stylist.item_style mode=build_outfit item_id=%s items=%d missing=%d wardrobe=%d anchor_blocked=%s",
+            item_id, len(outfit.get("items") or []), len(outfit.get("missing_items") or []),
+            len(wardrobe), response_meta["anchor_blocked"],
         )
-        return {"success": True, "mode": mode, "anchor_item": anchor, "outfit": outfit}
+        return {
+            "success": True,
+            "mode": mode,
+            "anchor_item": anchor,
+            "outfit": outfit,
+            **response_meta,
+        }
     except Exception as exc:  # noqa: BLE001 - CTA must never dead-end the UI
         logger.exception("stylist.item_style failed item_id=%s mode=%s err=%s", item_id, mode, str(exc))
         return _style_fallback(mode, anchor)

@@ -581,6 +581,52 @@ _OFFICE_BAD_TOKENS = (
     "sunhat",
     "sun hat",
     "sunglass",  # covers sunglass / sunglasses
+    # --- Professional blockers added: camo / tactical / distressed ---
+    "camo",
+    "camouflage",
+    "cargo",           # cargo pants/shorts signal tactical/streetwear, not office
+    # --- Party / festive / distressed ---
+    "party",
+    "festive",
+    "distressed",
+    "graphic tee",
+    "graphic-tee",
+    "streetwear",
+    # --- Casual / beach footwear (names not caught elsewhere) ---
+    " shorts",         # leading space catches "shorts" but not "dress shorts"
+    "sandals",
+    " sandal",         # leading space avoids false-match on "sandal" mid-word
+    "slippers",
+)
+
+# Tokens that are only bad for professional occasions when the item is a
+# top/shirt/blouse (not accessories like watches, rings, belts).
+# Used by _is_office_bad_item_top_category() below.
+_OFFICE_BAD_TOP_TOKENS = (
+    "shiny",
+    "satin",
+    "metallic",
+    "sequin",
+    "sequins",
+)
+
+# Professional occasions that use both _OFFICE_BAD_TOKENS and the top-category
+# check (keep in sync with _OFFICE_OCCASIONS above).
+_PROFESSIONAL_OCCASIONS = frozenset(
+    {
+        "office",
+        "client_meeting",
+        "client meeting",
+        "corporate_office",
+        "corporate office",
+        "interview",
+        "business_formal",
+        "business formal",
+        "business_casual",
+        "business casual",
+        "presentation",
+        "startup_office",
+    }
 )
 
 
@@ -618,6 +664,108 @@ def _is_office_bad_item(item: dict) -> bool:
     # edge positions instead of being skipped.
     padded = f" {blob} "
     return any(token in padded for token in _OFFICE_BAD_TOKENS)
+
+
+def _item_role_blob(item: dict) -> str:
+    """Return a short blob of only the category/role fields — NOT the name.
+
+    Used to decide whether an item is a wearable garment (top/bottom) or an
+    accessory, so we can apply category-aware blockers like 'shiny' only to
+    tops and not to watches/rings.
+    """
+    if not isinstance(item, dict):
+        return ""
+    parts = []
+    for key in ("role", "category", "main_category", "sub_category", "subCategory", "type"):
+        parts.append(str(item.get(key) or ""))
+    return " ".join(parts).lower()
+
+
+def _is_professional_safe(item: dict, occasion: str) -> tuple[bool, str]:
+    """Return (is_safe, reason).
+
+    Runs a multi-layer professional occasion check on a single item:
+      1. blocked_occasions field (explicit metadata block)
+      2. business_safe field (explicit flag)
+      3. style_tags / occasion_tags (semantic tag check)
+      4. fabric_finish / pattern (material check for tops only)
+      5. Name/label token fallback via _is_office_bad_item + shiny-top check
+
+    Returns (True, "") when safe, (False, reason_string) when blocked.
+    Designed to be importable from routers without circular imports.
+    """
+    if not isinstance(item, dict):
+        return True, ""
+
+    occ_key = str(occasion or "").strip().lower().replace(" ", "_")
+    is_professional = occ_key in {
+        o.strip().lower().replace(" ", "_") for o in _PROFESSIONAL_OCCASIONS
+    }
+    if not is_professional:
+        return True, ""
+
+    # --- Layer 1: blocked_occasions explicit list ---
+    blocked_occasions = item.get("blocked_occasions")
+    if isinstance(blocked_occasions, (list, tuple, set)):
+        for b in blocked_occasions:
+            if str(b or "").strip().lower().replace(" ", "_") == occ_key:
+                return False, f"blocked_occasions:{b}"
+
+    # --- Layer 2: business_safe field ---
+    business_safe = item.get("business_safe")
+    if business_safe is False:
+        return False, "business_safe:false"
+
+    # --- Layer 3: style_tags / occasion_tags semantic check ---
+    tags_blob = ""
+    for tag_key in ("style_tags", "occasion_tags", "tags"):
+        val = item.get(tag_key)
+        if isinstance(val, (list, tuple, set)):
+            tags_blob += " " + " ".join(str(v) for v in val)
+        elif val:
+            tags_blob += " " + str(val)
+    tags_blob = tags_blob.lower()
+    _UNSAFE_TAGS = (
+        "party", "festive", "evening wear", "clubwear", "nightclub",
+        "shiny", "metallic", "sequin", "sequins", "satin",
+        "sleepwear", "loungewear", "swimwear", "beachwear",
+    )
+    for tag in _UNSAFE_TAGS:
+        if tag in tags_blob:
+            return False, f"style_tags:{tag}"
+
+    # --- Layer 4: fabric_finish / pattern check (tops only) ---
+    role_blob = _item_role_blob(item)
+    _TOP_ROLE_TOKENS = ("top", "shirt", "blouse", "tee", "kurta", "sweater", "hoodie", "polo", "dress")
+    is_top_or_dress = any(t in role_blob for t in _TOP_ROLE_TOKENS)
+    if is_top_or_dress:
+        fabric_finish = str(item.get("fabric_finish") or item.get("finish") or "").lower()
+        pattern = str(item.get("pattern") or "").lower()
+        material = str(item.get("material") or item.get("fabric") or "").lower()
+        finish_blob = f"{fabric_finish} {pattern} {material}"
+        for tok in _OFFICE_BAD_TOP_TOKENS:
+            if tok in finish_blob:
+                return False, f"fabric_finish:{tok}"
+
+    # --- Layer 5: Name/label token fallback ---
+    if _is_office_bad_item(item):
+        return False, "name_token:office_bad_item"
+
+    # --- Layer 5b: Shiny/satin/metallic/sequin on tops (name fallback) ---
+    if is_top_or_dress:
+        name_blob = str(item.get("name") or item.get("label") or "").lower()
+        # Also check color_name for "gold" when on a top
+        color_blob = str(item.get("color_name") or item.get("color") or "").lower()
+        name_color = f"{name_blob} {color_blob}"
+        for tok in _OFFICE_BAD_TOP_TOKENS:
+            if tok in name_color:
+                return False, f"name_token:{tok}_top"
+        # "gold" on a top is blocked (e.g. "Shiny Gold Formal Shirt")
+        # but "gold" on accessory (ring, watch, belt) is fine.
+        if "gold" in name_color:
+            return False, "name_token:gold_top"
+
+    return True, ""
 
 
 def _sanitize_office_board(
