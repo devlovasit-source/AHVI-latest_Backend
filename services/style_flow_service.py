@@ -385,15 +385,25 @@ def apply_occasion_card_language(cards: List[Dict[str, Any]], occasion: str) -> 
     normalized = _normalize_occasion_value(occasion)
     lang = _OCCASION_CARD_LANGUAGE.get(normalized)
     if not lang:
+        try:
+            from services.style_reasoning_engine import _occasion_display_name as _odn2
+        except Exception:  # noqa: BLE001
+            _odn2 = None
         for card in cards or []:
             if isinstance(card, dict) and normalized:
                 card.setdefault("occasion", normalized)
+                if not card.get("occasion_label") and _odn2:
+                    card["occasion_label"] = _odn2(normalized)
         return cards
 
     titles = list(lang.get("titles") or [])
     badge = _safe_text(lang.get("badge"))
     forbidden = [_safe_text(w).lower() for w in (lang.get("forbidden_title_words") or [])]
 
+    try:
+        from services.style_reasoning_engine import _occasion_display_name as _odn
+    except Exception:  # noqa: BLE001
+        _odn = None
     for idx, card in enumerate(cards or []):
         if not isinstance(card, dict):
             continue
@@ -405,6 +415,8 @@ def apply_occasion_card_language(cards: List[Dict[str, Any]], occasion: str) -> 
             card["badge"] = badge
             card["occasion_label"] = badge
         card.setdefault("occasion", normalized)
+        if not card.get("occasion_label") and normalized and _odn:
+            card["occasion_label"] = _odn(normalized)
     return cards
 
 
