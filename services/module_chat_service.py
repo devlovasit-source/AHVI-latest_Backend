@@ -143,7 +143,7 @@ def _medicine_name(doc: Dict[str, Any]) -> str:
     return _text(doc.get("name") or doc.get("title") or doc.get("medicine") or doc.get("medName"))
 
 
-def _medicine_reminder_guard(message: str, domain: str = "", user_id: str = "") -> Dict[str, Any] | None:
+def _medicine_reminder_guard(message: str, domain: str = "", user_id: str = "", context: Dict[str, Any] | None = None) -> Dict[str, Any] | None:
     lower = _text(message).lower()
     normalized_domain = _normalize_domain(domain)
 
@@ -171,14 +171,19 @@ def _medicine_reminder_guard(message: str, domain: str = "", user_id: str = "") 
             data={"intent": "medicine_reminder_needs_time", "refresh": "medi"},
         )
 
-    proxy = AppwriteProxy()
-    try:
-        docs = proxy.list_documents("meds", user_id=user_id, limit=100) if user_id else []
-    except Exception:
-        docs = []
-    if isinstance(docs, dict):
-        docs = docs.get("documents") or []
-    docs = [doc for doc in (docs or []) if isinstance(doc, dict)]
+    ctx = context if isinstance(context, dict) else {}
+    context_meds = ctx.get("medications") or ctx.get("meds") or []
+    docs = [doc for doc in (context_meds or []) if isinstance(doc, dict)] if isinstance(context_meds, list) else []
+
+    if not docs:
+        proxy = AppwriteProxy()
+        try:
+            docs = proxy.list_documents("meds", user_id=user_id, limit=100) if user_id else []
+        except Exception:
+            docs = []
+        if isinstance(docs, dict):
+            docs = docs.get("documents") or []
+        docs = [doc for doc in (docs or []) if isinstance(doc, dict)]
 
     if not docs:
         return _envelope(
