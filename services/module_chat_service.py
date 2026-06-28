@@ -95,6 +95,43 @@ def _envelope(
     }
 
 
+def _medicine_reminder_guard(message: str, domain: str = "") -> Dict[str, Any] | None:
+    lower = _text(message).lower()
+    normalized_domain = _normalize_domain(domain)
+
+    med_terms = (
+        "medicine", "medicines", "medication", "medications", "meds",
+        "tablet", "tablets", "pill", "pills", "dose", "doses",
+    )
+    reminder_terms = (
+        "remind", "reminder", "timer", "alarm", "notify", "notification",
+        "schedule", "alert",
+    )
+
+    mentions_medicine = normalized_domain == "medi" or any(term in lower for term in med_terms)
+    asks_reminder = any(term in lower for term in reminder_terms)
+
+    if not (mentions_medicine and asks_reminder):
+        return None
+
+    reply = (
+        "Yes - I can remind you to take your medicines. "
+        "Add the medicine in Medi Tracker, set the dose and reminder time, "
+        "and I will notify you when it is due."
+    )
+
+    return _envelope(
+        domain="medi",
+        message=reply,
+        chips=["Set reminder", "Open Medicines"],
+        data={
+            "intent": "medicine_reminder_help",
+            "refresh": "medi",
+            "route": "/organize/medicines",
+        },
+    )
+
+
 def _looks_like_event_create(message: str) -> bool:
     text = str(message or "").lower().strip()
     if not text or text in {"add event", "view events", "open events", "open calendar"}:
@@ -656,6 +693,17 @@ async def handle_style_chat(message: str, context: Dict[str, Any], user_id: str)
 
 
 async def handle_module_chat(payload: Dict[str, Any], user_id: str = "") -> Dict[str, Any]:
+    early_message = _text(
+        payload.get("message")
+        or payload.get("text")
+        or payload.get("query")
+        or payload.get("prompt")
+    )
+    early_domain = _normalize_domain(payload.get("domain") or payload.get("module"))
+    early_medi_reply = _medicine_reminder_guard(early_message, early_domain)
+    if early_medi_reply:
+        return early_medi_reply
+
     domain = _normalize_domain(payload.get("domain") or payload.get("module"))
     message = _text(payload.get("message") or payload.get("text"))
     context = payload.get("context") or payload.get("context_data") or {}
