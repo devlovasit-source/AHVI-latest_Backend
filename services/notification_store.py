@@ -183,6 +183,18 @@ class NotificationStore:
                 "lastError": _safe_text(r.get("lastError") or ""),
                 "updatedAtISO": _utcnow().isoformat(),
             }
+            for key in (
+                "medId",
+                "medName",
+                "dose",
+                "scheduledFor",
+                "title",
+                "body",
+                "notificationKey",
+            ):
+                value = r.get(key)
+                if _safe_text(value):
+                    data[key] = _safe_text(value)
             try:
                 self._appwrite.update_document(self.reminders_resource, doc_id, data)
                 scheduled += 1

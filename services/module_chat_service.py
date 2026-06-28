@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from services.appwrite_proxy import AppwriteProxy
+from services.notification_store import notification_store
 
 
 def _text(value: Any) -> str:
@@ -95,7 +96,54 @@ def _envelope(
     }
 
 
-def _medicine_reminder_guard(message: str, domain: str = "") -> Dict[str, Any] | None:
+def _parse_medicine_reminder_time(message: str) -> datetime | None:
+    lower = _text(message).lower()
+    now = datetime.now().astimezone()
+    day_offset = 1 if "tomorrow" in lower else 0
+    hour: int | None = None
+    minute = 0
+
+    meridiem = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", lower)
+    if meridiem:
+        hour = int(meridiem.group(1))
+        minute = int(meridiem.group(2) or 0)
+        suffix = meridiem.group(3)
+        if hour < 1 or hour > 12 or minute > 59:
+            return None
+        if suffix == "pm" and hour != 12:
+            hour += 12
+        if suffix == "am" and hour == 12:
+            hour = 0
+    else:
+        twenty_four = re.search(r"\b([01]?\d|2[0-3]):([0-5]\d)\b", lower)
+        if twenty_four:
+            hour = int(twenty_four.group(1))
+            minute = int(twenty_four.group(2))
+        elif "morning" in lower:
+            hour = 8
+        elif "afternoon" in lower:
+            hour = 13
+        elif "evening" in lower:
+            hour = 18
+        elif "night" in lower:
+            hour = 21
+
+    if hour is None:
+        return None
+
+    scheduled = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if day_offset:
+        scheduled += timedelta(days=day_offset)
+    elif scheduled <= now:
+        scheduled += timedelta(days=1)
+    return scheduled
+
+
+def _medicine_name(doc: Dict[str, Any]) -> str:
+    return _text(doc.get("name") or doc.get("title") or doc.get("medicine") or doc.get("medName"))
+
+
+def _medicine_reminder_guard(message: str, domain: str = "", user_id: str = "") -> Dict[str, Any] | None:
     lower = _text(message).lower()
     normalized_domain = _normalize_domain(domain)
 
@@ -113,6 +161,100 @@ def _medicine_reminder_guard(message: str, domain: str = "") -> Dict[str, Any] |
 
     if not (mentions_medicine and asks_reminder):
         return None
+
+    scheduled = _parse_medicine_reminder_time(message)
+    if scheduled is None:
+        return _envelope(
+            domain="medi",
+            message="What time should I remind you?",
+            chips=["Open Medicines", "Set another reminder"],
+            data={"intent": "medicine_reminder_needs_time", "refresh": "medi"},
+        )
+
+    proxy = AppwriteProxy()
+    try:
+        docs = proxy.list_documents("meds", user_id=user_id, limit=100) if user_id else []
+    except Exception:
+        docs = []
+    if isinstance(docs, dict):
+        docs = docs.get("documents") or []
+    docs = [doc for doc in (docs or []) if isinstance(doc, dict)]
+
+    if not docs:
+        return _envelope(
+            domain="medi",
+            message="Add the medicine in Medi Tracker first, then I can set a reminder for it.",
+            chips=["Open Medicines", "Set reminder"],
+            data={"intent": "medicine_reminder_no_medicines", "refresh": "medi"},
+        )
+
+    selected = None
+    for doc in docs:
+        name = _medicine_name(doc).lower()
+        if name and name in lower:
+            selected = doc
+            break
+    if selected is None and len(docs) == 1:
+        selected = docs[0]
+    if selected is None:
+        return _envelope(
+            domain="medi",
+            message="Which medicine should I set the reminder for?",
+            chips=["Open Medicines", "Set another reminder"],
+            data={"intent": "medicine_reminder_needs_medicine", "refresh": "medi"},
+        )
+
+    med_id = _text(selected.get("$id") or selected.get("id"))
+    med_name = _medicine_name(selected) or "Medicine"
+    dose = _text(selected.get("dose") or selected.get("dosage"))
+    send_at_iso = scheduled.astimezone(timezone.utc).isoformat()
+    body = f"Time to take {med_name}"
+    try:
+        out = notification_store.schedule_reminders(
+            user_id=user_id,
+            event_id=f"med:{med_id}:{send_at_iso}",
+            source="medi",
+            reminders=[
+                {
+                    "status": "scheduled",
+                    "sendAtISO": send_at_iso,
+                    "scheduledFor": send_at_iso,
+                    "message": body,
+                    "body": body,
+                    "title": "Medicine reminder",
+                    "priority": "normal",
+                    "offsetMinutes": 0,
+                    "medId": med_id,
+                    "medName": med_name,
+                    "dose": dose,
+                    "notificationKey": f"med:{med_id}:{send_at_iso}",
+                }
+            ],
+        )
+    except Exception:
+        out = {"success": False, "scheduled": 0}
+    if not out.get("success") or int(out.get("scheduled") or 0) < 1:
+        return _envelope(
+            domain="medi",
+            message="I found the medicine, but I could not schedule the reminder yet. Please try again from Medi Tracker.",
+            chips=["Open Medicines", "Set another reminder"],
+            data={"intent": "medicine_reminder_schedule_failed", "refresh": "medi"},
+        )
+
+    local_time = scheduled.strftime("%I:%M %p").lstrip("0")
+    return _envelope(
+        domain="medi",
+        message=f"Done - I will remind you to take {med_name} at {local_time}.",
+        chips=["Open Medicines", "Set another reminder"],
+        data={
+            "intent": "medicine_reminder_scheduled",
+            "refresh": "medi",
+            "route": "/organize/medicines",
+            "medicine_id": med_id,
+            "medicine_name": med_name,
+            "scheduled_for": send_at_iso,
+        },
+    )
 
     reply = (
         "Yes - I can remind you to take your medicines. "
@@ -700,7 +842,7 @@ async def handle_module_chat(payload: Dict[str, Any], user_id: str = "") -> Dict
         or payload.get("prompt")
     )
     early_domain = _normalize_domain(payload.get("domain") or payload.get("module"))
-    early_medi_reply = _medicine_reminder_guard(early_message, early_domain)
+    early_medi_reply = _medicine_reminder_guard(early_message, early_domain, user_id)
     if early_medi_reply:
         return early_medi_reply
 
