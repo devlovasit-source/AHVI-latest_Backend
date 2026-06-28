@@ -183,6 +183,7 @@ class NotificationStore:
                 "lastError": _safe_text(r.get("lastError") or ""),
                 "updatedAtISO": _utcnow().isoformat(),
             }
+            base_data = dict(data)
             for key in (
                 "medId",
                 "medName",
@@ -198,14 +199,51 @@ class NotificationStore:
             try:
                 self._appwrite.update_document(self.reminders_resource, doc_id, data)
                 scheduled += 1
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "AHVI_REMINDER_UPDATE_FAILED user_id=%s event_id=%s doc_id=%s send_at=%s error=%s",
+                    uid,
+                    eid,
+                    doc_id,
+                    send_at,
+                    exc,
+                )
                 try:
                     self._appwrite.create_document(
                         self.reminders_resource, data, document_id=doc_id
                     )
                     scheduled += 1
-                except Exception:
-                    continue
+                except Exception as create_exc:
+                    logger.warning(
+                        "AHVI_REMINDER_CREATE_FAILED user_id=%s event_id=%s doc_id=%s send_at=%s error=%s",
+                        uid,
+                        eid,
+                        doc_id,
+                        send_at,
+                        create_exc,
+                    )
+                    try:
+                        self._appwrite.create_document(
+                            self.reminders_resource, base_data, document_id=doc_id
+                        )
+                        scheduled += 1
+                        logger.info(
+                            "AHVI_REMINDER_CREATE_BASE_FALLBACK user_id=%s event_id=%s doc_id=%s send_at=%s",
+                            uid,
+                            eid,
+                            doc_id,
+                            send_at,
+                        )
+                    except Exception as base_exc:
+                        logger.warning(
+                            "AHVI_REMINDER_CREATE_BASE_FAILED user_id=%s event_id=%s doc_id=%s send_at=%s error=%s",
+                            uid,
+                            eid,
+                            doc_id,
+                            send_at,
+                            base_exc,
+                        )
+                        continue
             if source_value in {"medicine", "medi"}:
                 logger.info(
                     "AHVI_MED_REMINDER_SCHEDULED user_id=%s event_id=%s send_at=%s status=%s",
