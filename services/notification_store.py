@@ -221,7 +221,8 @@ class NotificationStore:
         self, *, now: Optional[datetime] = None, window_seconds: int = 60
     ) -> List[Dict[str, Any]]:
         now_dt = now or _utcnow()
-        cutoff = now_dt.timestamp() + float(max(5, int(window_seconds)))
+        now_ts = now_dt.timestamp()
+        oldest_ts = now_ts - float(max(5, int(window_seconds)))
 
         # MVP: scan recent scheduled reminders per user on demand.
         # For scale, use a real indexed query (or store reminders in Redis sorted sets).
@@ -247,7 +248,8 @@ class NotificationStore:
                 send_dt = datetime.fromisoformat(send_at.replace("Z", "+00:00"))
             except Exception:
                 continue
-            if send_dt.timestamp() <= cutoff:
+            send_ts = send_dt.timestamp()
+            if oldest_ts <= send_ts <= now_ts:
                 due.append(r)
         return due
 
@@ -255,7 +257,8 @@ class NotificationStore:
         self, *, now: Optional[datetime] = None, window_seconds: int = 60
     ) -> List[Dict[str, Any]]:
         now_dt = now or _utcnow()
-        cutoff = now_dt.timestamp() + float(max(5, int(window_seconds)))
+        now_ts = now_dt.timestamp()
+        oldest_ts = now_ts - float(max(5, int(window_seconds)))
         try:
             rows = self._appwrite.list_documents("meds", limit=self.max_scan)
         except Exception:
@@ -290,15 +293,18 @@ class NotificationStore:
             if scheduled is None:
                 continue
             scheduled_utc = scheduled.astimezone(timezone.utc)
-            if scheduled_utc.timestamp() < now_dt.timestamp() - 60:
+            scheduled_ts = scheduled_utc.timestamp()
+            if scheduled_ts > now_ts:
                 continue
-            if scheduled_utc.timestamp() > cutoff:
+            if scheduled_ts < oldest_ts:
                 continue
 
             name = _safe_text(
                 med.get("name") or med.get("medName") or med.get("medicine") or "Medicine"
             )
             notification_key = f"med:{user_id}:{med_id}:{scheduled_utc.isoformat()}"
+            if self.was_notification_sent(notification_key=notification_key):
+                continue
             logger.info(
                 "AHVI_MED_REMINDER_SCHEDULED user_id=%s event_id=%s send_at=%s status=%s",
                 user_id,

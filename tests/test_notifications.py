@@ -181,7 +181,7 @@ class NotificationStoreTests(unittest.TestCase):
             from services.notification_store import NotificationStore
 
             due = NotificationStore().list_due_reminders(
-                now=datetime(2026, 5, 1, 11, 59, tzinfo=timezone.utc),
+                now=datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc),
                 window_seconds=120,
             )
 
@@ -195,7 +195,7 @@ class NotificationStoreTests(unittest.TestCase):
                 "$id": "med_1",
                 "userId": "user_1",
                 "name": "Dolo",
-                "time": (now + timedelta(minutes=2)).astimezone(timezone(timedelta(hours=5, minutes=30))).strftime("%I:%M %p"),
+                "time": now.astimezone(timezone(timedelta(hours=5, minutes=30))).strftime("%I:%M %p"),
                 "reminder": True,
             }
         ]
