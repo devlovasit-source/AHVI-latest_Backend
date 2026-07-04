@@ -14,6 +14,7 @@ from services.style_flow_service import (
     _is_professional_safe,
     _is_office_occasion,
 )
+from services.style_reasoning_engine import _occasion_display_name
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.stylist")
@@ -352,11 +353,17 @@ def _map_look(resp: Any, anchor: Dict[str, Any], title: str, note_key: str) -> D
 
 def _outfit_title(occasion: Optional[str]) -> str:
     occ = _txt(occasion).lower()
-    return {
+    fixed = {
         "office": "Office-Ready Look",
         "date": "Date Night Look",
         "casual": "Casual Day Look",
-    }.get(occ, "Casual Day Look")
+    }
+    if occ in fixed:
+        return fixed[occ]
+    if occ:
+        # "client_meeting" -> "Client Meeting Look", never the raw slug.
+        return f"{_occasion_display_name(occ)} Look"
+    return "Casual Day Look"
 
 
 def _style_fallback(mode: str, anchor: Dict[str, Any]) -> Dict[str, Any]:
@@ -638,9 +645,12 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
     anchor_safe, anchor_block_reason = _anchor_safe_for_occasion(anchor, occasion)
     is_professional = _is_lite_professional(occasion)
 
+    occasion_display = _occasion_display_name(occasion) if occasion else ""
+
     # Response metadata fields (contract addition)
     response_meta: Dict[str, Any] = {
         "occasion": occasion,
+        "occasion_label": occasion_display or None,
         "formality": "professional" if is_professional else "casual",
         "source": "wardrobe",
         "validation_passed": anchor_safe or not is_professional,
@@ -672,13 +682,13 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
                             "title": t,
                             "items": [],
                             "missing_items": [{"label": "Office-ready pieces", "reason": "Add professional wardrobe items to get styling suggestions.", "cta": "Find this"}],
-                            "styling_note": f"This item works better for party or evening occasions. I don't see enough {occasion} pieces in your wardrobe yet.",
+                            "styling_note": f"This item works better for party or evening occasions. I don't see enough {occasion_display or 'occasion-ready'} pieces in your wardrobe yet.",
                         }
                         for t, _, _ in _LITE_STYLE_DIRECTIONS
                     ]
                 anchor_name = _txt(anchor.get("name") or anchor.get("label")) or "This item"
                 for d in directions:
-                    d["_anchor_note"] = f"{anchor_name} works better for party/evening occasions. Here's a {occasion} look from your wardrobe instead."
+                    d["_anchor_note"] = f"{anchor_name} works better for party/evening occasions. Here's a {occasion_display or 'safer'} look from your wardrobe instead."
             logger.info(
                 "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d anchor_blocked=%s",
                 item_id, len(directions), len(wardrobe), response_meta["anchor_blocked"],
@@ -707,7 +717,7 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
                 anchor_name = _txt(anchor.get("name") or anchor.get("label")) or "This item"
                 outfit["_anchor_note"] = (
                     f"{anchor_name} works better for party/evening occasions. "
-                    f"Here's a {occasion} look from your wardrobe instead."
+                    f"Here's a {occasion_display or 'safer'} look from your wardrobe instead."
                 )
             else:
                 outfit = {
@@ -720,7 +730,7 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
                             "cta": "Find this",
                         }
                     ],
-                    "reason": f"I don't see enough {occasion} pieces in your wardrobe yet.",
+                    "reason": f"I don't see enough {occasion_display or 'occasion-ready'} pieces in your wardrobe yet.",
                 }
         logger.info(
             "stylist.item_style mode=build_outfit item_id=%s items=%d missing=%d wardrobe=%d anchor_blocked=%s",

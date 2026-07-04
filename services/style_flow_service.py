@@ -4712,6 +4712,19 @@ def finalize_style_response_payload(
             normalized_occasion,
         )
 
+    # Final-response safety net: no card/board may leave without a
+    # human-readable occasion_label — the frontend falls back to the raw
+    # occasion slug ("corporate_office") otherwise.
+    try:
+        from services.style_reasoning_engine import _occasion_display_name as _final_odn
+        _final_label = _final_odn(normalized_occasion) if normalized_occasion else ""
+    except Exception:  # noqa: BLE001
+        _final_label = ""
+    if _final_label:
+        for _c in list(cards or []) + list(rendered or []):
+            if isinstance(_c, dict) and not _c.get("occasion_label"):
+                _c["occasion_label"] = _final_label
+
     data = {
         "outfits": cards,
         "visual_intelligence": visual_intelligence_from_outfit(raw_outfits[0]) if raw_outfits and isinstance(raw_outfits[0], dict) else {},
@@ -5207,7 +5220,14 @@ def build_style_flow_response(
         len(wardrobe) if isinstance(wardrobe, list) else 0,
         len(cards),
     )
-    occasion_label = str(query or normalized_occasion or "this").replace(" Â· ", " ").strip()
+    occasion_label = str(query or "").replace(" Â· ", " ").strip()
+    if not occasion_label and normalized_occasion:
+        try:
+            from services.style_reasoning_engine import _occasion_display_name as _intro_odn
+            occasion_label = _intro_odn(normalized_occasion)
+        except Exception:  # noqa: BLE001
+            occasion_label = str(normalized_occasion).replace("_", " ")
+    occasion_label = occasion_label or "this"
     kind = _occasion_kind(query or normalized_occasion)
     if kind == "coffee_date":
         style_intro = (
@@ -5231,7 +5251,7 @@ def build_style_flow_response(
         )
     raw_response_message = (
         "This is the closest wardrobe-based option I found, but it still needs "
-        f"refinement for {str(query or normalized_occasion).replace(' · ', ' ').strip()}. "
+        f"refinement for {occasion_label}. "
         "I would improve it with a linen/cotton shirt and sandals."
         if cards and closest_requested
         else result.get("context")
