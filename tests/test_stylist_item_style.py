@@ -171,6 +171,9 @@ def test_build_outfit_returns_anchor_exact_id_and_image():
     assert hero["image_url"] == "https://img/dress-1.png"
     assert hero["locked"] is True
     assert hero["slot"] == "dress"
+    assert result["outfit"]["board_id"]
+    assert result["outfit"]["revision"] == 1
+    assert set(hero["position"]) == {"x", "y", "width", "height", "z", "rotation"}
 
 
 def test_style_this_returns_anchor_exact_id_and_image():
@@ -180,8 +183,11 @@ def test_style_this_returns_anchor_exact_id_and_image():
     result = stylist.style_wardrobe_item("dress-1", _req(wardrobe, mode="style_this", anchor=dress))
     assert result["success"] is True
     for d in result["style_directions"]:
+        assert d["board_id"]
+        assert d["revision"] == 1
         hero = next(i for i in d["items"] if i["item_id"] == "dress-1")
         assert hero["image_url"] == "https://img/dress-1.png"
+        assert set(hero["position"]) == {"x", "y", "width", "height", "z", "rotation"}
 
 
 def test_name_only_anchor_is_rejected():

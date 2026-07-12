@@ -1,4 +1,5 @@
 import logging
+from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
@@ -20,6 +21,7 @@ from services.constrained_outfit_builder import (
     ConstrainedOutfitError,
     replaceable_slots_for_fixed_items,
 )
+from services.style_board_shuffle_service import _default_position
 from services.style_item_contract import (
     FixedItemLostError,
     assert_fixed_items_preserved,
@@ -746,6 +748,9 @@ def _builder_outfit(
         _raise_builder_failure(result)
     is_dress = _anchor_is_dress(anchor) or canonical_item_role(anchor) == "dress"
     serialized_items = [_builder_item_to_response(i) for i in result.get("items", [])]
+    for item in serialized_items:
+        if not isinstance(item.get("position"), dict):
+            item["position"] = _default_position(item["item_id"], item["slot"])
     try:
         assert_fixed_items_preserved(fixed, serialized_items, stage="stylist_response")
     except FixedItemLostError as exc:
@@ -755,6 +760,8 @@ def _builder_outfit(
             {"fixed_item_ids": exc.missing_ids, "mismatched_fields": exc.mismatched_fields},
         ) from exc
     outfit = {
+        "board_id": str(uuid4()),
+        "revision": 1,
         "title": title or _outfit_title(occasion),
         "items": serialized_items,
         "missing_items": [
@@ -780,12 +787,7 @@ def _builder_directions(
             mode="style_this", title=title, prefer=prefer, note=note, variant=idx,
             allow_wardrobe_fallback=allow_wardrobe_fallback,
         )
-        directions.append({
-            "title": title,
-            "items": look["items"],
-            "missing_items": look["missing_items"],
-            "styling_note": note,
-        })
+        directions.append({**look, "styling_note": note})
     return directions, source_meta
 
 
