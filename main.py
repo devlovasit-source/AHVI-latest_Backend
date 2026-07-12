@@ -144,6 +144,7 @@ ai_router = _load_optional_router("api.ai")
 
 # Optional
 stylist_router = _load_optional_router("routers.stylist")
+style_boards_router = _load_optional_router("routers.style_boards")
 reddit_router = _load_optional_router("routers.reddit")
 
 # Feature-based
@@ -726,6 +727,9 @@ if contacts_router:
 
 if stylist_router:
     app.include_router(stylist_router, prefix="/api/stylist")
+
+if style_boards_router:
+    app.include_router(style_boards_router, prefix="/api", tags=["StyleBoards"])
 
 if reddit_router:
     app.include_router(reddit_router)

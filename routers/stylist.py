@@ -15,6 +15,19 @@ from services.style_flow_service import (
     _is_office_occasion,
 )
 from services.style_reasoning_engine import _occasion_display_name
+from services.constrained_outfit_builder import (
+    ConstrainedOutfitBuilder,
+    ConstrainedOutfitError,
+    replaceable_slots_for_fixed_items,
+)
+from services.style_item_contract import (
+    FixedItemLostError,
+    assert_fixed_items_preserved,
+    canonical_accessory_type,
+    canonical_image_url,
+    canonical_item_id,
+    canonical_item_role,
+)
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.stylist")
@@ -174,6 +187,8 @@ class ItemStyleRequest(BaseModel):
     wardrobe_only: bool = False
     anchor_item: Dict[str, Any] = Field(default_factory=dict)
     wardrobe: Any = None
+    style_assets: Any = None
+    allow_wardrobe_fallback: bool = False
     user_profile: Dict[str, Any] = Field(default_factory=dict)
     context: Dict[str, Any] = Field(default_factory=dict)
 
@@ -274,23 +289,37 @@ def _inject_anchor(items: List[Dict[str, Any]], anchor: Dict[str, Any]) -> List[
     return [anchor, *items]
 
 
-def _resolve_wardrobe(request: ItemStyleRequest) -> List[Dict[str, Any]]:
+def _resolve_wardrobe(request: ItemStyleRequest) -> "tuple[List[Dict[str, Any]], bool]":
     if isinstance(request.wardrobe, list):
-        return [i for i in request.wardrobe if isinstance(i, dict)]
+        return [dict(i) for i in request.wardrobe if isinstance(i, dict)], False
     try:
         rows = AppwriteProxy().list_documents("outfits", user_id=request.user_id) or []
-        return [i for i in rows if isinstance(i, dict)]
+        return [
+            {**i, "source": i.get("source") or "wardrobe"}
+            for i in rows if isinstance(i, dict)
+        ], True
     except Exception:
-        return []
+        return [], True
+
+
+def _resolve_style_assets(request: ItemStyleRequest) -> "tuple[List[Dict[str, Any]], bool]":
+    if isinstance(request.style_assets, list):
+        return [dict(i) for i in request.style_assets if isinstance(i, dict)], False
+    try:
+        rows = AppwriteProxy().list_documents("style_assets") or []
+        return [
+            {**i, "source": i.get("source") or "style_asset"}
+            for i in rows if isinstance(i, dict)
+        ], True
+    except Exception:
+        return [], True
 
 
 def _resolve_anchor(
     request: ItemStyleRequest, item_id: str, wardrobe: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     if isinstance(request.anchor_item, dict) and request.anchor_item:
-        anchor = dict(request.anchor_item)
-        anchor.setdefault("item_id", item_id)
-        return anchor
+        return dict(request.anchor_item)
     for item in wardrobe:
         if _item_id_of(item) == _txt(item_id):
             return dict(item)
@@ -478,6 +507,10 @@ def _filter_wardrobe_for_occasion(
 
 
 def _lite_role(item: Dict[str, Any]) -> str:
+    # DEPRECATED from live paths: the live CTA flow now uses
+    # services.style_item_contract.canonical_item_role (which has the
+    # "dress shirt"->top / "shorts"-token / blazer->outerwear fixes).  This
+    # function remains only for the _lite_* fallback path below.
     blob = " ".join(
         _txt(item.get(k))
         for k in ("role", "category", "sub_category", "subcategory", "type", "name", "label")
@@ -619,26 +652,191 @@ def _lite_directions(anchor: Dict[str, Any], wardrobe: List[Dict[str, Any]]) -> 
     return directions
 
 
+# --------------------------------------------------------------------------
+# Constrained-builder path (live). Legacy lite helpers above are retained for
+# compatibility with direct imports, but are not reachable from this endpoint.
+# --------------------------------------------------------------------------
+_builder = ConstrainedOutfitBuilder()
+
+
+def _builder_item_to_response(item: Dict[str, Any]) -> Dict[str, Any]:
+    slot = canonical_item_role(item)
+    image_url = str(item.get("image_url") or "").strip() or canonical_image_url(item)
+    response = {
+        "item_id": canonical_item_id(item),
+        "id": item.get("id") or canonical_item_id(item),
+        "name": item.get("name") or "Item",
+        "category": item.get("category", ""),
+        "sub_category": item.get("sub_category", ""),
+        "image_url": image_url,
+        "role": slot,
+        "slot": slot,
+        "board_role": "hero" if item.get("locked") else (
+            "accent" if slot == "accessory" else "support"
+        ),
+        "source": item.get("source", "unknown"),
+        "owned": bool(item.get("owned")),
+        "locked": bool(item.get("locked")),
+    }
+    if slot == "accessory":
+        response["accessory_type"] = item.get("accessory_type") or canonical_accessory_type(item)
+    for key in (
+        "masked_url", "board_image_url", "normalized_url", "position",
+        "x", "y", "width", "height", "scale", "z", "rotation",
+    ):
+        value = item.get(key)
+        if value not in (None, ""):
+            response[key] = value
+    return response
+
+
+def _raise_builder_failure(result: Dict[str, Any]) -> None:
+    error = result.get("error") if isinstance(result.get("error"), dict) else {}
+    raise ConstrainedOutfitError(
+        str(error.get("code") or "CONSTRAINED_BUILDER_FAILED"),
+        str(error.get("message") or "AHVI could not safely complete this look."),
+        error,
+    )
+
+
+def _builder_outfit(
+    anchor: Dict[str, Any],
+    wardrobe: List[Dict[str, Any]],
+    style_assets: List[Dict[str, Any]],
+    occasion: Optional[str],
+    *,
+    mode: str = "build_outfit",
+    title: Optional[str] = None,
+    prefer=(),
+    note: str = "",
+    variant: int = 0,
+    allow_wardrobe_fallback: bool = False,
+) -> "tuple[Dict[str, Any], Dict[str, Any]]":
+    fixed = [dict(anchor)] if anchor else []
+    replaceable_slots = replaceable_slots_for_fixed_items(fixed)
+    if mode == "style_this":
+        allowed_sources = ["style_asset"]
+        candidates = list(style_assets)
+        if allow_wardrobe_fallback:
+            allowed_sources.append("wardrobe")
+            candidates.extend(wardrobe)
+        policy = {"allowed_completion_sources": allowed_sources}
+        source_meta = {
+            "completion_source": "mixed" if allow_wardrobe_fallback else "style_asset",
+            "wardrobe_fallback_enabled": allow_wardrobe_fallback,
+        }
+    else:
+        policy = {"allowed_completion_sources": ["wardrobe"]}
+        candidates = list(wardrobe)
+        source_meta = {"completion_source": "wardrobe", "wardrobe_fallback_enabled": False}
+    result = _builder.generate(
+        scenario=mode,
+        fixed_items=fixed,
+        replaceable_slots=replaceable_slots,
+        exclude_item_ids=[],
+        source_policy=policy,
+        context={
+            "wardrobe": candidates,
+            "occasion": occasion,
+            "variant": variant,
+            "prefer_footwear": tuple(prefer),
+        },
+    )
+    if not result.get("success"):
+        _raise_builder_failure(result)
+    is_dress = _anchor_is_dress(anchor) or canonical_item_role(anchor) == "dress"
+    serialized_items = [_builder_item_to_response(i) for i in result.get("items", [])]
+    try:
+        assert_fixed_items_preserved(fixed, serialized_items, stage="stylist_response")
+    except FixedItemLostError as exc:
+        raise ConstrainedOutfitError(
+            "FIXED_ITEM_LOST",
+            "The selected item could not be preserved exactly in the look.",
+            {"fixed_item_ids": exc.missing_ids, "mismatched_fields": exc.mismatched_fields},
+        ) from exc
+    outfit = {
+        "title": title or _outfit_title(occasion),
+        "items": serialized_items,
+        "missing_items": [
+            _lite_missing(slot, is_dress) for slot in result.get("missing_items", [])
+        ],
+        "reason": note or "Built from pieces you already own, anchored on this item.",
+    }
+    return outfit, source_meta
+
+
+def _builder_directions(
+    anchor: Dict[str, Any],
+    wardrobe: List[Dict[str, Any]],
+    style_assets: List[Dict[str, Any]],
+    *,
+    allow_wardrobe_fallback: bool = False,
+) -> "tuple[List[Dict[str, Any]], Dict[str, Any]]":
+    directions = []
+    source_meta: Dict[str, Any] = {}
+    for idx, (title, prefer, note) in enumerate(_LITE_STYLE_DIRECTIONS):
+        look, source_meta = _builder_outfit(
+            anchor, wardrobe, style_assets, None,
+            mode="style_this", title=title, prefer=prefer, note=note, variant=idx,
+            allow_wardrobe_fallback=allow_wardrobe_fallback,
+        )
+        directions.append({
+            "title": title,
+            "items": look["items"],
+            "missing_items": look["missing_items"],
+            "styling_note": note,
+        })
+    return directions, source_meta
+
+
+def _anchor_in_items(anchor: Dict[str, Any], items: List[Dict[str, Any]]) -> bool:
+    aid = canonical_item_id(anchor)
+    if not aid:
+        return False
+    return any(canonical_item_id(i) == aid for i in items)
+
+
+def _typed_failure(
+    mode: str,
+    anchor: Dict[str, Any],
+    code: str,
+    message: str,
+    response_meta: Optional[Dict[str, Any]] = None,
+    details: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    error = {"code": code, "message": message}
+    error.update(details or {})
+    response: Dict[str, Any] = {
+        "success": False,
+        "mode": mode,
+        "anchor_item": anchor,
+        "error": error,
+        "message": message,
+        **(response_meta or {}),
+    }
+    if mode == "style_this":
+        response["style_directions"] = []
+    else:
+        response["outfit"] = {"title": _outfit_title((response_meta or {}).get("occasion")), "items": [], "missing_items": []}
+    return response
+
+
 @router.post("/items/{item_id}/style")
 def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, Any]:
-    """Power the item-detail CTAs (fast lite-pairing path).
-
-    mode=style_this -> 3 editorial styling directions.
-    mode=build_outfit -> 1 practical outfit anchored on the item.
-    Never raises: returns a friendly fallback so the UI never dead-ends.
-
-    Professional occasion guardrail (new):
-    - If occasion is professional (client_meeting, office, interview, etc.) and
-      the anchor item is unsafe for that occasion (camo, shiny gold shirt, etc.),
-      the anchor is NOT forced into the outfit.  Instead we return a fallback
-      outfit from safe wardrobe items and signal anchor_blocked=True so the UI
-      can surface a helpful message.
-    """
+    """Power direct item actions using hard constrained-generation rules."""
     mode = _txt(request.mode).lower()
     if mode not in {"build_outfit", "style_this"}:
         mode = "build_outfit"
-    wardrobe = _resolve_wardrobe(request)
+    wardrobe, wardrobe_trusted = _resolve_wardrobe(request)
+    style_assets, style_assets_trusted = _resolve_style_assets(request)
     anchor = _resolve_anchor(request, item_id, wardrobe)
+
+    anchor_id = canonical_item_id(anchor)
+    if not anchor_id:
+        return _typed_failure(
+            mode, anchor, "INVALID_ITEM_ID",
+            "The selected item does not have a stable item ID.",
+        )
 
     # --- Professional anchor safety check ---
     occasion = _txt(request.occasion) or None
@@ -652,43 +850,37 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
         "occasion": occasion,
         "occasion_label": occasion_display or None,
         "formality": "professional" if is_professional else "casual",
-        "source": "wardrobe",
+        "source": "style_asset" if mode == "style_this" else "wardrobe",
+        "wardrobe_source_trusted": wardrobe_trusted,
+        "style_asset_source_trusted": style_assets_trusted,
         "validation_passed": anchor_safe or not is_professional,
         "anchor_blocked": not anchor_safe and is_professional,
     }
     if not anchor_safe and is_professional:
         response_meta["anchor_block_reason"] = anchor_block_reason
 
+    if not anchor_safe and is_professional:
+        return _typed_failure(
+            mode, anchor, "ANCHOR_INCOMPATIBLE_WITH_OCCASION",
+            "This selected item is not suitable for the requested occasion.",
+            response_meta,
+        )
+
     try:
-        # style_this mode: always built from wardrobe (occasion-aware filtering
-        # happens inside _lite_build_outfit via safe_wardrobe), anchor included
-        # only if it passes professional check.
         if mode == "style_this":
-            if anchor_safe or not is_professional:
-                directions = _lite_directions(anchor, wardrobe)
-            else:
-                # Build directions from safe wardrobe, without anchoring on the
-                # blocked item.  Use the first safe owned item if one exists.
-                safe_wardrobe = _filter_wardrobe_for_occasion(wardrobe, occasion)
-                safe_alt = next(
-                    (i for i in safe_wardrobe if _item_id_of(i) != _item_id_of(anchor)),
-                    None,
+            directions, source_meta = _builder_directions(
+                anchor,
+                wardrobe,
+                style_assets,
+                allow_wardrobe_fallback=bool(request.allow_wardrobe_fallback),
+            )
+            response_meta.update(source_meta)
+            if not all(_anchor_in_items(anchor, d.get("items") or []) for d in directions):
+                raise ConstrainedOutfitError(
+                    "FIXED_ITEM_LOST",
+                    "The selected item could not be preserved in the look.",
+                    {"fixed_item_ids": [anchor_id]},
                 )
-                if safe_alt:
-                    directions = _lite_directions(safe_alt, safe_wardrobe)
-                else:
-                    directions = [
-                        {
-                            "title": t,
-                            "items": [],
-                            "missing_items": [{"label": "Office-ready pieces", "reason": "Add professional wardrobe items to get styling suggestions.", "cta": "Find this"}],
-                            "styling_note": f"This item works better for party or evening occasions. I don't see enough {occasion_display or 'occasion-ready'} pieces in your wardrobe yet.",
-                        }
-                        for t, _, _ in _LITE_STYLE_DIRECTIONS
-                    ]
-                anchor_name = _txt(anchor.get("name") or anchor.get("label")) or "This item"
-                for d in directions:
-                    d["_anchor_note"] = f"{anchor_name} works better for party/evening occasions. Here's a {occasion_display or 'safer'} look from your wardrobe instead."
             logger.info(
                 "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d anchor_blocked=%s",
                 item_id, len(directions), len(wardrobe), response_meta["anchor_blocked"],
@@ -701,37 +893,16 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
                 **response_meta,
             }
 
-        # build_outfit mode
-        if anchor_safe or not is_professional:
-            outfit = _lite_build_outfit(anchor, wardrobe, occasion)
-        else:
-            # Anchor is unsafe for the professional occasion — do not force it.
-            # Build an outfit from safe wardrobe items instead.
-            safe_wardrobe = _filter_wardrobe_for_occasion(wardrobe, occasion)
-            safe_alt = next(
-                (i for i in safe_wardrobe if _item_id_of(i) != _item_id_of(anchor)),
-                None,
+        outfit, source_meta = _builder_outfit(
+            anchor, wardrobe, style_assets, occasion, mode="build_outfit"
+        )
+        response_meta.update(source_meta)
+        if not _anchor_in_items(anchor, outfit.get("items") or []):
+            raise ConstrainedOutfitError(
+                "FIXED_ITEM_LOST",
+                "The selected item could not be preserved in the outfit.",
+                {"fixed_item_ids": [anchor_id]},
             )
-            if safe_alt:
-                outfit = _lite_build_outfit(safe_alt, safe_wardrobe, occasion)
-                anchor_name = _txt(anchor.get("name") or anchor.get("label")) or "This item"
-                outfit["_anchor_note"] = (
-                    f"{anchor_name} works better for party/evening occasions. "
-                    f"Here's a {occasion_display or 'safer'} look from your wardrobe instead."
-                )
-            else:
-                outfit = {
-                    "title": _outfit_title(occasion),
-                    "items": [],
-                    "missing_items": [
-                        {
-                            "label": "Office-ready pieces",
-                            "reason": "I don't see enough client-meeting pieces in your wardrobe yet.",
-                            "cta": "Find this",
-                        }
-                    ],
-                    "reason": f"I don't see enough {occasion_display or 'occasion-ready'} pieces in your wardrobe yet.",
-                }
         logger.info(
             "stylist.item_style mode=build_outfit item_id=%s items=%d missing=%d wardrobe=%d anchor_blocked=%s",
             item_id, len(outfit.get("items") or []), len(outfit.get("missing_items") or []),
@@ -744,6 +915,11 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
             "outfit": outfit,
             **response_meta,
         }
-    except Exception as exc:  # noqa: BLE001 - CTA must never dead-end the UI
-        logger.exception("stylist.item_style failed item_id=%s mode=%s err=%s", item_id, mode, str(exc))
-        return _style_fallback(mode, anchor)
+    except ConstrainedOutfitError as exc:
+        return _typed_failure(mode, anchor, exc.code, exc.message, response_meta, exc.details)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("stylist.item_style constrained builder failed item_id=%s mode=%s err=%s", item_id, mode, str(exc))
+        return _typed_failure(
+            mode, anchor, "CONSTRAINED_BUILDER_FAILED",
+            "AHVI could not safely complete this look.", response_meta,
+        )

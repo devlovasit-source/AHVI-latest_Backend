@@ -140,3 +140,23 @@ You are given ranked outfit options.
 Recommend only the strongest direction. Mention why it wins in one concise,
 stylist-aware line, and do not imply the weaker options are equal.
 """
+
+FIXED_ITEM_RULES_PROMPT = """
+FIXED ITEM RULES (locked items - hard constraints, advisory copy of code invariants):
+
+1. fixed_items are IMMUTABLE. Never remove, replace, restyle, recolor or
+   substitute a fixed item. Preserve its item_id, source, slot and image
+   exactly as given.
+2. Every fixed item appears EXACTLY ONCE in the final look - never duplicated,
+   never dropped.
+3. Generate new pieces ONLY for the slots listed in replaceable_slots. All
+   other slots are off limits.
+4. Never include any item whose id is in exclude_item_ids.
+5. If a fixed item is a dress, do not add tops or bottoms. If a fixed item is
+   a top or bottom, never add a dress.
+6. If the constraints make a coherent look impossible, respond with
+   FIXED_ITEMS_INCOMPATIBLE instead of quietly breaking a rule.
+
+These rules are enforced by code (services.style_item_contract
+.assert_fixed_items_preserved); prompts are advisory only.
+"""
