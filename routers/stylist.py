@@ -21,7 +21,7 @@ from services.constrained_outfit_builder import (
     ConstrainedOutfitError,
     replaceable_slots_for_fixed_items,
 )
-from services.style_board_shuffle_service import _default_position
+from services.style_board_shuffle_service import _default_position, register_board
 from services.style_item_contract import (
     FixedItemLostError,
     assert_fixed_items_preserved,
@@ -723,14 +723,23 @@ def _builder_outfit(
             allowed_sources.append("wardrobe")
             candidates.extend(wardrobe)
         policy = {"allowed_completion_sources": allowed_sources}
+        board_policy = "mixed" if allow_wardrobe_fallback else "style_asset"
         source_meta = {
-            "completion_source": "mixed" if allow_wardrobe_fallback else "style_asset",
+            "completion_source": board_policy,
+            "source_policy": board_policy,
+            "allow_wardrobe_fallback": allow_wardrobe_fallback,
             "wardrobe_fallback_enabled": allow_wardrobe_fallback,
         }
     else:
         policy = {"allowed_completion_sources": ["wardrobe"]}
         candidates = list(wardrobe)
-        source_meta = {"completion_source": "wardrobe", "wardrobe_fallback_enabled": False}
+        board_policy = "wardrobe"
+        source_meta = {
+            "completion_source": "wardrobe",
+            "source_policy": "wardrobe",
+            "allow_wardrobe_fallback": False,
+            "wardrobe_fallback_enabled": False,
+        }
     result = _builder.generate(
         scenario=mode,
         fixed_items=fixed,
@@ -762,6 +771,9 @@ def _builder_outfit(
     outfit = {
         "board_id": str(uuid4()),
         "revision": 1,
+        "scenario": mode,
+        "source_policy": board_policy,
+        "allow_wardrobe_fallback": allow_wardrobe_fallback if mode == "style_this" else False,
         "title": title or _outfit_title(occasion),
         "items": serialized_items,
         "missing_items": [
@@ -769,6 +781,18 @@ def _builder_outfit(
         ],
         "reason": note or "Built from pieces you already own, anchored on this item.",
     }
+    # Persist the board contract so a later shuffle can resolve "inherit"
+    # from board state instead of guessing from locked-item sources.
+    register_board(
+        board_id=outfit["board_id"],
+        revision=1,
+        scenario=mode,
+        source_policy=board_policy,
+        allow_wardrobe_fallback=outfit["allow_wardrobe_fallback"],
+        occasion=occasion,
+        style_direction=title,
+        items=serialized_items,
+    )
     return outfit, source_meta
 
 

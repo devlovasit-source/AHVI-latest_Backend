@@ -53,6 +53,7 @@ class BoardShuffleRequest(BaseModel):
     source_policy: Union[str, Dict[str, Any]] = "inherit"
     board_items: List[Dict[str, Any]] = Field(default_factory=list)
     wardrobe: Any = None  # optional inline wardrobe (tests / offline)
+    style_assets: Any = None  # optional inline style assets (tests / offline)
 
 
 def _resolve_wardrobe(request: BoardShuffleRequest) -> "tuple[List[Dict[str, Any]], bool]":
@@ -73,12 +74,29 @@ def _resolve_wardrobe(request: BoardShuffleRequest) -> "tuple[List[Dict[str, Any
     return [i if i.get("source") else {**i, "source": "wardrobe"} for i in rows], True
 
 
+def _style_asset_provider() -> List[Dict[str, Any]]:
+    """Same curated style-asset source the initial Style This generation uses
+    (routers.stylist._resolve_style_assets): the style_assets collection with
+    explicit provenance stamping."""
+    try:
+        rows = AppwriteProxy().list_documents("style_assets") or []
+    except Exception:
+        return []
+    return [
+        {**i, "source": i.get("source") or "style_asset"}
+        for i in rows if isinstance(i, dict)
+    ]
+
+
 @router.post("/style-boards/{board_id}/shuffle")
 def shuffle_style_board(board_id: str, request: BoardShuffleRequest) -> Dict[str, Any]:
     wardrobe, wardrobe_source_trusted = _resolve_wardrobe(request)
     locked = [dict(item) for item in request.locked_items]
+    inline_assets = (
+        [dict(i) for i in request.style_assets if isinstance(i, dict)]
+        if isinstance(request.style_assets, list) else None
+    )
 
-    source_policy = request.source_policy if isinstance(request.source_policy, dict) else None
     result = style_board_shuffle_service.shuffle_board(
         board_id=board_id,
         revision=request.revision,
@@ -86,8 +104,10 @@ def shuffle_style_board(board_id: str, request: BoardShuffleRequest) -> Dict[str
         shuffle_slots=request.shuffle_slots,
         exclude_item_ids=request.exclude_item_ids,
         occasion=request.occasion,
-        source_policy=source_policy,
+        source_policy=request.source_policy,
         wardrobe=wardrobe,
+        style_assets=inline_assets,
+        style_asset_provider=None if inline_assets is not None else _style_asset_provider,
         context={
             "board_items": request.board_items,
             "style_direction": request.style_direction,
@@ -96,7 +116,10 @@ def shuffle_style_board(board_id: str, request: BoardShuffleRequest) -> Dict[str
     result["locked_items"] = locked
     result["shuffle_slots"] = list(request.shuffle_slots)
     result["exclude_item_ids"] = list(request.exclude_item_ids)
-    result["source_policy"] = request.source_policy
+    # The service reports the RESOLVED board policy; keep the raw request
+    # value separately for observability.
+    result["requested_source_policy"] = request.source_policy
+    result.setdefault("source_policy", None)
     result["wardrobe_source_trusted"] = wardrobe_source_trusted
     result.setdefault("board_id", board_id)
     result.setdefault("revision", request.revision)

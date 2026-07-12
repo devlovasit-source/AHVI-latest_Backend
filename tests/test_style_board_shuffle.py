@@ -60,7 +60,10 @@ def _shuffle(board_id="b-1", revision=1, locked=None, slots=None, **kw):
         shuffle_slots=slots if slots is not None else ["bottom", "footwear"],
         exclude_item_ids=kw.pop("exclude_item_ids", []),
         occasion=kw.pop("occasion", None),
-        source_policy=kw.pop("source_policy", None),
+        # Boards in these tests are not pre-registered, so pass the explicit
+        # canonical policy (legacy "inherit"/None now fails typed by design).
+        source_policy=kw.pop("source_policy", "wardrobe"),
+        style_assets=kw.pop("style_assets", None),
         wardrobe=kw.pop("wardrobe", _wardrobe()),
         context=kw.pop("context", {}),
     )

@@ -51,6 +51,8 @@ ERROR_CODES = frozenset({
     "FIXED_ITEM_LOST",
     "EXCLUDED_ITEM_RETURNED",
     "CONSTRAINED_BUILDER_FAILED",
+    "BOARD_SOURCE_POLICY_UNKNOWN",
+    "SOURCE_POLICY_VIOLATION",
 })
 
 _SCENARIO_DEFAULT_SOURCES = {
@@ -270,8 +272,17 @@ class ConstrainedOutfitBuilder:
             norm["locked"] = False
             pools[role].append((raw, norm))
 
-        if scenario == "style_this" and "style_asset" in allowed_sources:
-            if not any(pools[slot] for slot in ALL_SLOTS):
+        if "style_asset" in allowed_sources:
+            pool_has_assets = any(
+                n["source"] == "style_asset"
+                for slot in ALL_SLOTS
+                for (_r, n) in pools[slot]
+            )
+            pool_has_any = any(pools[slot] for slot in ALL_SLOTS)
+            asset_only = "wardrobe" not in allowed_sources
+            if not pool_has_assets and (
+                asset_only or (scenario == "style_this" and not pool_has_any)
+            ):
                 return _failure(
                     "STYLE_ASSET_POOL_EMPTY",
                     "No eligible style assets are available to complete this look.",
@@ -399,12 +410,10 @@ class ConstrainedOutfitBuilder:
             return frozenset(allowed) if allowed else None
         if scenario in _SCENARIO_DEFAULT_SOURCES:
             return frozenset(_SCENARIO_DEFAULT_SOURCES[scenario])
-        if scenario == "shuffle_unlocked":
-            # "inherit": complete from the sources already on the board, always
-            # allowing the user's own wardrobe.
-            inherited = {n["source"] for n in fixed_norm if n["source"] != "unknown"}
-            inherited.add("wardrobe")
-            return frozenset(inherited)
+        # No explicit policy: never infer from the fixed items' sources (a
+        # wardrobe anchor in a Style This board must not force wardrobe-only).
+        # The shuffle service always resolves and passes an explicit policy;
+        # this is the standalone/legacy default.
         return frozenset({"wardrobe"})
 
     def _slots_needed(
