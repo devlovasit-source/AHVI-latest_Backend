@@ -107,6 +107,13 @@ def build_audit(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
                 "client_meeting_score": asset.get("client_meeting_score"),
                 "boardroom_score": asset.get("boardroom_score"),
                 "safety_tags": asset.get("safety_tags") or [],
+                "weather_tags": asset.get("weather_tags") or [],
+                "temperature_min_c": asset.get("temperature_min_c"),
+                "temperature_max_c": asset.get("temperature_max_c"),
+                "fabric_weight": asset.get("fabric_weight"),
+                "layering_suitability": asset.get("layering_suitability"),
+                "rain_suitable": asset.get("rain_suitable"),
+                "wind_suitable": asset.get("wind_suitable"),
                 "missing_metadata_fields": asset.get("missing_metadata_fields"),
             }
             for asset in normalized

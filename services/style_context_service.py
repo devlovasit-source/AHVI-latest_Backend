@@ -683,6 +683,7 @@ def _normalize_weather_context(value: Any) -> Dict[str, Any]:
         "precipitation": ("precipitation", "precipitation_probability", "rain_probability", "rain"),
         "humidity": ("humidity",),
         "wind": ("wind", "wind_speed", "wind_kph"),
+        "weather_tags": ("weather_tags", "tags"),
         "location": ("location", "city"),
         "timezone": ("timezone", "time_zone"),
     }

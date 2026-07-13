@@ -38,6 +38,13 @@ def _row():
         "client_meeting_score": 0.85,
         "boardroom_score": 0.8,
         "safety_tags": ["office", "client meeting"],
+        "weather_tags": ["rain"],
+        "temperature_min_c": 12,
+        "temperature_max_c": 28,
+        "fabric_weight": "medium",
+        "layering_suitability": 0.7,
+        "rain_suitable": True,
+        "wind_suitable": False,
         "source": "legacy_import",
     }
 
@@ -53,6 +60,9 @@ def test_audit_is_read_only_by_default_and_emits_proposals():
     assert report["assets"][0]["professional_safe"] is True
     assert report["assets"][0]["client_meeting_score"] == 0.85
     assert report["assets"][0]["safety_tags"] == ["office", "client meeting"]
+    assert report["assets"][0]["temperature_min_c"] == 12
+    assert report["assets"][0]["fabric_weight"] == "medium"
+    assert report["assets"][0]["rain_suitable"] is True
 
 
 def test_apply_requires_explicit_confirmation():

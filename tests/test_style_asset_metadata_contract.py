@@ -234,8 +234,30 @@ def test_schema_bootstrap_declares_professional_safety_fields(monkeypatch):
 
     schema.bootstrap()
 
-    assert created["boolean"] == ["professional_safe"]
+    assert {"professional_safe", "rain_suitable", "wind_suitable"} == set(created["boolean"])
     assert {"professionalism_score", "client_meeting_score", "boardroom_score"}.issubset(
         created["float"]
     )
     assert "safety_tags" in created["string"]
+
+
+def test_structured_weather_evidence_survives_contract_and_importer():
+    from scripts.import_style_assets import _normalize
+
+    payload = _normalize(_complete(
+        weather_tags=["hot", "humid"],
+        temperatureMinC="24",
+        temperature_max_c=42,
+        fabricWeight="lightweight",
+        layering_suitability="0.25",
+        rainSuitable=False,
+        wind_suitable=True,
+    ))
+
+    assert payload["weather_tags"] == ["hot", "humid"]
+    assert payload["temperature_min_c"] == 24
+    assert payload["temperature_max_c"] == 42
+    assert payload["fabric_weight"] == "light"
+    assert payload["layering_suitability"] == 0.25
+    assert payload["rain_suitable"] is False
+    assert payload["wind_suitable"] is True

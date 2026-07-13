@@ -164,6 +164,12 @@ def normalize_style_asset_metadata(
     occasions = _list(_first(row, "occasion_families", "occasionFamilies", "occasions", "occasion_tags", "occasion"))
     traits = _list(_first(row, "traits", "style_traits", "styleTraits", "required_traits"))
     weather_tags = _list(_first(row, "weather_tags", "weatherTags", "weather"))
+    fabric_weight = _text(_first(row, "fabric_weight", "fabricWeight")).lower()
+    fabric_weight = {
+        "lightweight": "light", "midweight": "medium", "heavyweight": "heavy",
+    }.get(fabric_weight, fabric_weight)
+    if fabric_weight not in {"light", "medium", "heavy"}:
+        fabric_weight = ""
 
     out.update({
         "asset_id": asset_id,
@@ -193,6 +199,18 @@ def normalize_style_asset_metadata(
         "movement": _number(_first(row, "movement", "movement_level", "movementLevel"), low=1, high=9),
         "traits": traits,
         "weather_tags": weather_tags,
+        "temperature_min_c": _number(
+            _first(row, "temperature_min_c", "temperatureMinC"), low=-80, high=80
+        ),
+        "temperature_max_c": _number(
+            _first(row, "temperature_max_c", "temperatureMaxC"), low=-80, high=80
+        ),
+        "fabric_weight": fabric_weight,
+        "layering_suitability": _number(
+            _first(row, "layering_suitability", "layeringSuitability"), low=0, high=1
+        ),
+        "rain_suitable": _bool(_first(row, "rain_suitable", "rainSuitable")),
+        "wind_suitable": _bool(_first(row, "wind_suitable", "windSuitable")),
         "cultural_context": _list(_first(row, "cultural_context", "culturalContext")),
         "metadata_version": METADATA_VERSION,
         "metadata_updated_at": _text(_first(row, "metadata_updated_at", "metadataUpdatedAt")),
@@ -291,7 +309,8 @@ def normalize_style_asset_metadata(
     for key in (
         "pattern", "material", "finish", "visual_noise", "statement_level",
         "formality", "energy", "movement", "normalized_url", "cutout_url",
-        "cultural_context",
+        "cultural_context", "temperature_min_c", "temperature_max_c",
+        "fabric_weight", "layering_suitability", "rain_suitable", "wind_suitable",
     ):
         if out.get(key) in (None, "", [], {}):
             out.pop(key, None)
@@ -307,6 +326,8 @@ def canonical_metadata_update(raw: Mapping[str, Any]) -> Dict[str, Any]:
         "cutout_url", "colors", "pattern", "material", "finish", "visual_noise",
         "statement_level", "archetypes", "occasion_families", "formality",
         "energy", "movement", "traits", "weather_tags", "cultural_context",
+        "temperature_min_c", "temperature_max_c", "fabric_weight",
+        "layering_suitability", "rain_suitable", "wind_suitable",
         "professional_safe", "professionalism_score", "client_meeting_score",
         "boardroom_score", "safety_tags",
         "metadata_version", "metadata_status",

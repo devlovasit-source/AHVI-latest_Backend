@@ -2879,6 +2879,110 @@ def _asset_axis_estimates(blob: str) -> tuple[int, int, int]:
     return formality, movement, energy
 
 
+_COLD_WEATHER_TAGS = {"cold", "winter", "cool", "chilly", "freezing", "snow"}
+_HOT_WEATHER_TAGS = {"hot", "summer", "warm", "humid", "breathable"}
+_RAIN_WEATHER_TAGS = {"rain", "rainy", "wet", "monsoon", "storm"}
+_WIND_WEATHER_TAGS = {"wind", "windy", "breezy", "gusty"}
+
+
+def _asset_weather_score(asset: Dict[str, Any], brief: Dict[str, Any] | None) -> int:
+    """Return a bounded compatibility adjustment from explicit weather data.
+
+    The request side must be structured canonical weather and the asset side
+    must contain explicit metadata. Missing evidence is neutral; names, URLs,
+    filenames and asset ids are deliberately never inspected.
+    """
+    if not isinstance(brief, dict):
+        return 0
+    weather = brief.get("weather_context") or brief.get("weather")
+    if not isinstance(weather, dict) or not weather:
+        return 0
+
+    try:
+        temperature_c = (
+            float(weather.get("temperature_c"))
+            if weather.get("temperature_c") not in (None, "")
+            else None
+        )
+    except (TypeError, ValueError):
+        temperature_c = None
+    condition = _norm(weather.get("condition"))
+    request_tags = set(_asset_list(weather.get("weather_tags") or weather.get("tags")))
+    condition_tags = set(condition.split())
+    request_evidence = request_tags | condition_tags
+
+    modes: set[str] = set()
+    if temperature_c is not None and temperature_c <= 12:
+        modes.add("cold")
+    elif temperature_c is not None and temperature_c >= 27:
+        modes.add("hot")
+    if request_evidence & _COLD_WEATHER_TAGS:
+        modes.add("cold")
+    if request_evidence & _HOT_WEATHER_TAGS:
+        modes.add("hot")
+    if request_evidence & _RAIN_WEATHER_TAGS:
+        modes.add("rain")
+    if request_evidence & _WIND_WEATHER_TAGS:
+        modes.add("wind")
+    if temperature_c is None and not modes:
+        return 0
+
+    score = 0
+    asset_tags = set(_asset_list(asset.get("weather_tags")))
+    if "cold" in modes:
+        if asset_tags & _COLD_WEATHER_TAGS:
+            score += 2
+        if asset_tags & _HOT_WEATHER_TAGS:
+            score -= 2
+    if "hot" in modes:
+        if asset_tags & _HOT_WEATHER_TAGS:
+            score += 2
+        if asset_tags & _COLD_WEATHER_TAGS:
+            score -= 2
+    if "rain" in modes and asset_tags:
+        score += 1 if asset_tags & _RAIN_WEATHER_TAGS else 0
+    if "wind" in modes and asset_tags:
+        score += 1 if asset_tags & _WIND_WEATHER_TAGS else 0
+
+    def _number(key: str) -> float | None:
+        try:
+            value = asset.get(key)
+            return float(value) if value not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    minimum = _number("temperature_min_c")
+    maximum = _number("temperature_max_c")
+    if temperature_c is not None and (minimum is not None or maximum is not None):
+        below = minimum is not None and temperature_c < minimum
+        above = maximum is not None and temperature_c > maximum
+        score += -3 if (below or above) else 2
+
+    fabric_weight = _norm(asset.get("fabric_weight"))
+    layering = _number("layering_suitability")
+    if "cold" in modes:
+        if fabric_weight in {"medium", "heavy"}:
+            score += 1
+        elif fabric_weight == "light":
+            score -= 1
+        if layering is not None and layering >= 0.7:
+            score += 1
+    if "hot" in modes:
+        if fabric_weight == "light":
+            score += 1
+        elif fabric_weight == "heavy":
+            score -= 2
+
+    rain_suitable = asset.get("rain_suitable")
+    if "rain" in modes and isinstance(rain_suitable, bool):
+        score += 1 if rain_suitable else -2
+    wind_suitable = asset.get("wind_suitable")
+    if "wind" in modes and isinstance(wind_suitable, bool):
+        score += 1 if wind_suitable else -2
+
+    return max(-4, min(4, score))
+
+
 def _asset_score(
     asset: Dict[str, Any],
     *,
@@ -3001,6 +3105,7 @@ def _asset_score(
         forbidden_items = [str(s).strip().lower() for s in (brief.get("forbidden_item_signals") or []) if str(s).strip()]
         if forbidden_items and any(s in blob for s in forbidden_items):
             return -100
+        score += _asset_weather_score(asset, brief)
         bf = brief.get("formality")
         if isinstance(bf, (int, float)):
             af, am, ae = _asset_axis_estimates(blob)
