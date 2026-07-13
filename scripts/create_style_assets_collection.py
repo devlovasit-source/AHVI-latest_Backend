@@ -98,6 +98,15 @@ def _create_float(key: str) -> None:
     raise RuntimeError(f"attribute {key} failed {response.status_code}: {response.text}")
 
 
+def _create_boolean(key: str) -> None:
+    response = _request("POST", _attribute_url("boolean"), {"key": key, "required": False})
+    if response.status_code in {200, 201, 202, 409}:
+        print(f"attribute ready: {key}")
+        time.sleep(0.15)
+        return
+    raise RuntimeError(f"attribute {key} failed {response.status_code}: {response.text}")
+
+
 def bootstrap() -> None:
     _create_collection()
     _create_string("asset_id", 128, required=True)
@@ -127,7 +136,13 @@ def bootstrap() -> None:
     _create_string("traits", 96, array=True)
     _create_string("weather_tags", 64, array=True)
     _create_string("cultural_context", 96, array=True)
-    for key in ("visual_noise", "statement_level", "formality", "energy", "movement", "metadata_score"):
+    _create_boolean("professional_safe")
+    _create_string("safety_tags", 96, array=True)
+    for key in (
+        "visual_noise", "statement_level", "formality", "energy", "movement",
+        "professionalism_score", "client_meeting_score", "boardroom_score",
+        "metadata_score",
+    ):
         _create_float(key)
     _create_string("metadata_version", 32)
     _create_string("metadata_status", 32)

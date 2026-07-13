@@ -137,6 +137,15 @@ def normalize_style_asset_metadata(
     if role:
         category = category or role
     sub_category = _text(_first(row, "sub_category", "subcategory", "subCategory")).lower()
+    taxonomy_blob = f" {name.lower()} {sub_category.replace('_', ' ')} "
+    if re.search(r"\bscar(?:f|ves)\b", taxonomy_blob):
+        role = category = "accessory"
+        sub_category = "scarf"
+    elif re.search(r"\bgloves?\b", taxonomy_blob):
+        role = category = "accessory"
+        sub_category = "gloves"
+    elif category == "loungewear" and sub_category == "sleepwear":
+        role = "one_piece"
 
     board_image_url = _text(_first(
         row, "board_image_url", "boardImageUrl", "board_url", "boardUrl",
@@ -201,15 +210,25 @@ def normalize_style_asset_metadata(
     )
 
     professional_safety = {
-        key: row[key]
-        for key in (
-            "professional_safe", "professionalism_score", "client_meeting_score",
-            "boardroom_score", "safety_tags",
-        )
-        if key in row and row[key] not in (None, "", [])
+        "professional_safe": _bool(_first(row, "professional_safe", "professionalSafe")),
+        "professionalism_score": _number(
+            _first(row, "professionalism_score", "professionalismScore"), low=0, high=1
+        ),
+        "client_meeting_score": _number(
+            _first(row, "client_meeting_score", "clientMeetingScore"), low=0, high=1
+        ),
+        "boardroom_score": _number(
+            _first(row, "boardroom_score", "boardroomScore"), low=0, high=1
+        ),
+        "safety_tags": _list(_first(row, "safety_tags", "safetyTags")),
+    }
+    professional_safety = {
+        key: value for key, value in professional_safety.items()
+        if value not in (None, "", [], {})
     }
     if professional_safety:
         out["professional_safety"] = professional_safety
+        out.update(professional_safety)
 
     missing: List[str] = []
     if not asset_id:
@@ -288,6 +307,8 @@ def canonical_metadata_update(raw: Mapping[str, Any]) -> Dict[str, Any]:
         "cutout_url", "colors", "pattern", "material", "finish", "visual_noise",
         "statement_level", "archetypes", "occasion_families", "formality",
         "energy", "movement", "traits", "weather_tags", "cultural_context",
+        "professional_safe", "professionalism_score", "client_meeting_score",
+        "boardroom_score", "safety_tags",
         "metadata_version", "metadata_status",
         "metadata_score", "missing_metadata_fields",
     )

@@ -33,6 +33,11 @@ def _row():
         "occasions": ["office"],
         "formality": 7,
         "traits": ["crisp"],
+        "professional_safe": True,
+        "professionalism_score": 0.9,
+        "client_meeting_score": 0.85,
+        "boardroom_score": 0.8,
+        "safety_tags": ["office", "client meeting"],
         "source": "legacy_import",
     }
 
@@ -45,6 +50,9 @@ def test_audit_is_read_only_by_default_and_emits_proposals():
     assert report["summary"]["status_counts"] == {"ready": 1}
     assert report["proposed_update_count"] == 1
     assert report["applied_count"] == 0
+    assert report["assets"][0]["professional_safe"] is True
+    assert report["assets"][0]["client_meeting_score"] == 0.85
+    assert report["assets"][0]["safety_tags"] == ["office", "client meeting"]
 
 
 def test_apply_requires_explicit_confirmation():

@@ -102,6 +102,11 @@ def build_audit(rows: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
                 "metadata_score": asset.get("metadata_score"),
                 "role": asset.get("role"),
                 "gender_fit": asset.get("gender_fit"),
+                "professional_safe": asset.get("professional_safe"),
+                "professionalism_score": asset.get("professionalism_score"),
+                "client_meeting_score": asset.get("client_meeting_score"),
+                "boardroom_score": asset.get("boardroom_score"),
+                "safety_tags": asset.get("safety_tags") or [],
                 "missing_metadata_fields": asset.get("missing_metadata_fields"),
             }
             for asset in normalized

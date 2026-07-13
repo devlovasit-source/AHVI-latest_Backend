@@ -94,6 +94,37 @@ def test_fixed_dress_generates_no_top_or_bottom():
     assert "top" not in roles and "bottom" not in roles
 
 
+def test_sleepwear_one_piece_is_selected_and_composed_as_dress():
+    sleepwear = _w(
+        "sleepwear-1",
+        "Loungewear Set",
+        "loungewear",
+        source="style_asset",
+        role="one_piece",
+        subcategory="sleepwear",
+    )
+    footwear = _w(
+        "shoe-1", "Minimal Slides", "footwear", source="style_asset"
+    )
+    bag = _w(
+        "bag-1", "Soft Tote Bag", "accessory", source="style_asset"
+    )
+
+    result = builder.generate(
+        scenario="style_this",
+        fixed_items=[],
+        style_assets=[sleepwear, footwear, bag],
+        source_policy={"allowed_sources": ["style_asset"]},
+        context={"accessory_budget": 1},
+    )
+
+    assert result["success"] is True
+    roles = {item["role"] for item in result["items"]}
+    assert {"dress", "footwear", "accessory"}.issubset(roles)
+    assert "top" not in roles and "bottom" not in roles
+    assert "sleepwear-1" in _ids(result)
+
+
 def test_fixed_top_never_adds_dress():
     top = next(i for i in _wardrobe() if i["id"] == "top-1")
     result = _gen([top])

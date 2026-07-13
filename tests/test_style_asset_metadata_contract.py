@@ -154,3 +154,88 @@ def test_import_boundary_accepts_board_image_and_preserves_source_origin():
     assert payload["image_url"] == "https://cdn.test/board-only.png"
     assert payload["source"] == "style_asset"
     assert payload["source_origin"] == "curated_seed"
+
+
+def test_scarf_and_glove_evidence_corrects_outerwear_taxonomy():
+    scarf = normalize_style_asset_metadata(
+        _complete(name="Black Plaid Scarf", category="outerwear", subcategory="scarf"),
+        trusted_style_asset_source=True,
+    )
+    gloves = normalize_style_asset_metadata(
+        _complete(name="Black Gloves", category="outerwear", subcategory="jacket"),
+        trusted_style_asset_source=True,
+    )
+
+    assert (scarf["role"], scarf["category"], scarf["subcategory"]) == (
+        "accessory", "accessory", "scarf"
+    )
+    assert (gloves["role"], gloves["category"], gloves["subcategory"]) == (
+        "accessory", "accessory", "gloves"
+    )
+
+
+def test_sleepwear_set_uses_existing_one_piece_role_without_broadening_taxonomy():
+    asset = normalize_style_asset_metadata(
+        _complete(category="loungewear", subcategory="sleepwear", colors=[]),
+        trusted_style_asset_source=True,
+    )
+
+    assert asset["role"] == "one_piece"
+    assert asset["category"] == "loungewear"
+    assert asset["metadata_status"] == "limited"
+
+
+def test_professional_fields_are_normalized_on_runtime_axis():
+    asset = normalize_style_asset_metadata(
+        _complete(
+            formality="5",
+            professional_safe="true",
+            professionalism_score="0.9",
+            clientMeetingScore="0.85",
+            safety_tags="office|client meeting",
+        ),
+        trusted_style_asset_source=True,
+    )
+
+    assert asset["formality"] == 5
+    assert asset["professional_safe"] is True
+    assert asset["professionalism_score"] == 0.9
+    assert asset["client_meeting_score"] == 0.85
+    assert asset["safety_tags"] == ["office", "client meeting"]
+
+
+def test_importer_preserves_professional_safety_fields():
+    from scripts.import_style_assets import _normalize
+
+    payload = _normalize(_complete(
+        professional_safe=False,
+        professionalism_score="0.4",
+        clientMeetingScore="0.3",
+        boardroom_score=0.2,
+        safety_tags="casual|not boardroom",
+    ))
+
+    assert payload["professional_safe"] is False
+    assert payload["professionalism_score"] == 0.4
+    assert payload["client_meeting_score"] == 0.3
+    assert payload["boardroom_score"] == 0.2
+    assert payload["safety_tags"] == ["casual", "not boardroom"]
+
+
+def test_schema_bootstrap_declares_professional_safety_fields(monkeypatch):
+    from scripts import create_style_assets_collection as schema
+
+    created = {"string": [], "float": [], "boolean": [], "datetime": []}
+    monkeypatch.setattr(schema, "_create_collection", lambda: None)
+    monkeypatch.setattr(schema, "_create_string", lambda key, *args, **kwargs: created["string"].append(key))
+    monkeypatch.setattr(schema, "_create_float", lambda key: created["float"].append(key))
+    monkeypatch.setattr(schema, "_create_boolean", lambda key: created["boolean"].append(key))
+    monkeypatch.setattr(schema, "_create_datetime", lambda key: created["datetime"].append(key))
+
+    schema.bootstrap()
+
+    assert created["boolean"] == ["professional_safe"]
+    assert {"professionalism_score", "client_meeting_score", "boardroom_score"}.issubset(
+        created["float"]
+    )
+    assert "safety_tags" in created["string"]

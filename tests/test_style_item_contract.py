@@ -83,6 +83,7 @@ def test_role_cases(name, expected):
 def test_role_explicit_field_wins():
     assert canonical_item_role({"name": "weird thing", "category": "Dresses"}) == "dress"
     assert canonical_item_role({"name": "weird thing", "sub_category": "loafers"}) == "footwear"
+    assert canonical_item_role({"name": "Sleepwear Set", "role": "one_piece"}) == "dress"
 
 
 def test_role_non_fashion_and_sport_guards():

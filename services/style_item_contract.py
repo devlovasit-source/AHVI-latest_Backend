@@ -124,7 +124,8 @@ _TYPE_MAP = {
 
     "dress": "dress", "dresses": "dress", "gown": "dress",
     "saree": "dress", "sari": "dress", "jumpsuit": "dress",
-    "lehenga": "dress",
+    "lehenga": "dress", "one_piece": "dress", "one-piece": "dress",
+    "one piece": "dress",
 
     "outerwear": "outerwear", "jacket": "outerwear", "jackets": "outerwear",
     "coat": "outerwear", "coats": "outerwear", "blazer": "outerwear",
