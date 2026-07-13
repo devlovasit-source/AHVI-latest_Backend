@@ -161,6 +161,10 @@ class AppwriteProxy:
                 )
                 or "notification_reminders"
             ),
+            "style_feedback_events": (
+                os.getenv("APPWRITE_COLLECTION_STYLE_FEEDBACK_EVENTS", "")
+                or "style_feedback_events"
+            ),
         }
         self.resource_aliases = {
             "meal_planner": "meal_plans",
@@ -214,6 +218,7 @@ class AppwriteProxy:
             "jobs": "userId",
             "notification_devices": "userId",
             "notification_reminders": "userId",
+            "style_feedback_events": "userId",
         }
 
         self.order_query_map = {
@@ -244,6 +249,7 @@ class AppwriteProxy:
                 "attribute": "updatedAtISO",
             },
             "notification_reminders": {"method": "orderAsc", "attribute": "sendAtISO"},
+            "style_feedback_events": {"method": "orderDesc", "attribute": "createdAtISO"},
         }
 
     def _normalize_resource(self, resource: str) -> str:

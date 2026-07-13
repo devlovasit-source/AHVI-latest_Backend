@@ -603,15 +603,18 @@ def _memory_breakdown(
     items: List[Dict[str, Any]], context: Dict[str, Any]
 ) -> "Tuple[Dict[str, float], List[str]]":
     """Explicit wear-history ranking signals. Reads optional context keys
-    (recently_worn_ids, underworn_ids, saved_item_ids, wear_counts); returns
+    (recently_worn_ids, underworn_ids, saved_item_ids, liked_item_ids,
+    disliked_item_ids, wear_counts); returns
     neutral 0.0 fields + reasons. Never errors on missing data."""
     ctx = context if isinstance(context, dict) else {}
     ids = _item_ids(items)
-    # These 3 sum into the total score (line ~1094 sums breakdown.values()).
+    # These fields sum into the total score (score_outfit sums breakdown.values()).
     fields: Dict[str, float] = {
         "saved_board_affinity": 0.0,
         "recent_repeat_penalty": 0.0,
         "underworn_boost": 0.0,
+        "liked_item_affinity": 0.0,
+        "disliked_item_penalty": 0.0,
     }
     reasons: List[str] = []
     if not ids:
@@ -623,23 +626,36 @@ def _memory_breakdown(
     recent = _idset("recently_worn_ids")
     underworn = _idset("underworn_ids")
     saved = _idset("saved_item_ids")
+    liked = _idset("liked_item_ids")
+    disliked = _idset("disliked_item_ids")
+    disliked_matches = ids & disliked
 
     if recent and ids & recent:
         fields["recent_repeat_penalty"] = -1.5 * len(ids & recent)
         reasons.append("recently worn — offering a fresher option")
-    if underworn and ids & underworn:
-        fields["underworn_boost"] = 1.2 * len(ids & underworn)
+    eligible_underworn = (ids & underworn) - disliked_matches
+    eligible_saved = (ids & saved) - disliked_matches
+    if eligible_underworn:
+        fields["underworn_boost"] = 1.2 * len(eligible_underworn)
         reasons.append("brings an under-worn piece back into rotation")
-    if saved and ids & saved:
-        fields["saved_board_affinity"] = 1.0 * len(ids & saved)
+    if eligible_saved:
+        fields["saved_board_affinity"] = 1.0 * len(eligible_saved)
         reasons.append("echoes a look you saved")
+    liked_matches = (ids & liked) - disliked_matches
+    if liked_matches:
+        fields["liked_item_affinity"] = min(2.4, 0.8 * len(liked_matches))
+        reasons.append("includes a piece you liked")
+    if disliked_matches:
+        fields["disliked_item_penalty"] = max(-4.0, -2.0 * len(disliked_matches))
+        reasons.append("avoids repeating a disliked piece")
     # memory_freshness is a display-only composite — NOT summed into the score.
     freshness = round(fields["underworn_boost"] + fields["recent_repeat_penalty"], 3)
     if any(v for v in fields.values()):
         logger.info(
-            "AHVI_MEMORY_SCORER_APPLIED repeat=%.1f underworn=%.1f saved=%.1f freshness=%.1f",
+            "AHVI_MEMORY_SCORER_APPLIED repeat=%.1f underworn=%.1f saved=%.1f liked=%.1f disliked=%.1f freshness=%.1f",
             fields["recent_repeat_penalty"], fields["underworn_boost"],
-            fields["saved_board_affinity"], freshness,
+            fields["saved_board_affinity"], fields["liked_item_affinity"],
+            fields["disliked_item_penalty"], freshness,
         )
     return fields, reasons
 
@@ -1244,7 +1260,10 @@ class UnifiedStyleScorer:
         vector = self._build_outfit_embedding(items)
         has_memory_context = any(
             context.get(key)
-            for key in ("recently_worn_ids", "underworn_ids", "wear_counts", "saved_item_ids")
+            for key in (
+                "recently_worn_ids", "underworn_ids", "wear_counts", "saved_item_ids",
+                "liked_item_ids", "disliked_item_ids",
+            )
         )
         if vector and memory_scorer is not None and has_memory_context:
             try:
@@ -1267,12 +1286,16 @@ class UnifiedStyleScorer:
             min_required = float(occasion_result.get("min_required_score") or 0.45)
             original_positive = sum(
                 max(0.0, float(mem_fields.get(key) or 0.0))
-                for key in ("underworn_boost", "saved_board_affinity")
+                for key in ("underworn_boost", "saved_board_affinity", "liked_item_affinity")
             )
             if occasion_result.get("reject") or occasion_score < min_required:
                 mem_fields["underworn_boost"] = 0.0
                 mem_fields["saved_board_affinity"] = 0.0
-                mem_reasons = [r for r in mem_reasons if "under-worn" not in r and "saved" not in r]
+                mem_fields["liked_item_affinity"] = 0.0
+                mem_reasons = [
+                    r for r in mem_reasons
+                    if "under-worn" not in r and "saved" not in r and "piece you liked" not in r
+                ]
             logger.info(
                 "AHVI_MEMORY_WEIGHT_APPLIED occasion=%s occasion_score=%.3f min_required=%.3f original_positive=%.3f final_positive=%.3f",
                 occasion_result.get("occasion"),
@@ -1281,7 +1304,7 @@ class UnifiedStyleScorer:
                 original_positive,
                 sum(
                     max(0.0, float(mem_fields.get(key) or 0.0))
-                    for key in ("underworn_boost", "saved_board_affinity")
+                    for key in ("underworn_boost", "saved_board_affinity", "liked_item_affinity")
                 ),
             )
             breakdown.update(mem_fields)

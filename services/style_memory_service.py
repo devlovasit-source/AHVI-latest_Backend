@@ -242,19 +242,45 @@ def build_style_memory_context(user_id: str, wardrobe: Any = None) -> Dict[str, 
         return _neutral_memory()
     wear = load_wear_memory(user_id, wardrobe)
     saved = load_saved_board_memory(user_id)
+    # Durable Appwrite feedback is authoritative. Read failures are neutral;
+    # never fall back to the legacy local JSON ranker.
+    try:
+        from services.style_feedback_store import load_feedback_memory
+        feedback = load_feedback_memory(user_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("AHVI_STYLE_FEEDBACK_READ_FAILED err=%s", str(exc)[:140])
+        feedback = {}
+    saved_item_ids = list(dict.fromkeys([
+        *(saved.get("saved_item_ids") or []),
+        *(feedback.get("feedback_saved_item_ids") or []),
+    ]))[:60]
     ctx = {
         "recently_worn_ids": wear["recently_worn_ids"],
         "underworn_ids": wear["underworn_ids"],
         "wear_counts": wear["wear_counts"],
         "last_worn_at": wear["last_worn_at"],
-        "saved_item_ids": saved["saved_item_ids"],
-        "saved_board_patterns": saved["saved_board_patterns"],
-        "favorite_colors": saved["favorite_colors"],
-        "favorite_categories": saved["favorite_categories"],
+        "saved_item_ids": saved_item_ids,
+        "saved_board_patterns": list(dict.fromkeys([
+            *(saved.get("saved_board_patterns") or []),
+            *(feedback.get("feedback_saved_board_patterns") or []),
+        ]))[:20],
+        "favorite_colors": list(dict.fromkeys([
+            *(feedback.get("feedback_preferred_colors") or []),
+            *(saved.get("favorite_colors") or []),
+        ]))[:6],
+        "favorite_categories": list(dict.fromkeys([
+            *(feedback.get("feedback_preferred_categories") or []),
+            *(saved.get("favorite_categories") or []),
+        ]))[:6],
+        "liked_item_ids": feedback.get("liked_item_ids") or [],
+        "liked_board_patterns": feedback.get("liked_board_patterns") or [],
+        "disliked_board_patterns": feedback.get("disliked_board_patterns") or [],
         "disliked_item_ids": [],  # no producer yet — reserved.
     }
+    ctx["disliked_item_ids"] = feedback.get("disliked_item_ids") or []
     has_memory = bool(
         ctx["recently_worn_ids"] or ctx["saved_item_ids"] or ctx["wear_counts"]
+        or ctx["liked_item_ids"] or ctx["disliked_item_ids"]
     )
     if has_memory:
         logger.info(
@@ -274,5 +300,8 @@ def _neutral_memory() -> Dict[str, Any]:
         "saved_board_patterns": [],
         "favorite_colors": [],
         "favorite_categories": [],
+        "liked_item_ids": [],
         "disliked_item_ids": [],
+        "liked_board_patterns": [],
+        "disliked_board_patterns": [],
     }

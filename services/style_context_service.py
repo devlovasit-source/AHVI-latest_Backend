@@ -698,8 +698,9 @@ def _normalize_weather_context(value: Any) -> Dict[str, Any]:
 def _memory_from_context(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     keys = (
         "recently_worn_ids", "underworn_ids", "wear_counts", "last_worn_at",
-        "saved_item_ids", "disliked_item_ids", "favorite_colors",
-        "favorite_categories", "saved_board_patterns",
+        "saved_item_ids", "liked_item_ids", "disliked_item_ids", "favorite_colors",
+        "favorite_categories", "saved_board_patterns", "liked_board_patterns",
+        "disliked_board_patterns",
     )
     if not any(key in context for key in keys):
         return None
@@ -883,10 +884,13 @@ def build_canonical_style_context(
         "underworn_ids": _safe_list(style_memory.get("underworn_ids")),
         "wear_counts": _safe_dict(style_memory.get("wear_counts")),
         "saved_item_ids": _safe_list(style_memory.get("saved_item_ids")),
+        "liked_item_ids": _safe_list(style_memory.get("liked_item_ids")),
         "disliked_item_ids": _safe_list(style_memory.get("disliked_item_ids")),
         "favorite_colors": _safe_list(style_memory.get("favorite_colors")),
         "favorite_categories": _safe_list(style_memory.get("favorite_categories")),
         "saved_board_patterns": _safe_list(style_memory.get("saved_board_patterns")),
+        "liked_board_patterns": _safe_list(style_memory.get("liked_board_patterns")),
+        "disliked_board_patterns": _safe_list(style_memory.get("disliked_board_patterns")),
         "source_policy": supplied_context.get("source_policy"),
         "allow_wardrobe_fallback": bool(supplied_context.get("allow_wardrobe_fallback")),
         "wardrobe_only": bool(supplied_context.get("wardrobe_only")),
