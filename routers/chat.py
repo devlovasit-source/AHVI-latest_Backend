@@ -545,10 +545,11 @@ def _style_reasoning_chat_response(
         "response": message,
         "text": message,
         "cards": summary_cards + visual_cards,
-        # Expose the visual-direction boards under style_boards so the frontend
-        # board extractor renders them (it reads style_boards/data.outfits, not
-        # `cards`). Empty for non-visual modes since visual_cards is empty then.
-        "style_boards": visual_cards,
+        # style_boards carries only renderable wardrobe boards. This adapter is
+        # reached exclusively when should_generate_board is false, so it is
+        # always empty here — direction cards live in `cards` and
+        # data.visual_directions, never in style_boards.
+        "style_boards": [],
         "chips": chips,
         "board_ids": "",
         "data": {

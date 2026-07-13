@@ -4412,6 +4412,8 @@ def _reason_for_mode(mode: str, category: str | None) -> str:
         return "body_color_advice"
     if mode == STYLE_EDUCATION:
         return "style_education"
+    if mode == STYLE_PAIRING:
+        return "style_pairing"
     return category or "style_advice"
 
 
@@ -8123,6 +8125,11 @@ def _build_response(
         },
     }
     response = apply_personality_text_polish_to_final_payload(response, query=query)
+    # meta.reason is a machine contract value (sensitive_occasion /
+    # style_pairing / style_advice / ...), not visible copy — the personality
+    # polish rewrites "reason" text fields, so restore the enum afterwards.
+    if isinstance(response, dict) and isinstance(response.get("meta"), dict):
+        response["meta"]["reason"] = _reason_for_mode(final_mode, category)
     guarded, removed = apply_gender_guard_to_final_payload(
         response,
         target_gender=asset_gender,
