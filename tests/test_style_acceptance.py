@@ -235,3 +235,86 @@ def test_capsule_metadata_signals_prefer_versatile_items():
     assert "White Shirt" in foundation_tops
     if "Sequined Shirt" in foundation_tops:
         assert foundation_tops.index("White Shirt") < foundation_tops.index("Sequined Shirt")
+
+
+# ---------------------------------------------------------------------------
+# Capsule foundation canonical schema + ranking signals (Batch 5 contract)
+# ---------------------------------------------------------------------------
+
+def test_capsule_foundation_entries_are_structured_objects():
+    resp = build_capsule_response(user_id="u1", wardrobe=_tiny_wardrobe())
+    foundation = resp["data"]["capsule_foundation"]
+    assert foundation and isinstance(foundation, list)
+    for entry in foundation:
+        assert isinstance(entry, dict)
+        for key in ("item_id", "name", "role", "category", "source", "owned", "style_metadata"):
+            assert key in entry, f"missing {key} in {entry}"
+        assert entry["role"] in {"top", "bottom", "footwear", "outerwear", "accessory", "dress"}
+    # Display-only strings live in a separate field, one per entry.
+    labels = resp["data"]["capsule_foundation_labels"]
+    assert labels == [e["name"] for e in foundation]
+    assert all(isinstance(l, str) for l in labels)
+
+
+def test_capsule_ids_and_images_survive_normalization():
+    wardrobe = [
+        {"id": "t1", "name": "White Shirt", "category": "shirt",
+         "image_url": "https://cdn.test/t1.png"},
+        {"id": "b1", "name": "Grey Trousers", "category": "trousers",
+         "normalized_url": "https://cdn.test/b1_norm.png"},
+        {"id": "f1", "name": "Loafers", "category": "loafers"},
+    ]
+    resp = build_capsule_response(user_id="u1", wardrobe=wardrobe)
+    by_id = {e["item_id"]: e for e in resp["data"]["capsule_foundation"]}
+    assert by_id["t1"]["image_url"] == "https://cdn.test/t1.png"
+    assert by_id["b1"]["image_url"] == "https://cdn.test/b1_norm.png"
+    assert by_id["b1"]["role"] == "bottom"  # trousers never classified as top
+    assert by_id["b1"]["category"] == "trousers"  # original category preserved
+    assert "image_url" not in by_id["f1"]  # never fabricated
+
+
+def test_capsule_visual_noise_and_statement_are_penalized():
+    from brain.engines.capsule_engine import _capsule_item_score
+
+    quiet = {"name": "Shirt", "category": "shirt",
+             "style_metadata": {"visual_noise": "low"}}
+    loud = {"name": "Shirt", "category": "shirt",
+            "style_metadata": {"visual_noise": "high"}}
+    statement = {"name": "Shirt", "category": "shirt",
+                 "style_metadata": {"statement_level": "statement"}}
+    assert _capsule_item_score(loud) < _capsule_item_score(quiet)
+    assert _capsule_item_score(statement) < _capsule_item_score(quiet)
+
+
+def test_capsule_missing_metadata_is_neutral_not_dominant():
+    from brain.engines.capsule_engine import _capsule_item_score
+
+    explicit_high = {"name": "Shirt", "category": "shirt",
+                     "style_metadata": {"capsule_score": 0.95, "versatility_score": 0.9}}
+    no_metadata = {"name": "Shirt", "category": "shirt"}
+    explicit_low = {"name": "Shirt", "category": "shirt",
+                    "style_metadata": {"capsule_score": 0.1, "visual_noise": "high"}}
+    assert _capsule_item_score(explicit_low) < _capsule_item_score(no_metadata)
+    assert _capsule_item_score(no_metadata) < _capsule_item_score(explicit_high)
+
+
+def test_capsule_sample_looks_reference_foundation_items():
+    resp = build_capsule_response(user_id="u1", wardrobe=_tiny_wardrobe())
+    foundation_ids = {e["item_id"] for e in resp["data"]["capsule_foundation"]}
+    assert resp["data"]["sample_looks"]
+    for look in resp["data"]["sample_looks"]:
+        for item in look["items"]:
+            item_id = str(item.get("item_id") or item.get("id") or "")
+            assert item_id in foundation_ids, (
+                f"sample look references non-foundation item {item!r}"
+            )
+
+
+def test_capsule_insufficient_wardrobe_returns_missing_slot_guidance():
+    resp = build_capsule_response(
+        user_id="u1", wardrobe=[{"id": "t1", "name": "White Shirt", "category": "shirt"}]
+    )
+    assert resp["success"] is False
+    assert "bottom" in resp["data"]["missing_slots"]
+    assert "footwear" in resp["data"]["missing_slots"]
+    assert resp["data"]["shopping_gaps"]

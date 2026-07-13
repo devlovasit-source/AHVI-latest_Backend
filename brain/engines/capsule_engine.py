@@ -131,6 +131,48 @@ def _capsule_item_score(item: Dict[str, Any]) -> float:
     return round(max(-2.0, min(score, 3.0)), 3)
 
 
+_METADATA_SUBSET_KEYS = (
+    "capsule_score",
+    "versatility_score",
+    "visual_noise",
+    "statement_level",
+    "formality",
+    "occasions",
+)
+
+
+def _item_image(item: Dict[str, Any]) -> str:
+    return str(
+        item.get("normalized_url") or item.get("normalizedUrl")
+        or item.get("masked_url") or item.get("maskedUrl")
+        or item.get("image_url") or item.get("imageUrl")
+        or ""
+    ).strip()
+
+
+def _foundation_entry(item: Dict[str, Any], role: str) -> Dict[str, Any]:
+    """Canonical structured foundation entry. Nothing is fabricated: ids and
+    images come from the wardrobe record (empty when absent) and ownership is
+    true by contract — the input list IS the user's wardrobe."""
+    meta = item.get("style_metadata") if isinstance(item.get("style_metadata"), dict) else {}
+    compact_meta = {k: meta[k] for k in _METADATA_SUBSET_KEYS if k in meta}
+    entry: Dict[str, Any] = {
+        "item_id": str(item.get("item_id") or item.get("id") or item.get("$id") or "").strip(),
+        "name": str(item.get("name") or item.get("title") or "Item").strip(),
+        "role": role,
+        "category": str(item.get("category") or ""),
+        "sub_category": str(item.get("sub_category") or item.get("subcategory") or ""),
+        "source": str(item.get("source") or "wardrobe"),
+        "owned": True,
+        "capsule_score": _capsule_item_score(item),
+        "style_metadata": compact_meta,
+    }
+    image_url = _item_image(item)
+    if image_url:
+        entry["image_url"] = image_url
+    return entry
+
+
 def _group_by_role(wardrobe: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
     out: Dict[str, List[Dict[str, Any]]] = {r: [] for r in _CORE_ROLES + ("accessory",)}
     for item in wardrobe or []:
@@ -264,6 +306,17 @@ def build_capsule_response(
     missing = _missing_slots(foundation)
     gaps = _shopping_gaps(missing)
 
+    # Canonical foundation contract: a FLAT list of structured item objects
+    # (role-ordered, rank-ordered within each role). Display-only strings are
+    # exposed separately under capsule_foundation_labels — never mixed into
+    # the structured field.
+    foundation_entries: List[Dict[str, Any]] = [
+        _foundation_entry(item, role)
+        for role in _CORE_ROLES + ("accessory",)
+        for item in (foundation.get(role) or [])
+    ]
+    foundation_labels = [entry["name"] for entry in foundation_entries]
+
     if sample_looks:
         styling_note = (
             "These pieces form a versatile wardrobe foundation because "
@@ -302,7 +355,8 @@ def build_capsule_response(
         "intent": "capsule",
         "board": "style",
         "message": message,
-        "capsule_foundation": foundation,
+        "capsule_foundation": foundation_entries,
+        "capsule_foundation_labels": foundation_labels,
         "sample_looks": sample_looks,
         "missing_slots": missing,
         "shopping_gaps": gaps,
@@ -316,7 +370,8 @@ def build_capsule_response(
             else ["Find missing piece", "Add wardrobe item"]
         ),
         "data": {
-            "capsule_foundation": foundation,
+            "capsule_foundation": foundation_entries,
+            "capsule_foundation_labels": foundation_labels,
             "sample_looks": sample_looks,
             "missing_slots": missing,
             "shopping_gaps": gaps,
