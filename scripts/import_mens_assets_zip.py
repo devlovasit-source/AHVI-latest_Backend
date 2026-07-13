@@ -41,6 +41,7 @@ if str(ROOT) not in sys.path:
 os.environ.setdefault("R2_LOAD_LOCAL_ENV", "true")
 
 from services.r2_storage import R2Storage, R2StorageError  # noqa: E402
+from services.style_asset_metadata_contract import canonical_metadata_update  # noqa: E402
 
 
 # ---- Category / subcategory inference --------------------------------------
@@ -426,6 +427,7 @@ def build(zip_path: Path, output_path: Path, *, dry_run: bool, source: str) -> D
             "created_at": now,
             "updated_at": now,
         }
+        row.update(canonical_metadata_update(row))
         rows.append(row)
         cat_counts[category] = cat_counts.get(category, 0) + 1
         sub_counts[subcategory] = sub_counts.get(subcategory, 0) + 1

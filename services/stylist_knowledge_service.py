@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 from prompts.core_prompts import AHVI_SYSTEM_PROMPT
 from prompts.styling_prompts import OCCASION_INTERPRETER_PROMPT
 from services.ai_gateway import generate_text, parse_json_object
+from services.style_asset_metadata_contract import normalize_style_asset_metadata
 
 
 STYLE_ADVICE = "style_advice"
@@ -30,6 +31,11 @@ STYLE_MODES = {
     COLOR_ADVICE,
     OCCASION_ADVICE,
 }
+
+
+def normalize_style_asset(asset: Dict[str, Any]) -> Dict[str, Any]:
+    """Canonical Style asset boundary shared by reasoning and knowledge code."""
+    return normalize_style_asset_metadata(asset, trusted_style_asset_source=True)
 
 
 def _norm(text: Any) -> str:

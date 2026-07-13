@@ -13,6 +13,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
+from services.style_asset_metadata_contract import (
+    canonical_metadata_update,
+    normalize_style_asset_metadata,
+)
 
 
 ALLOWED_FIELDS = {
@@ -31,6 +35,29 @@ ALLOWED_FIELDS = {
     "status",
     "created_at",
     "updated_at",
+    "source_origin",
+    "role",
+    "sub_category",
+    "gender_fit",
+    "board_image_url",
+    "normalized_url",
+    "cutout_url",
+    "pattern",
+    "material",
+    "finish",
+    "visual_noise",
+    "statement_level",
+    "occasion_families",
+    "formality",
+    "energy",
+    "movement",
+    "traits",
+    "weather_tags",
+    "cultural_context",
+    "metadata_version",
+    "metadata_status",
+    "metadata_score",
+    "missing_metadata_fields",
 }
 
 
@@ -56,18 +83,23 @@ def _normalize(row: Dict[str, Any]) -> Dict[str, Any]:
         "name": str(row.get("name") or "").strip(),
         "category": str(row.get("category") or "").strip(),
         "subcategory": str(row.get("subcategory") or "").strip(),
-        "source": str(row.get("source") or "").strip(),
+        "source": "style_asset",
         "image_url": str(row.get("image_url") or row.get("imageUrl") or "").strip(),
         "r2_key": str(row.get("r2_key") or row.get("r2Key") or "").strip(),
         "colors": _list(row.get("colors")),
         "archetypes": _list(row.get("archetypes")),
         "occasions": _list(row.get("occasions")),
         "tags": _list(row.get("tags")),
-        "gender": str(row.get("gender") or "all").strip(),
+        "gender": str(row.get("gender") or "unknown").strip(),
         "status": str(row.get("status") or "active").strip(),
         "created_at": str(row.get("created_at") or row.get("createdAt") or now),
         "updated_at": now,
     }
+    contract_input = {**row, **payload, "source": row.get("source") or "style_asset"}
+    payload.update(canonical_metadata_update(contract_input))
+    payload["image_url"] = normalize_style_asset_metadata(
+        contract_input, trusted_style_asset_source=True
+    )["image_url"]
     return {key: value for key, value in payload.items() if key in ALLOWED_FIELDS}
 
 

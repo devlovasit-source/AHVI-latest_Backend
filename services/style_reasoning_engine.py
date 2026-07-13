@@ -11,6 +11,7 @@ from brain.tone.tone_engine import tone_engine
 from prompts.core_prompts import AHVI_SYSTEM_PROMPT
 from prompts.styling_prompts import OCCASION_INTERPRETER_PROMPT
 from services.ai_gateway import generate_text, parse_json_object
+from services.style_asset_metadata_contract import summarize_style_asset_metadata
 from services.stylist_knowledge_service import (
     ARCHETYPE_LIBRARY,
     BODY_PROPORTION_ADVICE,
@@ -23,6 +24,7 @@ from services.stylist_knowledge_service import (
     STYLE_PAIRING,
     WARDROBE_STYLE,
     classify_style_mode,
+    normalize_style_asset,
 )
 
 GENERAL = "general"
@@ -411,10 +413,15 @@ def _style_asset_rows(limit: int = 0) -> List[Dict[str, Any]]:
             if not meta and len(page_rows) < page_limit:
                 break
 
+        normalized_rows = [_normalize_style_asset(row) for row in rows]
+        metadata_summary = summarize_style_asset_metadata(normalized_rows)
         cleaned: List[Dict[str, Any]] = []
+        rejected = 0
         seen: set[str] = set()
-        for row in rows:
-            asset = _normalize_style_asset(row)
+        for asset in normalized_rows:
+            if asset.get("metadata_status") == "rejected":
+                rejected += 1
+                continue
             key = _asset_text(
                 asset.get("asset_id")
                 or asset.get("$id")
@@ -430,10 +437,13 @@ def _style_asset_rows(limit: int = 0) -> List[Dict[str, Any]]:
                 break
         _validate_style_assets(cleaned)
         logger.info(
-            "AHVI_STYLE_ASSETS_LOADED rows=%s pages=%s requested=%s",
+            "AHVI_STYLE_ASSETS_LOADED rows=%s pages=%s requested=%s rejected=%s readiness=%s missing=%s",
             len(cleaned),
             pages,
             target,
+            rejected,
+            metadata_summary.get("status_counts"),
+            metadata_summary.get("missing_field_counts"),
         )
         return cleaned
     except Exception as exc:  # noqa: BLE001
@@ -536,25 +546,12 @@ def _asset_gender(value: Any) -> str:
 
 
 def _normalize_style_asset(asset: Dict[str, Any]) -> Dict[str, Any]:
-    out = dict(asset)
-    out["asset_id"] = _asset_text(
-        out.get("asset_id") or out.get("assetId") or out.get("id") or out.get("$id")
-    )
-    out["board_image_url"] = _asset_text(
-        out.get("board_image_url")
-        or out.get("boardImageUrl")
-        or out.get("board_url")
-        or out.get("boardUrl")
-    )
+    out = normalize_style_asset(asset)
     out["transparent_image_url"] = _asset_text(
         out.get("transparent_image_url")
         or out.get("transparentImageUrl")
         or out.get("transparent_url")
         or out.get("transparentUrl")
-    )
-    out["cutout_url"] = _asset_text(
-        out.get("cutout_url")
-        or out.get("cutoutUrl")
     )
     out["rmbg_url"] = _asset_text(
         out.get("rmbg_url")
@@ -572,22 +569,9 @@ def _normalize_style_asset(asset: Dict[str, Any]) -> Dict[str, Any]:
         out.get("board_r2_key")
         or out.get("boardR2Key")
     )
-    out["image_url"] = _asset_text(
-        out.get("image_url")
-        or out.get("imageUrl")
-        or out.get("url")
-        or out.get("asset_url")
-        or out.get("asset_path")
-    )
-    out["subcategory"] = _asset_text(
-        out.get("subcategory") or out.get("sub_category") or out.get("subCategory")
-    )
     out["allowed_slots"] = out.get("allowed_slots") or out.get("allowedSlots") or out.get("slots") or []
     out["avoid_for"] = out.get("avoid_for") or out.get("avoidFor") or []
     out["style_tags"] = out.get("style_tags") or out.get("styleTags") or []
-    gender = _asset_gender(out.get("gender"))
-    if gender in {"male", "female", "unisex"}:
-        out["gender"] = gender
     if not _asset_text(out.get("status")):
         out["status"] = "active"
     for key in ("colors", "archetypes", "occasions", "tags", "style_tags", "allowed_slots", "avoid_for"):
@@ -3082,7 +3066,9 @@ def _best_style_assets(
     rejected_total = 0
     occasion_blocked: List[str] = []
     for raw_asset in assets:
-        asset = dict(raw_asset)
+        asset = _normalize_style_asset(raw_asset)
+        if asset.get("metadata_status") == "rejected":
+            continue
         asset["_allow_feminine_accessory"] = allow_feminine_accessory
         image_url = _asset_text(asset.get("image_url") or asset.get("imageUrl"))
         if not image_url:
@@ -3173,7 +3159,12 @@ def _best_style_assets(
                 _asset_text(direction.get("hero_piece")),
             )
         return []
-    candidates.sort(key=lambda pair: pair[0], reverse=True)
+    # Readiness is deliberately only a secondary key: it may resolve an
+    # otherwise equivalent match, but can never override safety or relevance.
+    candidates.sort(
+        key=lambda pair: (pair[0], pair[1].get("metadata_status") == "ready"),
+        reverse=True,
+    )
     if not accessory_only:
         selected = candidates[: max(1, limit)]
         logger.info(

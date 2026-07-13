@@ -16,6 +16,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from services.style_asset_metadata_contract import canonical_metadata_update
+
 try:
     from docx import Document  # type: ignore
 except ImportError as exc:  # pragma: no cover - import guarded
@@ -189,23 +195,23 @@ def parse_document(paragraphs: List[str]) -> List[Dict[str, Any]]:
         for url in URL_RE.findall(text):
             counters[subcategory] = counters.get(subcategory, 0) + 1
             idx = counters[subcategory]
-            rows.append(
-                {
-                    "asset_id": _stable_asset_id(subcategory, url),
-                    "name": _build_name(subcategory, idx),
-                    "gender": _resolve_gender(subcategory),
-                    "category": category,
-                    "subcategory": subcategory,
-                    "colors": [],
-                    "occasions": list(OCCASION_MAP.get(subcategory, [])),
-                    "archetypes": list(ARCHETYPE_MAP.get(subcategory, [])),
-                    "image_url": url,
-                    "source": "H&M",
-                    "status": "inactive" if subcategory in INACTIVE_SUBCATS else "active",
-                    "asset_type": "reference",
-                    "tags": [subcategory],
-                }
-            )
+            row = {
+                "asset_id": _stable_asset_id(subcategory, url),
+                "name": _build_name(subcategory, idx),
+                "gender": _resolve_gender(subcategory),
+                "category": category,
+                "subcategory": subcategory,
+                "colors": [],
+                "occasions": list(OCCASION_MAP.get(subcategory, [])),
+                "archetypes": list(ARCHETYPE_MAP.get(subcategory, [])),
+                "image_url": url,
+                "source": "H&M",
+                "status": "inactive" if subcategory in INACTIVE_SUBCATS else "active",
+                "asset_type": "reference",
+                "tags": [subcategory],
+            }
+            row.update(canonical_metadata_update(row))
+            rows.append(row)
     return rows
 
 

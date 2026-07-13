@@ -89,6 +89,15 @@ def _create_datetime(key: str) -> None:
     raise RuntimeError(f"attribute {key} failed {response.status_code}: {response.text}")
 
 
+def _create_float(key: str) -> None:
+    response = _request("POST", _attribute_url("float"), {"key": key, "required": False})
+    if response.status_code in {200, 201, 202, 409}:
+        print(f"attribute ready: {key}")
+        time.sleep(0.15)
+        return
+    raise RuntimeError(f"attribute {key} failed {response.status_code}: {response.text}")
+
+
 def bootstrap() -> None:
     _create_collection()
     _create_string("asset_id", 128, required=True)
@@ -96,7 +105,14 @@ def bootstrap() -> None:
     _create_string("category", 96, required=True)
     _create_string("subcategory", 128)
     _create_string("source", 128)
+    _create_string("source_origin", 128)
+    _create_string("role", 32)
+    _create_string("sub_category", 128)
+    _create_string("gender_fit", 32)
     _create_string("image_url", 2048, required=True)
+    _create_string("board_image_url", 2048)
+    _create_string("normalized_url", 2048)
+    _create_string("cutout_url", 2048)
     _create_string("r2_key", 512)
     _create_string("colors", 64, array=True)
     _create_string("archetypes", 128, array=True)
@@ -104,6 +120,19 @@ def bootstrap() -> None:
     _create_string("tags", 96, array=True)
     _create_string("gender", 32)
     _create_string("status", 32)
+    _create_string("pattern", 96)
+    _create_string("material", 96)
+    _create_string("finish", 96)
+    _create_string("occasion_families", 96, array=True)
+    _create_string("traits", 96, array=True)
+    _create_string("weather_tags", 64, array=True)
+    _create_string("cultural_context", 96, array=True)
+    for key in ("visual_noise", "statement_level", "formality", "energy", "movement", "metadata_score"):
+        _create_float(key)
+    _create_string("metadata_version", 32)
+    _create_string("metadata_status", 32)
+    _create_string("missing_metadata_fields", 96, array=True)
+    _create_datetime("metadata_updated_at")
     _create_datetime("created_at")
     _create_datetime("updated_at")
     print(json.dumps({"success": True, "collection": COLLECTION_ID}, indent=2))

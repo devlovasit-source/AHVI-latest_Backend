@@ -41,6 +41,8 @@ if str(ROOT) not in sys.path:
 
 os.environ.setdefault("R2_LOAD_LOCAL_ENV", "true")
 
+from services.style_asset_metadata_contract import canonical_metadata_update
+
 # Fashion-safe filters ------------------------------------------------------
 
 # Manifest category values that are never style assets.
@@ -115,31 +117,28 @@ def _eligible(row: Dict[str, str], priorities: set) -> Optional[str]:
 def _row_to_payload(
     row: Dict[str, str], *, image_url: str, r2_key: str, now: str
 ) -> Dict[str, Any]:
-    gender = "female" if str(row.get("gender", "")).strip().lower().startswith("w") else "male"
+    raw_gender = str(row.get("gender", "")).strip().lower()
+    gender = "female" if raw_gender.startswith("w") else ("male" if raw_gender.startswith("m") else "unknown")
     folder = _slug(row.get("folder", ""))
     name_slug = _slug(row.get("name", ""))
-    asset_id = f"{'womens' if gender == 'female' else 'mens'}_assets_{folder}_{name_slug}"[:80]
-    category = _CATEGORY_MAP.get(str(row.get("category", "")).strip().lower(), "accessory")
+    gender_prefix = "womens" if gender == "female" else ("mens" if gender == "male" else "style")
+    asset_id = f"{gender_prefix}_assets_{folder}_{name_slug}"[:80]
+    category = _CATEGORY_MAP.get(str(row.get("category", "")).strip().lower(), "")
     subcategory = _slug(row.get("sub_category", "")) or category
     tags, occasions = _split_tags(row.get("tags", ""))
     display = str(row.get("name", "")).strip() or subcategory.replace("_", " ").title()
     prefix = "Womens" if gender == "female" else "Mens"
     if not display.lower().startswith(prefix.lower()):
         display = f"{prefix} {display}"
-    is_ethnic = category == "ethnic" or subcategory in {
-        "saree", "lehenga", "kurta_set", "kurti", "sherwani", "bandhgala",
-        "sharara", "anarkali", "gown",
-    }
-    archetypes = ["Festive Modern", "Modern Desi"] if is_ethnic else ["Refined Weekend"]
-    return {
+    payload = {
         "asset_id": asset_id,
         "name": display,
         "gender": gender,
         "category": category,
         "subcategory": subcategory,
         "colors": _infer_colors(row.get("name", "")),
-        "occasions": occasions or (["wedding", "festive"] if is_ethnic else ["casual_day"]),
-        "archetypes": archetypes,
+        "occasions": occasions,
+        "archetypes": [],
         "image_url": image_url,
         "r2_key": r2_key,
         "source": "manifest_import",
@@ -149,6 +148,8 @@ def _row_to_payload(
         "created_at": now,
         "updated_at": now,
     }
+    payload.update(canonical_metadata_update(payload))
+    return payload
 
 
 def _build_zip_index(zip_path: Path) -> Dict[str, zipfile.ZipInfo]:

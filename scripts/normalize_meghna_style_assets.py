@@ -20,6 +20,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from services.style_asset_metadata_contract import canonical_metadata_update
+
 
 CATEGORY_ALIASES: Dict[str, Tuple[str, str | None]] = {
     "tops": ("top", None),
@@ -197,7 +203,7 @@ def _normalize_item(item: Dict[str, Any], fallback_category: str | None) -> Tupl
     row = {
         "asset_id": asset_id or re.sub(r"[^a-z0-9_]+", "_", name.lower()).strip("_") or "",
         "name": name,
-        "gender": gender or "unisex",
+        "gender": gender or "unknown",
         "category": category,
         "subcategory": subcategory,
         "colors": _to_list(item.get("colors")),
@@ -221,6 +227,7 @@ def _normalize_item(item: Dict[str, Any], fallback_category: str | None) -> Tupl
         missing.append("image_url_or_asset_path")
     if missing:
         return None, ",".join(missing)
+    row.update(canonical_metadata_update(row))
     return row, ""
 
 
