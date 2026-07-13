@@ -754,6 +754,7 @@ def _builder_outfit(
     note: str = "",
     variant: int = 0,
     allow_wardrobe_fallback: bool = False,
+    exclude_item_ids: "tuple[str, ...]" = (),
 ) -> "tuple[Dict[str, Any], Dict[str, Any]]":
     fixed = [dict(anchor)] if anchor else []
     replaceable_slots = replaceable_slots_for_fixed_items(fixed)
@@ -785,7 +786,7 @@ def _builder_outfit(
         scenario=mode,
         fixed_items=fixed,
         replaceable_slots=replaceable_slots,
-        exclude_item_ids=[],
+        exclude_item_ids=list(exclude_item_ids),
         source_policy=policy,
         context={
             "wardrobe": candidates,
@@ -936,15 +937,60 @@ def style_wardrobe_item(
         "style_asset_source_trusted": style_assets_trusted,
         "validation_passed": anchor_safe or not is_professional,
         "anchor_blocked": not anchor_safe and is_professional,
+        "anchor_included": anchor_safe or not is_professional,
     }
     if not anchor_safe and is_professional:
         response_meta["anchor_block_reason"] = anchor_block_reason
 
     if not anchor_safe and is_professional:
+        if mode == "build_outfit":
+            # Safe-alternative mode: the professional guard rejected the
+            # anchor, so generation is explicitly UN-anchored — the unsafe
+            # item is excluded, the original anchor is returned only as
+            # reference metadata, and the fixed-item guarantee is not
+            # claimed (there is no fixed item).
+            try:
+                alt_outfit, source_meta = _builder_outfit(
+                    {}, wardrobe, style_assets, occasion,
+                    mode="build_outfit",
+                    note=(
+                        "Built a professional-safe look from your wardrobe; "
+                        "the selected item was not suitable for this occasion."
+                    ),
+                    exclude_item_ids=(anchor_id,),
+                )
+            except ConstrainedOutfitError as exc:
+                # No safe complete alternative — typed failure that carries
+                # why the anchor was rejected.
+                return _typed_failure(
+                    mode, anchor, "ANCHOR_INCOMPATIBLE_WITH_OCCASION",
+                    "This selected item is not suitable for the requested occasion.",
+                    response_meta,
+                    {"anchor_block_reason": anchor_block_reason, "alternative_error": exc.code},
+                )
+            response_meta.update(source_meta)
+            # The returned alternative itself passed professional validation.
+            response_meta["validation_passed"] = True
+            response_meta["anchor_included"] = False
+            alt_outfit["safe_alternative"] = True
+            logger.info(
+                "stylist.item_style mode=build_outfit item_id=%s anchor_blocked=True "
+                "safe_alternative items=%d missing=%d reason=%s",
+                item_id, len(alt_outfit.get("items") or []),
+                len(alt_outfit.get("missing_items") or []), anchor_block_reason,
+            )
+            return {
+                "success": True,
+                "mode": mode,
+                "anchor_item": anchor,  # reference metadata only, not in items
+                "outfit": alt_outfit,
+                **response_meta,
+            }
         return _typed_failure(
             mode, anchor, "ANCHOR_INCOMPATIBLE_WITH_OCCASION",
             "This selected item is not suitable for the requested occasion.",
             response_meta,
+            {"anchor_block_reason": anchor_block_reason},
         )
 
     try:

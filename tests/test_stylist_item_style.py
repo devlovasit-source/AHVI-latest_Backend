@@ -213,15 +213,26 @@ def test_inline_missing_source_remains_unknown():
     assert result["error"]["code"] == "UNKNOWN_ITEM_SOURCE"
 
 
-def test_professional_incompatible_anchor_is_not_replaced():
+def test_professional_incompatible_anchor_returns_safe_alternative():
+    # Blocked anchors are never forced into a professional look; instead a
+    # clearly marked safe alternative is built WITHOUT the anchor, which is
+    # kept only as reference metadata.
     anchor = _it("camo-1", "Camouflage Cargo Pants", "Bottoms")
     safe = _it("shirt-1", "White Shirt", "Tops")
     result = stylist.style_wardrobe_item(
         "camo-1", _req([anchor, safe], anchor=anchor, occasion="client_meeting"),
     )
-    assert result["success"] is False
-    assert result["error"]["code"] == "ANCHOR_INCOMPATIBLE_WITH_OCCASION"
-    assert result["outfit"]["items"] == []
+    assert result["success"] is True
+    assert result["anchor_blocked"] is True
+    assert result["anchor_included"] is False
+    assert result["validation_passed"] is True
+    assert result["anchor_block_reason"]
+    assert result["outfit"]["safe_alternative"] is True
+    item_ids = {i.get("item_id") for i in result["outfit"]["items"]}
+    assert "camo-1" not in item_ids
+    assert "shirt-1" in item_ids
+    # The unsafe anchor stays available as reference metadata only.
+    assert result["anchor_item"].get("id") == "camo-1"
 
 
 def test_response_preserves_canonical_role_and_board_fields():

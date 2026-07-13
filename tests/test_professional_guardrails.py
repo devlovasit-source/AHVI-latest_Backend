@@ -23,7 +23,15 @@ from routers import stylist
 
 
 def _item(name: str, category: str = "", sub_category: str = "", **extra) -> dict:
-    base = {"name": name, "category": category, "sub_category": sub_category}
+    # source matches the inline-wardrobe convention used by every other CTA
+    # test; the constrained builder rejects source-less fixed items
+    # (UNKNOWN_ITEM_SOURCE), which is covered by dedicated tests elsewhere.
+    base = {
+        "name": name,
+        "category": category,
+        "sub_category": sub_category,
+        "source": "wardrobe",
+    }
     base.update(extra)
     return base
 
