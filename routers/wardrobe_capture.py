@@ -3770,8 +3770,14 @@ def _run_bg_finalize_rmbg(user_id: str, cleanup_items: List[Dict[str, Any]]) -> 
 def save_selected(
     http_request: Request,
     request: SaveSelectedRequest,
-    background_tasks: BackgroundTasks,
+    background_tasks: BackgroundTasks = None,
 ):
+    # FastAPI always injects BackgroundTasks on the HTTP path (annotation is
+    # special-cased, the default is ignored). Direct in-process callers
+    # (unit tests) get an inert instance: add_task only queues; nothing runs
+    # without the response cycle, so no uncontrolled background work.
+    if background_tasks is None:
+        background_tasks = BackgroundTasks()
     user_id = _effective_user_id(http_request, request.user_id)
     _async_rmbg = _async_rmbg_enabled()
 

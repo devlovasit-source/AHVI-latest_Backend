@@ -336,7 +336,11 @@ class DemoHardeningTests(unittest.TestCase):
             result = persistence.persist_selected_items("user_auth", ["item_1"], [item])
 
         self.assertTrue(result["success"])
-        self.assertEqual(captured["data"]["image_url"], "https://masked.example/item.png")
+        # Contract per 0bff358 (catalog PNG via normalized URL): image_url is
+        # the preserved RAW source (the schema has no raw_url field), while
+        # masked_url/normalized_url carry the processed display assets. Qdrant
+        # payloads use the cleaner processed image.
+        self.assertEqual(captured["data"]["image_url"], "https://raw.example/item.png")
         self.assertNotIn("raw_url", captured["data"])
         self.assertEqual(captured["data"]["masked_url"], "https://masked.example/item.png")
         self.assertEqual(captured["data"]["userId"], "user_auth")
@@ -356,7 +360,10 @@ class DemoHardeningTests(unittest.TestCase):
         )
 
         self.assertEqual(item["category"], "Bottoms")
-        self.assertEqual(item["sub_category"], "Bottom")
+        # Taxonomy intentionally routes leggings to the specific subcategory
+        # (7d35d5b: bottoms tokens get precise subcategories); the promotion
+        # contract under test is only "leggings never stay in Needs Review".
+        self.assertEqual(item["sub_category"], "Leggings")
         self.assertFalse(item.get("requires_manual_entry", False))
 
     def test_qdrant_wardrobe_upsert_accepts_minilm_vector(self):
