@@ -470,17 +470,17 @@ def compact_style_dna(style_dna: Any, preferences: Any) -> Dict[str, Any]:
     contract = {
         "style_archetypes": _top_archetypes(dna.get("style_archetypes"))
         or [str(x) for x in _safe_list(prefs.get("archetypes"))][:3],
-        "preferred_colors": [str(x) for x in (color.get("core_colors") or color.get("power_colors") or prefs.get("colors") or [])][:6],
-        "avoided_colors": [str(x) for x in (color.get("avoided_colors") or prefs.get("avoided_colors") or [])][:6],
-        "preferred_silhouettes": [str(x) for x in (sil.get("preferred_fits") or sil.get("preferred_shapes") or prefs.get("silhouettes") or [])][:5],
+        "preferred_colors": [str(x) for x in (dna.get("preferred_colors") or color.get("core_colors") or color.get("power_colors") or prefs.get("colors") or [])][:6],
+        "avoided_colors": [str(x) for x in (dna.get("avoided_colors") or color.get("avoided_colors") or prefs.get("avoided_colors") or [])][:6],
+        "preferred_silhouettes": [str(x) for x in (dna.get("preferred_silhouettes") or sil.get("preferred_fits") or sil.get("preferred_shapes") or prefs.get("silhouettes") or [])][:5],
         "preferred_formality": str(
             dna.get("preferred_formality")
             or _safe_dict(dna.get("style_identity")).get("formality")
             or prefs.get("formality")
             or ""
         ).strip(),
-        "preferred_style_keywords": [str(x) for x in (prefs.get("style_keywords") or _safe_list(dna.get("style_keywords")))][:6],
-        "avoid_style_keywords": [str(x) for x in (prefs.get("avoid_keywords") or _safe_list(dna.get("avoid_style_keywords")))][:6],
+        "preferred_style_keywords": [str(x) for x in (dna.get("preferred_style_keywords") or prefs.get("style_keywords") or _safe_list(dna.get("style_keywords")))][:6],
+        "avoid_style_keywords": [str(x) for x in (dna.get("avoid_style_keywords") or prefs.get("avoid_keywords") or [])][:6],
     }
     # Drop empty fields; if nothing populated, return {}.
     contract = {k: v for k, v in contract.items() if v}
@@ -730,7 +730,7 @@ def build_canonical_style_context(
     Pure assembly over functions the wardrobe path already uses:
     - occasion via ``build_brief`` (same engine the wardrobe path resolves with)
     - gender via ``_resolve_gender``
-    - DNA via ``compact_style_dna``
+    - DNA derived deterministically from profile + already-loaded durable memory
 
     Does NOT mutate the caller's context. Fails open: any resolver error
     degrades to safe defaults so the visual path never breaks.
@@ -825,14 +825,43 @@ def build_canonical_style_context(
     except Exception:  # noqa: BLE001
         gender = "unknown"
 
-    # 3. DNA compacted (empty dict when nothing meaningful exists).
+    # 3. Derive DNA from profile + the durable memory slice already loaded
+    # above. The engine performs no I/O, so canonical sources are read once.
+    dna_meta: Dict[str, Any] = {}
     try:
-        dna = compact_style_dna(
-            style_dna if style_dna is not None else supplied_context.get("style_dna") or profile.get("style_dna") or profile.get("styleDNA"),
-            profile.get("preferences") or profile.get("style_preferences"),
+        from brain.personalization.style_dna_engine import StyleDNAEngine
+
+        derived_dna = StyleDNAEngine().build(
+            {
+                "user_profile": profile,
+                "preferences": preferences,
+                "style_dna": style_dna if style_dna is not None else (
+                    supplied_context.get("style_dna")
+                    or profile.get("style_dna")
+                    or profile.get("styleDNA")
+                ),
+                "memory": style_memory,
+                "wardrobe_items": items,
+            }
         )
+        dna = compact_style_dna(derived_dna, preferences)
+        dna_meta = {
+            key: derived_dna.get(key)
+            for key in (
+                "dna_signal_count", "confidence", "durable_feedback_used",
+                "saved_memory_used", "wear_memory_used", "personalization_degraded",
+            )
+        }
     except Exception:  # noqa: BLE001
         dna = {}
+        dna_meta = {
+            "dna_signal_count": 0,
+            "confidence": 0.0,
+            "durable_feedback_used": False,
+            "saved_memory_used": False,
+            "wear_memory_used": False,
+            "personalization_degraded": True,
+        }
 
     # 4. Occasion family + cultural gating (single authority for the board path).
     try:
@@ -891,6 +920,7 @@ def build_canonical_style_context(
         "saved_board_patterns": _safe_list(style_memory.get("saved_board_patterns")),
         "liked_board_patterns": _safe_list(style_memory.get("liked_board_patterns")),
         "disliked_board_patterns": _safe_list(style_memory.get("disliked_board_patterns")),
+        "_personalization_meta": _safe_dict(style_memory.get("_personalization_meta")),
         "source_policy": supplied_context.get("source_policy"),
         "allow_wardrobe_fallback": bool(supplied_context.get("allow_wardrobe_fallback")),
         "wardrobe_only": bool(supplied_context.get("wardrobe_only")),
@@ -918,6 +948,12 @@ def build_canonical_style_context(
             ctx["saved_item_ids"] or ctx["favorite_colors"] or ctx["favorite_categories"]
         ),
         "canonical_occasion": canonical_occasion,
+        "dna_signal_count": int(dna_meta.get("dna_signal_count") or 0),
+        "dna_confidence": float(dna_meta.get("confidence") or 0.0),
+        "durable_feedback_used": bool(dna_meta.get("durable_feedback_used")),
+        "saved_memory_used": bool(dna_meta.get("saved_memory_used")),
+        "wear_memory_used": bool(dna_meta.get("wear_memory_used")),
+        "personalization_degraded": bool(dna_meta.get("personalization_degraded")),
     }
     for key in (
         "agent_orchestration", "anchor_item_id", "chips", "signals", "history",

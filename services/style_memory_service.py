@@ -123,11 +123,12 @@ def load_wear_memory(user_id: str, wardrobe: Any = None) -> Dict[str, Any]:
         "underworn_ids": [],
         "wear_counts": {},
         "last_worn_at": {},
+        "_degraded": False,
     }
     try:
         rows = _proxy().list_documents("outfit_history", user_id=user_id, limit=200)
     except Exception:
-        return empty
+        return {**empty, "_degraded": True}
     if not isinstance(rows, list) or not rows:
         # No evidence is neutral; it must not create a positive memory score.
         return empty
@@ -166,6 +167,7 @@ def load_wear_memory(user_id: str, wardrobe: Any = None) -> Dict[str, Any]:
         "underworn_ids": underworn,
         "wear_counts": wear_counts,
         "last_worn_at": last_worn,
+        "_degraded": False,
     }
 
 
@@ -180,13 +182,14 @@ def load_saved_board_memory(user_id: str) -> Dict[str, Any]:
         "saved_board_patterns": [],
         "favorite_colors": [],
         "favorite_categories": [],
+        "_degraded": False,
     }
     try:
         from services.board_service import list_saved_boards
 
         boards = list_saved_boards(user_id=user_id, limit=50)
     except Exception:
-        return empty
+        return {**empty, "_degraded": True}
     if not isinstance(boards, list) or not boards:
         return empty
 
@@ -224,6 +227,7 @@ def load_saved_board_memory(user_id: str) -> Dict[str, Any]:
         "saved_board_patterns": list(dict.fromkeys(patterns))[:8],
         "favorite_colors": _top(colors, 6),
         "favorite_categories": _top(cats, 6),
+        "_degraded": False,
     }
     logger.info(
         "AHVI_SAVED_BOARD_MEMORY_LOADED user_id=%s boards=%d saved_items=%d colors=%s",
@@ -247,9 +251,11 @@ def build_style_memory_context(user_id: str, wardrobe: Any = None) -> Dict[str, 
     try:
         from services.style_feedback_store import load_feedback_memory
         feedback = load_feedback_memory(user_id)
+        feedback_degraded = False
     except Exception as exc:  # noqa: BLE001
         logger.warning("AHVI_STYLE_FEEDBACK_READ_FAILED err=%s", str(exc)[:140])
         feedback = {}
+        feedback_degraded = True
     saved_item_ids = list(dict.fromkeys([
         *(saved.get("saved_item_ids") or []),
         *(feedback.get("feedback_saved_item_ids") or []),
@@ -278,6 +284,19 @@ def build_style_memory_context(user_id: str, wardrobe: Any = None) -> Dict[str, 
         "disliked_item_ids": [],  # no producer yet — reserved.
     }
     ctx["disliked_item_ids"] = feedback.get("disliked_item_ids") or []
+    ctx["_personalization_meta"] = {
+        "durable_feedback_used": bool(
+            ctx["liked_item_ids"] or ctx["disliked_item_ids"]
+            or ctx["liked_board_patterns"] or ctx["disliked_board_patterns"]
+        ),
+        "saved_memory_used": bool(ctx["saved_item_ids"] or ctx["saved_board_patterns"]),
+        "wear_memory_used": bool(
+            ctx["recently_worn_ids"] or ctx["underworn_ids"] or ctx["wear_counts"]
+        ),
+        "personalization_degraded": bool(
+            wear.get("_degraded") or saved.get("_degraded") or feedback_degraded
+        ),
+    }
     has_memory = bool(
         ctx["recently_worn_ids"] or ctx["saved_item_ids"] or ctx["wear_counts"]
         or ctx["liked_item_ids"] or ctx["disliked_item_ids"]
@@ -304,4 +323,10 @@ def _neutral_memory() -> Dict[str, Any]:
         "disliked_item_ids": [],
         "liked_board_patterns": [],
         "disliked_board_patterns": [],
+        "_personalization_meta": {
+            "durable_feedback_used": False,
+            "saved_memory_used": False,
+            "wear_memory_used": False,
+            "personalization_degraded": False,
+        },
     }

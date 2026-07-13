@@ -296,7 +296,6 @@ def _ahvi_normalize_wardrobe_items(items):
 
 
 _MEMORY_LOCK = Lock()
-_MEMORY_FILE = os.path.join(os.path.dirname(__file__), "data", "outfit_memory.json")
 
 
 def _tokens(value: Any) -> List[str]:
@@ -630,26 +629,6 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _load_memory() -> Dict[str, Any]:
-    if not os.path.exists(_MEMORY_FILE):
-        return {"users": {}}
-    try:
-        with open(_MEMORY_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, dict):
-                data.setdefault("users", {})
-                return data
-    except Exception:
-        pass
-    return {"users": {}}
-
-
-def _save_memory(memory: Dict[str, Any]) -> None:
-    os.makedirs(os.path.dirname(_MEMORY_FILE), exist_ok=True)
-    with open(_MEMORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(memory, f, ensure_ascii=True, indent=2)
-
-
 def _memory_doc_id(user_id: str) -> str:
     safe = "".join(
         ch if ch.isalnum() or ch in ("-", "_") else "_"
@@ -677,15 +656,15 @@ def _load_user_memory(user_id: str) -> Dict[str, Any]:
                 user_memory = _default_user_memory()
                 user_memory.update(parsed)
                 return user_memory
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "AHVI_OUTFIT_MEMORY_DEGRADED user_present=%s error_type=%s",
+            bool(str(user_id or "").strip()), type(exc).__name__,
+        )
+    return _default_user_memory()
 
-    memory = _load_memory()
-    user = _ensure_user_memory(memory, user_id)
-    return dict(user)
 
-
-def _save_user_memory(user_id: str, user_memory: Dict[str, Any]) -> None:
+def _save_user_memory(user_id: str, user_memory: Dict[str, Any]) -> bool:
     proxy = AppwriteProxy()
     try:
         payload = {
@@ -698,31 +677,13 @@ def _save_user_memory(user_id: str, user_memory: Dict[str, Any]) -> None:
             proxy.update_document("memories", doc_id, payload)
         except Exception:
             proxy.create_document("memories", payload, document_id=doc_id)
-        return
-    except Exception:
-        pass
-
-    memory = _load_memory()
-    user = _ensure_user_memory(memory, user_id)
-    user.clear()
-    user.update(user_memory or {})
-    _save_memory(memory)
-
-
-def _ensure_user_memory(memory: Dict[str, Any], user_id: str) -> Dict[str, Any]:
-    users = memory.setdefault("users", {})
-    user = users.setdefault(
-        user_id,
-        {
-            "recent_outfits": [],
-            "liked_outfits": [],
-            "disliked_outfits": [],
-        },
-    )
-    user.setdefault("recent_outfits", [])
-    user.setdefault("liked_outfits", [])
-    user.setdefault("disliked_outfits", [])
-    return user
+        return True
+    except Exception as exc:
+        logger.warning(
+            "AHVI_OUTFIT_MEMORY_WRITE_SKIPPED user_present=%s error_type=%s",
+            bool(str(user_id or "").strip()), type(exc).__name__,
+        )
+        return False
 
 
 def _normalize_item(item: Dict[str, Any], fallback_type: str) -> Dict[str, Any]:
@@ -2858,9 +2819,6 @@ def save_feedback(
         _save_user_memory(user_id, user_memory)
         _index_outfit_vector(user_id=user_id, outfit=record, label=feedback_value)
 
-    outfit_ranker.learn_from_feedback(
-        user_id=user_id, features=outfit.get("ml_features", {}), feedback=feedback_value
-    )
     return {"ok": True, "feedback": feedback_value}
 
 
