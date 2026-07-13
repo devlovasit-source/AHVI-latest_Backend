@@ -3,10 +3,11 @@ from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from brain.personalization.style_dna_engine import style_dna_engine
+from services.auth_helpers import bind_request_user
 from services import ai_gateway
 from services.appwrite_proxy import AppwriteProxy
 from services.style_flow_service import (
@@ -72,7 +73,7 @@ def get_item_suggestions(request: ItemContextRequest):
 
 
 class OutfitPipelineRequest(BaseModel):
-    user_id: str
+    user_id: str = ""
     query: str = "What should I wear today?"
     wardrobe: Any = None
     user_profile: Dict[str, Any] = Field(default_factory=dict)
@@ -86,22 +87,24 @@ def _dict(value: Any) -> Dict[str, Any]:
 
 
 @router.post("/pipeline")
-def run_outfit_pipeline(request: OutfitPipelineRequest):
+def run_outfit_pipeline(request: OutfitPipelineRequest, http_request: Request = None):
+    # Bind to the authenticated user; a mismatched body user_id is a 403.
+    user_id = bind_request_user(http_request, request.user_id)
     appwrite = AppwriteProxy()
     context = dict(request.context or {})
     context["query"] = request.query
-    context["user_id"] = request.user_id
+    context["user_id"] = user_id
 
     wardrobe = request.wardrobe
     if wardrobe is None:
         try:
-            wardrobe = appwrite.list_documents("outfits", user_id=request.user_id)
+            wardrobe = appwrite.list_documents("outfits", user_id=user_id)
         except Exception:
             wardrobe = []
 
     style_dna = style_dna_engine.build(
         {
-            "user_id": request.user_id,
+            "user_id": user_id,
             "user_profile": request.user_profile or {},
             "history": context.get("history", []),
             "wardrobe": wardrobe,
@@ -111,7 +114,7 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
 
     try:
         response = build_style_flow_response(
-            user_id=request.user_id,
+            user_id=user_id,
             query=request.query,
             wardrobe=wardrobe,
             user_profile=request.user_profile or {},
@@ -128,7 +131,7 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
         return response
     except Exception as exc:
         logger.exception(
-            "stylist.pipeline failed user_id=%s error=%s", request.user_id, str(exc)
+            "stylist.pipeline failed user_id=%s error=%s", user_id, str(exc)
         )
         return {
             "success": False,
@@ -183,7 +186,7 @@ _DRESS_FOOTWEAR_SUGGESTIONS = [
 
 
 class ItemStyleRequest(BaseModel):
-    user_id: str
+    user_id: str = ""
     mode: str = "build_outfit"  # "build_outfit" | "style_this"
     occasion: Optional[str] = None
     wardrobe_only: bool = False
@@ -291,11 +294,16 @@ def _inject_anchor(items: List[Dict[str, Any]], anchor: Dict[str, Any]) -> List[
     return [anchor, *items]
 
 
-def _resolve_wardrobe(request: ItemStyleRequest) -> "tuple[List[Dict[str, Any]], bool]":
+def _resolve_wardrobe(
+    request: ItemStyleRequest, user_id: Optional[str] = None
+) -> "tuple[List[Dict[str, Any]], bool]":
+    # user_id is the bound (authenticated) id from the route; direct callers
+    # without an auth context fall back to the request's own user_id.
+    uid = user_id if user_id is not None else request.user_id
     if isinstance(request.wardrobe, list):
         return [dict(i) for i in request.wardrobe if isinstance(i, dict)], False
     try:
-        rows = AppwriteProxy().list_documents("outfits", user_id=request.user_id) or []
+        rows = AppwriteProxy().list_documents("outfits", user_id=uid) or []
         return [
             {**i, "source": i.get("source") or "wardrobe"}
             for i in rows if isinstance(i, dict)
@@ -881,12 +889,17 @@ def _typed_failure(
 
 
 @router.post("/items/{item_id}/style")
-def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, Any]:
+def style_wardrobe_item(
+    item_id: str, request: ItemStyleRequest, http_request: Request = None
+) -> Dict[str, Any]:
     """Power direct item actions using hard constrained-generation rules."""
+    # Bind to the authenticated user; a mismatched body user_id is a 403 and
+    # all server-side wardrobe reads use the authenticated id only.
+    user_id = bind_request_user(http_request, request.user_id)
     mode = _txt(request.mode).lower()
     if mode not in {"build_outfit", "style_this"}:
         mode = "build_outfit"
-    wardrobe, wardrobe_trusted = _resolve_wardrobe(request)
+    wardrobe, wardrobe_trusted = _resolve_wardrobe(request, user_id)
     style_assets, style_assets_trusted = _resolve_style_assets(request)
     anchor = _resolve_anchor(request, item_id, wardrobe, wardrobe_trusted)
     if anchor is None:

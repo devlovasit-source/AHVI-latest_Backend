@@ -48,6 +48,34 @@ def enforce_owner(request: Request, supplied_user_id: Optional[str]) -> str:
     return authed
 
 
+def bind_request_user(request: Optional[Request], supplied_user_id: Optional[str]) -> str:
+    """Resolve the effective user id for a body-supplied user_id.
+
+    When an authenticated user is present (auth middleware set
+    request.state.user), the authenticated id is authoritative: a mismatched
+    supplied id raises 403 and a missing supplied id falls back to the
+    authenticated id. When no authenticated user exists (AUTH_REQUIRED=false /
+    bare test apps), the supplied id passes through unchanged so offline and
+    direct-call behavior is preserved — nothing resolved this way may be
+    treated as trusted.
+    """
+    supplied = str(supplied_user_id or "").strip()
+    authed = get_authed_user_id(request) if request is not None else ""
+    if not authed:
+        return supplied
+    if supplied and supplied != authed:
+        logger.warning(
+            "ownership_mismatch authed=%s supplied=%s path=%s",
+            authed,
+            supplied,
+            getattr(getattr(request, "url", None), "path", ""),
+        )
+        raise HTTPException(
+            status_code=403, detail="user_id does not match authenticated user"
+        )
+    return authed
+
+
 # ---------------------------------------------------------------------------
 # Outbound-URL safety (SSRF guard)
 # ---------------------------------------------------------------------------
@@ -141,6 +169,7 @@ __all__: Iterable[str] = (
     "get_authed_user_id",
     "require_user",
     "enforce_owner",
+    "bind_request_user",
     "is_safe_outbound_url",
     "assert_safe_outbound_url",
 )

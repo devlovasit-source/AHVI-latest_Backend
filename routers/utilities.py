@@ -3,9 +3,10 @@ import os
 from typing import Any, Dict, List, Optional
 
 import requests
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from services.auth_helpers import bind_request_user
 from services.r2_storage import R2StorageError
 from services.qdrant_service import qdrant_service
 from services import upload_service
@@ -28,7 +29,7 @@ class AnthropicRequest(BaseModel):
 
 
 class AvatarUploadRequest(BaseModel):
-    user_id: str
+    user_id: str = ""
     image_base64: str = Field(..., min_length=10)
 
 
@@ -36,6 +37,20 @@ class WardrobeUploadRequest(BaseModel):
     file_id: str
     raw_image_base64: str = Field(..., min_length=10)
     masked_image_base64: str = Field(..., min_length=10)
+    user_id: str = ""
+
+
+def _safe_file_id(file_id: str) -> str:
+    """Storage keys are built from file_id — reject separators / traversal."""
+    value = str(file_id or "").strip()
+    if (
+        not value
+        or len(value) > 128
+        or ".." in value
+        or any(ch in value for ch in ("/", "\\", "\0"))
+    ):
+        raise HTTPException(status_code=400, detail="Invalid file_id")
+    return value
 
 
 @router.post("/api/anthropic")
@@ -107,10 +122,15 @@ def weather(latitude: float, longitude: float):
 
 
 @router.post("/api/uploads/avatar")
-def upload_avatar(request: AvatarUploadRequest):
+def upload_avatar(request: AvatarUploadRequest, http_request: Request = None):
+    # Avatar keys are derived from user_id — bind to the authenticated user so
+    # one account can never write into another account's avatar namespace.
+    user_id = bind_request_user(http_request, request.user_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
     try:
         avatar_url = upload_service.upload_avatar(
-            user_id=request.user_id,
+            user_id=user_id,
             image_base64=request.image_base64,
         )
         return {"avatar_url": avatar_url}
@@ -121,10 +141,17 @@ def upload_avatar(request: AvatarUploadRequest):
 
 
 @router.post("/api/uploads/wardrobe")
-def upload_wardrobe_images(request: WardrobeUploadRequest):
+def upload_wardrobe_images(request: WardrobeUploadRequest, http_request: Request = None):
+    # Wardrobe storage keys are derived from file_id. Namespace the key by
+    # the authenticated user so one account can never overwrite another
+    # account's objects, and reject separator/traversal file_ids outright.
+    user_id = bind_request_user(http_request, request.user_id)
+    file_id = _safe_file_id(request.file_id)
+    if user_id and not file_id.startswith(f"{user_id}-"):
+        file_id = f"{user_id}-{file_id}"
     try:
         result = upload_service.upload_wardrobe_images(
-            file_id=request.file_id,
+            file_id=file_id,
             raw_image_base64=request.raw_image_base64,
             masked_image_base64=request.masked_image_base64,
         )

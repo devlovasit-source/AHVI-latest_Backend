@@ -12,10 +12,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Union
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from services.appwrite_proxy import AppwriteProxy
+from services.auth_helpers import bind_request_user
 from services import style_board_shuffle_service
 
 router = APIRouter()
@@ -42,7 +43,7 @@ class LockedBoardItem(BaseModel):
 
 
 class BoardShuffleRequest(BaseModel):
-    user_id: str
+    user_id: str = ""
     scenario: str = "shuffle_unlocked"
     revision: int = 1
     occasion: Optional[str] = None
@@ -56,18 +57,23 @@ class BoardShuffleRequest(BaseModel):
     style_assets: Any = None  # optional inline style assets (tests / offline)
 
 
-def _resolve_wardrobe(request: BoardShuffleRequest) -> "tuple[List[Dict[str, Any]], bool]":
+def _resolve_wardrobe(
+    request: BoardShuffleRequest, user_id: Optional[str] = None
+) -> "tuple[List[Dict[str, Any]], bool]":
     """Same resolution as routers.stylist._resolve_wardrobe, plus provenance
     stamping: documents listed from the user's own wardrobe collection ARE
     wardrobe items, so a missing source is stamped explicitly (the contract
     treats unknown != wardrobe on purpose)."""
+    # user_id is the bound (authenticated) id from the route; direct callers
+    # without an auth context fall back to the request's own user_id.
+    uid = user_id if user_id is not None else request.user_id
     rows: List[Dict[str, Any]]
     if isinstance(request.wardrobe, list):
         rows = [dict(i) for i in request.wardrobe if isinstance(i, dict)]
         return rows, False
     else:
         try:
-            docs = AppwriteProxy().list_documents("outfits", user_id=request.user_id) or []
+            docs = AppwriteProxy().list_documents("outfits", user_id=uid) or []
             rows = [i for i in docs if isinstance(i, dict)]
         except Exception:
             rows = []
@@ -89,8 +95,14 @@ def _style_asset_provider() -> List[Dict[str, Any]]:
 
 
 @router.post("/style-boards/{board_id}/shuffle")
-def shuffle_style_board(board_id: str, request: BoardShuffleRequest) -> Dict[str, Any]:
-    wardrobe, wardrobe_source_trusted = _resolve_wardrobe(request)
+def shuffle_style_board(
+    board_id: str, request: BoardShuffleRequest, http_request: Request = None
+) -> Dict[str, Any]:
+    # Bind to the authenticated user; a mismatched body user_id is a 403 and
+    # the wardrobe is only ever loaded for the authenticated id. Inline
+    # wardrobe (tests / offline) is preserved but never marked trusted.
+    user_id = bind_request_user(http_request, request.user_id)
+    wardrobe, wardrobe_source_trusted = _resolve_wardrobe(request, user_id)
     locked = [dict(item) for item in request.locked_items]
     inline_assets = (
         [dict(i) for i in request.style_assets if isinstance(i, dict)]
