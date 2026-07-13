@@ -308,6 +308,126 @@ def test_trusted_appwrite_rows_are_stamped_wardrobe(monkeypatch):
     assert rows[0]["source"] == "wardrobe"
 
 
+# ---------------------------------------------------------------- trusted anchor
+# Regression: device "White Top" failure - Flutter sends an anchor payload
+# without a canonical source; the endpoint must replace it with the
+# server-resolved authenticated wardrobe record instead of rejecting with
+# "A fixed item must include a trusted source."
+
+def _trusted_wardrobe(monkeypatch, docs):
+    class Proxy:
+        def list_documents(self, resource, **kwargs):
+            if resource == "outfits":
+                return [dict(d) for d in docs]
+            return []
+
+    monkeypatch.setattr(stylist, "AppwriteProxy", Proxy)
+
+
+_WHITE_TOP_DOC = {
+    "id": "top-white-1", "name": "White Top", "category": "Tops",
+    "image_url": "https://img/top-white-1.png",
+}
+_TRUSTED_DOCS = [
+    _WHITE_TOP_DOC,
+    {"id": "jeans-1", "name": "Blue Jeans", "category": "Bottoms",
+     "image_url": "https://img/jeans-1.png"},
+    {"id": "sneak-1", "name": "White Sneakers", "category": "Footwear",
+     "image_url": "https://img/sneak-1.png"},
+]
+_ASSETS = [
+    {"id": "a-skirt-1", "name": "Pleated Skirt", "category": "Bottoms", "source": "style_asset"},
+    {"id": "a-heel-1", "name": "Strappy Heels", "category": "Footwear", "source": "style_asset"},
+]
+
+
+def _trusted_req(mode, anchor, style_assets=None):
+    return stylist.ItemStyleRequest(
+        user_id="u1", mode=mode, anchor_item=anchor,
+        wardrobe=None,  # forces the trusted Appwrite resolution path
+        style_assets=_ASSETS if style_assets is None else style_assets,
+    )
+
+
+def test_white_top_anchor_missing_source_resolves_from_server(monkeypatch):
+    _trusted_wardrobe(monkeypatch, _TRUSTED_DOCS)
+    client_anchor = {"id": "top-white-1", "name": "White Top", "category": "Tops"}
+    result = stylist.style_wardrobe_item(
+        "top-white-1", _trusted_req("build_outfit", client_anchor)
+    )
+    assert result["success"] is True, result.get("error")
+    hero = result["outfit"]["items"][0]
+    assert hero["item_id"] == "top-white-1"
+    assert hero["source"] == "wardrobe"
+    assert hero["owned"] is True
+    assert hero["image_url"] == "https://img/top-white-1.png"
+
+
+def test_anchor_with_unknown_source_uses_server_record(monkeypatch):
+    _trusted_wardrobe(monkeypatch, _TRUSTED_DOCS)
+    client_anchor = {"id": "top-white-1", "name": "White Top",
+                     "category": "Tops", "source": "unknown"}
+    result = stylist.style_wardrobe_item(
+        "top-white-1", _trusted_req("build_outfit", client_anchor)
+    )
+    assert result["success"] is True, result.get("error")
+    assert result["outfit"]["items"][0]["source"] == "wardrobe"
+
+
+def test_false_wardrobe_claim_not_in_authenticated_wardrobe(monkeypatch):
+    _trusted_wardrobe(monkeypatch, _TRUSTED_DOCS)
+    forged = {"id": "not-mine-1", "name": "Someone Else's Jacket",
+              "category": "Outerwear", "source": "wardrobe"}
+    result = stylist.style_wardrobe_item(
+        "not-mine-1", _trusted_req("build_outfit", forged)
+    )
+    assert result["success"] is False
+    assert result["error"]["code"] == "INVALID_ANCHOR_ITEM"
+
+
+def test_server_record_wins_over_client_display_fields(monkeypatch):
+    _trusted_wardrobe(monkeypatch, _TRUSTED_DOCS)
+    client_anchor = {"id": "top-white-1", "name": "Renamed Top",
+                     "category": "Tops",
+                     "image_url": "https://img/spoofed.png",
+                     "color": "white"}
+    result = stylist.style_wardrobe_item(
+        "top-white-1", _trusted_req("build_outfit", client_anchor)
+    )
+    assert result["success"] is True, result.get("error")
+    hero = result["outfit"]["items"][0]
+    assert hero["image_url"] == "https://img/top-white-1.png", "server image wins"
+    assert hero["slot"] == "top"
+
+
+def test_white_top_style_this_completions_stay_style_asset(monkeypatch):
+    _trusted_wardrobe(monkeypatch, _TRUSTED_DOCS)
+    client_anchor = {"id": "top-white-1", "name": "White Top", "category": "Tops"}
+    result = stylist.style_wardrobe_item(
+        "top-white-1", _trusted_req("style_this", client_anchor)
+    )
+    assert result["success"] is True, result.get("error")
+    assert result["source_policy"] == "style_asset"
+    for direction in result["style_directions"]:
+        assert direction["source_policy"] == "style_asset"
+        hero = next(i for i in direction["items"] if i["item_id"] == "top-white-1")
+        assert hero["source"] == "wardrobe"
+        for item in direction["items"]:
+            if not item["locked"]:
+                assert item["source"] == "style_asset"
+
+
+def test_white_top_build_outfit_completions_stay_wardrobe(monkeypatch):
+    _trusted_wardrobe(monkeypatch, _TRUSTED_DOCS)
+    client_anchor = {"id": "top-white-1", "name": "White Top", "category": "Tops"}
+    result = stylist.style_wardrobe_item(
+        "top-white-1", _trusted_req("build_outfit", client_anchor)
+    )
+    assert result["success"] is True, result.get("error")
+    assert result["source_policy"] == "wardrobe"
+    assert all(i["source"] == "wardrobe" for i in result["outfit"]["items"])
+
+
 def test_caller_rows_are_not_stamped_wardrobe():
     request = stylist.ItemStyleRequest(user_id="u1", wardrobe=[{"id": "top-1"}])
     rows, trusted = stylist._resolve_wardrobe(request)

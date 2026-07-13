@@ -318,14 +318,47 @@ def _resolve_style_assets(request: ItemStyleRequest) -> "tuple[List[Dict[str, An
 
 
 def _resolve_anchor(
-    request: ItemStyleRequest, item_id: str, wardrobe: List[Dict[str, Any]]
-) -> Dict[str, Any]:
-    if isinstance(request.anchor_item, dict) and request.anchor_item:
-        return dict(request.anchor_item)
-    for item in wardrobe:
-        if _item_id_of(item) == _txt(item_id):
-            return dict(item)
-    return {"item_id": _txt(item_id)}
+    request: ItemStyleRequest,
+    item_id: str,
+    wardrobe: List[Dict[str, Any]],
+    wardrobe_trusted: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Resolve the fixed anchor for the direct item CTA.
+
+    Trusted wardrobe (server-resolved from the authenticated user's Appwrite
+    collection): the SERVER record is the authority for identity, ownership
+    and source - the client anchor_item may only supply display/context
+    fields it does not override.  A requested item_id absent from the
+    authenticated wardrobe returns None (INVALID_ANCHOR_ITEM), even when the
+    caller claims source="wardrobe".
+
+    Untrusted wardrobe (caller-inlined, tests/offline): the caller owns the
+    payload, so the anchor passes through unchanged - missing/unknown source
+    stays unknown and is rejected downstream by the constrained builder.
+    """
+    client_anchor = (
+        dict(request.anchor_item)
+        if isinstance(request.anchor_item, dict) and request.anchor_item
+        else {}
+    )
+    wanted_id = _txt(item_id) or canonical_item_id(client_anchor)
+    server_record = next(
+        (dict(i) for i in wardrobe if canonical_item_id(i) == wanted_id), None
+    )
+
+    if not wardrobe_trusted:
+        if client_anchor:
+            return client_anchor
+        return server_record if server_record else {"item_id": _txt(item_id)}
+
+    if server_record is None:
+        return None  # not in the authenticated wardrobe -> INVALID_ANCHOR_ITEM
+    # Client fields fill display gaps only; the server record wins on every
+    # overlapping key, then trusted provenance is stamped at this boundary.
+    merged = {**client_anchor, **server_record}
+    merged["source"] = "wardrobe"
+    merged["owned"] = True
+    return merged
 
 
 def _anchor_desc(anchor: Dict[str, Any]) -> str:
@@ -855,7 +888,16 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
         mode = "build_outfit"
     wardrobe, wardrobe_trusted = _resolve_wardrobe(request)
     style_assets, style_assets_trusted = _resolve_style_assets(request)
-    anchor = _resolve_anchor(request, item_id, wardrobe)
+    anchor = _resolve_anchor(request, item_id, wardrobe, wardrobe_trusted)
+    if anchor is None:
+        # Trusted wardrobe resolved, but the requested item is not in the
+        # authenticated user's collection - caller-claimed source is never
+        # trusted without this server verification.
+        client_anchor = request.anchor_item if isinstance(request.anchor_item, dict) else {}
+        return _typed_failure(
+            mode, dict(client_anchor), "INVALID_ANCHOR_ITEM",
+            "This item is not in your wardrobe, so it cannot anchor a look.",
+        )
 
     anchor_id = canonical_item_id(anchor)
     if not anchor_id:
