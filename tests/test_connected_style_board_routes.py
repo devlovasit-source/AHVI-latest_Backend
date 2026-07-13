@@ -1,9 +1,11 @@
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from routers.style_boards import router as style_boards_router
 from routers.stylist import router as stylist_router
-from services.style_board_shuffle_service import reset_registry
+from services import style_board_shuffle_service as sbs
+from services.style_board_state_store import InMemoryBoardStateStore
 
 
 def _item(item_id, name, slot, source="wardrobe", subtype=None):
@@ -42,8 +44,15 @@ def _wardrobe():
     ]
 
 
+@pytest.fixture(autouse=True)
+def _state_store():
+    # Explicitly injected test double — production defaults to Appwrite.
+    sbs.set_state_store(InMemoryBoardStateStore())
+    yield
+    sbs.set_state_store(None)
+
+
 def test_build_outfit_to_multiple_lock_shuffle_and_revision_conflict():
-    reset_registry()
     client = _client()
     wardrobe = _wardrobe()
     built = client.post(

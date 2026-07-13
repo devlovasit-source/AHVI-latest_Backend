@@ -122,3 +122,28 @@ Current phase:
 - Core architecture implemented
 - Refinement and orchestration consistency ongoing
 
+
+## Style-board shuffle state (durable)
+
+Style-board shuffle revisions are stored durably in the Appwrite
+`style_board_states` collection — one immutable document per
+`(board_id, revision)` with a deterministic document ID
+(`sha1("board_id|revision")[:36]`). Creating revision N+1 is the atomic
+claim: with multiple Cloud Run instances, exactly one concurrent shuffle
+from revision N succeeds; the loser receives `BOARD_REVISION_CONFLICT`.
+
+Deployment requirements:
+
+1. Run the idempotent migration once per environment:
+   `python scripts/create_style_board_states_collection.py`
+   (uses the standard `APPWRITE_ENDPOINT` / `APPWRITE_PROJECT_ID` /
+   `APPWRITE_DATABASE_ID` / `APPWRITE_API_KEY` variables).
+2. Optional: set `APPWRITE_COLLECTION_STYLE_BOARD_STATES` if the collection
+   id differs from the default `style_board_states`.
+
+Behavior when state storage is unavailable: board generation still returns
+the board with `shuffle_available=false` plus a typed
+`BOARD_STATE_UNAVAILABLE` registration error; shuffle requests fail typed
+with `BOARD_STATE_UNAVAILABLE` and never advance the revision. There is no
+in-memory fallback in production; boards created before this migration
+return `BOARD_STATE_NOT_FOUND` (regenerate the board).

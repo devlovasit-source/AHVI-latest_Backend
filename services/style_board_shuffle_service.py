@@ -1,21 +1,29 @@
 """Style-board shuffle service: lock-aware regeneration with revisions.
 
-LIMITATION (documented, accepted for the first verified implementation):
-the board revision registry below is per-process in-memory state.  It resets
-on instance restart and is NOT shared across Cloud Run instances, so under
-multi-instance traffic two instances can hold different revisions for the
-same board.  Unknown board ids are therefore registered at the requested
-revision (self-healing), and the registry is a consistency aid rather than a
-durable store.  Move to Appwrite/Redis before multi-instance rollout.
+Board state is DURABLE: one immutable Appwrite document per (board_id,
+revision) via services.style_board_state_store. Creating revision N+1 with
+its deterministic document ID is the atomic claim — of two concurrent
+shuffles from revision N (even across Cloud Run instances or restarts),
+exactly one create succeeds; the loser gets BOARD_REVISION_CONFLICT.
+
+Production uses AppwriteBoardStateStore by default. Tests must EXPLICITLY
+inject InMemoryBoardStateStore via set_state_store(); there is no implicit
+in-memory fallback — storage outages fail typed (BOARD_STATE_UNAVAILABLE),
+never silently in-process.
 """
 
 from __future__ import annotations
 
 import logging
-import threading
 from typing import Any, Dict, List, Optional
 
 from services.constrained_outfit_builder import ConstrainedOutfitBuilder
+from services.style_board_state_store import (
+    AppwriteBoardStateStore,
+    BoardRevisionExistsError,
+    BoardStateStoreError,
+    InMemoryBoardStateStore,
+)
 from services.style_item_contract import (
     FixedItemLostError,
     VALID_SOURCES,
@@ -55,14 +63,26 @@ def _policy_from_sources(sources: "frozenset[str] | set") -> str:
     return "mixed" if len(sources) > 1 else ""
 
 
-# board_id -> {"revision": int, "previous": snapshot|None, "items": [...],
-#              "scenario": str, "source_policy": str,
-#              "allow_wardrobe_fallback": bool, "occasion": str|None,
-#              "style_direction": str|None}
-_REGISTRY: Dict[str, Dict[str, Any]] = {}
-_REGISTRY_LOCK = threading.Lock()
+# Durable state store. None -> lazily constructed AppwriteBoardStateStore
+# (production default). Tests inject InMemoryBoardStateStore explicitly.
+_STORE: Optional[Any] = None
 
 _builder = ConstrainedOutfitBuilder()
+
+
+def set_state_store(store: Optional[Any]) -> None:
+    """Inject the board state store. Pass None to restore the production
+    default (AppwriteBoardStateStore). Test doubles are injected explicitly —
+    never selected implicitly."""
+    global _STORE
+    _STORE = store
+
+
+def _get_store() -> Any:
+    global _STORE
+    if _STORE is None:
+        _STORE = AppwriteBoardStateStore()
+    return _STORE
 
 # Deterministic placement fallback (used when style_board_engine helpers are
 # unavailable); mirrors the engine's stable-hash approach.
@@ -101,29 +121,77 @@ def _default_position(item_id: str, slot: str) -> Dict[str, Any]:
 
 
 def reset_registry() -> None:
-    """Test helper: clear all board state."""
-    with _REGISTRY_LOCK:
-        _REGISTRY.clear()
+    """Test helper: clear board state on an injected in-memory store.
+
+    No-op for the production Appwrite store (revision documents are
+    immutable); tests inject a fresh InMemoryBoardStateStore instead.
+    """
+    store = _STORE
+    if isinstance(store, InMemoryBoardStateStore):
+        store.clear()
+
+
+def _payload_to_state(record: Dict[str, Any]) -> Dict[str, Any]:
+    payload = record.get("payload") if isinstance(record.get("payload"), dict) else {}
+    return {
+        "revision": int(record.get("revision") or 0),
+        "user_id": str(record.get("user_id") or ""),
+        "previous": None,
+        "items": [dict(i) for i in (payload.get("items") or []) if isinstance(i, dict)],
+        "scenario": str(payload.get("scenario") or ""),
+        "source_policy": str(payload.get("source_policy") or ""),
+        "allow_wardrobe_fallback": bool(payload.get("allow_wardrobe_fallback")),
+        "occasion": payload.get("occasion"),
+        "style_direction": payload.get("style_direction"),
+    }
 
 
 def get_board_state(board_id: str) -> Optional[Dict[str, Any]]:
-    """Test/debug helper: current registry entry for a board (copy)."""
-    with _REGISTRY_LOCK:
-        entry = _REGISTRY.get(str(board_id))
-        return dict(entry) if entry else None
+    """Test/debug helper: latest durable state for a board (copy), with a
+    one-level `previous` snapshot resolved from the prior revision document."""
+    store = _get_store()
+    try:
+        latest = store.get_latest(str(board_id))
+        if latest is None:
+            return None
+        state = _payload_to_state(latest)
+        if state["revision"] > 1:
+            prev = store.get_revision(str(board_id), state["revision"] - 1)
+            if prev is not None:
+                prev_state = _payload_to_state(prev)
+                state["previous"] = {
+                    "revision": prev_state["revision"],
+                    "items": prev_state["items"],
+                }
+        return state
+    except BoardStateStoreError:
+        return None
 
 
-def _new_entry(revision: int) -> Dict[str, Any]:
+def _build_payload(
+    *,
+    scenario: str,
+    source_policy: str,
+    allow_wardrobe_fallback: bool,
+    occasion: Any,
+    style_direction: Any,
+    items: Optional[List[Dict[str, Any]]],
+    previous_revision: Optional[int] = None,
+) -> Dict[str, Any]:
     return {
-        "revision": revision,
-        "previous": None,
-        "items": [],
-        "scenario": "",
-        "source_policy": "",
-        "allow_wardrobe_fallback": False,
-        "occasion": None,
-        "style_direction": None,
+        "scenario": str(scenario or "").strip().lower(),
+        "source_policy": source_policy,
+        "allow_wardrobe_fallback": bool(allow_wardrobe_fallback),
+        "occasion": occasion,
+        "style_direction": style_direction,
+        "items": [dict(i) for i in (items or []) if isinstance(i, dict)],
+        "previous_revision": previous_revision,
     }
+
+
+def _payload_contract_equivalent(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    keys = ("scenario", "source_policy", "allow_wardrobe_fallback")
+    return all(a.get(k) == b.get(k) for k in keys)
 
 
 def register_board(
@@ -135,26 +203,81 @@ def register_board(
     occasion: Optional[str] = None,
     style_direction: Optional[str] = None,
     items: Optional[List[Dict[str, Any]]] = None,
-) -> None:
-    """Persist a board's creation-time contract (called by initial generation).
+    user_id: str = "",
+) -> Dict[str, Any]:
+    """Durably persist a board's creation-time contract (revision 1).
 
-    The stored source_policy is what "inherit" resolves to on shuffle - it is
+    The stored source_policy is what "inherit" resolves to on shuffle — it is
     the ONLY legitimate origin of a board's completion-source policy.
+
+    Idempotent for the same owner + equivalent contract; a conflicting owner
+    or incompatible existing state is never overwritten. Returns
+    {"ok": bool, "error": {"code", "message"} | None}.
     """
     board_id = str(board_id or "").strip()
     policy = canonical_board_policy(source_policy)
     if not board_id or not policy:
-        return
-    with _REGISTRY_LOCK:
-        entry = _REGISTRY.get(board_id) or _new_entry(int(revision))
-        entry["revision"] = int(revision)
-        entry["scenario"] = str(scenario or "").strip().lower()
-        entry["source_policy"] = policy
-        entry["allow_wardrobe_fallback"] = bool(allow_wardrobe_fallback) or policy == "mixed"
-        entry["occasion"] = occasion
-        entry["style_direction"] = style_direction
-        entry["items"] = [dict(i) for i in (items or []) if isinstance(i, dict)]
-        _REGISTRY[board_id] = entry
+        return {
+            "ok": False,
+            "error": {
+                "code": "BOARD_REGISTRATION_INVALID",
+                "message": "board_id and a canonical source_policy are required.",
+            },
+        }
+    payload = _build_payload(
+        scenario=scenario,
+        source_policy=policy,
+        allow_wardrobe_fallback=bool(allow_wardrobe_fallback) or policy == "mixed",
+        occasion=occasion,
+        style_direction=style_direction,
+        items=items,
+        previous_revision=None,
+    )
+    store = _get_store()
+    try:
+        store.create_revision(
+            user_id=str(user_id or ""),
+            board_id=board_id,
+            revision=int(revision),
+            payload=payload,
+        )
+        return {"ok": True, "error": None}
+    except BoardRevisionExistsError:
+        try:
+            existing = store.get_revision(board_id, int(revision))
+        except BoardStateStoreError as exc:
+            logger.warning("register_board verify failed board=%s err=%s", board_id, exc)
+            existing = None
+        if existing is not None:
+            same_owner = (
+                not str(user_id or "")
+                or not str(existing.get("user_id") or "")
+                or str(existing.get("user_id")) == str(user_id)
+            )
+            if same_owner and _payload_contract_equivalent(
+                existing.get("payload") or {}, payload
+            ):
+                return {"ok": True, "error": None}  # idempotent re-registration
+        logger.warning(
+            "register_board conflict board=%s revision=%s user=%s",
+            board_id, revision, user_id,
+        )
+        return {
+            "ok": False,
+            "error": {
+                "code": "BOARD_REGISTRATION_CONFLICT",
+                "message": "A different board already exists under this id.",
+            },
+        }
+    except BoardStateStoreError as exc:
+        logger.error("register_board storage unavailable board=%s err=%s", board_id, exc)
+        return {
+            "ok": False,
+            "error": {
+                "code": "BOARD_STATE_UNAVAILABLE",
+                "message": "Board state storage is unavailable; shuffle is disabled for this board.",
+            },
+        }
 
 
 def shuffle_board(
@@ -169,6 +292,7 @@ def shuffle_board(
     style_assets: Optional[List[Dict[str, Any]]] = None,
     style_asset_provider: Optional[Any] = None,
     context: Optional[Dict[str, Any]] = None,
+    user_id: str = "",
 ) -> Dict[str, Any]:
     board_id = str(board_id or "").strip()
     if not board_id:
@@ -183,21 +307,45 @@ def shuffle_board(
     context = dict(context or {})
     board_items = [i for i in (context.get("board_items") or []) if isinstance(i, dict)]
 
-    # --- Revision validation (register unknown boards at requested rev) ----
-    with _REGISTRY_LOCK:
-        entry = _REGISTRY.get(board_id)
-        if entry is None:
-            entry = _new_entry(revision)
-            _REGISTRY[board_id] = entry
-        elif entry["revision"] != revision:
-            return _error(
-                "BOARD_REVISION_CONFLICT",
-                "This board changed since you last saw it - refresh and try again.",
-                current_revision=entry["revision"],
-                requested_revision=revision,
-            )
-        stored_policy = canonical_board_policy(entry.get("source_policy"))
-        stored_scenario = str(entry.get("scenario") or "").strip().lower()
+    # --- Load durable state (no self-registration of unknown boards) --------
+    store = _get_store()
+    try:
+        latest = store.get_latest(board_id)
+    except BoardStateStoreError as exc:
+        logger.error("shuffle_board state load failed board=%s err=%s", board_id, exc)
+        return _error(
+            "BOARD_STATE_UNAVAILABLE",
+            "Board state storage is unavailable - please try again shortly.",
+        )
+    if latest is None:
+        return _error(
+            "BOARD_STATE_NOT_FOUND",
+            "This board has no stored state (it may predate durable shuffle) - regenerate the board to continue.",
+            action="regenerate_board",
+        )
+
+    # --- Ownership: stored owner must match the authenticated user ----------
+    stored_owner = str(latest.get("user_id") or "")
+    requester = str(user_id or "")
+    if stored_owner and requester and stored_owner != requester:
+        logger.warning(
+            "shuffle_board forbidden board=%s owner=%s requester=%s",
+            board_id, stored_owner, requester,
+        )
+        # Typed denial WITHOUT board contents.
+        return _error("BOARD_FORBIDDEN", "You do not have access to this board.")
+
+    if int(latest.get("revision") or 0) != revision:
+        return _error(
+            "BOARD_REVISION_CONFLICT",
+            "This board changed since you last saw it - refresh and try again.",
+            current_revision=int(latest.get("revision") or 0),
+            requested_revision=revision,
+        )
+    stored_payload = latest.get("payload") if isinstance(latest.get("payload"), dict) else {}
+    stored_policy = canonical_board_policy(stored_payload.get("source_policy"))
+    stored_scenario = str(stored_payload.get("scenario") or "").strip().lower()
+    stored_style_direction = stored_payload.get("style_direction")
 
     # --- Board policy resolution (NEVER inferred from locked-item sources) --
     # Precedence: explicit dict (internal) > explicit canonical string >
@@ -337,24 +485,49 @@ def shuffle_board(
                 violating_source=item_source,
             )
 
-    # --- Commit: bump revision + one-level undo snapshot ---------------------
-    with _REGISTRY_LOCK:
-        entry = _REGISTRY.get(board_id) or _new_entry(revision)
-        previous_revision = entry["revision"]
-        entry["previous"] = {"revision": previous_revision, "items": list(entry.get("items") or [])}
-        entry["revision"] = previous_revision + 1
-        entry["items"] = [dict(i) for i in out_items]
-        # Persist the board policy across revisions - a second or third
-        # shuffle of a Style This board must stay style-asset-based.
-        entry["source_policy"] = resolved_policy
-        entry["allow_wardrobe_fallback"] = allow_wardrobe_fallback
-        if not entry.get("scenario"):
-            entry["scenario"] = stored_scenario
-        if occasion is not None:
-            entry["occasion"] = occasion
-        _REGISTRY[board_id] = entry
-        new_revision = entry["revision"]
-        response_scenario = entry.get("scenario") or None
+    # --- Atomic commit: create the immutable revision N+1 document ----------
+    # Creating the deterministic (board_id, N+1) document IS the claim; a
+    # concurrent shuffle from the same revision loses with a typed conflict.
+    # Success is never reported before the durable create succeeds.
+    previous_revision = revision
+    new_revision = revision + 1
+    new_payload = _build_payload(
+        scenario=stored_scenario,
+        source_policy=resolved_policy,
+        allow_wardrobe_fallback=allow_wardrobe_fallback,
+        occasion=occasion if occasion is not None else stored_payload.get("occasion"),
+        style_direction=stored_style_direction,
+        items=out_items,
+        previous_revision=previous_revision,
+    )
+    try:
+        store.create_revision(
+            user_id=stored_owner or requester,
+            board_id=board_id,
+            revision=new_revision,
+            payload=new_payload,
+        )
+    except BoardRevisionExistsError:
+        current = new_revision
+        try:
+            latest_now = store.get_latest(board_id)
+            if latest_now is not None:
+                current = int(latest_now.get("revision") or new_revision)
+        except BoardStateStoreError:
+            pass
+        return _error(
+            "BOARD_REVISION_CONFLICT",
+            "This board changed since you last saw it - refresh and try again.",
+            current_revision=current,
+            requested_revision=revision,
+        )
+    except BoardStateStoreError as exc:
+        logger.error("shuffle_board revision commit failed board=%s err=%s", board_id, exc)
+        return _error(
+            "BOARD_STATE_UNAVAILABLE",
+            "Board state storage is unavailable - your board was not changed.",
+        )
+    response_scenario = stored_scenario or None
 
     return {
         "success": True,

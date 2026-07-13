@@ -755,6 +755,7 @@ def _builder_outfit(
     variant: int = 0,
     allow_wardrobe_fallback: bool = False,
     exclude_item_ids: "tuple[str, ...]" = (),
+    user_id: str = "",
 ) -> "tuple[Dict[str, Any], Dict[str, Any]]":
     fixed = [dict(anchor)] if anchor else []
     replaceable_slots = replaceable_slots_for_fixed_items(fixed)
@@ -823,9 +824,12 @@ def _builder_outfit(
         ],
         "reason": note or "Built from pieces you already own, anchored on this item.",
     }
-    # Persist the board contract so a later shuffle can resolve "inherit"
-    # from board state instead of guessing from locked-item sources.
-    register_board(
+    # Durably persist the board contract so a later shuffle can resolve
+    # "inherit" from stored state instead of guessing from locked-item
+    # sources. If state storage is down the board is still returned, but
+    # shuffle is explicitly unavailable (typed error, never a silent
+    # in-memory fallback).
+    registration = register_board(
         board_id=outfit["board_id"],
         revision=1,
         scenario=mode,
@@ -834,7 +838,11 @@ def _builder_outfit(
         occasion=occasion,
         style_direction=title,
         items=serialized_items,
+        user_id=user_id,
     )
+    outfit["shuffle_available"] = bool(registration.get("ok"))
+    if not registration.get("ok"):
+        outfit["shuffle_state_error"] = registration.get("error")
     return outfit, source_meta
 
 
@@ -844,6 +852,7 @@ def _builder_directions(
     style_assets: List[Dict[str, Any]],
     *,
     allow_wardrobe_fallback: bool = False,
+    user_id: str = "",
 ) -> "tuple[List[Dict[str, Any]], Dict[str, Any]]":
     directions = []
     source_meta: Dict[str, Any] = {}
@@ -852,6 +861,7 @@ def _builder_directions(
             anchor, wardrobe, style_assets, None,
             mode="style_this", title=title, prefer=prefer, note=note, variant=idx,
             allow_wardrobe_fallback=allow_wardrobe_fallback,
+            user_id=user_id,
         )
         directions.append({**look, "styling_note": note})
     return directions, source_meta
@@ -958,6 +968,7 @@ def style_wardrobe_item(
                         "the selected item was not suitable for this occasion."
                     ),
                     exclude_item_ids=(anchor_id,),
+                    user_id=user_id,
                 )
             except ConstrainedOutfitError as exc:
                 # No safe complete alternative — typed failure that carries
@@ -1000,6 +1011,7 @@ def style_wardrobe_item(
                 wardrobe,
                 style_assets,
                 allow_wardrobe_fallback=bool(request.allow_wardrobe_fallback),
+                user_id=user_id,
             )
             response_meta.update(source_meta)
             if not all(_anchor_in_items(anchor, d.get("items") or []) for d in directions):
@@ -1021,7 +1033,8 @@ def style_wardrobe_item(
             }
 
         outfit, source_meta = _builder_outfit(
-            anchor, wardrobe, style_assets, occasion, mode="build_outfit"
+            anchor, wardrobe, style_assets, occasion, mode="build_outfit",
+            user_id=user_id,
         )
         response_meta.update(source_meta)
         if not _anchor_in_items(anchor, outfit.get("items") or []):

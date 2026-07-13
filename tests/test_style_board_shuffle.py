@@ -5,13 +5,15 @@ import copy
 import pytest
 
 from services import style_board_shuffle_service as sbs
+from services.style_board_state_store import InMemoryBoardStateStore
 
 
 @pytest.fixture(autouse=True)
 def _clean_registry():
-    sbs.reset_registry()
+    # Explicitly injected test double — production defaults to Appwrite.
+    sbs.set_state_store(InMemoryBoardStateStore())
     yield
-    sbs.reset_registry()
+    sbs.set_state_store(None)
 
 
 def _w(item_id, name, category="", **extra):
@@ -52,7 +54,23 @@ def _locked_top():
     }
 
 
-def _shuffle(board_id="b-1", revision=1, locked=None, slots=None, **kw):
+def _register(board_id="b-1", revision=1, source_policy="wardrobe", user_id="u-test"):
+    # Boards must exist in durable state before shuffling — unknown boards
+    # are no longer self-registered (BOARD_STATE_NOT_FOUND by design).
+    result = sbs.register_board(
+        board_id=board_id,
+        revision=revision,
+        scenario="shuffle_unlocked",
+        source_policy=source_policy,
+        user_id=user_id,
+    )
+    assert result["ok"], result
+
+
+def _shuffle(board_id="b-1", revision=1, locked=None, slots=None, register=True, **kw):
+    policy = kw.pop("source_policy", "wardrobe")
+    if register and revision == 1:
+        _register(board_id=board_id, revision=1, source_policy=policy or "wardrobe")
     return sbs.shuffle_board(
         board_id=board_id,
         revision=revision,
@@ -60,12 +78,11 @@ def _shuffle(board_id="b-1", revision=1, locked=None, slots=None, **kw):
         shuffle_slots=slots if slots is not None else ["bottom", "footwear"],
         exclude_item_ids=kw.pop("exclude_item_ids", []),
         occasion=kw.pop("occasion", None),
-        # Boards in these tests are not pre-registered, so pass the explicit
-        # canonical policy (legacy "inherit"/None now fails typed by design).
-        source_policy=kw.pop("source_policy", "wardrobe"),
+        source_policy=policy,
         style_assets=kw.pop("style_assets", None),
         wardrobe=kw.pop("wardrobe", _wardrobe()),
         context=kw.pop("context", {}),
+        user_id=kw.pop("user_id", "u-test"),
     )
 
 
@@ -189,8 +206,11 @@ def test_one_level_undo_snapshot_exists():
     assert isinstance(state["previous"]["items"], list)
 
 
-def test_unknown_board_registered_at_requested_revision():
-    result = _shuffle(board_id="fresh-board", revision=7)
-    assert result["success"] is True
-    assert result["previous_revision"] == 7
-    assert result["revision"] == 8
+def test_unknown_board_returns_state_not_found():
+    # Self-registration of unknown boards is removed: durable state is the
+    # only source of truth, and a missing board requires regeneration.
+    result = _shuffle(board_id="fresh-board", revision=7, register=False)
+    assert result["success"] is False
+    assert result["error"]["code"] == "BOARD_STATE_NOT_FOUND"
+    assert result["error"].get("action") == "regenerate_board"
+    assert sbs.get_board_state("fresh-board") is None

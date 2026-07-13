@@ -124,6 +124,7 @@ def shuffle_style_board(
             "board_items": request.board_items,
             "style_direction": request.style_direction,
         },
+        user_id=user_id,
     )
     result["locked_items"] = locked
     result["shuffle_slots"] = list(request.shuffle_slots)

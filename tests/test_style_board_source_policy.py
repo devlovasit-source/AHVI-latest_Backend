@@ -14,13 +14,15 @@ import pytest
 
 from routers.stylist import _builder_outfit
 from services import style_board_shuffle_service as sbs
+from services.style_board_state_store import InMemoryBoardStateStore
 
 
 @pytest.fixture(autouse=True)
 def _clean_registry():
-    sbs.reset_registry()
+    # Explicitly injected test double — production defaults to Appwrite.
+    sbs.set_state_store(InMemoryBoardStateStore())
     yield
-    sbs.reset_registry()
+    sbs.set_state_store(None)
 
 
 def _item(item_id, name, category, source, **extra):
@@ -165,11 +167,28 @@ def test_inherit_resolves_from_stored_policy_not_locked_anchor():
     assert _completion_sources(result, {"w-top-1"}) == {"style_asset"}
 
 
-def test_legacy_board_without_policy_fails_typed():
+def test_unknown_board_requires_regeneration():
+    # Unregistered boards are never self-registered: durable state is the
+    # only source of truth.
+    result = _shuffle("legacy-board", 1, "inherit")
+    assert result["success"] is False
+    assert result["error"]["code"] == "BOARD_STATE_NOT_FOUND"
+    assert sbs.get_board_state("legacy-board") is None
+
+
+def test_legacy_board_without_stored_policy_fails_typed():
+    # A stored board whose payload predates the policy contract must fail
+    # typed — the policy is NEVER inferred from locked-item sources.
+    sbs._get_store().create_revision(
+        user_id="u-test",
+        board_id="legacy-board",
+        revision=1,
+        payload={"scenario": "style_this", "items": []},  # no source_policy
+    )
     result = _shuffle("legacy-board", 1, "inherit")
     assert result["success"] is False
     assert result["error"]["code"] == "BOARD_SOURCE_POLICY_UNKNOWN"
-    # No silent wardrobe fallback: registry must not have committed a revision.
+    # No silent wardrobe fallback: no revision was committed.
     assert sbs.get_board_state("legacy-board")["revision"] == 1
 
 
