@@ -129,11 +129,7 @@ def load_wear_memory(user_id: str, wardrobe: Any = None) -> Dict[str, Any]:
     except Exception:
         return empty
     if not isinstance(rows, list) or not rows:
-        # No history: every wardrobe item is "under-worn".
-        underworn = [
-            _item_id(it) for it in (wardrobe or []) if _item_id(it)
-        ]
-        empty["underworn_ids"] = underworn
+        # No evidence is neutral; it must not create a positive memory score.
         return empty
 
     wear_counts: Dict[str, int] = {}

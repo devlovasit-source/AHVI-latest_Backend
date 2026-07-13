@@ -1392,7 +1392,7 @@ def _ahvi_resolve_effective_user_profile(user_id, request_profile=None):
         from services.data_access_service import get_user_profile, merge_user_profiles
 
         stored = get_user_profile(user_id=str(user_id or "").strip())
-        merged = merge_user_profiles(stored, request_profile)
+        merged = merge_user_profiles(request_profile, stored)
         merged.setdefault("user_id", user_id)
         return merged
     except Exception:
@@ -2048,6 +2048,23 @@ def _demo_style_board_payload(
     ]
 
     occasion = _ahvi_style_occasion(query_text)
+    from services.style_context_service import build_canonical_style_context
+
+    canonical_context = build_canonical_style_context(
+        query=query_text,
+        user_id=user_id,
+        user_profile=profile,
+        weather=(profile.get("weather") if isinstance(profile, dict) else None),
+        style_mode="wardrobe_style",
+        style_action=style_action,
+        wardrobe_items=wardrobe,
+        request_context={
+            "chips": locals().get("chips") or [],
+            "signals": {"source": "routers.chat.style_flow_service_fallback"},
+        },
+        profile_is_authenticated=True,
+    )
+    occasion = canonical_context["canonical_occasion"]
     logger.info("style.intent.detected user_id=%s occasion=%s prompt=%r", user_id, occasion, query_text)
     if any(token in str(query_text or "").lower() for token in ("meeting", "client", "presentation", "interview")):
         logger.info("style.sub_intent.detected user_id=%s sub_intent=office_meeting prompt=%r", user_id, query_text)
@@ -2058,24 +2075,8 @@ def _demo_style_board_payload(
             user_id=user_id,
             query=query_text,
             wardrobe=wardrobe,
-            user_profile=profile,
-            context={
-                "occasion": occasion,
-                "query": query_text,
-                "user_profile": profile,
-                "style_gender": _ahvi_profile_style_gender(profile),
-                # AHVI Style Orchestrator agent inputs (best-effort pass-through).
-                "chips": locals().get("chips") or [],
-                "weather": (
-                    (profile or {}).get("weather")
-                    if isinstance(profile, dict)
-                    else {}
-                ) or {},
-                "signals": {
-                    "source": "routers.chat.style_flow_service_fallback",
-                    "style_gender": _ahvi_profile_style_gender(profile),
-                },
-            },
+            user_profile=canonical_context["user_profile"],
+            context=canonical_context,
             include_base64=False,
             # Editorial board PNG render + R2 upload is gated by an env flag so
             # it never silently adds latency. AHVI_STYLE_BOARD_RENDER=1 turns on
@@ -2173,7 +2174,7 @@ def _demo_style_board_payload(
         "domain": "style",
         "mode": "style_flow_service_adapter_v1",
         "wardrobe_count": len(wardrobe),
-        "style_gender": _ahvi_profile_style_gender(profile),
+        "style_gender": canonical_context.get("style_gender", "unknown"),
         "occasion": occasion,
         "style_action": style_action or None,
     }

@@ -31,6 +31,7 @@ from services.style_item_contract import (
     canonical_item_id,
     canonical_item_role,
 )
+from services.style_context_service import build_canonical_style_context
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.stylist")
@@ -91,9 +92,7 @@ def run_outfit_pipeline(request: OutfitPipelineRequest, http_request: Request = 
     # Bind to the authenticated user; a mismatched body user_id is a 403.
     user_id = bind_request_user(http_request, request.user_id)
     appwrite = AppwriteProxy()
-    context = dict(request.context or {})
-    context["query"] = request.query
-    context["user_id"] = user_id
+    request_context = dict(request.context or {})
 
     wardrobe = request.wardrobe
     if wardrobe is None:
@@ -102,22 +101,28 @@ def run_outfit_pipeline(request: OutfitPipelineRequest, http_request: Request = 
         except Exception:
             wardrobe = []
 
-    style_dna = style_dna_engine.build(
-        {
-            "user_id": user_id,
-            "user_profile": request.user_profile or {},
-            "history": context.get("history", []),
-            "wardrobe": wardrobe,
-        }
+    context = build_canonical_style_context(
+        query=request.query,
+        user_id=user_id,
+        user_profile=request.user_profile or {},
+        intent=_dict(request_context.get("agent_orchestration")),
+        router_occasion=request_context.get("canonical_occasion") or request_context.get("occasion"),
+        weather=request_context.get("weather_context") or request_context.get("weather"),
+        event_context=_dict(request_context.get("event_context")),
+        style_dna=request_context.get("style_dna"),
+        style_mode=request_context.get("style_mode") or request_context.get("mode") or "wardrobe_style",
+        style_action=request_context.get("style_action") or request_context.get("action") or "",
+        wardrobe_items=wardrobe,
+        last_style_context=request_context.get("last_style_context"),
+        request_context=request_context,
     )
-    context["style_dna"] = style_dna
 
     try:
         response = build_style_flow_response(
             user_id=user_id,
             query=request.query,
             wardrobe=wardrobe,
-            user_profile=request.user_profile or {},
+            user_profile=context.get("user_profile") or {},
             context=context,
             include_base64=bool(request.include_base64),
             upload_to_r2=bool(request.upload_style_boards_to_r2),
@@ -384,12 +389,21 @@ def _anchor_desc(anchor: Dict[str, Any]) -> str:
 
 
 def _build_one(request: ItemStyleRequest, query: str, wardrobe: List[Dict[str, Any]]) -> Dict[str, Any]:
-    context = dict(request.context or {})
-    context["query"] = query
-    context["user_id"] = request.user_id
-    context["anchor_item_id"] = _item_id_of(request.anchor_item) or None
-    if request.occasion:
-        context["occasion"] = request.occasion
+    request_context = dict(request.context or {})
+    request_context["anchor_item_id"] = _item_id_of(request.anchor_item) or None
+    context = build_canonical_style_context(
+        query=query,
+        user_id=request.user_id,
+        user_profile=request.user_profile or {},
+        router_occasion=request.occasion,
+        weather=request_context.get("weather_context") or request_context.get("weather"),
+        event_context=_dict(request_context.get("event_context")),
+        style_dna=request_context.get("style_dna"),
+        style_mode="wardrobe_style",
+        style_action=request.mode,
+        wardrobe_items=wardrobe,
+        request_context=request_context,
+    )
     return build_style_flow_response(
         user_id=request.user_id,
         query=query,

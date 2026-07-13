@@ -2509,6 +2509,8 @@ def _daily_composition_notes(card: Dict[str, Any], query: str) -> List[str]:
 
 def _style_dna_alignment_text(style_identity: Dict[str, Any], controlled_archetype: str) -> str:
     prefs = style_identity if isinstance(style_identity, dict) else {}
+    if prefs.get("style_dna_available") is False:
+        return ""
     style_values: List[str] = []
     for key in ("stylePreferences", "style_preferences", "preferred_styles", "preferredStyle"):
         value = prefs.get(key)
@@ -2516,8 +2518,6 @@ def _style_dna_alignment_text(style_identity: Dict[str, Any], controlled_archety
             style_values.extend(str(v).strip() for v in value if str(v).strip())
         elif str(value or "").strip():
             style_values.append(str(value).strip())
-    if not style_values and controlled_archetype:
-        style_values.append(controlled_archetype)
     style_values = list(dict.fromkeys(style_values))[:3]
     if not style_values:
         return ""
@@ -4265,8 +4265,13 @@ def finalize_style_response_payload(
 ) -> Dict[str, Any]:
     ctx = dict(context or {})
     style_identity = normalize_style_identity(_dict(ctx.get("user_profile")))
+    style_identity["style_dna_available"] = bool(
+        ctx.get("style_dna") or style_identity.get("style_preferences")
+    )
     ctx["style_identity"] = style_identity
     occasion_interpretation = _dict(ctx.get("occasion_interpretation")) or interpret_occasion(query, ctx)
+    if ctx.get("canonical_occasion"):
+        occasion_interpretation["occasion"] = ctx["canonical_occasion"]
     ctx["occasion_interpretation"] = occasion_interpretation
     resolved_brief = _safe_text(occasion_interpretation.get("resolved_brief"))
     finalizer_query = f"{query} {resolved_brief}".strip() if resolved_brief else query
@@ -4753,6 +4758,8 @@ def finalize_style_response_payload(
             "occasion_interpretation": occasion_interpretation,
             "occasion_compatibility_score": best_occasion_score,
             "occasion_compatibility_threshold": threshold,
+            "canonical_occasion": normalized_occasion,
+            "style_context_sources": _dict(ctx.get("context_provenance")),
             "closest_option": closest_option_requested,
             "profile_sources": {
                 "appwrite_profile": bool(style_identity.get("profile_fields_used")),
@@ -4814,30 +4821,38 @@ def build_style_flow_response(
     from brain.outfit_pipeline import get_daily_outfits
 
     started = time.perf_counter()
-    ctx = dict(context or {})
-    ctx.setdefault("query", query)
-    ctx.setdefault("user_id", user_id)
-    if user_profile is not None:
-        ctx.setdefault("user_profile", user_profile)
-    ctx.setdefault("style_identity", normalize_style_identity(_dict(ctx.get("user_profile"))))
-
     # Deterministic non-apparel strip so boards never show chargers/passports/
     # water bottles even when the (slow) agent's avoid_items is skipped.
     wardrobe = _strip_non_apparel(wardrobe)
+    incoming_ctx = dict(context or {})
+    if incoming_ctx.get("_canonical_style_context"):
+        ctx = incoming_ctx
+    else:
+        from services.style_context_service import build_canonical_style_context
 
-    # Style memory (wear + saved boards) -> scorer context. Neutral when no
-    # data; never blocks styling.
-    try:
-        from services.style_memory_service import build_style_memory_context
-
-        _mem = build_style_memory_context(user_id, wardrobe)
-        for _k in (
-            "recently_worn_ids", "underworn_ids", "saved_item_ids",
-            "disliked_item_ids", "wear_counts",
-        ):
-            ctx.setdefault(_k, _mem.get(_k, []))
-    except Exception:  # noqa: BLE001
-        logger.debug("ahvi.style_memory_load_failed", exc_info=True)
+        ctx = build_canonical_style_context(
+            query=query,
+            user_id=user_id,
+            user_profile=user_profile or incoming_ctx.get("user_profile"),
+            intent=_dict(incoming_ctx.get("agent_orchestration")),
+            router_occasion=incoming_ctx.get("canonical_occasion") or incoming_ctx.get("occasion"),
+            weather=incoming_ctx.get("weather_context") or incoming_ctx.get("weather"),
+            event_context=_dict(incoming_ctx.get("event_context")),
+            style_dna=incoming_ctx.get("style_dna"),
+            style_mode=incoming_ctx.get("style_mode") or incoming_ctx.get("mode") or "wardrobe_style",
+            style_action=style_action or incoming_ctx.get("style_action") or "",
+            wardrobe_items=wardrobe,
+            memory=None,
+            last_style_context=incoming_ctx.get("last_style_context"),
+            request_context=incoming_ctx,
+        )
+        # Preserve operational controls that are outside the intelligence contract.
+        for key, value in incoming_ctx.items():
+            ctx.setdefault(key, value)
+    ctx["style_identity"] = normalize_style_identity(_dict(ctx.get("user_profile")))
+    ctx["style_identity"]["style_dna_available"] = bool(
+        ctx.get("style_dna") or ctx["style_identity"].get("style_preferences")
+    )
 
     # Kick off the slow Vertex agent orchestration in the background NOW so its
     # ~20-40s overlaps with occasion interpretation + combo generation instead
@@ -4860,6 +4875,8 @@ def build_style_flow_response(
             _agent_future = None
 
     occasion_interpretation = interpret_occasion(query, ctx)
+    if ctx.get("canonical_occasion"):
+        occasion_interpretation["occasion"] = ctx["canonical_occasion"]
     ctx["occasion_interpretation"] = occasion_interpretation
     normalized_occasion = _normalize_occasion_value(
         occasion_interpretation.get("occasion")
@@ -5091,6 +5108,8 @@ def build_style_flow_response(
                 "analysis_source": "style_flow_service",
                 "board_count": len(finalized.get("cards") or []),
                 "occasion_interpretation": occasion_interpretation,
+                "canonical_occasion": ctx.get("canonical_occasion"),
+                "style_context_sources": _dict(ctx.get("context_provenance")),
                 "timing_ms": {
                     "candidate_generation": candidate_ms,
                     "style_flow_total": total_ms,
@@ -5105,7 +5124,6 @@ def build_style_flow_response(
     # than no board.
     try:
         from brain.engines.style_brief import (
-            build_brief,
             core_outfit_complete,
             safe_badge_for,
             safe_title_for,
@@ -5113,13 +5131,9 @@ def build_style_flow_response(
             strip_forbidden_accessories,
         )
 
-        _agent_payload = _dict(ctx.get("agent_orchestration"))
-        brief = build_brief(
-            query=query,
-            router_occasion=normalized_occasion or ctx.get("occasion"),
-            agent_payload=_agent_payload,
-            weather=ctx.get("weather"),
-        )
+        brief = _dict(ctx.get("occasion_brief"))
+        if not brief:
+            brief = {"occasion": normalized_occasion or ctx.get("occasion") or "daily"}
         ctx["style_brief"] = brief
 
         if cards:
@@ -5204,13 +5218,19 @@ def build_style_flow_response(
                 gap_kind,
             )
             logger.info("missing_slots.generated gap=%s cards=0", gap_kind)
-            return _wardrobe_gap_response(
+            gap_response = _wardrobe_gap_response(
                 query=query,
                 wardrobe=wardrobe,
                 interpretation=occasion_interpretation,
                 finalized=finalized,
                 result=result,
             )
+            gap_response["meta"] = {
+                **_dict(gap_response.get("meta")),
+                "canonical_occasion": ctx.get("canonical_occasion"),
+                "style_context_sources": _dict(ctx.get("context_provenance")),
+            }
+            return gap_response
     total_ms = round((time.perf_counter() - started) * 1000, 2)
     logger.info(
         "style_flow.timing user=%s candidates_ms=%s total_ms=%s wardrobe_count=%s cards=%s",

@@ -316,80 +316,20 @@ def build_style_context(
     user_id: str = "",
     memory: Any = None,
 ) -> Dict[str, Any]:
-    """Assemble the unified style context. All inputs optional; absent
-    sources become empty structures so the prompt stays well-formed."""
-    safe_mode = str(mode or "style_advice").strip().lower()
-    if safe_mode not in _STYLE_MODES:
-        safe_mode = "style_advice"
-
-    items = _normalize_wardrobe_items(wardrobe_items)
-    profile = _safe_dict(user_profile)
-
-    # Multi-event / transition-outfit detection BEFORE generic occasion use.
-    multi_event = detect_multi_event(query)
-    # Style DNA / preferences are read from the profile if present; we do not
-    # fabricate them.
-    style_dna = _safe_dict(profile.get("style_dna") or profile.get("styleDNA"))
-    preferences = _safe_dict(
-        profile.get("style_preferences")
-        or profile.get("preferences")
-        or profile.get("style")
+    """Compatibility wrapper around the canonical request builder."""
+    return build_canonical_style_context(
+        query=query,
+        user_id=user_id,
+        user_profile=user_profile,
+        router_occasion=occasion,
+        weather=weather,
+        event_context=event_context,
+        style_mode=mode,
+        wardrobe_items=wardrobe_items,
+        memory=memory,
+        last_style_context=last_style_context,
+        profile_is_authenticated=True,
     )
-
-    resolved_occasion = (str(occasion or "").strip().lower() or None)
-    if multi_event:
-        resolved_occasion = "multi_event"
-
-    # Style memory (wear + saved-board). Use caller-provided memory if given,
-    # else load from producers. Always present (neutral when no data).
-    if isinstance(memory, dict):
-        style_memory = memory
-    else:
-        try:
-            from services.style_memory_service import build_style_memory_context
-
-            style_memory = build_style_memory_context(user_id, items)
-        except Exception:  # noqa: BLE001
-            style_memory = {}
-
-    context = {
-        "query": str(query or "").strip(),
-        "occasion": resolved_occasion,
-        "mode": safe_mode,
-        "wardrobe_available": len(items) > 0,
-        "wardrobe_summary": _wardrobe_summary(items),
-        "wardrobe_items": items,
-        "weather_context": _safe_dict(weather),
-        "event_context": _safe_dict(event_context),
-        "style_dna": style_dna,
-        "preferences": preferences,
-        "last_style_context": _safe_dict(last_style_context),
-        # Multi-event / transition context (None for single-occasion prompts).
-        "multi_event": multi_event,
-        "sub_occasions": multi_event["sub_occasions"] if multi_event else [],
-        "style_strategy": multi_event["style_strategy"] if multi_event else None,
-        "time_sequence": multi_event["time_sequence"] if multi_event else [],
-        # Style memory signals (neutral when no data).
-        "recently_worn_ids": (style_memory or {}).get("recently_worn_ids", []),
-        "underworn_ids": (style_memory or {}).get("underworn_ids", []),
-        "saved_item_ids": (style_memory or {}).get("saved_item_ids", []),
-        "disliked_item_ids": (style_memory or {}).get("disliked_item_ids", []),
-        "favorite_colors": (style_memory or {}).get("favorite_colors", []),
-        "favorite_categories": (style_memory or {}).get("favorite_categories", []),
-        "saved_board_patterns": (style_memory or {}).get("saved_board_patterns", []),
-    }
-
-    logger.info(
-        "AHVI_STYLE_CONTEXT_BUILT mode=%s occasion=%s wardrobe_items=%d "
-        "wardrobe_available=%s weather=%s event=%s",
-        context["mode"],
-        context["occasion"],
-        len(items),
-        context["wardrobe_available"],
-        bool(context["weather_context"]),
-        bool(context["event_context"]),
-    )
-    return context
 
 
 _ROLE_BY_CATEGORY = {
@@ -729,15 +669,60 @@ def _resolve_brief_archetypes(canonical_occasion: Any, query: Any):
     return fam, "western", allowed, list(_ETHNIC_ARCHETYPES), list(_ETHNIC_ITEM_SIGNALS)
 
 
+def _normalize_weather_context(value: Any) -> Dict[str, Any]:
+    """Normalize known weather aliases without inferring missing weather."""
+    raw = _safe_dict(value)
+    if isinstance(raw.get("weather_context"), dict):
+        raw = _safe_dict(raw.get("weather_context"))
+    if not raw:
+        return {}
+
+    aliases = {
+        "condition": ("condition", "summary", "description", "weather"),
+        "temperature_c": ("temperature_c", "temp_c", "temperature", "temp"),
+        "precipitation": ("precipitation", "precipitation_probability", "rain_probability", "rain"),
+        "humidity": ("humidity",),
+        "wind": ("wind", "wind_speed", "wind_kph"),
+        "location": ("location", "city"),
+        "timezone": ("timezone", "time_zone"),
+    }
+    normalized: Dict[str, Any] = {}
+    for target, candidates in aliases.items():
+        for key in candidates:
+            if raw.get(key) not in (None, ""):
+                normalized[target] = raw[key]
+                break
+    return normalized
+
+
+def _memory_from_context(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    keys = (
+        "recently_worn_ids", "underworn_ids", "wear_counts", "last_worn_at",
+        "saved_item_ids", "disliked_item_ids", "favorite_colors",
+        "favorite_categories", "saved_board_patterns",
+    )
+    if not any(key in context for key in keys):
+        return None
+    return {key: context.get(key) for key in keys}
+
+
 def build_canonical_style_context(
     *,
     query: str,
+    user_id: str = "",
     user_profile: Any = None,
     intent: Optional[Dict[str, Any]] = None,
     router_occasion: Optional[str] = None,
     weather: Any = None,
     event_context: Optional[Dict[str, Any]] = None,
     style_dna: Any = None,
+    style_mode: str = "style_advice",
+    style_action: str = "",
+    wardrobe_items: Any = None,
+    memory: Any = None,
+    last_style_context: Any = None,
+    request_context: Optional[Dict[str, Any]] = None,
+    profile_is_authenticated: bool = False,
 ) -> Dict[str, Any]:
     """Single canonical style context shared by every visual/style flow.
 
@@ -749,25 +734,89 @@ def build_canonical_style_context(
     Does NOT mutate the caller's context. Fails open: any resolver error
     degrades to safe defaults so the visual path never breaks.
     """
-    profile = _safe_dict(user_profile)
+    supplied_context = _safe_dict(request_context)
+    request_profile = _safe_dict(user_profile)
+    stored_profile: Dict[str, Any] = {}
+    if user_id and not profile_is_authenticated:
+        try:
+            from services.data_access_service import get_user_profile, merge_user_profiles
+
+            stored_profile = _safe_dict(get_user_profile(user_id=user_id))
+            # Authenticated server data wins over stale/untrusted request fields.
+            profile = merge_user_profiles(request_profile, stored_profile)
+        except Exception:  # noqa: BLE001
+            profile = request_profile
+    else:
+        profile = request_profile
+
+    safe_mode = str(
+        style_mode or supplied_context.get("style_mode") or supplied_context.get("mode") or "style_advice"
+    ).strip().lower()
+    if safe_mode not in _STYLE_MODES:
+        safe_mode = "style_advice"
+    action = str(
+        style_action or supplied_context.get("style_action") or supplied_context.get("action") or ""
+    ).strip().lower()
+    items = _normalize_wardrobe_items(
+        wardrobe_items if wardrobe_items is not None else supplied_context.get("wardrobe_items")
+    )
+    preferences = _safe_dict(
+        profile.get("style_preferences") or profile.get("preferences") or profile.get("style")
+    )
+    if not preferences and isinstance(profile.get("stylePreferences"), list):
+        preferences = {"archetypes": profile.get("stylePreferences")}
+    structured_weather = _normalize_weather_context(
+        weather
+        if weather is not None
+        else supplied_context.get("weather_context")
+        or supplied_context.get("weather")
+        or profile.get("weather_context")
+        or profile.get("weather")
+    )
+    events = _safe_dict(
+        event_context if event_context is not None else supplied_context.get("event_context")
+    )
+    multi_event = detect_multi_event(query)
+
+    style_memory = memory if isinstance(memory, dict) else _memory_from_context(supplied_context)
+    if style_memory is None:
+        try:
+            from services.style_memory_service import build_style_memory_context
+
+            style_memory = build_style_memory_context(user_id, items)
+        except Exception:  # noqa: BLE001
+            style_memory = {}
+    style_memory = _safe_dict(style_memory)
 
     # 1. canonical occasion via the SAME engine the wardrobe path uses.
     brief: Dict[str, Any] = {}
     canonical_occasion = "daily"
+    explicit_occasion = (
+        router_occasion
+        or supplied_context.get("canonical_occasion")
+        or supplied_context.get("occasion")
+        or _safe_dict(intent).get("occasion")
+        or profile.get("occasion")
+    )
     try:
         from brain.engines.style_brief import build_brief
 
         brief = build_brief(
             query,
-            router_occasion=router_occasion,
+            router_occasion=explicit_occasion,
             agent_payload=intent or {},
-            weather=weather,
+            weather=structured_weather,
         )
         canonical_occasion = str(brief.get("occasion") or "daily") or "daily"
     except Exception:  # noqa: BLE001 — fail open to a safe default.
         logger.warning("AHVI_CANONICAL_CTX brief_failed query=%r", str(query or "")[:80])
         brief = {}
-        canonical_occasion = str(router_occasion or "daily").strip().lower() or "daily"
+        canonical_occasion = str(explicit_occasion or "daily").strip().lower() or "daily"
+
+    # Preserve chronology, but let the dominant event drive formality/scoring.
+    if multi_event and multi_event.get("dominant_occasion"):
+        canonical_occasion = str(multi_event["dominant_occasion"])
+        brief = {**brief, "occasion": canonical_occasion, "multi_event": True}
 
     # 2. gender via the single resolver (prompt-override handled by callers).
     try:
@@ -778,7 +827,7 @@ def build_canonical_style_context(
     # 3. DNA compacted (empty dict when nothing meaningful exists).
     try:
         dna = compact_style_dna(
-            style_dna if style_dna is not None else profile.get("style_dna"),
+            style_dna if style_dna is not None else supplied_context.get("style_dna") or profile.get("style_dna") or profile.get("styleDNA"),
             profile.get("preferences") or profile.get("style_preferences"),
         )
     except Exception:  # noqa: BLE001
@@ -801,13 +850,46 @@ def build_canonical_style_context(
         axes = dict(_DEFAULT_FAMILY_PROFILE)
 
     ctx = {
+        "_canonical_style_context": True,
+        "user_id": str(user_id or supplied_context.get("user_id") or "").strip(),
+        "query": str(query or "").strip(),
+        "style_mode": safe_mode,
+        "mode": safe_mode,
+        "style_action": action,
         "canonical_occasion": canonical_occasion,
+        "occasion": canonical_occasion,
         "occasion_brief": brief,
         "gender": gender,
+        "style_gender": gender,
         "style_dna": dna,
         "profile": profile,
-        "weather": weather,
-        "event_context": _safe_dict(event_context),
+        "user_profile": profile,
+        "preferences": preferences,
+        "weather": structured_weather,
+        "weather_context": structured_weather,
+        "event_context": events,
+        "wardrobe_available": bool(items),
+        "wardrobe_summary": _wardrobe_summary(items),
+        "wardrobe_items": items,
+        "last_style_context": _safe_dict(
+            last_style_context if last_style_context is not None else supplied_context.get("last_style_context")
+        ),
+        "multi_event": multi_event,
+        "sub_occasions": multi_event.get("sub_occasions", []) if multi_event else [],
+        "dominant_occasion": multi_event.get("dominant_occasion") if multi_event else None,
+        "style_strategy": multi_event.get("style_strategy") if multi_event else None,
+        "time_sequence": multi_event.get("time_sequence", []) if multi_event else [],
+        "recently_worn_ids": _safe_list(style_memory.get("recently_worn_ids")),
+        "underworn_ids": _safe_list(style_memory.get("underworn_ids")),
+        "wear_counts": _safe_dict(style_memory.get("wear_counts")),
+        "saved_item_ids": _safe_list(style_memory.get("saved_item_ids")),
+        "disliked_item_ids": _safe_list(style_memory.get("disliked_item_ids")),
+        "favorite_colors": _safe_list(style_memory.get("favorite_colors")),
+        "favorite_categories": _safe_list(style_memory.get("favorite_categories")),
+        "saved_board_patterns": _safe_list(style_memory.get("saved_board_patterns")),
+        "source_policy": supplied_context.get("source_policy"),
+        "allow_wardrobe_fallback": bool(supplied_context.get("allow_wardrobe_fallback")),
+        "wardrobe_only": bool(supplied_context.get("wardrobe_only")),
         # Canonical Style Brain fields — one source of truth for selection/guard.
         "occasion_family": family,
         "cultural_context": cultural,
@@ -820,9 +902,28 @@ def build_canonical_style_context(
         "movement": axes.get("movement"),
         "required_traits": list(axes.get("required_traits") or []),
     }
+    ctx["context_provenance"] = {
+        "profile_used": any(key not in {"user_id", "id", "$id"} for key in profile),
+        "style_dna_used": bool(dna),
+        "weather_used": bool(structured_weather),
+        "event_used": bool(events or multi_event),
+        "wear_memory_used": bool(
+            ctx["recently_worn_ids"] or ctx["wear_counts"] or ctx["underworn_ids"]
+        ),
+        "saved_memory_used": bool(
+            ctx["saved_item_ids"] or ctx["favorite_colors"] or ctx["favorite_categories"]
+        ),
+        "canonical_occasion": canonical_occasion,
+    }
+    for key in (
+        "agent_orchestration", "anchor_item_id", "chips", "signals", "history",
+        "show_closest_option", "allow_closest_option", "closest",
+    ):
+        if key in supplied_context:
+            ctx[key] = supplied_context[key]
     logger.info(
         "style_context.built canonical_occasion=%s family=%s cultural=%s gender=%s "
-        "formality=%s energy=%s movement=%s forbidden_arch=%d forbidden_items=%d",
+        "formality=%s energy=%s movement=%s forbidden_arch=%d forbidden_items=%d sources=%s",
         canonical_occasion,
         family,
         cultural,
@@ -832,6 +933,7 @@ def build_canonical_style_context(
         axes.get("movement"),
         len(forbidden_arch),
         len(forbidden_items),
+        ctx["context_provenance"],
     )
     return ctx
 
@@ -841,7 +943,12 @@ def compact_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
     every wardrobe item / raw payloads into the Gemini prompt."""
     ctx = _safe_dict(context)
     items = _safe_list(ctx.get("wardrobe_items"))[:18]
-    style_dna_compact = compact_style_dna(ctx.get("style_dna"), ctx.get("preferences"))
+    raw_dna = _safe_dict(ctx.get("style_dna"))
+    style_dna_compact = (
+        raw_dna
+        if any(key in raw_dna for key in ("style_archetypes", "preferred_colors", "preferred_silhouettes"))
+        else compact_style_dna(raw_dna, ctx.get("preferences"))
+    )
 
     # Compact memory slice for the prompt — map worn IDs to names so Gemini can
     # reference real pieces. Present only when memory exists (else None).
@@ -877,7 +984,7 @@ def compact_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
         ],
         "weather": {
             k: ctx.get("weather_context", {}).get(k)
-            for k in ("condition", "temp_c", "temperature", "summary")
+            for k in ("condition", "temperature_c", "precipitation", "humidity", "wind", "location", "timezone")
             if isinstance(ctx.get("weather_context"), dict)
             and ctx.get("weather_context", {}).get(k) is not None
         },

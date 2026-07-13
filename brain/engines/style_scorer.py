@@ -542,6 +542,7 @@ _OCCASION_ALIASES: Dict[str, str] = {
 def _resolve_occasion(context: Dict[str, Any]) -> str:
     """Pick an occasion from any of the keys the orchestrator may send."""
     candidates = [
+        context.get("canonical_occasion"),
         context.get("occasion"),
         context.get("interpreted_occasion"),
         context.get("occasion_slug"),
@@ -792,18 +793,28 @@ def score_weather_compatibility(
     outfit: Dict[str, Any], context: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Score weather realism using the same compatibility engine."""
-    text = str(
-        (context or {}).get("weather")
-        or (context or {}).get("condition")
-        or (context or {}).get("season")
-        or ""
-    ).strip().lower()
+    ctx = context if isinstance(context, dict) else {}
+    weather = ctx.get("weather_context") or ctx.get("weather")
+    weather = weather if isinstance(weather, dict) else {}
+    condition = str(weather.get("condition") or ctx.get("condition") or "").strip().lower()
+    try:
+        temperature_c = float(weather["temperature_c"]) if weather.get("temperature_c") not in (None, "") else None
+    except (TypeError, ValueError):
+        temperature_c = None
+    try:
+        precipitation = float(weather["precipitation"]) if weather.get("precipitation") not in (None, "") else 0.0
+    except (TypeError, ValueError):
+        precipitation = 0.0
     weather_key = ""
-    if any(w in text for w in ("rain", "monsoon", "wet")):
+    if any(w in condition for w in ("rain", "monsoon", "wet", "storm")) or precipitation > 0:
         weather_key = "rain"
-    elif any(w in text for w in ("winter", "cold", "chilly")):
+    elif any(w in condition for w in ("winter", "cold", "chilly")) or (
+        temperature_c is not None and temperature_c <= 12
+    ):
         weather_key = "winter"
-    elif any(w in text for w in ("summer", "hot", "humid", "warm")):
+    elif any(w in condition for w in ("summer", "hot", "humid", "warm")) or (
+        temperature_c is not None and temperature_c >= 27
+    ):
         weather_key = "summer"
     if not weather_key:
         return {
@@ -813,7 +824,7 @@ def score_weather_compatibility(
             "penalties": [],
             "reject": False,
             "reason": "weather_unknown",
-            "weather": text,
+            "weather": condition,
         }
     result = score_occasion_compatibility(outfit, {"occasion": weather_key})
     return {
@@ -1113,8 +1124,12 @@ class UnifiedStyleScorer:
         refinement = context.get("refinement")
         session = context.get("session", {}).get("derived", {})
 
-        confidence = float(style_dna.get("confidence", 0.5) or 0.5)
-        exploration_factor = max(0.0, 1.0 - confidence)
+        confidence = (
+            float(style_dna.get("confidence"))
+            if style_dna.get("confidence") not in (None, "")
+            else None
+        )
+        exploration_factor = max(0.0, 1.0 - confidence) if confidence is not None else 0.0
 
         reasons: List[str] = []
         warnings: List[str] = []
@@ -1222,12 +1237,16 @@ class UnifiedStyleScorer:
             reasons.append("clean aesthetic balance")
 
         dna_score = self._dna_score(items, style_dna)
-        breakdown["style_dna"] = dna_score * (0.5 + confidence)
-        if dna_score > 0:
+        breakdown["style_dna"] = dna_score * (0.5 + (confidence or 0.0))
+        if style_dna and dna_score > 0:
             reasons.append("matches your style")
 
         vector = self._build_outfit_embedding(items)
-        if vector and memory_scorer is not None:
+        has_memory_context = any(
+            context.get(key)
+            for key in ("recently_worn_ids", "underworn_ids", "wear_counts", "saved_item_ids")
+        )
+        if vector and memory_scorer is not None and has_memory_context:
             try:
                 memory_score = float(memory_scorer.score(vector, context) or 0.0)
             except Exception:
