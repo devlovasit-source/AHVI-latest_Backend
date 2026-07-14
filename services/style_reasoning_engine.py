@@ -11,6 +11,7 @@ from brain.tone.tone_engine import tone_engine
 from prompts.core_prompts import AHVI_SYSTEM_PROMPT
 from prompts.styling_prompts import OCCASION_INTERPRETER_PROMPT
 from services.ai_gateway import generate_text, parse_json_object
+from services.professional_safety import evaluate_professional_safety
 from services.style_asset_metadata_contract import summarize_style_asset_metadata
 from services.stylist_knowledge_service import (
     ARCHETYPE_LIBRARY,
@@ -3187,6 +3188,16 @@ def _best_style_assets(
             continue
         if not _asset_allowed_for_gender(asset, target_gender):
             continue
+        professional_decision = evaluate_professional_safety(asset, occasion)
+        if not professional_decision["allowed"]:
+            logger.info(
+                "AHVI_PROFESSIONAL_ASSET_REJECTED asset=%s occasion=%s reason=%s source=%s",
+                _asset_text(asset.get("asset_id") or asset.get("$id") or asset.get("name")),
+                _asset_text(occasion),
+                professional_decision["reason_code"],
+                professional_decision["evidence_source"],
+            )
+            continue
         asset_terms = _asset_category_terms(asset)
         is_accessory = bool(asset_terms.intersection({"accessory", "footwear"}))
         if accessory_only != is_accessory:
@@ -4224,6 +4235,7 @@ def _enrich_visual_directions_with_assets(
             )
             if attached_asset and (
                 _is_nonfashion_asset(attached_asset)
+                or not evaluate_professional_safety(attached_asset, occasion_text)["allowed"]
                 or not _asset_allowed_for_context(
                     attached_asset,
                     occasion=occasion_text,

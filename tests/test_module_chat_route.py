@@ -885,6 +885,64 @@ def test_style_module_chat_routes_office_meeting_to_board(monkeypatch):
     assert "AHVI needs a little more context" not in str(body)
 
 
+def test_style_module_chat_does_not_surface_canonical_professional_negative(monkeypatch):
+    from services.style_reasoning_engine import _best_style_assets
+
+    def fake_style_payload(*, user_id, query_text, request_wardrobe, user_profile):
+        striped = {
+            "asset_id": "striped-tshirt",
+            "$id": "striped-tshirt",
+            "name": "Black and White Striped T-Shirt",
+            "category": "top",
+            "role": "top",
+            "subcategory": "tshirt",
+            "gender": "female",
+            "image_url": "https://example.test/striped.png",
+            "status": "active",
+            "metadata_status": "ready",
+            "professional_safe": False,
+            "professionalism_score": 0.35,
+            "client_meeting_score": 0.25,
+            "safety_tags": ["casual", "not_client_meeting"],
+        }
+        selected = _best_style_assets(
+            [striped],
+            direction={"hero_piece": "striped t-shirt", "items": ["striped t-shirt"]},
+            occasion="client_meeting",
+            target_gender="female",
+            placement="hero",
+        )
+        return {
+            "success": False,
+            "type": "typed_failure",
+            "message": "That item is not compatible with a client meeting.",
+            "cards": [],
+            "style_boards": [],
+            "chips": ["Show safe alternatives"],
+            "board_ids": "",
+            "data": {"selected_asset_ids": [row.get("asset_id") for row in selected]},
+            "meta": {"mode": "style_flow_service_adapter_v1"},
+        }
+
+    monkeypatch.setattr(chat, "_demo_style_board_payload", fake_style_payload)
+    app = FastAPI()
+    app.include_router(chat.router, prefix="/api")
+    response = TestClient(app).post(
+        "/api/chat/module-chat",
+        json={
+            "module": "style",
+            "message": "Style my striped T-shirt for a client meeting",
+            "history": [],
+            "context_data": {},
+            "user_profile": {"gender": "female"},
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"]["selected_asset_ids"] == []
+    assert body["style_boards"] == []
+
+
 def test_ask_me_two_questions_returns_questions_without_loop():
     app = FastAPI()
     app.include_router(chat.router, prefix="/api")

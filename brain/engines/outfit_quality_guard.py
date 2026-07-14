@@ -5,6 +5,10 @@ from collections import Counter
 from typing import Any, Dict, List, Tuple
 
 from brain.engines.style_rules_engine import style_engine
+from services.professional_safety import (
+    evaluate_professional_safety,
+    is_hard_professional_block,
+)
 from services.wardrobe_intelligence_service import (
     _style_meta,
     board_has_occasion_conflict,
@@ -882,6 +886,25 @@ def guard_outfit(
         for slot_item in [top, bottom, footwear, *accessories]:
             if not isinstance(slot_item, dict):
                 continue
+            nested_meta = slot_item.get("style_metadata")
+            decision_item = (
+                {**slot_item, **nested_meta}
+                if isinstance(nested_meta, dict)
+                else slot_item
+            )
+            professional_decision = evaluate_professional_safety(
+                decision_item, occasion_for_meta
+            )
+            if is_hard_professional_block(professional_decision):
+                reason = f"professional_safety:{professional_decision['reason_code']}"
+                logger.info(
+                    "AHVI_PROFESSIONAL_ITEM_REJECTED occasion=%s item=%s reason=%s source=%s",
+                    occasion_for_meta,
+                    slot_item.get("id") or slot_item.get("$id") or slot_item.get("name"),
+                    professional_decision["reason_code"],
+                    professional_decision["evidence_source"],
+                )
+                return False, -100, [reason], fixed
             if item_metadata_v2_reject_reason is not None:
                 archetype = (
                     outfit.get("style_archetype")

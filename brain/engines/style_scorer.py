@@ -9,6 +9,10 @@ from services.wardrobe_intelligence_service import (
     normalize_occasion as normalize_style_occasion,
     score_item_for_occasion,
 )
+from services.professional_safety import (
+    evaluate_professional_safety,
+    is_hard_professional_block,
+)
 
 try:
     from brain.engines.style_brief import resolve_occasion_archetype
@@ -1136,6 +1140,24 @@ class UnifiedStyleScorer:
             }
 
         context = context or {}
+        professional_occasion = context.get("occasion") or context.get("sub_intent") or ""
+        for item in items:
+            decision = evaluate_professional_safety(item, professional_occasion)
+            if is_hard_professional_block(decision):
+                reason = f"professional_safety:{decision['reason_code']}"
+                return {
+                    "score": 0.0,
+                    "label": "Weak",
+                    "reasons": [reason],
+                    "breakdown": {"professional_safety": -100.0},
+                    "rejection_warnings": [reason],
+                    "occasion_profile": {},
+                    "occasion_compatibility": {"reject": True, "reason": reason},
+                    "occasion_compatibility_score": 0.0,
+                    "occasion_penalties": [reason],
+                    "occasion_reject": True,
+                    "weather_compatibility": {},
+                }
         style_dna = context.get("style_dna", {}) or {}
         refinement = context.get("refinement")
         session = context.get("session", {}).get("derived", {})

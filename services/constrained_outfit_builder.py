@@ -31,6 +31,11 @@ from services.style_item_contract import (
     canonical_item_source,
     normalize_style_item,
 )
+from services.professional_safety import (
+    evaluate_professional_safety,
+    is_professional_occasion,
+    normalize_professional_occasion,
+)
 
 logger = logging.getLogger("ahvi.constrained_outfit_builder")
 
@@ -72,25 +77,9 @@ _NEUTRAL_COLORS = frozenset({
     "khaki", "ivory", "charcoal", "denim", "brown", "off-white", "offwhite",
 })
 
-# Professional occasion safety - reuse the shared checker, never duplicate.
-try:
-    from services.style_flow_service import _is_professional_safe
-except Exception:  # pragma: no cover - keep builder importable standalone
-    _is_professional_safe = None
-
-_PROFESSIONAL_OCCASIONS = frozenset({
-    "office", "client_meeting", "corporate_office", "interview",
-    "business_formal", "business_casual", "presentation", "startup_office",
-})
-
 
 def _occ_key(occasion: Optional[str]) -> str:
-    return str(occasion or "").strip().lower().replace(" ", "_")
-
-
-def _is_professional_occasion(occasion: Optional[str]) -> bool:
-    return _occ_key(occasion) in _PROFESSIONAL_OCCASIONS
-
+    return normalize_professional_occasion(occasion)
 
 def _stable_offset(seed: str, size: int) -> int:
     """Deterministic rotation offset (same pattern as brain.outfit_pipeline)."""
@@ -168,6 +157,7 @@ class ConstrainedOutfitBuilder:
         context = dict(context or {})
         scenario = str(scenario or "build_outfit").strip().lower()
         occasion = context.get("occasion")
+        professional = is_professional_occasion(occasion)
         wardrobe_raw = [i for i in (wardrobe if wardrobe is not None else context.get("wardrobe") or []) if isinstance(i, dict)]
         style_asset_raw = [i for i in (style_assets if style_assets is not None else context.get("style_assets") or []) if isinstance(i, dict)]
         candidate_raw = wardrobe_raw + style_asset_raw
@@ -199,6 +189,15 @@ class ConstrainedOutfitBuilder:
                     "The selected item does not have a valid garment slot.",
                     fixed_item_ids=[norm["item_id"]],
                 )
+            if professional:
+                decision = evaluate_professional_safety(raw, occasion)
+                if not decision["allowed"]:
+                    return _failure(
+                        "FIXED_ITEMS_INCOMPATIBLE",
+                        "A fixed item is incompatible with the requested professional occasion.",
+                        fixed_item_ids=[norm["item_id"]],
+                        reason_code=decision["reason_code"],
+                    )
             fixed_norm.append(norm)
         fixed_ids = {n["item_id"] for n in fixed_norm}
         fixed_pairs = list(zip(fixed_raw, fixed_norm))
@@ -249,7 +248,6 @@ class ConstrainedOutfitBuilder:
             )
 
         # --- Candidate pools (constrained BEFORE combination) ----------------
-        professional = _is_professional_occasion(occasion)
         pools: Dict[str, List[Tuple[Dict[str, Any], Dict[str, Any]]]] = {
             s: [] for s in ALL_SLOTS
         }
@@ -263,9 +261,9 @@ class ConstrainedOutfitBuilder:
                 continue  # unknown / non-fashion / sport-swim
             if canonical_item_source(raw) not in allowed_sources:
                 continue  # unknown source is NOT wardrobe
-            if professional and _is_professional_safe is not None:
-                ok, _reason = _is_professional_safe(raw, str(occasion or ""))
-                if not ok:
+            if professional:
+                decision = evaluate_professional_safety(raw, occasion)
+                if not decision["allowed"]:
                     continue
             seen_pool_ids.add(cid)
             norm = normalize_style_item(raw)

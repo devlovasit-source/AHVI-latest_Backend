@@ -17,6 +17,7 @@ from services.style_flow_service import (
     _is_office_occasion,
 )
 from services.style_reasoning_engine import _occasion_display_name
+from services.professional_safety import is_professional_occasion
 from services.constrained_outfit_builder import (
     ConstrainedOutfitBuilder,
     ConstrainedOutfitError,
@@ -531,10 +532,7 @@ _LITE_PROFESSIONAL_OCCASIONS = frozenset(
 
 
 def _is_lite_professional(occasion: Optional[str]) -> bool:
-    if not occasion:
-        return False
-    key = str(occasion).strip().lower().replace(" ", "_")
-    return key in {o.strip().lower().replace(" ", "_") for o in _LITE_PROFESSIONAL_OCCASIONS}
+    return is_professional_occasion(occasion)
 
 
 def _anchor_safe_for_occasion(anchor: Dict[str, Any], occasion: Optional[str]) -> tuple:

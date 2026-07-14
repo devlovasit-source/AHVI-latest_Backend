@@ -9,6 +9,11 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from services.category_taxonomy import infer_style_attributes
+from services.professional_safety import (
+    evaluate_professional_safety,
+    is_office_bad_item as _canonical_office_bad_item,
+    is_professional_occasion,
+)
 from services.wardrobe_suitability import outfit_contains_private_wear
 
 try:
@@ -647,35 +652,11 @@ def _office_occasion_key(occasion: str) -> str:
 
 
 def _is_office_occasion(occasion: str) -> bool:
-    key = _office_occasion_key(occasion)
-    return key in {_office_occasion_key(o) for o in _OFFICE_OCCASIONS}
+    return is_professional_occasion(occasion)
 
 
 def _is_office_bad_item(item: dict) -> bool:
-    if not isinstance(item, dict):
-        return False
-    blob = _ahvi_item_blob(item)
-    extra_parts: list[str] = []
-    for key in (
-        "sub_category",
-        "subCategory",
-        "use_case",
-        "useCase",
-        "occasion",
-        "occasions",
-        "tags",
-        "style_tags",
-    ):
-        value = item.get(key)
-        if isinstance(value, (list, tuple, set)):
-            extra_parts.extend(str(v or "") for v in value)
-        else:
-            extra_parts.append(str(value or ""))
-    blob = (blob + " " + " ".join(extra_parts)).lower()
-    # Pad with spaces so leading/trailing space tokens (e.g. " cap") match
-    # edge positions instead of being skipped.
-    padded = f" {blob} "
-    return any(token in padded for token in _OFFICE_BAD_TOKENS)
+    return bool(isinstance(item, dict) and _canonical_office_bad_item(item))
 
 
 def _item_role_blob(item: dict) -> str:
@@ -694,90 +675,8 @@ def _item_role_blob(item: dict) -> str:
 
 
 def _is_professional_safe(item: dict, occasion: str) -> tuple[bool, str]:
-    """Return (is_safe, reason).
-
-    Runs a multi-layer professional occasion check on a single item:
-      1. blocked_occasions field (explicit metadata block)
-      2. business_safe field (explicit flag)
-      3. style_tags / occasion_tags (semantic tag check)
-      4. fabric_finish / pattern (material check for tops only)
-      5. Name/label token fallback via _is_office_bad_item + shiny-top check
-
-    Returns (True, "") when safe, (False, reason_string) when blocked.
-    Designed to be importable from routers without circular imports.
-    """
-    if not isinstance(item, dict):
-        return True, ""
-
-    occ_key = str(occasion or "").strip().lower().replace(" ", "_")
-    is_professional = occ_key in {
-        o.strip().lower().replace(" ", "_") for o in _PROFESSIONAL_OCCASIONS
-    }
-    if not is_professional:
-        return True, ""
-
-    # --- Layer 1: blocked_occasions explicit list ---
-    blocked_occasions = item.get("blocked_occasions")
-    if isinstance(blocked_occasions, (list, tuple, set)):
-        for b in blocked_occasions:
-            if str(b or "").strip().lower().replace(" ", "_") == occ_key:
-                return False, f"blocked_occasions:{b}"
-
-    # --- Layer 2: business_safe field ---
-    business_safe = item.get("business_safe")
-    if business_safe is False:
-        return False, "business_safe:false"
-
-    # --- Layer 3: style_tags / occasion_tags semantic check ---
-    tags_blob = ""
-    for tag_key in ("style_tags", "occasion_tags", "tags"):
-        val = item.get(tag_key)
-        if isinstance(val, (list, tuple, set)):
-            tags_blob += " " + " ".join(str(v) for v in val)
-        elif val:
-            tags_blob += " " + str(val)
-    tags_blob = tags_blob.lower()
-    _UNSAFE_TAGS = (
-        "party", "festive", "evening wear", "clubwear", "nightclub",
-        "shiny", "metallic", "sequin", "sequins", "satin",
-        "sleepwear", "loungewear", "swimwear", "beachwear",
-    )
-    for tag in _UNSAFE_TAGS:
-        if tag in tags_blob:
-            return False, f"style_tags:{tag}"
-
-    # --- Layer 4: fabric_finish / pattern check (tops only) ---
-    role_blob = _item_role_blob(item)
-    _TOP_ROLE_TOKENS = ("top", "shirt", "blouse", "tee", "kurta", "sweater", "hoodie", "polo", "dress")
-    is_top_or_dress = any(t in role_blob for t in _TOP_ROLE_TOKENS)
-    if is_top_or_dress:
-        fabric_finish = str(item.get("fabric_finish") or item.get("finish") or "").lower()
-        pattern = str(item.get("pattern") or "").lower()
-        material = str(item.get("material") or item.get("fabric") or "").lower()
-        finish_blob = f"{fabric_finish} {pattern} {material}"
-        for tok in _OFFICE_BAD_TOP_TOKENS:
-            if tok in finish_blob:
-                return False, f"fabric_finish:{tok}"
-
-    # --- Layer 5: Name/label token fallback ---
-    if _is_office_bad_item(item):
-        return False, "name_token:office_bad_item"
-
-    # --- Layer 5b: Shiny/satin/metallic/sequin on tops (name fallback) ---
-    if is_top_or_dress:
-        name_blob = str(item.get("name") or item.get("label") or "").lower()
-        # Also check color_name for "gold" when on a top
-        color_blob = str(item.get("color_name") or item.get("color") or "").lower()
-        name_color = f"{name_blob} {color_blob}"
-        for tok in _OFFICE_BAD_TOP_TOKENS:
-            if tok in name_color:
-                return False, f"name_token:{tok}_top"
-        # "gold" on a top is blocked (e.g. "Shiny Gold Formal Shirt")
-        # but "gold" on accessory (ring, watch, belt) is fine.
-        if "gold" in name_color:
-            return False, "name_token:gold_top"
-
-    return True, ""
+    decision = evaluate_professional_safety(item, occasion)
+    return bool(decision["allowed"]), "" if decision["allowed"] else str(decision["reason_code"])
 
 
 def _sanitize_office_board(
@@ -798,7 +697,7 @@ def _sanitize_office_board(
     kept: list = []
     removed: list[str] = []
     for item in items:
-        if isinstance(item, dict) and _is_office_bad_item(item):
+        if isinstance(item, dict) and not _is_professional_safe(item, occasion)[0]:
             removed.append(
                 str(item.get("name") or item.get("title") or item.get("id") or "")
             )
