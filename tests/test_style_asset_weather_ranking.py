@@ -89,6 +89,164 @@ def test_hot_weather_promotes_explicit_breathable_light_evidence():
     assert engine._asset_weather_score(suitable, _brief(34)) == 4
 
 
+def test_hot_weather_ranks_hot_suitable_garment_above_neutral_above_cold_only():
+    common = {
+        "category": "top",
+        "role": "top",
+        "subcategory": "shirt",
+        "image_url": "fixture-candidate-image",
+        "gender": "unisex",
+        "colors": ["navy"],
+        "occasions": ["daily"],
+        "formality": 3,
+        "traits": ["clean"],
+    }
+    hot_suitable = {
+        **common,
+        "asset_id": "candidate-alpha",
+        "name": "Candidate Alpha",
+        "weather_tags": ["hot", "breathable"],
+        "temperature_min_c": 24,
+        "temperature_max_c": 42,
+        "fabric_weight": "light",
+        "layering_suitability": 0.2,
+    }
+    neutral = {
+        **common,
+        "asset_id": "candidate-beta",
+        "name": "Candidate Beta",
+        "weather_tags": [],
+    }
+    cold_only = {
+        **common,
+        "asset_id": "candidate-gamma",
+        "name": "Candidate Gamma",
+        "weather_tags": ["cold"],
+        "temperature_min_c": -10,
+        "temperature_max_c": 10,
+        "fabric_weight": "heavy",
+        "layering_suitability": 1.0,
+    }
+    brief = _brief(34, weather_tags=["hot"])
+
+    scores = [
+        engine._asset_score(
+            engine._normalize_style_asset(asset),
+            direction={"hero_piece": "shirt"},
+            occasion="daily",
+            target_gender="unisex",
+            brief=brief,
+        )
+        for asset in (hot_suitable, neutral, cold_only)
+    ]
+
+    assert scores[0] > scores[1] > scores[2]
+
+
+def test_cold_weather_ranks_cold_suitable_above_neutral_above_hot_only():
+    cold_suitable = _asset(
+        "candidate-alpha",
+        weather_tags=["cold"],
+        temperature_min_c=-10,
+        temperature_max_c=10,
+        fabric_weight="heavy",
+        layering_suitability=1.0,
+    )
+    neutral = _asset("candidate-beta", weather_tags=[])
+    hot_only = _asset(
+        "candidate-gamma",
+        weather_tags=["hot", "breathable"],
+        temperature_min_c=24,
+        temperature_max_c=42,
+        fabric_weight="light",
+    )
+    brief = _brief(4, weather_tags=["cold"])
+
+    scores = [
+        engine._asset_weather_score(asset, brief)
+        for asset in (cold_suitable, neutral, hot_only)
+    ]
+
+    assert scores[0] > scores[1] > scores[2]
+
+
+def test_unknown_weather_preserves_baseline_order_for_all_evidence_profiles():
+    assets = [
+        _asset("hot", weather_tags=["hot"], fabric_weight="light"),
+        _asset("neutral", weather_tags=[]),
+        _asset("cold", weather_tags=["cold"], fabric_weight="heavy"),
+    ]
+    direction = {"hero_piece": "accessory"}
+    baseline = [
+        engine._asset_score(
+            engine._normalize_style_asset(asset),
+            direction=direction,
+            occasion="daily",
+            target_gender="unisex",
+            brief=None,
+        )
+        for asset in assets
+    ]
+    unknown = [
+        engine._asset_score(
+            engine._normalize_style_asset(asset),
+            direction=direction,
+            occasion="daily",
+            target_gender="unisex",
+            brief={"weather_context": {}},
+        )
+        for asset in assets
+    ]
+
+    assert unknown == baseline
+
+
+def test_connected_visual_enrichment_uses_structured_hot_weather(monkeypatch):
+    common = {
+        "category": "top",
+        "role": "top",
+        "subcategory": "shirt",
+        "gender": "unisex",
+        "colors": ["navy"],
+        "occasions": ["daily"],
+        "formality": 3,
+        "traits": ["clean"],
+        "board_image_url": "fixture-board-image",
+        "image_url": "fixture-item-image",
+    }
+    assets = [
+        {
+            **common,
+            "asset_id": "hot-suitable",
+            "name": "Candidate Alpha",
+            "weather_tags": ["hot", "breathable"],
+            "temperature_min_c": 24,
+            "temperature_max_c": 42,
+            "fabric_weight": "light",
+        },
+        {**common, "asset_id": "neutral", "name": "Candidate Beta", "weather_tags": []},
+        {
+            **common,
+            "asset_id": "cold-only",
+            "name": "Candidate Gamma",
+            "weather_tags": ["cold"],
+            "temperature_min_c": -10,
+            "temperature_max_c": 10,
+            "fabric_weight": "heavy",
+        },
+    ]
+    monkeypatch.setattr(engine, "_style_asset_rows", lambda: assets)
+
+    enriched = engine._enrich_visual_directions_with_assets(
+        [{"title": "Daily", "hero_piece": "shirt", "items": ["shirt"]}],
+        occasion="daily",
+        target_gender="unisex",
+        brief=_brief(34, weather_tags=["hot"]),
+    )
+
+    assert enriched[0]["asset_id"] == "hot-suitable"
+
+
 def test_weather_incompatibility_penalty_is_bounded():
     incompatible = _asset(
         "incompatible",

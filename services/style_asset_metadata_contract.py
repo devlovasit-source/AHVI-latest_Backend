@@ -15,6 +15,43 @@ from typing import Any, Dict, Iterable, List, Mapping
 METADATA_VERSION = "1.0"
 METADATA_STATUSES = {"rejected", "limited", "ready"}
 
+CANONICAL_OCCASION_FAMILIES = {
+    "basketball_game", "beach", "beach_dinner", "brunch", "capsule",
+    "casual", "casual_dinner", "client_dinner", "client_meeting",
+    "client_presentation", "cocktail", "coffee_date", "cultural", "daily",
+    "date_night", "festive", "first_date", "funeral", "office",
+    "office_meeting", "party", "rave", "resort", "smart_casual", "swimming",
+    "team_dinner", "temple_modest", "travel", "wedding", "wedding_guest",
+    "workout",
+}
+OCCASION_FAMILY_ALIASES = {
+    "casual_day": "casual",
+    "coffee date": "coffee_date",
+    "dailywear": "daily",
+    "diwali": "festive",
+    "dinner": "date_night",
+    "mehendi": "festive",
+    "startup_office": "office",
+    "vacation": "travel",
+    "weekend": "casual",
+}
+CANONICAL_SAFETY_TAGS = {
+    "boardroom", "casual", "client_meeting", "cold_weather", "commute",
+    "cultural", "cultural_professional", "evening", "festive",
+    "not_boardroom", "not_client_meeting", "not_professional", "office",
+    "office_selective", "resort", "smart_casual", "social",
+}
+SAFETY_TAG_ALIASES = {
+    "client meeting": "client_meeting",
+    "cold weather": "cold_weather",
+    "cultural professional": "cultural_professional",
+    "not boardroom": "not_boardroom",
+    "not client meeting": "not_client_meeting",
+    "not professional": "not_professional",
+    "office selective": "office_selective",
+    "smart casual": "smart_casual",
+}
+
 _ROLE_ALIASES = {
     "tops": "top",
     "shirts": "top",
@@ -76,6 +113,28 @@ def _list(value: Any) -> List[str]:
             seen.add(normalized)
             out.append(normalized)
     return out
+
+
+def normalize_metadata_vocabulary(
+    values: Any,
+    *,
+    vocabulary: set[str],
+    aliases: Mapping[str, str] | None = None,
+) -> tuple[List[str], List[str]]:
+    """Normalize explicit labels and return ``(accepted, unknown)``.
+
+    Unknown labels are never silently retained. Callers use the returned
+    unknown list to fail the asset closed.
+    """
+    accepted: List[str] = []
+    unknown: List[str] = []
+    alias_map = dict(aliases or {})
+    for value in _list(values):
+        canonical = alias_map.get(value, value)
+        target = accepted if canonical in vocabulary else unknown
+        if canonical not in target:
+            target.append(canonical)
+    return accepted, unknown
 
 
 def _number(value: Any, *, low: float, high: float) -> float | int | None:
@@ -161,7 +220,11 @@ def normalize_style_asset_metadata(
     gender_fit = _gender(_first(row, "gender_fit", "genderFit", "gender", "gender_support", "genderSupport"))
     colors = _list(_first(row, "colors", "color_palette", "colorPalette", "palette", "color"))
     archetypes = _list(_first(row, "archetypes", "style_archetypes", "styleArchetypes"))
-    occasions = _list(_first(row, "occasion_families", "occasionFamilies", "occasions", "occasion_tags", "occasion"))
+    occasions, unknown_occasions = normalize_metadata_vocabulary(
+        _first(row, "occasion_families", "occasionFamilies", "occasions", "occasion_tags", "occasion"),
+        vocabulary=CANONICAL_OCCASION_FAMILIES,
+        aliases=OCCASION_FAMILY_ALIASES,
+    )
     traits = _list(_first(row, "traits", "style_traits", "styleTraits", "required_traits"))
     weather_tags = _list(_first(row, "weather_tags", "weatherTags", "weather"))
     fabric_weight = _text(_first(row, "fabric_weight", "fabricWeight")).lower()
@@ -227,6 +290,11 @@ def normalize_style_asset_metadata(
         in {"unsafe", "rejected", "nonwearable", "non_wearable"}
     )
 
+    safety_tags, unknown_safety_tags = normalize_metadata_vocabulary(
+        _first(row, "safety_tags", "safetyTags"),
+        vocabulary=CANONICAL_SAFETY_TAGS,
+        aliases=SAFETY_TAG_ALIASES,
+    )
     professional_safety = {
         "professional_safe": _bool(_first(row, "professional_safe", "professionalSafe")),
         "professionalism_score": _number(
@@ -238,7 +306,7 @@ def normalize_style_asset_metadata(
         "boardroom_score": _number(
             _first(row, "boardroom_score", "boardroomScore"), low=0, high=1
         ),
-        "safety_tags": _list(_first(row, "safety_tags", "safetyTags")),
+        "safety_tags": safety_tags,
     }
     professional_safety = {
         key: value for key, value in professional_safety.items()
@@ -273,6 +341,10 @@ def normalize_style_asset_metadata(
     ))
     if detail_signals < 2:
         missing.append("style_or_safety_detail")
+    if unknown_occasions:
+        missing.append("invalid_occasion_families")
+    if unknown_safety_tags:
+        missing.append("invalid_safety_tags")
 
     score = 0.0
     score += 0.15 if asset_id else 0
@@ -292,6 +364,7 @@ def normalize_style_asset_metadata(
     hard_reject = (
         not asset_id or not _usable_image(board_image_url) or not role
         or provenance_invalid or explicitly_unsafe
+        or bool(unknown_occasions) or bool(unknown_safety_tags)
     )
     if hard_reject:
         metadata_status = "rejected"

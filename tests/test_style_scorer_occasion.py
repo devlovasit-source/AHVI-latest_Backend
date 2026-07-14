@@ -110,3 +110,36 @@ def test_pipeline_score_outfit_uses_scorer_occasion_metadata():
     assert scored["score_meta"]["occasion_profile"]["occasion"] == "beach"
     assert scored["score_meta"]["occasion_reject"] is True
     assert scored["ml_features"]["occasion_reject"] == 1.0
+
+
+def test_reviewed_professional_scores_rank_kurta_above_conditional_accessories():
+    def _score(metadata):
+        result = style_scorer.score_outfit(
+            [{
+                "id": "candidate",
+                "name": "Reviewed Candidate",
+                "category": "top",
+                "style_metadata": metadata,
+            }],
+            {"occasion": "client_meeting"},
+            {},
+        )
+        return result["breakdown"].get("metadata_richness", 0.0)
+
+    kurta = _score({
+        "professionalism_score": 0.72,
+        "client_meeting_score": 0.60,
+        "boardroom_score": 0.35,
+    })
+    scarf = _score({
+        "professionalism_score": 0.55,
+        "client_meeting_score": 0.45,
+        "boardroom_score": 0.25,
+    })
+    heel = _score({
+        "professionalism_score": 0.55,
+        "client_meeting_score": 0.35,
+        "boardroom_score": 0.15,
+    })
+
+    assert kurta > scarf > heel

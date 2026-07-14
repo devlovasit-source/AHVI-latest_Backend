@@ -59,7 +59,7 @@ def test_audit_is_read_only_by_default_and_emits_proposals():
     assert report["applied_count"] == 0
     assert report["assets"][0]["professional_safe"] is True
     assert report["assets"][0]["client_meeting_score"] == 0.85
-    assert report["assets"][0]["safety_tags"] == ["office", "client meeting"]
+    assert report["assets"][0]["safety_tags"] == ["office", "client_meeting"]
     assert report["assets"][0]["temperature_min_c"] == 12
     assert report["assets"][0]["fabric_weight"] == "medium"
     assert report["assets"][0]["rain_suitable"] is True

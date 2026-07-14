@@ -201,7 +201,7 @@ def test_professional_fields_are_normalized_on_runtime_axis():
     assert asset["professional_safe"] is True
     assert asset["professionalism_score"] == 0.9
     assert asset["client_meeting_score"] == 0.85
-    assert asset["safety_tags"] == ["office", "client meeting"]
+    assert asset["safety_tags"] == ["office", "client_meeting"]
 
 
 def test_importer_preserves_professional_safety_fields():
@@ -219,7 +219,50 @@ def test_importer_preserves_professional_safety_fields():
     assert payload["professionalism_score"] == 0.4
     assert payload["client_meeting_score"] == 0.3
     assert payload["boardroom_score"] == 0.2
-    assert payload["safety_tags"] == ["casual", "not boardroom"]
+    assert payload["safety_tags"] == ["casual", "not_boardroom"]
+
+
+def test_unknown_occasion_and_safety_vocabularies_fail_closed():
+    asset = normalize_style_asset_metadata(
+        _complete(
+            occasions=["dailywear", "invented_event"],
+            safety_tags=["office", "invented_safety"],
+        ),
+        trusted_style_asset_source=True,
+    )
+
+    assert asset["occasion_families"] == ["daily"]
+    assert asset["safety_tags"] == ["office"]
+    assert asset["metadata_status"] == "rejected"
+    assert "invalid_occasion_families" in asset["missing_metadata_fields"]
+    assert "invalid_safety_tags" in asset["missing_metadata_fields"]
+
+
+def test_unknown_occasion_label_cannot_enter_asset_ranking():
+    from services import style_reasoning_engine as engine
+
+    invalid = _complete(
+        asset_id="invalid-vocab",
+        name="Candidate Alpha",
+        category="top",
+        occasions=["invented_event"],
+    )
+    valid = _complete(
+        asset_id="valid-vocab",
+        name="Candidate Beta",
+        category="top",
+        occasions=["daily"],
+    )
+
+    selected = engine._best_style_assets(
+        [invalid, valid],
+        direction={"hero_piece": "top"},
+        occasion="daily",
+        target_gender="male",
+        limit=2,
+    )
+
+    assert [asset["asset_id"] for asset in selected] == ["valid-vocab"]
 
 
 def test_schema_bootstrap_declares_professional_safety_fields(monkeypatch):
