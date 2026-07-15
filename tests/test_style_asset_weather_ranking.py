@@ -344,3 +344,47 @@ def test_weather_fit_does_not_bypass_gender_eligibility():
     )
 
     assert [asset["asset_id"] for asset in selected] == ["eligible"]
+
+
+def test_public_weather_compatibility_contract_delegates_to_canonical_helper():
+    """Anchor callers use the public contract without gaining new weather rules."""
+    asset = _asset(
+        "public-contract",
+        weather_tags=["cold"],
+        temperature_min_c=-10,
+        temperature_max_c=12,
+        fabric_weight="heavy",
+        layering_suitability=0.9,
+    )
+
+    for brief in (
+        _brief(4, weather_tags=["cold"]),
+        _brief(34, weather_tags=["hot"]),
+        _brief(),
+        {"weather_context": {"temperature_c": "not-a-number"}},
+    ):
+        assert engine.asset_weather_compatibility_score(asset, brief) == engine._asset_weather_score(
+            asset, brief
+        )
+
+
+def test_public_weather_contract_uses_structured_evidence_not_name_tokens():
+    # A name alone is not evidence that a garment is breathable or lightweight.
+    asset = _asset("no-fabric-inference", weather_tags=[], name="Linen summer shirt")
+
+    assert engine.asset_weather_compatibility_score(asset, _brief(35, weather_tags=["hot"])) == 0
+
+
+def test_public_weather_contract_scarf_cold_hot_and_unknown_behavior():
+    scarf = _asset(
+        "scarf",
+        weather_tags=["cold"],
+        temperature_min_c=-10,
+        temperature_max_c=16,
+        fabric_weight="heavy",
+        layering_suitability=0.8,
+    )
+
+    assert engine.asset_weather_compatibility_score(scarf, _brief(5, weather_tags=["cold"])) > 0
+    assert engine.asset_weather_compatibility_score(scarf, _brief(34, weather_tags=["hot"])) < 0
+    assert engine.asset_weather_compatibility_score(scarf, _brief()) == 0

@@ -2984,6 +2984,17 @@ def _asset_weather_score(asset: Dict[str, Any], brief: Dict[str, Any] | None) ->
     return max(-4, min(4, score))
 
 
+def asset_weather_compatibility_score(
+    asset: Dict[str, Any], brief: Dict[str, Any] | None
+) -> int:
+    """Public, pure compatibility contract for structured asset weather.
+
+    This is intentionally a narrow wrapper over the established canonical
+    scorer so fixed-anchor evaluation and candidate ranking cannot diverge.
+    """
+    return _asset_weather_score(asset, brief)
+
+
 def _asset_score(
     asset: Dict[str, Any],
     *,
