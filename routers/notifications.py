@@ -197,7 +197,15 @@ def dispatch_due(request: Request, window_seconds: int = 60, dry_run: bool = Fal
                 return {"success": True, "dry_run": True, "planned": len(due)}
             return {"success": True, **_dispatch_generic_reminders(due)}
         generic_due = [rem for rem in due if not _is_medicine_reminder(rem)]
-        medicine = _dispatch_durable_medicine(dry_run=dry_run)
+        try:
+            medicine = _dispatch_durable_medicine(dry_run=dry_run)
+        except HTTPException as exc:
+            if exc.status_code >= 500:
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail={"code": exc.detail, "generic_dispatch_deferred": True},
+                ) from exc
+            raise
         generic = {"processed": 0, "sent": 0, "failed": 0} if dry_run else _dispatch_generic_reminders(generic_due)
         return {"success": True, "dry_run": bool(dry_run), "generic": generic, "medicine": medicine}
     except HTTPException:

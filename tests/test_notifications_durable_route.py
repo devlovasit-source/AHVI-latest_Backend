@@ -114,14 +114,14 @@ def test_schema_and_store_failures_are_typed_and_do_not_send_generic():
         with pytest.raises(HTTPException) as exc:
             call(Store(due=[generic], error=error), firebase, enabled=True)
         assert exc.value.status_code == 503
-        assert exc.value.detail == code
+        assert exc.value.detail == {"code": code, "generic_dispatch_deferred": True}
         assert not firebase.calls
 
 
 def test_firebase_unavailable_is_typed_without_legacy_fallback():
     with pytest.raises(HTTPException) as exc:
         call(Store(), Firebase(ready=False), enabled=True)
-    assert exc.value.detail == "MED_REMINDER_FIREBASE_UNAVAILABLE"
+    assert exc.value.detail == {"code": "MED_REMINDER_FIREBASE_UNAVAILABLE", "generic_dispatch_deferred": True}
 
 
 def test_invalid_dispatch_secret_is_rejected():

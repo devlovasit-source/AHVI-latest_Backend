@@ -114,7 +114,7 @@ class MedicineReminderDispatcher:
                         "source": "medicine", "medId": _text(medicine_id),
                         "sendAtISO": _iso(send_at), "scheduledFor": _iso(scheduled),
                         "timezone": _text(timezone_name) or "Asia/Kolkata", "attemptCount": 0,
-                        "updatedAtISO": _iso(scheduled),
+                        "message": "", "lastError": "", "updatedAtISO": _iso(scheduled),
                     },
                 )
             except ReminderConflictError:

@@ -190,6 +190,8 @@ class NotificationStore:
                     "source": "medicine",
                     "attemptCount": int(attempt),
                     "sendAtISO": _safe_text(claimed_at_iso),
+                    "message": "",
+                    "lastError": "",
                     "updatedAtISO": _safe_text(claimed_at_iso),
                 },
                 document_id=self.claim_record_id(notification_key, attempt),
