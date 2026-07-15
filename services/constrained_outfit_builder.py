@@ -164,6 +164,7 @@ class ConstrainedOutfitBuilder:
         variant = int(context.get("variant") or 0)
         prefer_footwear = tuple(context.get("prefer_footwear") or ())
         accessory_budget = min(2, max(0, int(context.get("accessory_budget", 1))))
+        weather_context = context.get("weather_context") or context.get("weather")
 
         # --- Fixed items: normalize + validate identity -------------------
         fixed_raw = [i for i in (fixed_items or []) if isinstance(i, dict)]
@@ -322,6 +323,7 @@ class ConstrainedOutfitBuilder:
                 variant=variant,
                 seed=f"{seed_base}:{slot}",
                 occasion=occasion,
+                weather_context=weather_context,
             )
             if picked is None:
                 missing_slots.append(slot)
@@ -476,6 +478,7 @@ class ConstrainedOutfitBuilder:
         variant: int,
         seed: str,
         occasion: Optional[str],
+        weather_context: Optional[Dict[str, Any]] = None,
     ) -> Optional[Tuple[Dict[str, Any], Dict[str, Any]]]:
         cands = list(pools.get(slot) or [])
         if slot == "footwear" and dress_in_outfit:
@@ -509,6 +512,16 @@ class ConstrainedOutfitBuilder:
                     tag_blob = " ".join(str(t) for t in tags).lower().replace(" ", "_")
                     if occ in tag_blob:
                         score += 3.0
+            if isinstance(weather_context, dict):
+                # Keep fixed-anchor completion aligned with the canonical
+                # weather scorer. Import lazily to avoid the reasoning-engine
+                # <-> builder module cycle.
+                try:
+                    from services.style_reasoning_engine import asset_weather_compatibility_score
+                    score += float(asset_weather_compatibility_score(raw, {"weather_context": weather_context}))
+                except Exception:
+                    # Missing optional weather metadata is neutral.
+                    pass
             return score
 
         # Deterministic: sort by (score desc, id) then rotate by variant +

@@ -35,8 +35,10 @@ from services.style_item_contract import (
     canonical_image_url,
     canonical_item_id,
     canonical_item_role,
+    canonical_item_source,
 )
 from services.style_context_service import build_canonical_style_context
+from services.style_anchor_compatibility import evaluate_style_asset_anchor
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.stylist")
@@ -334,6 +336,44 @@ def _resolve_style_assets(request: ItemStyleRequest) -> "tuple[List[Dict[str, An
         ], True
     except Exception:
         return [], True
+
+
+def _resolve_style_asset_anchor(
+    request: ItemStyleRequest,
+    item_id: str,
+    style_assets: List[Dict[str, Any]],
+    style_assets_trusted: bool,
+) -> Optional[Dict[str, Any]]:
+    """Resolve a ``style_this`` anchor from the server asset repository.
+
+    The URL id is the only client supplied identity.  When assets came from
+    Appwrite, the complete server document is returned unchanged; client
+    anchor fields can never override source, image, role, or metadata.  Inline
+    pools remain supported for offline/unit callers only.
+    """
+    wanted = _txt(item_id)
+    if not wanted:
+        return None
+    def matches(row: Dict[str, Any]) -> bool:
+        return any(_txt(row.get(key)) == wanted for key in (
+            "asset_id", "item_id", "id", "$id", "itemId", "image_id"
+        ))
+
+    record = next((dict(row) for row in style_assets if matches(row)), None)
+    if record is None:
+        return None
+    status = _txt(record.get("metadata_status")).lower()
+    if status == "rejected":
+        return None
+    # Server records are authoritative.  Only stamp the canonical source when
+    # an older document omitted it; never merge request metadata into this.
+    if style_assets_trusted:
+        record["source"] = "style_asset"
+        return record
+    # Offline/test pools must still carry the canonical source contract.
+    if canonical_item_source(record) != "style_asset":
+        return None
+    return record
 
 
 def _resolve_anchor(
@@ -773,6 +813,7 @@ def _builder_outfit(
     allow_wardrobe_fallback: bool = False,
     exclude_item_ids: "tuple[str, ...]" = (),
     user_id: str = "",
+    canonical_context: Optional[Dict[str, Any]] = None,
 ) -> "tuple[Dict[str, Any], Dict[str, Any]]":
     fixed = [dict(anchor)] if anchor else []
     replaceable_slots = replaceable_slots_for_fixed_items(fixed)
@@ -800,18 +841,28 @@ def _builder_outfit(
             "allow_wardrobe_fallback": False,
             "wardrobe_fallback_enabled": False,
         }
+    builder_context = {
+        "wardrobe": candidates,
+        "occasion": occasion,
+        "variant": variant,
+        "prefer_footwear": tuple(prefer),
+    }
+    # Carry only canonical structured context into fixed-anchor composition;
+    # the builder never receives caller-supplied asset metadata as authority.
+    if isinstance(canonical_context, dict):
+        for key in (
+            "weather_context", "event_context", "calendar_context", "gender",
+            "style_gender", "canonical_occasion",
+        ):
+            if canonical_context.get(key) is not None:
+                builder_context[key] = canonical_context[key]
     result = _builder.generate(
         scenario=mode,
         fixed_items=fixed,
         replaceable_slots=replaceable_slots,
         exclude_item_ids=list(exclude_item_ids),
         source_policy=policy,
-        context={
-            "wardrobe": candidates,
-            "occasion": occasion,
-            "variant": variant,
-            "prefer_footwear": tuple(prefer),
-        },
+        context=builder_context,
     )
     if not result.get("success"):
         _raise_builder_failure(result)
@@ -869,17 +920,20 @@ def _builder_directions(
     wardrobe: List[Dict[str, Any]],
     style_assets: List[Dict[str, Any]],
     *,
+    occasion: Optional[str] = None,
     allow_wardrobe_fallback: bool = False,
     user_id: str = "",
+    canonical_context: Optional[Dict[str, Any]] = None,
 ) -> "tuple[List[Dict[str, Any]], Dict[str, Any]]":
     directions = []
     source_meta: Dict[str, Any] = {}
     for idx, (title, prefer, note) in enumerate(_LITE_STYLE_DIRECTIONS):
         look, source_meta = _builder_outfit(
-            anchor, wardrobe, style_assets, None,
+            anchor, wardrobe, style_assets, occasion,
             mode="style_this", title=title, prefer=prefer, note=note, variant=idx,
             allow_wardrobe_fallback=allow_wardrobe_fallback,
             user_id=user_id,
+            canonical_context=canonical_context,
         )
         directions.append({**look, "styling_note": note})
     return directions, source_meta
@@ -931,7 +985,24 @@ def style_wardrobe_item(
         mode = "build_outfit"
     wardrobe, wardrobe_trusted = _resolve_wardrobe(request, user_id)
     style_assets, style_assets_trusted = _resolve_style_assets(request)
-    anchor = _resolve_anchor(request, item_id, wardrobe, wardrobe_trusted)
+    if mode == "style_this":
+        # Style-asset completion is anchored by a canonical repository id,
+        # never by client-provided metadata.  Existing wardrobe anchors remain
+        # supported; a server-resolved style asset is preferred when the id
+        # identifies one, with wardrobe resolution as the compatibility path.
+        anchor = _resolve_style_asset_anchor(
+            request, item_id, style_assets, style_assets_trusted
+        )
+        if anchor is None:
+            anchor = _resolve_anchor(request, item_id, wardrobe, wardrobe_trusted)
+        # Backward-compatible offline contract: tests and local callers may
+        # provide an explicit inline asset pool while anchoring a wardrobe
+        # item. Production requests omit this pool and therefore always use
+        # the trusted server repository path above.
+        if anchor is None and isinstance(request.style_assets, list):
+            anchor = _resolve_anchor(request, item_id, wardrobe, wardrobe_trusted)
+    else:
+        anchor = _resolve_anchor(request, item_id, wardrobe, wardrobe_trusted)
     if anchor is None:
         # Trusted wardrobe resolved, but the requested item is not in the
         # authenticated user's collection - caller-claimed source is never
@@ -939,7 +1010,9 @@ def style_wardrobe_item(
         client_anchor = request.anchor_item if isinstance(request.anchor_item, dict) else {}
         return _typed_failure(
             mode, dict(client_anchor), "INVALID_ANCHOR_ITEM",
-            "This item is not in your wardrobe, so it cannot anchor a look.",
+            "This item is not available as a trusted style asset, so it cannot anchor a look."
+            if mode == "style_this"
+            else "This item is not in your wardrobe, so it cannot anchor a look.",
         )
 
     anchor_id = canonical_item_id(anchor)
@@ -951,6 +1024,26 @@ def style_wardrobe_item(
 
     # --- Professional anchor safety check ---
     occasion = _txt(request.occasion) or None
+    if mode == "style_this" and canonical_item_source(anchor) == "style_asset":
+        anchor_context = dict(request.context or {})
+        anchor_context.setdefault("canonical_occasion", occasion)
+        anchor_decision = evaluate_style_asset_anchor(anchor, anchor_context)
+        if not anchor_decision.get("allowed"):
+            response_meta = {
+                "occasion": occasion,
+                "source": "style_asset",
+                "style_asset_source_trusted": style_assets_trusted,
+                "validation_passed": False,
+                "anchor_blocked": True,
+                "anchor_included": False,
+                "anchor_validation": anchor_decision,
+            }
+            return _typed_failure(
+                mode, anchor, "ANCHOR_INCOMPATIBLE_WITH_CONTEXT",
+                "This selected item is not compatible with the requested context.",
+                response_meta,
+                {"anchor_block_reason": anchor_decision.get("reason_code")},
+            )
     anchor_safe, anchor_block_reason = _anchor_safe_for_occasion(anchor, occasion)
     is_professional = _is_lite_professional(occasion)
 
@@ -1029,8 +1122,10 @@ def style_wardrobe_item(
                 anchor,
                 wardrobe,
                 style_assets,
+                occasion=occasion,
                 allow_wardrobe_fallback=bool(request.allow_wardrobe_fallback),
                 user_id=user_id,
+                canonical_context=request.context or {},
             )
             response_meta.update(source_meta)
             if not all(_anchor_in_items(anchor, d.get("items") or []) for d in directions):
@@ -1053,7 +1148,7 @@ def style_wardrobe_item(
 
         outfit, source_meta = _builder_outfit(
             anchor, wardrobe, style_assets, occasion, mode="build_outfit",
-            user_id=user_id,
+            user_id=user_id, canonical_context=request.context or {},
         )
         response_meta.update(source_meta)
         if not _anchor_in_items(anchor, outfit.get("items") or []):
