@@ -17,7 +17,7 @@ RESOURCE = "style_feedback_events"
 FEEDBACK_READ_LIMIT = 100
 MAX_ITEM_IDS = 25
 MAX_INPUT_BYTES = 100_000
-ACTIVE_ACTIONS = {"like", "dislike", "saved"}
+ACTIVE_ACTIONS = {"like", "dislike", "saved", "skipped"}
 
 
 class FeedbackStoreError(RuntimeError):
@@ -120,7 +120,7 @@ def canonical_event(*, user_id: str, event_id: str, action: str,
     if not eid or len(str(event_id or "").strip()) > 128:
         raise FeedbackValidationError("eventId is required and must be <= 128 characters")
     if act not in ACTIVE_ACTIONS:
-        raise FeedbackValidationError("action must be like, dislike, or saved")
+        raise FeedbackValidationError("action must be like, dislike, saved, or skipped")
     board = board_payload if isinstance(board_payload, dict) else {}
     ids = _item_ids(board, item_ids or [])
     bid = _text(board_id or board.get("board_id") or board.get("boardId")

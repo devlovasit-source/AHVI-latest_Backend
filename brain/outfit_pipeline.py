@@ -899,6 +899,10 @@ def _cached_query_vector(query_text: str) -> List[float]:
         return []
 
     if vec:
+        from services.style_execution_policy import cache_writes_allowed
+
+        if not cache_writes_allowed():
+            return vec
         if len(_QUERY_VECTOR_CACHE) >= _QUERY_VECTOR_CACHE_LIMIT:
             # drop one arbitrary entry — Python 3.7+ dict preserves insertion order
             try:
@@ -2822,6 +2826,14 @@ def save_feedback(
     return {"ok": True, "feedback": feedback_value}
 
 
+from services.style_execution_policy import (
+    run_learning_vector_upsert as _run_learning_vector_upsert,
+    run_preference_memory_write as _run_preference_memory_write,
+    server_style_execution as _server_style_execution,
+)
+
+
+@_server_style_execution
 def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
     user_id = str(user.get("user_id") or user.get("userId") or "anonymous")
     context = user.get("context", {}) or {}
@@ -3115,6 +3127,11 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         per_hero_cap = max(2, min(8, (stage_cap + n_heroes - 1) // n_heroes))
 
         group_list = [g for g in groups.values() if g]
+        from services.style_execution_policy import (
+            activate_style_execution,
+            get_style_execution_session,
+        )
+        _style_session = get_style_execution_session()
 
         # The per-hero LLM filter routes through the slow "styling" policy
         # (pro model, 45s timeout) and in practice returns Python/prose, not
@@ -3127,6 +3144,12 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
         ).strip().lower() in {"1", "true", "yes", "on"}
 
         def _filter_one_group(group_combos: List[Dict[str, Any]]) -> List[str]:
+            if _style_session is not None:
+                with activate_style_execution(_style_session):
+                    return _filter_one_group_active(group_combos)
+            return _filter_one_group_active(group_combos)
+
+        def _filter_one_group_active(group_combos: List[Dict[str, Any]]) -> List[str]:
             hero_master = (
                 group_combos[0].get("top") or group_combos[0].get("dress") or {}
             )
@@ -3470,10 +3493,16 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
 
         user_memory["recent_outfits"] = ranked + user_memory.get("recent_outfits", [])
         user_memory["recent_outfits"] = user_memory["recent_outfits"][:30]
-        _save_user_memory(user_id, user_memory)
+        # Recommendation generation is observation, not preference evidence.
+        # The calls remain explicit and injectable for policy tests, but the
+        # server-created production policy blocks both learning sinks. Explicit
+        # feedback/wear/save actions execute outside this generation scope.
+        _run_preference_memory_write(_save_user_memory, user_id, user_memory)
 
         for outfit in ranked:
-            _index_outfit_vector(user_id=user_id, outfit=outfit, label="recent")
+            _run_learning_vector_upsert(
+                _index_outfit_vector, user_id=user_id, outfit=outfit, label="recent"
+            )
 
     cards = _build_cards(ranked, merged_context)
 

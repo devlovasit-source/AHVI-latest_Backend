@@ -4700,6 +4700,10 @@ def finalize_style_response_payload(
         return response_payload
 
 
+from services.style_execution_policy import server_style_execution as _server_style_execution
+
+
+@_server_style_execution
 def build_style_flow_response(
     *,
     user_id: str,
@@ -4718,6 +4722,11 @@ def build_style_flow_response(
     cache_bypass: bool = True,
 ) -> Dict[str, Any]:
     from brain.outfit_pipeline import get_daily_outfits
+
+    # Recommendation generation is read/compute-only. Persisted board images
+    # are not preference evidence or immutable board-state infrastructure, so
+    # callers cannot trigger an R2 upload from an ordinary Style request.
+    upload_to_r2 = False
 
     started = time.perf_counter()
     # Deterministic non-apparel strip so boards never show chargers/passports/
@@ -5459,7 +5468,9 @@ def _gemini_curate(summaries: List[Dict[str, Any]], reasoning: Dict[str, Any], o
         )
         parsed = parse_json_object(raw)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("ahvi.board_curation_gemini_failed err=%s", str(exc)[:140])
+        logger.warning(
+            "ahvi.board_curation_gemini_failed error_type=%s", type(exc).__name__
+        )
         return []
     rows = parsed.get("selected_candidates") if isinstance(parsed, dict) else None
     return rows if isinstance(rows, list) else []
@@ -5474,6 +5485,7 @@ def _signature_parts(card: Dict[str, Any]) -> Dict[str, str]:
     return by_role
 
 
+@_server_style_execution
 def curate_wardrobe_boards(
     cards: List[Dict[str, Any]],
     *,

@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -125,8 +126,16 @@ def _guard_truncation(text: str, *, usecase: Optional[str]) -> str:
 # HTTP SESSION FOR OLLAMA
 # =========================
 
+class _BudgetAwareRetry(Retry):
+    def increment(self, *args, **kwargs):
+        from services.style_execution_policy import consume_model_call
+
+        consume_model_call(stage="ollama.http_retry", model_alias="ollama")
+        return super().increment(*args, **kwargs)
+
+
 session = requests.Session()
-retries = Retry(total=2, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
+retries = _BudgetAwareRetry(total=2, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
 session.mount("http://", HTTPAdapter(max_retries=retries))
 session.mount("https://", HTTPAdapter(max_retries=retries))
 
@@ -193,6 +202,7 @@ def _call_gemini_text(
     temperature: float = 0.35,
     max_output_tokens: int = 700,
     system_instruction: Optional[str] = None,
+    stage: str = "general",
 ) -> Optional[str]:
     client = _get_gemini_client()
     if client is None:
@@ -216,6 +226,10 @@ Task:
 {prompt}
 """.strip()
 
+    from services.style_execution_policy import consume_model_call, record_model_latency
+
+    consume_model_call(stage=stage, model_alias=GEMINI_MODEL)
+    started = time.perf_counter()
     try:
         config_kwargs: Dict[str, Any] = dict(
             system_instruction=system_instruction or AHVI_SYSTEM_PROMPT,
@@ -249,10 +263,12 @@ Task:
         # (which doesn't exist on Cloud Run, leaving every user with the
         # canned "This looks well put together and balanced." text).
         logger.error(
-            "llm.gemini_call_failed model=%s location=%s err_type=%s err=%s",
-            GEMINI_MODEL, GOOGLE_CLOUD_LOCATION, type(exc).__name__, str(exc)[:300],
+            "llm.gemini_call_failed model=%s location=%s err_type=%s",
+            GEMINI_MODEL, GOOGLE_CLOUD_LOCATION, type(exc).__name__,
         )
         return None
+    finally:
+        record_model_latency(stage=stage, model_alias=GEMINI_MODEL, started=started)
 
 
 # =========================
@@ -261,7 +277,7 @@ Task:
 
 
 def _call_ollama(
-    payload: Dict[str, Any], timeout: int = 30
+    payload: Dict[str, Any], timeout: int = 30, stage: str = "general"
 ) -> Optional[Dict[str, Any]]:
     models = [payload.get("model") or DEFAULT_MODEL, *MODEL_FALLBACKS]
     seen = set()
@@ -270,6 +286,11 @@ def _call_ollama(
         if not model or model in seen:
             continue
         seen.add(model)
+
+        from services.style_execution_policy import consume_model_call, record_model_latency
+
+        consume_model_call(stage=stage, model_alias=str(model))
+        started = time.perf_counter()
 
         try:
             current = dict(payload)
@@ -285,13 +306,22 @@ def _call_ollama(
             if res.status_code == 200:
                 return res.json()
             logger.warning(
-                "Ollama call failed status=%s model=%s body=%s",
+                "Ollama call failed status=%s model=%s",
                 res.status_code,
                 model,
-                res.text[:200],
             )
         except Exception as exc:
-            logger.warning("Ollama call exception model=%s error=%s", model, exc)
+            from services.style_execution_policy import ModelCallBudgetExceeded
+
+            if isinstance(exc, ModelCallBudgetExceeded):
+                raise
+            logger.warning(
+                "Ollama call exception model=%s error_type=%s",
+                model,
+                type(exc).__name__,
+            )
+        finally:
+            record_model_latency(stage=stage, model_alias=str(model), started=started)
 
     return None
 
@@ -361,6 +391,7 @@ def generate_text(
             signals=signals,
             temperature=float((options or {}).get("temperature", 0.35)),
             max_output_tokens=requested_tokens,
+            stage=str(usecase or "generate_text"),
         )
         if gemini_text:
             logger.info("llm.generate_text provider=gemini model=%s usecase=%s", GEMINI_MODEL, usecase)
@@ -378,6 +409,7 @@ def generate_text(
                     signals=signals,
                     temperature=float((options or {}).get("temperature", 0.35)),
                     max_output_tokens=retry_tokens,
+                    stage=f"{str(usecase or 'generate_text')}.retry",
                 )
                 if retry_text:
                     return _guard_truncation(retry_text, usecase=usecase)
@@ -415,7 +447,7 @@ STRICT RULES:
     if "num_predict" not in payload["options"]:
         payload["options"]["num_predict"] = requested_tokens
 
-    data = _call_ollama(payload, timeout=timeout_seconds)
+    data = _call_ollama(payload, timeout=timeout_seconds, stage=str(usecase or "generate_text"))
     if not data:
         logger.warning("llm.generate_text provider=ollama_unavailable usecase=%s", usecase)
         return "This looks well put together and balanced."

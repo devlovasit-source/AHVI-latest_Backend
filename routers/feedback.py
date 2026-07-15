@@ -130,11 +130,12 @@ def feedback_item(request: ItemFeedbackRequest, http_request: Request):
 def feedback_board(request: BoardFeedbackRequest, http_request: Request):
     user_id = enforce_owner(http_request, request.user_id)
     action = request.action.strip().lower()
-    passive_actions = {"shown", "dismissed", "regenerated", "clicked", "shared"}
-    if action not in {"like", "dislike", "saved", *passive_actions}:
+    passive_actions = {"shown", "regenerated", "clicked", "shared"}
+    action = "skipped" if action in {"skip", "dismissed"} else action
+    if action not in {"like", "dislike", "saved", "skipped", *passive_actions}:
         raise HTTPException(
             status_code=400,
-            detail="action must be like/dislike/saved/shown/dismissed/regenerated/clicked/shared",
+            detail="action must be like/dislike/saved/skip/shown/dismissed/regenerated/clicked/shared",
         )
     board = request.board_payload or {}
     logger.info(

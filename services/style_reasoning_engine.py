@@ -8246,6 +8246,10 @@ def _build_response(
     return guarded
 
 
+from services.style_execution_policy import server_style_execution as _server_style_execution
+
+
+@_server_style_execution
 def reason(
     query: str,
     intent: dict | str | None = None,
@@ -8323,7 +8327,9 @@ def reason(
         )
     except Exception as exc:
         logger.warning(
-            "ahvi.style_reasoning_gemini_failed mode=%s err=%s", mode, repr(exc)[:200]
+            "ahvi.style_reasoning_gemini_failed mode=%s error_type=%s",
+            mode,
+            type(exc).__name__,
         )
         ai_payload = None
 

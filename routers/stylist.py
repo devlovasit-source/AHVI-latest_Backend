@@ -24,6 +24,10 @@ from services.constrained_outfit_builder import (
     replaceable_slots_for_fixed_items,
 )
 from services.style_board_shuffle_service import _default_position, register_board
+from services.style_execution_policy import (
+    run_board_registration,
+    server_style_execution,
+)
 from services.style_item_contract import (
     FixedItemLostError,
     assert_fixed_items_preserved,
@@ -89,6 +93,7 @@ def _dict(value: Any) -> Dict[str, Any]:
 
 
 @router.post("/pipeline")
+@server_style_execution
 def run_outfit_pipeline(request: OutfitPipelineRequest, http_request: Request = None):
     # Bind to the authenticated user; a mismatched body user_id is a 403.
     user_id = bind_request_user(http_request, request.user_id)
@@ -841,7 +846,8 @@ def _builder_outfit(
     # sources. If state storage is down the board is still returned, but
     # shuffle is explicitly unavailable (typed error, never a silent
     # in-memory fallback).
-    registration = register_board(
+    registration = run_board_registration(
+        register_board,
         board_id=outfit["board_id"],
         revision=1,
         scenario=mode,
@@ -912,6 +918,7 @@ def _typed_failure(
 
 
 @router.post("/items/{item_id}/style")
+@server_style_execution
 def style_wardrobe_item(
     item_id: str, request: ItemStyleRequest, http_request: Request = None
 ) -> Dict[str, Any]:

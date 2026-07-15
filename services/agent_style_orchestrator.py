@@ -70,12 +70,19 @@ def _agent_cache_get(key: str) -> Optional[Dict[str, Any]]:
         return None
     ts, payload = row
     if time.time() - ts > _AGENT_CACHE_TTL:
-        _AGENT_CACHE.pop(key, None)
+        from services.style_execution_policy import cache_writes_allowed
+
+        if cache_writes_allowed():
+            _AGENT_CACHE.pop(key, None)
         return None
     return dict(payload)
 
 
 def _agent_cache_set(key: str, payload: Dict[str, Any]) -> None:
+    from services.style_execution_policy import cache_writes_allowed
+
+    if not cache_writes_allowed():
+        return
     if len(_AGENT_CACHE) >= _AGENT_CACHE_MAX:
         # drop oldest
         oldest = min(_AGENT_CACHE.items(), key=lambda kv: kv[1][0])[0]
@@ -343,6 +350,12 @@ async def _call_gemini_agent(prompt: str, *, model: str, timeout: float) -> Opti
     endpoint = os.getenv(ENV_ENDPOINT, "").strip()
     api_key = os.getenv(ENV_API_KEY, "").strip()
 
+    from services.style_execution_policy import (
+        ModelCallBudgetExceeded,
+        consume_model_call,
+        record_model_latency,
+    )
+
     # Preferred path: reuse the project's AI gateway if it exposes a
     # compatible agent call. This keeps auth/retries consistent with the
     # rest of the backend.
@@ -353,22 +366,33 @@ async def _call_gemini_agent(prompt: str, *, model: str, timeout: float) -> Opti
             ai_gateway, "call_gemini", None
         )
         if callable(call):
-            result = call(
-                model=model,
-                system=_SYSTEM_PROMPT,
-                prompt=prompt,
-                timeout=timeout,
-                response_format="json",
-            )
-            if asyncio.iscoroutine(result):
-                result = await asyncio.wait_for(result, timeout=timeout)
-            if isinstance(result, dict):
-                return result
-            if isinstance(result, str):
-                try:
-                    return json.loads(result)
-                except Exception:
-                    return None
+            consume_model_call(stage="style_orchestration.gateway", model_alias=model)
+            gateway_started = time.perf_counter()
+            try:
+                result = call(
+                    model=model,
+                    system=_SYSTEM_PROMPT,
+                    prompt=prompt,
+                    timeout=timeout,
+                    response_format="json",
+                )
+                if asyncio.iscoroutine(result):
+                    result = await asyncio.wait_for(result, timeout=timeout)
+                if isinstance(result, dict):
+                    return result
+                if isinstance(result, str):
+                    try:
+                        return json.loads(result)
+                    except Exception:
+                        return None
+            finally:
+                record_model_latency(
+                    stage="style_orchestration.gateway",
+                    model_alias=model,
+                    started=gateway_started,
+                )
+    except ModelCallBudgetExceeded:
+        raise
     except Exception:
         logger.debug("ahvi.agent.gateway_unavailable", exc_info=True)
 
@@ -385,15 +409,26 @@ async def _call_gemini_agent(prompt: str, *, model: str, timeout: float) -> Opti
         )
 
         if looks_like_resource_id(endpoint):
-            engine_result = await call_reasoning_engine(
-                endpoint,
-                system=_SYSTEM_PROMPT,
-                prompt=prompt,
-                timeout=timeout,
-            )
-            if isinstance(engine_result, dict):
-                return engine_result
-            return None
+            consume_model_call(stage="style_orchestration.agent", model_alias=model)
+            agent_started = time.perf_counter()
+            try:
+                engine_result = await call_reasoning_engine(
+                    endpoint,
+                    system=_SYSTEM_PROMPT,
+                    prompt=prompt,
+                    timeout=timeout,
+                )
+                if isinstance(engine_result, dict):
+                    return engine_result
+                return None
+            finally:
+                record_model_latency(
+                    stage="style_orchestration.agent",
+                    model_alias=model,
+                    started=agent_started,
+                )
+    except ModelCallBudgetExceeded:
+        raise
     except Exception:
         logger.debug("ahvi.agent.reasoning_engine_path_failed", exc_info=True)
 
@@ -422,13 +457,22 @@ async def _call_gemini_agent(prompt: str, *, model: str, timeout: float) -> Opti
     }
 
     try:
+        consume_model_call(stage="style_orchestration.http", model_alias=model)
+        _http_started = time.perf_counter()
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(endpoint, json=body, headers=headers)
             resp.raise_for_status()
             data = resp.json()
+    except ModelCallBudgetExceeded:
+        raise
     except Exception as exc:
-        logger.warning("ahvi.agent.transport_failed error=%s", str(exc)[:200])
+        logger.warning("ahvi.agent.transport_failed error_type=%s", type(exc).__name__)
         return None
+    finally:
+        if "_http_started" in locals():
+            record_model_latency(
+                stage="style_orchestration.http", model_alias=model, started=_http_started
+            )
 
     if isinstance(data, dict):
         # Common Gemini-style envelope: { output: { content: "..." } }
@@ -497,11 +541,12 @@ async def orchestrate_style_request(
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        logger.warning("ahvi.agent.timeout user_id=%s model=%s", user_id, model)
+        logger.warning("ahvi.agent.timeout stage=style_orchestration model=%s", model)
         return default_agent_payload()
     except Exception as exc:
         logger.warning(
-            "ahvi.agent.call_failed user_id=%s error=%s", user_id, str(exc)[:200]
+            "ahvi.agent.call_failed stage=style_orchestration error_type=%s",
+            type(exc).__name__,
         )
         return default_agent_payload()
 
@@ -581,17 +626,24 @@ def start_style_orchestration(
     if not is_enabled():
         return None
 
+    from services.style_execution_policy import activate_style_execution, get_style_execution_session
+
+    _style_session = get_style_execution_session()
+
     def _run() -> Dict[str, Any]:
         try:
+            if _style_session is not None:
+                with activate_style_execution(_style_session):
+                    return asyncio.run(
+                        orchestrate_style_request(
+                            message=message, user_id=user_id, wardrobe_items=wardrobe_items,
+                            chips=chips, weather=weather, profile=profile, context=context,
+                        )
+                    )
             return asyncio.run(
                 orchestrate_style_request(
-                    message=message,
-                    user_id=user_id,
-                    wardrobe_items=wardrobe_items,
-                    chips=chips,
-                    weather=weather,
-                    profile=profile,
-                    context=context,
+                    message=message, user_id=user_id, wardrobe_items=wardrobe_items,
+                    chips=chips, weather=weather, profile=profile, context=context,
                 )
             )
         except Exception as exc:  # noqa: BLE001

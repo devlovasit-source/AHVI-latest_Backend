@@ -36,6 +36,7 @@ from services.style_flow_service import (
     interpret_occasion,
     _build_composition_brief,
 )
+from services.style_execution_policy import server_style_execution
 from services.module_chat_service import handle_module_chat
 from services.style_reasoning_engine import VISUAL_INSPIRATION, style_reasoning_engine, _occasion_display_name
 from services.stylist_knowledge_service import (
@@ -2018,6 +2019,7 @@ def _style_curation_brief(query_text: str, occasion: str) -> Dict[str, Any]:
         return {"occasion": occasion}
 
 
+@server_style_execution
 def _demo_style_board_payload(
     user_id,
     query_text,

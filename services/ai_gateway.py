@@ -307,10 +307,9 @@ def generate_json_object(
         return parse_json_object(raw)
     except Exception as exc:
         logger.warning(
-            "generate_json_object parse failed request_id=%s error=%s raw=%s",
+            "generate_json_object parse failed request_id=%s error_type=%s",
             get_request_id(),
-            str(exc),
-            str(raw)[:240],
+            type(exc).__name__,
         )
         return {}
 
@@ -334,10 +333,9 @@ def chat_json_object(
         return parse_json_object(raw)
     except Exception as exc:
         logger.warning(
-            "chat_json_object parse failed request_id=%s error=%s raw=%s",
+            "chat_json_object parse failed request_id=%s error_type=%s",
             get_request_id(),
-            str(exc),
-            str(raw)[:240],
+            type(exc).__name__,
         )
         return {}
 

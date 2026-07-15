@@ -78,6 +78,23 @@ def test_authenticated_like_persists_correct_owner_and_no_media(monkeypatch):
     assert "image" not in persisted and "base64" not in persisted and "https://" not in persisted
 
 
+@pytest.mark.parametrize("action", ["like", "dislike", "saved", "skip"])
+def test_explicit_style_actions_persist_once_idempotently(monkeypatch, action):
+    proxy = MemoryProxy()
+    monkeypatch.setattr(route, "AppwriteStyleFeedbackStore", lambda: AppwriteStyleFeedbackStore(proxy))
+    monkeypatch.setattr(route, "_mirror_board_best_effort", lambda *_: None)
+    request = _board_req(event_id=f"evt-{action}", action=action)
+
+    first = route.feedback_board(request, _request("user-1"))
+    second = route.feedback_board(request, _request("user-1"))
+
+    assert len(proxy.docs) == 1
+    assert first["idempotent"] is False
+    assert second["idempotent"] is True
+    expected = "skipped" if action == "skip" else action
+    assert next(iter(proxy.docs.values()))["action"] == expected
+
+
 def test_cross_user_body_identity_is_rejected(monkeypatch):
     monkeypatch.setattr(route, "AppwriteStyleFeedbackStore", lambda: pytest.fail("must not write"))
     with pytest.raises(HTTPException) as exc:
