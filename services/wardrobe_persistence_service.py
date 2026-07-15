@@ -366,13 +366,144 @@ except Exception:  # pragma: no cover - optional during partial deploys
     _agent_validate_metadata_sync = None
 
 
+_VALIDATOR_STATUS_KEY = "_validator_status"
+_VALIDATOR_FIELDS_KEY = "_validator_authoritative_fields"
+_VALIDATOR_REASON_KEY = "_validator_degraded_reason"
+_PROTECTED_METADATA_KEYS = {
+    "id",
+    "item_id",
+    "itemid",
+    "user_id",
+    "userid",
+    "owner",
+    "owner_id",
+    "ownerid",
+    "source",
+    "source_id",
+    "sourceid",
+    "provenance",
+    "permissions",
+    "storage_key",
+    "storagekey",
+    "media_key",
+    "mediakey",
+}
+
+
+def _parse_existing_style_metadata(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            return {}
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _is_protected_metadata_key(key: Any) -> bool:
+    text = str(key or "").strip()
+    normalized = text.lower().replace("-", "_")
+    return (
+        not text
+        or text.startswith("$")
+        or normalized in _PROTECTED_METADATA_KEYS
+        or "url" in normalized
+        or "base64" in normalized
+        or normalized.startswith("image_")
+        or normalized.startswith("media_")
+        or normalized.startswith("storage_")
+    )
+
+
+def _is_meaningful_agent_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip()) and value.strip().lower() != "unknown"
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
+def _merge_agent_style_metadata(
+    trusted: Dict[str, Any], agent_result: Any
+) -> Dict[str, Any]:
+    """Merge only meaningful, mutable validator evidence into trusted data."""
+    merged = dict(trusted) if isinstance(trusted, dict) else {}
+    if not isinstance(agent_result, dict):
+        merged["agent_validated"] = False
+        merged["agent_validation_status"] = "degraded"
+        merged["agent_validation_degraded_reason"] = "malformed_response"
+        return merged
+
+    status = str(agent_result.get(_VALIDATOR_STATUS_KEY) or "").strip().lower()
+    reason = str(agent_result.get(_VALIDATOR_REASON_KEY) or "").strip().lower()
+    if status == "degraded":
+        merged["agent_validated"] = False
+        merged["agent_validation_status"] = "degraded"
+        if reason in {
+            "timeout",
+            "exception",
+            "sync_exception",
+            "empty_response",
+            "malformed_response",
+            "non_authoritative_response",
+        }:
+            merged["agent_validation_degraded_reason"] = reason
+        return merged
+
+    declared_fields = agent_result.get(_VALIDATOR_FIELDS_KEY)
+    if isinstance(declared_fields, list):
+        authoritative_fields = [str(key) for key in declared_fields]
+    else:
+        # Compatibility for callers/tests that provide a validated dictionary
+        # directly rather than the transport-aware validator result.
+        authoritative_fields = [
+            str(key)
+            for key, value in agent_result.items()
+            if not str(key).startswith("_") and _is_meaningful_agent_value(value)
+        ]
+
+    accepted_fields = []
+    for key in authoritative_fields:
+        if _is_protected_metadata_key(key):
+            continue
+        value = agent_result.get(key)
+        if not _is_meaningful_agent_value(value):
+            continue
+        merged[key] = value
+        accepted_fields.append(key)
+
+    if accepted_fields:
+        merged["agent_validated"] = True
+        merged["agent_validation_status"] = "validated"
+        merged.pop("agent_validation_degraded_reason", None)
+        if _is_meaningful_agent_value(agent_result.get("confidence")):
+            merged["agent_confidence"] = float(agent_result["confidence"])
+    else:
+        merged["agent_validated"] = False
+        merged["agent_validation_status"] = "degraded"
+        merged["agent_validation_degraded_reason"] = "non_authoritative_response"
+    return merged
+
+
 def _style_metadata_payload(
     *,
     item_id: str,
     user_id: str,
     item_payload: Dict[str, Any],
 ) -> Dict[str, Any]:
-    style_meta = enrich_wardrobe_item(item_payload if isinstance(item_payload, dict) else {})
+    base_item = item_payload if isinstance(item_payload, dict) else {}
+    style_meta = enrich_wardrobe_item(base_item)
+    existing_meta = _parse_existing_style_metadata(base_item.get("style_metadata"))
+    if existing_meta:
+        style_meta.update(existing_meta)
+    for taxonomy_key in ("category", "subcategory"):
+        if not _is_meaningful_agent_value(style_meta.get(taxonomy_key)):
+            style_meta[taxonomy_key] = "unknown"
+    existing_updated_at = style_meta.get("metadata_updated_at")
 
     # AHVI Metadata Validator agent — merge agent-produced fields on top of
     # the legacy enrichment when the env flag is enabled. Failures are
@@ -387,22 +518,19 @@ def _style_metadata_payload(
                 else None,
                 context={"source": "_style_metadata_payload"},
             )
-            if isinstance(agent_meta, dict):
-                merged = dict(style_meta) if isinstance(style_meta, dict) else {}
-                # Agent fields are authoritative when present.
-                for key, value in agent_meta.items():
-                    if value in (None, "", [], {}):
-                        continue
-                    merged[key] = value
-                merged["agent_validated"] = True
-                merged["agent_confidence"] = float(agent_meta.get("confidence") or 0.0)
-                style_meta = merged
+            style_meta = _merge_agent_style_metadata(style_meta, agent_meta)
     except Exception:
         logging.getLogger("ahvi.wardrobe_persistence").warning(
-            "ahvi.metadata.merge_failed item=%s user=%s",
+            "ahvi.metadata.merge_failed item=%s user=%s reason=exception",
             item_id,
             user_id,
-            exc_info=True,
+        )
+        style_meta = _merge_agent_style_metadata(
+            style_meta,
+            {
+                _VALIDATOR_STATUS_KEY: "degraded",
+                _VALIDATOR_REASON_KEY: "exception",
+            },
         )
 
     try:
@@ -414,11 +542,13 @@ def _style_metadata_payload(
         )
     except Exception:
         logging.getLogger("ahvi.wardrobe_persistence").warning(
-            "ahvi.metadata.v2_normalize_failed item=%s user=%s",
+            "ahvi.metadata.v2_normalize_failed item=%s user=%s reason=exception",
             item_id,
             user_id,
-            exc_info=True,
         )
+
+    if existing_updated_at is not None:
+        style_meta["metadata_updated_at"] = existing_updated_at
 
     return {
         "item_id": _safe_text(item_id),
@@ -434,12 +564,31 @@ def _upsert_style_metadata(
     item_payload: Dict[str, Any],
 ) -> str:
     doc_id = _safe_document_id(item_id)
+    proxy = AppwriteProxy()
+    enriched_payload = dict(item_payload) if isinstance(item_payload, dict) else {}
+    getter = getattr(proxy, "get_document", None)
+    if callable(getter):
+        try:
+            existing_doc = getter(STYLE_METADATA_RESOURCE, doc_id)
+        except AppwriteProxyError as exc:
+            if "404" not in str(exc):
+                raise
+        else:
+            owner = _safe_text(
+                (existing_doc or {}).get("userId") or (existing_doc or {}).get("user_id")
+            )
+            if owner and owner != _safe_text(user_id):
+                raise PermissionError("Style metadata ownership mismatch.")
+            persisted_meta = _parse_existing_style_metadata(
+                (existing_doc or {}).get("style_metadata")
+            )
+            if persisted_meta:
+                enriched_payload["style_metadata"] = persisted_meta
     payload = _style_metadata_payload(
         item_id=doc_id,
         user_id=user_id,
-        item_payload=item_payload,
+        item_payload=enriched_payload,
     )
-    proxy = AppwriteProxy()
     try:
         proxy.update_document(STYLE_METADATA_RESOURCE, doc_id, payload)
         return "updated"

@@ -13,6 +13,226 @@ class _FakeResponse:
         return self._payload
 
 
+def _style_meta_from_payload(monkeypatch, *, existing=None, validator=None, enabled=True):
+    monkeypatch.setattr(persistence, "_agent_metadata_enabled", lambda: enabled)
+    if isinstance(validator, BaseException):
+        def _raise_validator(**kwargs):
+            raise validator
+
+        monkeypatch.setattr(persistence, "_agent_validate_metadata_sync", _raise_validator)
+    else:
+        monkeypatch.setattr(
+            persistence,
+            "_agent_validate_metadata_sync",
+            lambda **kwargs: validator,
+        )
+    item = {
+        "name": "Black Loafers",
+        "category": "Footwear",
+        "sub_category": "Loafers",
+    }
+    if existing is not None:
+        item["style_metadata"] = dict(existing)
+    payload = persistence._style_metadata_payload(
+        item_id="item_1",
+        user_id="user_1",
+        item_payload=item,
+    )
+    return json.loads(payload["style_metadata"])
+
+
+def _validator_result(**fields):
+    return {
+        "_validator_status": "validated",
+        "_validator_authoritative_fields": list(fields),
+        **fields,
+    }
+
+
+def test_validator_empty_null_and_unknown_preserve_existing_subcategory(monkeypatch):
+    existing = {
+        "category": "Footwear",
+        "subcategory": "Loafers",
+        "formality": "smart_casual",
+    }
+    for validator in ({}, None, {"subcategory": "unknown"}):
+        meta = _style_meta_from_payload(
+            monkeypatch, existing=existing, validator=validator
+        )
+        assert meta["subcategory"] == "Loafers"
+        assert meta["formality"] == "smart_casual"
+
+
+def test_partial_validator_updates_only_meaningful_field(monkeypatch):
+    existing = {
+        "category": "Footwear",
+        "subcategory": "Loafers",
+        "formality": "smart_casual",
+        "style_role": "businesswear",
+    }
+    meta = _style_meta_from_payload(
+        monkeypatch,
+        existing=existing,
+        validator=_validator_result(formality="formal", subcategory="unknown"),
+    )
+    assert meta["formality"] == "formal"
+    assert meta["subcategory"] == "Loafers"
+    assert meta["style_role"] == "businesswear"
+
+
+def test_valid_validator_correction_updates_mutable_field(monkeypatch):
+    meta = _style_meta_from_payload(
+        monkeypatch,
+        existing={"category": "Footwear", "subcategory": "Dress Shoes"},
+        validator=_validator_result(subcategory="Loafers", confidence=0.94),
+    )
+    assert meta["subcategory"] == "Loafers"
+    assert meta["agent_validated"] is True
+    assert meta["agent_confidence"] == 0.94
+
+
+def test_malformed_validator_preserves_complete_existing_metadata(monkeypatch):
+    existing = {
+        "category": "Footwear",
+        "subcategory": "Loafers",
+        "style_role": "businesswear",
+        "metadata_updated_at": "2026-07-01T00:00:00Z",
+    }
+    meta = _style_meta_from_payload(
+        monkeypatch, existing=existing, validator="not-json"
+    )
+    for key, value in existing.items():
+        assert meta[key] == value
+    assert meta["agent_validation_status"] == "degraded"
+    assert meta["agent_validation_degraded_reason"] == "malformed_response"
+
+
+def test_validator_exception_or_timeout_preserves_existing_metadata(monkeypatch):
+    existing = {
+        "category": "Footwear",
+        "subcategory": "Loafers",
+        "formality": "smart_casual",
+    }
+    for failure in (RuntimeError("unavailable"), TimeoutError("timeout")):
+        meta = _style_meta_from_payload(
+            monkeypatch, existing=existing, validator=failure
+        )
+        assert meta["subcategory"] == "Loafers"
+        assert meta["formality"] == "smart_casual"
+        assert meta["agent_validation_status"] == "degraded"
+
+
+def test_validator_disabled_preserves_deterministic_behavior(monkeypatch):
+    meta = _style_meta_from_payload(
+        monkeypatch,
+        validator=AssertionError("validator must not run"),
+        enabled=False,
+    )
+    assert meta["category"] == "Footwear"
+    assert meta["subcategory"] == "Loafers"
+    assert "agent_validation_status" not in meta
+
+
+def test_new_record_without_trustworthy_taxonomy_stays_neutral(monkeypatch):
+    monkeypatch.setattr(persistence, "_agent_metadata_enabled", lambda: True)
+    monkeypatch.setattr(persistence, "_agent_validate_metadata_sync", lambda **kwargs: {})
+    payload = persistence._style_metadata_payload(
+        item_id="item_new",
+        user_id="user_1",
+        item_payload={"name": "Unclassified item"},
+    )
+    meta = json.loads(payload["style_metadata"])
+    assert meta["category"] == "unknown"
+    assert meta["subcategory"] == "unknown"
+
+
+def test_validator_fallback_processing_is_idempotent(monkeypatch):
+    existing = {
+        "category": "Footwear",
+        "subcategory": "Loafers",
+        "metadata_updated_at": "2026-07-01T00:00:00Z",
+    }
+    first = _style_meta_from_payload(monkeypatch, existing=existing, validator={})
+    second = _style_meta_from_payload(monkeypatch, existing=first, validator={})
+    assert second == first
+    assert second["metadata_updated_at"] == existing["metadata_updated_at"]
+
+
+def test_validator_cannot_change_identity_source_or_media_fields(monkeypatch):
+    existing = {
+        "category": "Footwear",
+        "subcategory": "Loafers",
+        "source": "wardrobe",
+        "owner_id": "user_1",
+        "image_url": "private-original-media",
+        "storage_key": "private/original.png",
+    }
+    proposed = {
+        "source": "catalog",
+        "owner_id": "other_user",
+        "image_url": "private-replacement-media",
+        "storage_key": "other/replacement.png",
+        "subcategory": "Oxfords",
+    }
+    meta = _style_meta_from_payload(
+        monkeypatch,
+        existing=existing,
+        validator={
+            "_validator_status": "validated",
+            "_validator_authoritative_fields": list(proposed),
+            **proposed,
+        },
+    )
+    assert meta["subcategory"] == "Oxfords"
+    for key in ("source", "owner_id", "image_url", "storage_key"):
+        assert meta[key] == existing[key]
+
+
+def test_upsert_reads_and_preserves_persisted_metadata_on_validator_fallback(monkeypatch):
+    calls = []
+    existing_meta = {
+        "category": "Footwear",
+        "subcategory": "Loafers",
+        "style_role": "businesswear",
+    }
+
+    class FakeProxy:
+        def get_document(self, resource, document_id):
+            calls.append(("get", resource, document_id))
+            return {
+                "$id": document_id,
+                "userId": "user_1",
+                "style_metadata": json.dumps(existing_meta),
+            }
+
+        def update_document(self, resource, document_id, data):
+            calls.append(("update", resource, document_id, data))
+            return {"$id": document_id}
+
+    monkeypatch.setattr(persistence, "AppwriteProxy", lambda: FakeProxy())
+    monkeypatch.setattr(persistence, "_agent_metadata_enabled", lambda: True)
+    monkeypatch.setattr(
+        persistence,
+        "_agent_validate_metadata_sync",
+        lambda **kwargs: {
+            "_validator_status": "degraded",
+            "_validator_authoritative_fields": [],
+            "_validator_degraded_reason": "empty_response",
+        },
+    )
+
+    result = persistence._upsert_style_metadata(
+        item_id="item_1",
+        user_id="user_1",
+        item_payload={"name": "Black Loafers", "category": "Footwear"},
+    )
+
+    assert result == "updated"
+    written = json.loads(calls[-1][3]["style_metadata"])
+    assert written["subcategory"] == "Loafers"
+    assert written["style_role"] == "businesswear"
+
+
 def test_update_labels_writes_metadata_separately(monkeypatch):
     calls = []
     metadata_calls = []

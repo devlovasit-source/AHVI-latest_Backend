@@ -142,6 +142,42 @@ _SCHEMA_KEYS = (
     "confidence",
 )
 
+_VALIDATOR_STATUS_KEY = "_validator_status"
+_VALIDATOR_FIELDS_KEY = "_validator_authoritative_fields"
+_VALIDATOR_REASON_KEY = "_validator_degraded_reason"
+
+
+def _is_meaningful_validator_value(value: Any) -> bool:
+    """Return whether a validator value carries usable evidence."""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip()) and value.strip().lower() != "unknown"
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
+def _with_validator_provenance(
+    metadata: Dict[str, Any],
+    *,
+    status: str,
+    raw: Any = None,
+    reason: str = "",
+) -> Dict[str, Any]:
+    """Attach safe merge instructions without retaining raw model output."""
+    result = dict(metadata) if isinstance(metadata, dict) else {}
+    raw_dict = raw if isinstance(raw, dict) else {}
+    result[_VALIDATOR_STATUS_KEY] = status
+    result[_VALIDATOR_FIELDS_KEY] = [
+        key
+        for key in _SCHEMA_KEYS
+        if key in raw_dict and _is_meaningful_validator_value(raw_dict.get(key))
+    ]
+    if reason:
+        result[_VALIDATOR_REASON_KEY] = reason
+    return result
+
 
 def _coerce_str(value: Any, default: str = "") -> str:
     if value is None:
@@ -1096,7 +1132,7 @@ async def _call_agent(prompt: str, *, model: str, timeout: float) -> Optional[Di
     if not endpoint.startswith(("http://", "https://")):
         logger.warning(
             "ahvi.metadata.endpoint_not_http endpoint=%s — skipping HTTP fallback",
-            endpoint[:80],
+            "redacted",
         )
         return None
 
@@ -1115,8 +1151,8 @@ async def _call_agent(prompt: str, *, model: str, timeout: float) -> Optional[Di
             resp = await client.post(endpoint, json=body, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-    except Exception as exc:
-        logger.warning("ahvi.metadata.transport_failed error=%s", str(exc)[:200])
+    except Exception:
+        logger.warning("ahvi.metadata.transport_failed reason=exception")
         return None
 
     if isinstance(data, dict):
@@ -1152,10 +1188,9 @@ async def validate_wardrobe_metadata(
     save flow.
     """
     logger.info(
-        "ahvi.metadata.validation_started user_id=%s item_id=%s category=%s",
+        "ahvi.metadata.validation_started user_id=%s item_id=%s",
         user_id,
         (item or {}).get("$id") or (item or {}).get("id"),
-        (item or {}).get("category"),
     )
     if not is_enabled():
         return default_metadata(item)
@@ -1172,61 +1207,79 @@ async def validate_wardrobe_metadata(
         logger.warning(
             "ahvi.metadata.validation_failed reason=timeout user_id=%s", user_id
         )
-        return default_metadata(item)
-    except Exception as exc:
-        logger.warning(
-            "ahvi.metadata.validation_failed reason=exception user_id=%s err=%s",
-            user_id,
-            str(exc)[:200],
+        return _with_validator_provenance(
+            default_metadata(item), status="degraded", reason="timeout"
         )
-        return default_metadata(item)
+    except Exception:
+        logger.warning(
+            "ahvi.metadata.validation_failed reason=exception user_id=%s",
+            user_id,
+        )
+        return _with_validator_provenance(
+            default_metadata(item), status="degraded", reason="exception"
+        )
 
     if not raw:
         logger.warning(
             "ahvi.metadata.validation_failed reason=empty_response user_id=%s",
             user_id,
         )
-        return default_metadata(item)
+        return _with_validator_provenance(
+            default_metadata(item), status="degraded", reason="empty_response"
+        )
 
-    validated = validate_metadata_payload(raw, base_item=item)
+    if not isinstance(raw, dict):
+        logger.warning(
+            "ahvi.metadata.validation_failed reason=malformed_response user_id=%s",
+            user_id,
+        )
+        return _with_validator_provenance(
+            default_metadata(item), status="degraded", reason="malformed_response"
+        )
+
+    meaningful_raw = {
+        key: value
+        for key, value in raw.items()
+        if _is_meaningful_validator_value(value)
+    }
+    validated = validate_metadata_payload(meaningful_raw, base_item=item)
+    authoritative_fields = [
+        key
+        for key in _SCHEMA_KEYS
+        if key in raw and _is_meaningful_validator_value(raw.get(key))
+    ]
+    if not authoritative_fields:
+        logger.warning(
+            "ahvi.metadata.validation_failed reason=non_authoritative_response user_id=%s",
+            user_id,
+        )
+        return _with_validator_provenance(
+            validated,
+            status="degraded",
+            raw=raw,
+            reason="non_authoritative_response",
+        )
     confidence = float(validated.get("confidence") or 0.0)
 
     if confidence < _low_confidence_threshold():
         logger.warning(
-            "ahvi.metadata.low_confidence user_id=%s item_id=%s category=%s "
-            "subcategory=%s formality=%s style_role=%s confidence=%.2f "
-            "blocked_occasions=%s",
+            "ahvi.metadata.low_confidence user_id=%s item_id=%s confidence=%.2f "
+            "authoritative_field_count=%s",
             user_id,
             (item or {}).get("$id"),
-            validated.get("category"),
-            validated.get("subcategory"),
-            validated.get("formality"),
-            validated.get("style_role"),
             confidence,
-            validated.get("blocked_occasions"),
+            len(authoritative_fields),
         )
     else:
         logger.info(
-            "ahvi.metadata.validation_success user_id=%s item_id=%s category=%s "
-            "subcategory=%s formality=%s style_role=%s client_meeting_score=%.2f "
-            "boardroom_score=%.2f capsule_score=%.2f versatility_score=%.2f "
-            "visual_noise=%s risk_flags=%s confidence=%.2f blocked_occasions=%s",
+            "ahvi.metadata.validation_success user_id=%s item_id=%s confidence=%.2f "
+            "authoritative_field_count=%s",
             user_id,
             (item or {}).get("$id"),
-            validated.get("category"),
-            validated.get("subcategory"),
-            validated.get("formality"),
-            validated.get("style_role"),
-            float(validated.get("client_meeting_score") or 0.0),
-            float(validated.get("boardroom_score") or 0.0),
-            float(validated.get("capsule_score") or 0.0),
-            float(validated.get("versatility_score") or 0.0),
-            validated.get("visual_noise"),
-            validated.get("risk_flags"),
             confidence,
-            validated.get("blocked_occasions"),
+            len(authoritative_fields),
         )
-    return validated
+    return _with_validator_provenance(validated, status="validated", raw=raw)
 
 
 def validate_wardrobe_metadata_sync(
@@ -1254,12 +1307,16 @@ def validate_wardrobe_metadata_sync(
     except RuntimeError:
         try:
             return asyncio.run(coro)
-        except Exception as exc:
-            logger.warning("ahvi.metadata.sync_wrapper_failed err=%s", str(exc)[:200])
-            return default_metadata(item)
-    except Exception as exc:
-        logger.warning("ahvi.metadata.sync_wrapper_failed err=%s", str(exc)[:200])
-        return default_metadata(item)
+        except Exception:
+            logger.warning("ahvi.metadata.sync_wrapper_failed reason=exception")
+            return _with_validator_provenance(
+                default_metadata(item), status="degraded", reason="sync_exception"
+            )
+    except Exception:
+        logger.warning("ahvi.metadata.sync_wrapper_failed reason=exception")
+        return _with_validator_provenance(
+            default_metadata(item), status="degraded", reason="sync_exception"
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Dict, List
 
@@ -82,6 +83,80 @@ def test_sync_validator_disabled_returns_default(monkeypatch):
     monkeypatch.delenv("ENABLE_AGENT_METADATA_VALIDATOR", raising=False)
     meta = validate_wardrobe_metadata_sync(item={"category": "Footwear"})
     assert meta["category"] == "Footwear"
+
+
+def test_validator_partial_response_marks_only_meaningful_fields(monkeypatch):
+    from services import agent_metadata_validator as validator
+
+    monkeypatch.setenv("ENABLE_AGENT_METADATA_VALIDATOR", "true")
+
+    async def _partial(*args, **kwargs):
+        return {
+            "subcategory": "unknown",
+            "formality": "formal",
+            "confidence": 0.91,
+        }
+
+    monkeypatch.setattr(validator, "_call_agent", _partial)
+    result = asyncio.run(
+        validator.validate_wardrobe_metadata(
+            item={"category": "Footwear", "sub_category": "Loafers"},
+            user_id="user-1",
+        )
+    )
+
+    assert result["_validator_status"] == "validated"
+    assert result["_validator_authoritative_fields"] == ["formality", "confidence"]
+    assert result["subcategory"] == "Loafers"
+
+
+@pytest.mark.parametrize(
+    ("response", "reason"),
+    [({}, "empty_response"), (["malformed"], "malformed_response")],
+)
+def test_validator_non_authoritative_response_is_safely_degraded(
+    monkeypatch, response, reason
+):
+    from services import agent_metadata_validator as validator
+
+    monkeypatch.setenv("ENABLE_AGENT_METADATA_VALIDATOR", "true")
+
+    async def _response(*args, **kwargs):
+        return response
+
+    monkeypatch.setattr(validator, "_call_agent", _response)
+    result = asyncio.run(
+        validator.validate_wardrobe_metadata(
+            item={"category": "Footwear", "sub_category": "Loafers"},
+            user_id="user-1",
+        )
+    )
+
+    assert result["subcategory"] == "Loafers"
+    assert result["_validator_status"] == "degraded"
+    assert result["_validator_authoritative_fields"] == []
+    assert result["_validator_degraded_reason"] == reason
+
+
+def test_validator_timeout_is_safely_degraded(monkeypatch):
+    from services import agent_metadata_validator as validator
+
+    monkeypatch.setenv("ENABLE_AGENT_METADATA_VALIDATOR", "true")
+
+    async def _timeout(*args, **kwargs):
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(validator, "_call_agent", _timeout)
+    result = asyncio.run(
+        validator.validate_wardrobe_metadata(
+            item={"category": "Footwear", "sub_category": "Loafers"},
+            user_id="user-1",
+        )
+    )
+
+    assert result["subcategory"] == "Loafers"
+    assert result["_validator_status"] == "degraded"
+    assert result["_validator_degraded_reason"] == "timeout"
 
 
 # ---------------------------------------------------------------------------
