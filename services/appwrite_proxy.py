@@ -10,7 +10,16 @@ logger = logging.getLogger(__name__)
 
 
 class AppwriteProxyError(Exception):
-    pass
+    def __init__(self, message: Any = "", status_code: Optional[int] = None):
+        # Some older callers passed (status_code, message). Preserve that form
+        # while exposing a reliable status_code to durable claim callers.
+        if isinstance(message, int):
+            if isinstance(status_code, str):
+                message, status_code = status_code, message
+            elif status_code is None:
+                status_code, message = message, f"Appwrite error {message}"
+        super().__init__(str(message))
+        self.status_code = status_code
 
 
 def _load_local_env() -> None:
@@ -383,7 +392,8 @@ class AppwriteProxy:
             raise AppwriteProxyError(f"Appwrite connection failed: {exc}") from exc
         if response.status_code >= 400:
             raise AppwriteProxyError(
-                f"Appwrite request failed ({response.status_code}): {response.text}"
+                f"Appwrite request failed ({response.status_code}): {response.text}",
+                status_code=response.status_code,
             )
         if not response.text:
             return {}
@@ -428,7 +438,8 @@ class AppwriteProxy:
             raise AppwriteProxyError(f"Appwrite connection failed: {exc}") from exc
         if response.status_code >= 400:
             raise AppwriteProxyError(
-                f"Appwrite request failed ({response.status_code}): {response.text}"
+                f"Appwrite request failed ({response.status_code}): {response.text}",
+                status_code=response.status_code,
             )
         if not response.text:
             return {}
@@ -641,6 +652,28 @@ class AppwriteProxy:
         )
         docs = page.get("documents", []) if isinstance(page, dict) else []
         return [d for d in docs if isinstance(d, dict)]
+
+    def query_documents(
+        self, resource: str, *, queries: List[Dict[str, Any]], limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Execute an Appwrite query without a local-scan fallback.
+
+        Callers that rely on this method must provision the corresponding
+        Appwrite indexes. Returning a partial local scan for due work can lose
+        reminders, so query errors are deliberately surfaced to the caller.
+        """
+        resource = self._normalize_resource(resource)
+        collection_id = self._collection_id(resource)
+        tokens = [self._serialize_query_token(query) for query in queries or []]
+        data = self._request(
+            "GET",
+            self._url(collection_id),
+            params={"queries[]": tokens, "limit": max(1, min(int(limit), 100))},
+        )
+        docs = data.get("documents", [])
+        if not isinstance(docs, list):
+            raise AppwriteProxyError("Appwrite indexed query returned invalid documents")
+        return [doc for doc in docs if isinstance(doc, dict)]
 
     @staticmethod
     def _matches_user(
