@@ -241,6 +241,17 @@ def dispatch_due_reminders_task(self, window_seconds: int = 60, request_id: str 
     from services.notification_store import notification_store
 
     _mark_started(self, request_id=request_id, user_id="system")
+    if str(os.getenv("ENABLE_DURABLE_MED_REMINDERS", "false")).strip().lower() in {
+        "1", "true", "yes", "on"
+    }:
+        # The route rejects this path too. Do not silently process only generic
+        # work while durable medicine dispatch has not gained worker parity.
+        error = RuntimeError("MED_REMINDER_ASYNC_UNAVAILABLE")
+        try:
+            job_tracker.mark_failed(str(getattr(self.request, "id", "")), error=str(error))
+        except Exception:
+            pass
+        raise error
     try:
         due = notification_store.list_due_reminders(window_seconds=int(window_seconds))
         processed = 0

@@ -95,13 +95,16 @@ class MedicineReminderDispatcher:
             return default
 
     def schedule_occurrence(
-        self, *, user_id: str, medicine_id: str, scheduled_utc: datetime, timezone_name: str = "Asia/Kolkata"
+        self, *, user_id: str, medicine_id: str, scheduled_utc: datetime,
+        timezone_name: str = "Asia/Kolkata", dry_run: bool = False,
     ) -> Dict[str, str]:
         scheduled = _utc(scheduled_utc)
         occurrence = occurrence_id(user_id, medicine_id, scheduled)
         records = ((KIND_PRE_DOSE, scheduled - timedelta(minutes=15)), (KIND_FOLLOW_UP, scheduled + timedelta(minutes=15)))
         for kind, send_at in records:
             key = notification_key(occurrence, kind)
+            if dry_run:
+                continue
             try:
                 self.store.create_reminder_record(
                     self.store.reminder_record_id(key),
@@ -118,7 +121,7 @@ class MedicineReminderDispatcher:
                 continue
         return {"occurrence_id": occurrence, "pre_dose": notification_key(occurrence, KIND_PRE_DOSE), "follow_up": notification_key(occurrence, KIND_FOLLOW_UP)}
 
-    def run(self, *, now: Optional[datetime] = None) -> Dict[str, int]:
+    def run(self, *, now: Optional[datetime] = None, dry_run: bool = False) -> Dict[str, int]:
         current = _utc(now or datetime.now(timezone.utc))
         counters = {key: 0 for key in ("due", "claimed", "dispatched", "duplicate", "cancelled_taken", "cancelled_skipped", "no_token", "failed")}
         earliest = _iso(current - timedelta(minutes=self.recovery_minutes))
@@ -128,7 +131,8 @@ class MedicineReminderDispatcher:
                 candidates.extend(self.store.list_due_medicine_records(kind=kind, status=status, now_iso=_iso(current), earliest_iso=earliest))
         for record in candidates:
             counters["due"] += 1
-            self._dispatch(record, current, counters)
+            if not dry_run:
+                self._dispatch(record, current, counters)
         return counters
 
     def _dispatch(self, record: Dict[str, Any], now: datetime, counters: Dict[str, int]) -> None:

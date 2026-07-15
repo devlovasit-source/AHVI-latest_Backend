@@ -29,6 +29,10 @@ class ReminderConflictError(ReminderStoreError):
     """A deterministic Appwrite document already exists (HTTP 409)."""
 
 
+class ReminderSchemaError(ReminderStoreError):
+    """The durable reminder attributes or indexes are not provisioned."""
+
+
 class NotificationStore:
     """
     Stores:
@@ -213,9 +217,36 @@ class NotificationStore:
                 limit=limit,
             )
         except AppwriteProxyError as exc:
+            if exc.status_code in {400, 404}:
+                raise ReminderSchemaError("due reminder index unavailable") from exc
             raise ReminderStoreError("due reminder query failed") from exc
         except Exception as exc:
             raise ReminderStoreError("due reminder query failed") from exc
+
+    def list_medicine_occurrences_to_seed(
+        self, *, earliest_iso: str, latest_iso: str, limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """Read scheduled medicine occurrences through the med_logs time index.
+
+        This deliberately does not scan the collection. Batch 3 must provision
+        the required index before the feature flag can be enabled in production.
+        """
+        try:
+            return self._appwrite.query_documents(
+                "med_logs",
+                queries=[
+                    self._query("greaterThanEqual", "time", _safe_text(earliest_iso)),
+                    self._query("lessThanEqual", "time", _safe_text(latest_iso)),
+                    self._query("orderAsc", "time"),
+                ],
+                limit=limit,
+            )
+        except AppwriteProxyError as exc:
+            if exc.status_code in {400, 404}:
+                raise ReminderSchemaError("medicine occurrence index unavailable") from exc
+            raise ReminderStoreError("medicine occurrence query failed") from exc
+        except Exception as exc:
+            raise ReminderStoreError("medicine occurrence query failed") from exc
 
     def list_occurrence_logs(self, *, user_id: str, med_id: str, occurrence_id: str) -> List[Dict[str, Any]]:
         try:

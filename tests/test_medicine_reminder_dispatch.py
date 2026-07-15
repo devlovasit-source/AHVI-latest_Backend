@@ -108,6 +108,16 @@ def test_schedule_calculates_pre_and_follow_up_times():
     assert by_kind[KIND_FOLLOW_UP]["sendAtISO"] == (NOW + timedelta(minutes=15)).isoformat()
 
 
+def test_dry_run_creates_no_records_claims_or_pushes():
+    dispatcher = make_dispatcher()
+    dispatcher.schedule_occurrence(user_id="user-1", medicine_id="med-1", scheduled_utc=NOW, dry_run=True)
+    create_due(dispatcher)
+    assert dispatcher.run(now=NOW, dry_run=True)["due"] == 1
+    assert len(dispatcher.store.records) == 1
+    assert not dispatcher.store.claims
+    assert not dispatcher.firebase.calls
+
+
 def test_timezone_conversion_and_invalid_timezone_fallback():
     local = datetime(2026, 5, 1, 20, 0)
     assert scheduled_utc(local, "Asia/Kolkata") == datetime(2026, 5, 1, 14, 30, tzinfo=timezone.utc)
@@ -202,6 +212,15 @@ def test_partial_device_success_dispatches_once_with_client_deduplication_key():
     assert dispatcher.run(now=NOW)["dispatched"] == 1
     data = firebase.calls[0]["data"]
     assert data["eventId"] == data["collapseKey"]
+
+
+def test_no_token_is_a_safe_retryable_counter():
+    store = MemoryStore()
+    store.devices = []
+    dispatcher = make_dispatcher(store)
+    record = create_due(dispatcher)
+    assert dispatcher.run(now=NOW)["no_token"] == 1
+    assert record["status"] == STATUS_FAILED
 
 
 def test_scheduler_overlap_only_dispatches_an_occurrence_once():
