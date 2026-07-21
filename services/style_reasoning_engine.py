@@ -70,7 +70,7 @@ _RECURSIVE_PREFIXES = (
     "find missing pieces for",
     "show shopping ideas for:",
     "show shopping ideas for",
-    # Bare forms — same intents without the leading verb. Cover the typed
+    # Bare forms â€” same intents without the leading verb. Cover the typed
     # variants that bypass chip wrapping (e.g. "visual inspiration for a
     # conference talk") so downstream extractors see the real tail.
     "visual inspiration for:",
@@ -97,12 +97,12 @@ def _clean_recursive_prompt(query: str) -> str:
         low = text.lower()
         for pref in _RECURSIVE_PREFIXES:
             if low.startswith(pref):
-                text = text[len(pref):].strip(" :·-")
+                text = text[len(pref):].strip(" :Â·-")
                 changed = True
                 break
-        # Collapse an internal " · " chain to its last meaningful segment.
-        if " · " in text:
-            tail = text.split(" · ")[-1].strip()
+        # Collapse an internal " Â· " chain to its last meaningful segment.
+        if " Â· " in text:
+            tail = text.split(" Â· ")[-1].strip()
             if tail:
                 text = tail
                 changed = True
@@ -184,7 +184,7 @@ def _extract_pairing_anchor(query: str) -> Dict[str, str]:
     name = anchor or "the item"
     # Guard: if no pairing trigger was found AND the surviving anchor text
     # doesn't read as a garment (no known family, no anchor color, no anchor
-    # category), the query is occasion / context phrasing — not a real anchor.
+    # category), the query is occasion / context phrasing â€” not a real anchor.
     # Skip rather than poison downstream archetype selection with junk like
     # "visual inspiration for a conference talk".
     if not trigger_matched and not category and not color and not _target_family(name):
@@ -513,7 +513,7 @@ _SAFE_ACCESSORY_TERMS = {
     "overshirt",
 }
 # Male-only garments to strip from a FEMALE persona (symmetric to the
-# feminine block above). Kept tight to genuinely male-coded ethnic pieces —
+# feminine block above). Kept tight to genuinely male-coded ethnic pieces â€”
 # "kurta"/"jutti" are unisex (kurti/jutti for women) and stay allowed.
 # Matched as substrings so multi-word terms ("nehru jacket") are caught.
 _FEMALE_BLOCKED_STYLE_TERMS = (
@@ -1923,11 +1923,11 @@ def _asset_context_score(
             bonus += 16
     # Casual/social occasion intelligence (coffee date, first date, brunch,
     # date night). Demote business/formal pieces + beanie/cap, boost relaxed
-    # pieces — across hero AND complete placements — unless the user
+    # pieces â€” across hero AND complete placements â€” unless the user
     # explicitly asked for the demoted piece in their query/hero text.
     if _is_casual_social_policy(occasion):
         # User explicitly asked for the demoted piece (e.g. "blazer for a
-        # coffee date") → respect it, skip the demotion.
+        # coffee date") â†’ respect it, skip the demotion.
         requested_family = _detect_family(f"{target_text} {occasion}")
         explicitly_requested = bool(family) and family == requested_family
         if family in _CASUAL_SOCIAL_DEMOTE_FAMILIES and not explicitly_requested:
@@ -2021,7 +2021,7 @@ def _asset_matches_hero_slot(asset: Dict[str, Any], expected_slot: str | None, h
             if asset_intent in {"tshirt", "polo", "formal_shirt"}:
                 return False
             return asset_intent in {"knit", "casual_pullover"}
-        # No specific shirt intent → keep prior permissive behaviour but
+        # No specific shirt intent â†’ keep prior permissive behaviour but
         # still reject hoodies/sweatshirts unless hero explicitly asked for them.
         if has("hoodie", "sweatshirt") and not hero_tokens.intersection({"hoodie", "sweatshirt"}):
             return False
@@ -2854,7 +2854,7 @@ _ASSET_HIGHENERGY_SIGNALS = (
 
 def _asset_axis_estimates(blob: str) -> tuple[int, int, int]:
     """Estimate (formality 1..5, movement 1..9, energy 1..9) from an item text
-    blob. Heuristic — keyword counts clamped to the axis range."""
+    blob. Heuristic â€” keyword counts clamped to the axis range."""
     b = (blob or "").lower()
     formality = 3
     for s in _ASSET_FORMAL_SIGNALS:
@@ -2886,7 +2886,9 @@ _RAIN_WEATHER_TAGS = {"rain", "rainy", "wet", "monsoon", "storm"}
 _WIND_WEATHER_TAGS = {"wind", "windy", "breezy", "gusty"}
 
 
-def _asset_weather_score(asset: Dict[str, Any], brief: Dict[str, Any] | None) -> int:
+def asset_weather_compatibility_score(
+    asset: Dict[str, Any], brief: Dict[str, Any] | None
+) -> int:
     """Return a bounded compatibility adjustment from explicit weather data.
 
     The request side must be structured canonical weather and the asset side
@@ -2899,14 +2901,14 @@ def _asset_weather_score(asset: Dict[str, Any], brief: Dict[str, Any] | None) ->
     if not isinstance(weather, dict) or not weather:
         return 0
 
-    try:
-        temperature_c = (
-            float(weather.get("temperature_c"))
-            if weather.get("temperature_c") not in (None, "")
-            else None
-        )
-    except (TypeError, ValueError):
-        temperature_c = None
+    temperature_c = None
+    for temperature_key in ("apparent_temperature_c", "temperature_c"):
+        try:
+            if weather.get(temperature_key) not in (None, ""):
+                temperature_c = float(weather.get(temperature_key))
+                break
+        except (TypeError, ValueError):
+            continue
     condition = _norm(weather.get("condition"))
     request_tags = set(_asset_list(weather.get("weather_tags") or weather.get("tags")))
     condition_tags = set(condition.split())
@@ -2984,15 +2986,9 @@ def _asset_weather_score(asset: Dict[str, Any], brief: Dict[str, Any] | None) ->
     return max(-4, min(4, score))
 
 
-def asset_weather_compatibility_score(
-    asset: Dict[str, Any], brief: Dict[str, Any] | None
-) -> int:
-    """Public, pure compatibility contract for structured asset weather.
-
-    This is intentionally a narrow wrapper over the established canonical
-    scorer so fixed-anchor evaluation and candidate ranking cannot diverge.
-    """
-    return _asset_weather_score(asset, brief)
+# Compatibility alias for callers/tests that imported the original private
+# helper before the weather evaluator became a shared anchor contract.
+_asset_weather_score = asset_weather_compatibility_score
 
 
 def _asset_score(
@@ -3096,7 +3092,7 @@ def _asset_score(
         else:
             score -= 6
     elif hero_colors and not asset_colors:
-        # Asset color unknown — small penalty so explicitly-colored peers win.
+        # Asset color unknown â€” small penalty so explicitly-colored peers win.
         score -= 1
     for token in re.findall(r"[a-z0-9]+", direction_terms):
         if len(token) > 3 and token in blob:
@@ -3107,7 +3103,7 @@ def _asset_score(
     ):
         score -= 3
     # Canonical-brief authenticity scoring (only when a brief is threaded in;
-    # legacy callers pass brief=None → identical behavior).
+    # legacy callers pass brief=None â†’ identical behavior).
     if brief:
         # Hard veto: forbidden archetype or forbidden item signal. Return a
         # strongly-negative score so the candidate is dropped (score>0 gate).
@@ -3784,7 +3780,7 @@ def _filter_complete_the_look_for_occasion(
     return kept
 
 
-# ── Itemized board_items contract for the frontend 85 flat-lay board ─────────
+# â”€â”€ Itemized board_items contract for the frontend 85 flat-lay board â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Frontend (commit 0057706) renders AhviOutfitBoardCard -> EditorialBoardCanvas
 # only when a direction carries real, role-tagged, image-bearing pieces. One
 # hero image is not enough. Build board_items alongside the legacy fields.
@@ -3976,7 +3972,7 @@ def _build_board_items(
             True,
         )
 
-    # Wardrobe intent: owned items only — never blend in generic assets.
+    # Wardrobe intent: owned items only â€” never blend in generic assets.
     if wardrobe_intent:
         return items
 
@@ -4006,7 +4002,7 @@ def _board_items_viable(items: List[Dict[str, Any]]) -> bool:
     return classic or dress or known >= 3
 
 
-# ── Visual board sanitizer ──────────────────────────────────────────────────
+# â”€â”€ Visual board sanitizer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Single entry point that repairs a RAW wardrobe dump into a viable, slot-based
 # visual board. The frontend must never receive an un-deduped wardrobe list
 # (two pants, two belts, duplicate images). Reuses the production board-role
@@ -4377,7 +4373,7 @@ def _enrich_visual_directions_with_assets(
                 )
                 if bottom_asset:
                     bottom_item = _accessory_asset_to_complete_item(bottom_asset, out)
-                    # Bottom leads; keep essentials, then accessories — cap at 3.
+                    # Bottom leads; keep essentials, then accessories â€” cap at 3.
                     complete = [bottom_item] + [
                         it for it in complete if isinstance(it, dict)
                     ]
@@ -4393,7 +4389,7 @@ def _enrich_visual_directions_with_assets(
             target_gender=target_gender,
             allow_feminine=allow_feminine_accessory,
         )
-        # Itemized board contract for the 85 board (additive — legacy fields kept).
+        # Itemized board contract for the 85 board (additive â€” legacy fields kept).
         board_items = _build_board_items(out, wardrobe_intent=wardrobe_intent)
         viable = _board_items_viable(board_items)
         if wardrobe_intent and not viable:
@@ -4584,7 +4580,7 @@ def _fallback_missing_piece(query: str, category: str | None) -> str:
         )
     if category in {"work_occasion", "hybrid_occasion"}:
         return (
-            "A well-cut neutral blazer would do the most work here — it sharpens "
+            "A well-cut neutral blazer would do the most work here â€” it sharpens "
             "the look for the room and still relaxes for drinks afterward."
         )
     if category == "social_occasion":
@@ -4801,7 +4797,7 @@ def _coerce_mode(query: str, intent: dict | str | None, context: dict | None) ->
     q = _norm(query)
     action_blob = f"{q} {style_action} {next_action}"
 
-    # 1) use_wardrobe — highest precedence.
+    # 1) use_wardrobe â€” highest precedence.
     if (
         module_context.lower() in {"wardrobe", "closet"}
         or _has_any(action_blob, ("use_wardrobe", "use my wardrobe", "use wardrobe", "from my wardrobe", "with my wardrobe"))
@@ -4858,7 +4854,7 @@ def _build_reasoning_prompt(
         archetype_names = [a.get("name") for a in archetypes if isinstance(a, dict)]
         # Gender-filter the archetype item hints fed to the model so a female
         # persona never receives male-only ethnic pieces (sherwani, nehru
-        # jacket, ...) — and vice-versa for feminine-only items on a male.
+        # jacket, ...) â€” and vice-versa for feminine-only items on a male.
         _allow_fem = target_gender == "female" or _prompt_allows_gendered_feminine_style(query)
 
         def _gender_items(items):
@@ -4888,10 +4884,10 @@ You are AHVI's PERSONAL stylist (not a generic fashion encyclopedia). The user
 is asking an open-ended pairing question. Ground every route in their persona +
 the selected archetypes below.
 
-Persona context (obey — never assume beyond it):
+Persona context (obey â€” never assume beyond it):
 {_persona_json}
 
-Selected archetypes (build routes ONLY from these — do not invent others):
+Selected archetypes (build routes ONLY from these â€” do not invent others):
 {_arch_json}
 
 Return ONLY valid JSON matching this schema:
@@ -4977,7 +4973,7 @@ User query: {_clean_recursive_prompt(query)}
         return f"""
 {AHVI_SYSTEM_PROMPT}
 
-You are AHVI's senior stylist answering an open-ended {_label} question — not
+You are AHVI's senior stylist answering an open-ended {_label} question â€” not
 building an outfit board. Be specific and practical, like a stylist, never a
 textbook. No "styling principles" headings.
 
@@ -5002,7 +4998,7 @@ User query: {_clean_recursive_prompt(query)}
 
 {OCCASION_INTERPRETER_PROMPT}
 
-You are AHVI's senior stylist — a real human stylist thinking out loud, not a
+You are AHVI's senior stylist â€” a real human stylist thinking out loud, not a
 fashion database listing templates.
 
 Before recommending any clothing, decide privately in this order:
@@ -5014,7 +5010,7 @@ Before recommending any clothing, decide privately in this order:
 6. What single missing piece would most improve this direction?
 
 Lead with the opinion and the reasoning. The outfit directions only support
-that reasoning — they never replace it.
+that reasoning â€” they never replace it.
 
 Return ONLY valid JSON matching this schema:
 {{
@@ -5067,18 +5063,18 @@ gender = {target_gender}. If male: NEVER suggest skirts, dresses, blouses,
 heels, sarees, lehengas, or feminine-only silhouettes unless the user
 explicitly asked. If female: feminine pieces allowed, but NEVER suggest
 male-only garments (sherwani, nehru jacket, bandhgala, dhoti, kurta-pajama,
-mojari) — use female ethnic equivalents (lehenga, saree, anarkali, kurti,
+mojari) â€” use female ethnic equivalents (lehenga, saree, anarkali, kurti,
 salwar). If unknown: keep every piece gender-neutral. Do not mention gender
 unless relevant.
 
 Wardrobe grounding: if the style context shows wardrobe_available with items,
 do NOT describe a garment as owned ("wear your suit") unless that garment
 appears in the wardrobe list. Any garment the user does not own goes ONLY in
-missing_piece, clearly marked as a suggestion to acquire — never implied owned.
+missing_piece, clearly marked as a suggestion to acquire â€” never implied owned.
 
 Obey the policy.outfit_validation_principles: if the occasion and an item
 clash (shiny/formal for coffee, office polish forced into date night, formal
-shirt for a game), do NOT overconfidently recommend it — name the mismatch
+shirt for a game), do NOT overconfidently recommend it â€” name the mismatch
 softly in what_to_avoid and stylist_reasoning, then offer one correction.
 
 Memory: if style_ctx.memory.recently_worn is non-empty, you MAY add ONE short
@@ -5089,12 +5085,12 @@ style_ctx.memory is null/absent, NEVER invent or mention wear history.
 Personalization: if style_ctx.style_dna is present, ground the reasoning in it
 naturally ("your wardrobe leans relaxed-modern", lean into preferred_colors /
 preferred_silhouettes, respect avoided_colors + avoid_style_keywords). If
-style_dna is absent or empty, do NOT invent personal taste — stay occasion-led.
+style_dna is absent or empty, do NOT invent personal taste â€” stay occasion-led.
 
 Obey the policy.wardrobe_management_principles for weak/empty wardrobes: say
 what the wardrobe leans toward first (e.g. office/casual), acknowledge what CAN
 be built, then frame gaps as one or two occasion-specific anchors to ADD
-(e.g. "a relaxed evening shirt and a softer shoe") — never a long missing list,
+(e.g. "a relaxed evening shirt and a softer shoe") â€” never a long missing list,
 never a blunt "I don't see options".
 
 When visual_inspiration: shape visual_inspiration_board from
@@ -5145,12 +5141,12 @@ Hard rules:
   ALSO include a "transition_plan" object: {{"keep": [items that carry across],
   "swap": [items to change], "add": [pieces that upgrade for the 2nd event],
   "avoid": [what fails either event], "dinner_ready": "one line on the upgraded
-  look"}}. Do NOT force one rigid outfit — give a keep/swap/add path.
+  look"}}. Do NOT force one rigid outfit â€” give a keep/swap/add path.
 
-Style policy (compact — obey, do not echo verbatim):
+Style policy (compact â€” obey, do not echo verbatim):
 {policy}
 
-Style context (compact — the user's real situation):
+Style context (compact â€” the user's real situation):
 {style_ctx}
 
 Selected visual archetypes:
@@ -5242,7 +5238,7 @@ def _ensure_direction_logic(direction: Dict[str, Any]) -> Dict[str, Any]:
         if len(pieces) >= 2:
             direction["why_it_works"] = (
                 f"The {str(pieces[0]).lower()} sets the structure while the "
-                f"{str(pieces[1]).lower()} keeps it easy — so the look reads "
+                f"{str(pieces[1]).lower()} keeps it easy â€” so the look reads "
                 "intentional without trying too hard."
             )
         else:
@@ -5413,7 +5409,7 @@ def _two_sentences(text: Any, *, max_chars: int = 240) -> str:
         return raw[:max_chars].rstrip()
     short = " ".join(sentences[:2]).strip()
     if len(short) > max_chars:
-        short = short[:max_chars].rsplit(" ", 1)[0].rstrip(" ,;:-") + "…"
+        short = short[:max_chars].rsplit(" ", 1)[0].rstrip(" ,;:-") + "â€¦"
     return short
 
 
@@ -5448,32 +5444,32 @@ _DEFAULT_DIRECTION_ADJECTIVES: list[str] = ["Considered", "Modern", "Confident"]
 # to a neutral confident line. Reuses the same voice intent as
 # ahvi_personality/02_tone/tone_rules.json (relaxed warmth, concise).
 _OCCASION_VOICE: dict[str, str] = {
-    "coffee_date": "Relaxed, approachable, and easy to wear — polished without feeling overdressed.",
-    "coffee": "Relaxed, approachable, and easy to wear — polished without feeling overdressed.",
-    "cafe_date": "Relaxed, approachable, and easy to wear — polished without feeling overdressed.",
+    "coffee_date": "Relaxed, approachable, and easy to wear â€” polished without feeling overdressed.",
+    "coffee": "Relaxed, approachable, and easy to wear â€” polished without feeling overdressed.",
+    "cafe_date": "Relaxed, approachable, and easy to wear â€” polished without feeling overdressed.",
     "first_date": "Warm and approachable, with just enough polish to feel intentional.",
-    "date": "Easy confidence — put-together but never trying too hard.",
-    "date_night": "Quietly magnetic — refined enough for evening, relaxed enough to enjoy it.",
+    "date": "Easy confidence â€” put-together but never trying too hard.",
+    "date_night": "Quietly magnetic â€” refined enough for evening, relaxed enough to enjoy it.",
     "brunch": "Light, easy, and put-together for a slow weekend table.",
     "brunch_date": "Light, easy, and put-together for a slow weekend table.",
     "casual_day": "Effortless and comfortable, with a considered finish.",
-    "weekend": "Easy weekend polish — comfortable, considered, unforced.",
-    "client_meeting": "Quiet authority — sharp first impression, comfortable all day.",
+    "weekend": "Easy weekend polish â€” comfortable, considered, unforced.",
+    "client_meeting": "Quiet authority â€” sharp first impression, comfortable all day.",
     "office": "Composed and professional, with room to move.",
     "startup_office": "Modern and sharp without the suit-and-tie stiffness.",
-    "conference": "Confident and credible — sharp enough for the stage, comfortable enough for a full day.",
-    "conference_talk": "Confident and credible — sharp enough for the stage, comfortable enough for a full day.",
+    "conference": "Confident and credible â€” sharp enough for the stage, comfortable enough for a full day.",
+    "conference_talk": "Confident and credible â€” sharp enough for the stage, comfortable enough for a full day.",
     "presentation": "Composed and camera-ready, with steady presence.",
-    "keynote": "Confident and credible — built to hold the room.",
+    "keynote": "Confident and credible â€” built to hold the room.",
     "interview": "Sharp, sincere, and quietly confident.",
     "wedding": "Celebratory and refined, dressed for the moment without stealing it.",
     "wedding_guest": "Celebratory and refined, dressed for the moment without stealing it.",
-    "funeral": "Respectful and understated — keeps attention where it belongs.",
-    "vacation": "Sunlit ease — relaxed, breathable, and ready to wander.",
+    "funeral": "Respectful and understated â€” keeps attention where it belongs.",
+    "vacation": "Sunlit ease â€” relaxed, breathable, and ready to wander.",
     "travel": "Comfortable, layered, and ready for a long day in transit.",
     "airport_travel": "Comfortable, layered, and ready for a long day in transit.",
-    "workout": "Built to move — focused, breathable, recovery-ready.",
-    "gym": "Built to move — focused, breathable, recovery-ready.",
+    "workout": "Built to move â€” focused, breathable, recovery-ready.",
+    "gym": "Built to move â€” focused, breathable, recovery-ready.",
     "beach": "Cool, breathable, and ready for sand and sun.",
 }
 _DEFAULT_OCCASION_VOICE: str = "Considered and confident, styled to feel like you."
@@ -6014,7 +6010,7 @@ def _build_owned_items(
 
 
 # ---------------------------------------------------------------------------
-# Shared Style Brain — post-LLM visual guard (Phase C).
+# Shared Style Brain â€” post-LLM visual guard (Phase C).
 # Gated by STYLE_SHARED_BRAIN (default OFF). Reuses the wardrobe path's pure
 # occasion guard + the existing gender sanitizer, and adds a small color-clash
 # strip and a weather-aware headwear strip. Never returns empty directions.
@@ -6216,7 +6212,7 @@ def _strip_weather_inappropriate_headwear(
 def _direction_to_guard_board(direction: Dict[str, Any]) -> Dict[str, Any]:
     """Adapt a visual direction (string pieces + hero + dict supporting assets)
     into the board shape ``reject_board_for_occasion`` inspects, so the occasion
-    guard sees the direction's actual garments — not just its title text."""
+    guard sees the direction's actual garments â€” not just its title text."""
     pieces = _safe_list(direction.get("items") or direction.get("pieces"), limit=8)
     items: List[Dict[str, Any]] = [{"name": str(p)} for p in pieces]
     hero = _asset_text(direction.get("hero_piece"))
@@ -6262,7 +6258,7 @@ def _repair_direction_for_occasion(
     if "_forbidden_" in reason:
         term = reason.split("_forbidden_", 1)[1].replace("_", " ").strip()
     if not term:
-        # Reason not tied to a specific item (e.g. metadata/private-wear) —
+        # Reason not tied to a specific item (e.g. metadata/private-wear) â€”
         # unrepairable, drop the whole direction.
         return None
 
@@ -6430,7 +6426,7 @@ def _apply_style_guard(
                 continue
         if forbidden_items:
             d = _strip_forbidden_item_signals(d, forbidden_items, stats)
-        # 0b. Formality authenticity gate — board mean formality must not exceed
+        # 0b. Formality authenticity gate â€” board mean formality must not exceed
         # brief.formality + 2 (kills oxford/loafer/belt drift on a festival).
         brief_formality = ctx.get("formality")
         if isinstance(brief_formality, (int, float)):
@@ -6438,7 +6434,7 @@ def _apply_style_guard(
             if repaired_f is None:
                 continue
             d = repaired_f
-        # 1. Occasion compatibility (whole-direction) — reuse the wardrobe guard.
+        # 1. Occasion compatibility (whole-direction) â€” reuse the wardrobe guard.
         reject, reason = reject_board_for_occasion(_direction_to_guard_board(d), occ)
         if reject:
             stats["occ_reject"] += 1
@@ -6462,7 +6458,7 @@ def _apply_style_guard(
         d = _strip_color_clashes(d, stats)
         # 3. Weather-aware headwear.
         d = _strip_weather_inappropriate_headwear(d, ctx, stats)
-        # 4. Gender — reuse the existing sanitizer already used during enrichment.
+        # 4. Gender â€” reuse the existing sanitizer already used during enrichment.
         before = len(_safe_list(d.get("items") or d.get("pieces"), limit=8))
         d = _sanitize_direction_for_gender(
             d, target_gender=gender, allow_feminine=allow_fem
@@ -6499,7 +6495,7 @@ def _recognized_archetype_names() -> set[str]:
     Daily") and gets remapped to the best-fit curated-library name.
 
     The set is the union of:
-      * the persona / visual-inspiration registry (`ARCHETYPE_LIBRARY` — the
+      * the persona / visual-inspiration registry (`ARCHETYPE_LIBRARY` â€” the
         source `select_archetypes` draws from; includes "Creative Executive",
         "Approachable Executive", "Resort Sophisticate", and every festive /
         ceremony persona),
@@ -6643,7 +6639,7 @@ def _apply_editorial_polish(
         #   2. the direction carries a FREE-TEXT archetype the LLM invented
         #      that is not in any recognized registry (e.g. "Polished Daily").
         # Genuine persona / curated / occasion archetypes (anything in
-        # `_recognized_archetype_names()` — Creative Executive, Approachable
+        # `_recognized_archetype_names()` â€” Creative Executive, Approachable
         # Executive, Resort Sophisticate, Festive Heritage, etc.) are
         # AUTHORITATIVE and preserved exactly as-is.
         if not polished["archetype"] or not _is_recognized_archetype(polished["archetype"]):
@@ -6760,7 +6756,7 @@ def _normalize_visual_directions(
                 )
                 direction["archetype"] = applied
                 # Enrich from the library archetype only where the generated
-                # direction is missing fields — don't clobber good model output.
+                # direction is missing fields â€” don't clobber good model output.
                 if not direction.get("impression"):
                     direction["impression"] = ", ".join(str(x) for x in (arch.get("impression") or []) if str(x).strip())
                 if not direction.get("style_keywords"):
@@ -7020,7 +7016,7 @@ def _normalize_pairing_routes(
             "persona_fit_reason": str(source.get("persona_fit_reason") or "").strip(),
             "archetype_reasoning": str(source.get("archetype_reasoning") or source.get("persona_fit_reason") or "").strip(),
         }
-        # Wardrobe reality scoring — how buildable is this route from what they own.
+        # Wardrobe reality scoring â€” how buildable is this route from what they own.
         if _wardrobe:
             try:
                 from services.stylist_knowledge_service import score_route_against_wardrobe
@@ -7142,7 +7138,7 @@ def _gemini_reasoning(
             # Only extract a pairing anchor for actual STYLE_PAIRING queries.
             # For VISUAL_INSPIRATION the query is occasion / mood phrasing
             # (e.g. "visual inspiration for a conference talk"), not a
-            # garment anchor — passing it as an anchor poisons archetype
+            # garment anchor â€” passing it as an anchor poisons archetype
             # selection and emits a misleading AHVI_STYLE_PAIRING_ANCHOR log.
             _anchor = _extract_pairing_anchor(query) if mode == STYLE_PAIRING else {}
             _dna_raw = _uprof.get("style_dna") or _uprof.get("styleDNA") or {}
@@ -7427,7 +7423,7 @@ def _build_visual_inspiration_board(
 
 def _build_inspiration_image_prompt(board: Dict[str, Any], query: str) -> str:
     """Editorial moodboard image prompt from the inspiration metadata.
-    Generation is wired later (Imagen/Flux) — this only builds the prompt."""
+    Generation is wired later (Imagen/Flux) â€” this only builds the prompt."""
     occ = _clean_recursive_prompt(query).strip() or "this occasion"
     parts = [f"Editorial fashion moodboard for {occ}."]
     if board.get("aesthetic"):
@@ -7453,8 +7449,8 @@ def _compact_reasoning(text: str, *, multi_event: bool = False) -> str:
     # Strip markdown headings, bold labels like "**Core:**", bullets.
     raw = re.sub(r"\*\*[^*]+\*\*:?", "", raw)
     raw = re.sub(r"(?m)^#{1,6}\s*", "", raw)
-    raw = re.sub(r"(?m)^\s*[-*•]\s*", "", raw)
-    raw = re.sub(r"\s+", " ", raw).strip(" :-•")
+    raw = re.sub(r"(?m)^\s*[-*â€¢]\s*", "", raw)
+    raw = re.sub(r"\s+", " ", raw).strip(" :-â€¢")
     raw = _scrub_internal_style_language(raw)
     cap = 70 if multi_event else 60
     words = raw.split()
@@ -8019,7 +8015,7 @@ def _build_response(
                     canon_occ,
                 )
                 asset_occasion = canon_occ
-        except Exception as exc:  # noqa: BLE001 — fail open, never break the visual path.
+        except Exception as exc:  # noqa: BLE001 â€” fail open, never break the visual path.
             logger.warning("AHVI_CANONICAL_CTX_WIRE_FAILED err=%s", repr(exc)[:160])
             canonical_ctx = None
 
@@ -8039,7 +8035,7 @@ def _build_response(
     ).strip()
     confidence_strategy = str(
         payload.get("confidence_strategy")
-        or "Lean into what already fits well and keep one deliberate detail — "
+        or "Lean into what already fits well and keep one deliberate detail â€” "
         "confidence reads as ease, not effort."
     ).strip()
     polished_advice = tone_engine.apply(
@@ -8153,7 +8149,7 @@ def _build_response(
     missing_piece_reasoning = _two_sentences(missing_piece_reasoning, max_chars=200)
     visual_directions = _scrub_visible_style_payload(visual_directions, query=query)
     # Editorial polish: add direction_name, adjectives, badge, curated_for,
-    # short_note, complete_the_look_copy. Additive — keeps legacy fields.
+    # short_note, complete_the_look_copy. Additive â€” keeps legacy fields.
     _wardrobe_for_polish = context.get("wardrobe") or context.get("wardrobe_items")
     visual_directions = _apply_editorial_polish(
         visual_directions,
@@ -8245,7 +8241,7 @@ def _build_response(
     }
     response = apply_personality_text_polish_to_final_payload(response, query=query)
     # meta.reason is a machine contract value (sensitive_occasion /
-    # style_pairing / style_advice / ...), not visible copy — the personality
+    # style_pairing / style_advice / ...), not visible copy â€” the personality
     # polish rewrites "reason" text fields, so restore the enum afterwards.
     if isinstance(response, dict) and isinstance(response.get("meta"), dict):
         response["meta"]["reason"] = _reason_for_mode(final_mode, category)

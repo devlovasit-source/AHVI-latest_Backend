@@ -25,6 +25,7 @@ from services.constrained_outfit_builder import (
 )
 from services.style_board_shuffle_service import _default_position, register_board
 from services.style_execution_policy import (
+    board_registration_allowed,
     run_board_registration,
     server_style_execution,
 )
@@ -897,18 +898,26 @@ def _builder_outfit(
     # sources. If state storage is down the board is still returned, but
     # shuffle is explicitly unavailable (typed error, never a silent
     # in-memory fallback).
-    registration = run_board_registration(
-        register_board,
-        board_id=outfit["board_id"],
-        revision=1,
-        scenario=mode,
-        source_policy=board_policy,
-        allow_wardrobe_fallback=outfit["allow_wardrobe_fallback"],
-        occasion=occasion,
-        style_direction=title,
-        items=serialized_items,
-        user_id=user_id,
-    )
+    if board_registration_allowed():
+        registration = run_board_registration(
+            register_board,
+            board_id=outfit["board_id"],
+            revision=1,
+            scenario=mode,
+            source_policy=board_policy,
+            allow_wardrobe_fallback=outfit["allow_wardrobe_fallback"],
+            occasion=occasion,
+            style_direction=title,
+            items=serialized_items,
+            user_id=user_id,
+        )
+    else:
+        # Read-only evaluation uses the same composition path but intentionally
+        # has no shuffle state.  Skip the store boundary altogether.
+        registration = {
+            "ok": False,
+            "error": {"code": "BOARD_REGISTRATION_NOT_ALLOWED", "message": "Board registration is unavailable."},
+        }
     outfit["shuffle_available"] = bool(registration.get("ok"))
     if not registration.get("ok"):
         outfit["shuffle_state_error"] = registration.get("error")

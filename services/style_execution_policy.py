@@ -31,6 +31,10 @@ class ModelCallBudgetExceeded(RuntimeError):
     code = "MODEL_CALL_BUDGET_EXCEEDED"
 
 
+class StyleWriteDenied(RuntimeError):
+    """Raised only when evaluation code tries to cross a denied write boundary."""
+
+
 @dataclass
 class ModelCallBudget:
     limit: int
@@ -89,6 +93,14 @@ class StyleExecutionSession:
     policy: StyleExecutionPolicy
     budget: ModelCallBudget
     sinks: StyleExecutionSinks = field(default_factory=StyleExecutionSinks)
+    blocked_write_attempts: int = 0
+    _blocked_write_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def record_blocked_write(self, boundary: str) -> None:
+        """Count a denied evaluation mutation without recording request data."""
+        with self._blocked_write_lock:
+            self.blocked_write_attempts += 1
+        logger.warning("style_write_denied boundary=%s", _safe_label(boundary))
 
 
 _ACTIVE: contextvars.ContextVar[Optional[StyleExecutionSession]] = contextvars.ContextVar(
@@ -120,7 +132,7 @@ def create_style_execution_session(
         policy = StyleExecutionPolicy(
             name="read_only_evaluation",
             allow_preference_learning=False,
-            allow_board_registration=True,
+            allow_board_registration=False,
             allow_cache_writes=False,
             allow_image_generation=False,
             model_call_limit=READ_ONLY_EVALUATION_MODEL_CALL_LIMIT,
@@ -220,6 +232,7 @@ def run_learning_vector_upsert(default_sink: Callable[..., Any], *args: Any, **k
 def run_board_registration(default_sink: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     session = get_style_execution_session()
     if session is not None and not session.policy.allow_board_registration:
+        session.record_blocked_write("board_registration")
         return {
             "ok": False,
             "error": {"code": "BOARD_REGISTRATION_NOT_ALLOWED", "message": "Board registration is unavailable."},
@@ -260,6 +273,7 @@ __all__ = [
     "PRODUCTION_MODEL_CALL_LIMIT",
     "READ_ONLY_EVALUATION_MODEL_CALL_LIMIT",
     "StyleExecutionPolicy",
+    "StyleWriteDenied",
     "StyleExecutionSession",
     "StyleExecutionSinks",
     "UnknownStyleExecutionPolicy",

@@ -30,7 +30,7 @@ def _session(limit: int = 2, *, learning: bool = False, sinks=None):
     policy = StyleExecutionPolicy(
         name="read_only_evaluation",
         allow_preference_learning=learning,
-        allow_board_registration=True,
+        allow_board_registration=False,
         allow_cache_writes=False,
         allow_image_generation=False,
         model_call_limit=limit,
@@ -48,6 +48,7 @@ def test_read_only_evaluation_has_strict_budget_and_disables_images():
     with activate_style_execution(session):
         assert session.budget.limit == 1
         assert image_generation_allowed() is False
+        assert session.policy.allow_board_registration is False
 
 
 def test_read_only_evaluation_does_not_mutate_computation_caches(monkeypatch):
@@ -151,7 +152,15 @@ def test_explicit_action_outside_generation_persists_each_sink_once():
 def test_immutable_board_registration_remains_injectable():
     calls = []
     sinks = StyleExecutionSinks(board_state=lambda **kwargs: calls.append(kwargs) or {"ok": True})
-    with activate_style_execution(_session(sinks=sinks)):
+    production = StyleExecutionPolicy(
+        name="production",
+        allow_preference_learning=False,
+        allow_board_registration=True,
+        allow_cache_writes=True,
+        allow_image_generation=True,
+        model_call_limit=2,
+    )
+    with activate_style_execution(StyleExecutionSession(production, ModelCallBudget(2), sinks)):
         result = run_board_registration(lambda **kwargs: {"ok": False}, board_id="board-1")
     assert result == {"ok": True}
     assert calls == [{"board_id": "board-1"}]

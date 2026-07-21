@@ -275,6 +275,10 @@ class NotificationStore:
         for r in rows or []:
             if not isinstance(r, dict):
                 continue
+            # Dispatcher-owned records (claims, primary/follow_up state docs)
+            # are handled by the medicine dispatcher, never this generic scan.
+            if _safe_text(r.get("kind")).lower() in {"claim", "primary", "follow_up"}:
+                continue
             status = str(r.get("status") or "").lower()
             source = str(r.get("source") or "").lower()
             if status != "scheduled" and not (
@@ -365,6 +369,153 @@ class NotificationStore:
                 }
             )
         return due
+
+    # -------------------------
+    # Medicine dispatch records (deterministic IDs, atomic-create claims)
+    # -------------------------
+    def reminder_record_id(self, notification_key: str) -> str:
+        return _hash_id("medrem", _safe_text(notification_key), length=32)
+
+    def get_reminder_record(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        rid = _safe_text(doc_id)
+        if not rid:
+            return None
+        try:
+            doc = self._appwrite.get_document(self.reminders_resource, rid)
+            return doc if isinstance(doc, dict) else None
+        except Exception:
+            return None
+
+    def create_reminder_record(self, doc_id: str, data: Dict[str, Any]) -> bool:
+        """Create-once: a fixed document id makes this atomic in Appwrite.
+        Returns False when the document already exists (lost the race)."""
+        rid = _safe_text(doc_id)
+        if not rid:
+            return False
+        try:
+            self._appwrite.create_document(
+                self.reminders_resource, dict(data), document_id=rid
+            )
+            return True
+        except Exception:
+            return False
+
+    def update_reminder_record(self, doc_id: str, patch: Dict[str, Any]) -> bool:
+        rid = _safe_text(doc_id)
+        if not rid:
+            return False
+        try:
+            self._appwrite.update_document(
+                self.reminders_resource,
+                rid,
+                {**patch, "updatedAtISO": _utcnow().isoformat()},
+            )
+            return True
+        except Exception:
+            return False
+
+    def create_claim_marker(self, *, notification_key: str, attempt: int) -> bool:
+        """Atomic per-attempt claim: exactly one worker can create the marker
+        document for (key, attempt), so only one sends this attempt."""
+        key = _safe_text(notification_key)
+        if not key:
+            return False
+        marker_id = _hash_id("medclaim", f"{key}:{int(attempt)}", length=32)
+        try:
+            self._appwrite.create_document(
+                self.reminders_resource,
+                {
+                    "userId": "",
+                    "eventId": key,
+                    "kind": "claim",
+                    "status": "claim",
+                    "message": f"claim attempt {int(attempt)}",
+                    "sendAtISO": _utcnow().isoformat(),
+                    "source": "medicine_claim",
+                    "updatedAtISO": _utcnow().isoformat(),
+                },
+                document_id=marker_id,
+            )
+            return True
+        except Exception:
+            return False
+
+    def list_due_follow_up_records(
+        self, *, now: Optional[datetime] = None, window_seconds: int = 900
+    ) -> List[Dict[str, Any]]:
+        """Pending/failed follow_up records due now or earlier, bounded by the
+        recovery window. Never returns future or terminal records."""
+        now_dt = now or _utcnow()
+        now_ts = now_dt.timestamp()
+        oldest_ts = now_ts - float(max(60, int(window_seconds)))
+        try:
+            rows = self._appwrite.list_documents(self.reminders_resource, limit=self.max_scan)
+        except Exception:
+            return []
+        due: List[Dict[str, Any]] = []
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            if _safe_text(row.get("kind")).lower() != "follow_up":
+                continue
+            if _safe_text(row.get("status")).lower() not in {"pending", "failed"}:
+                continue
+            try:
+                send_ts = datetime.fromisoformat(
+                    _safe_text(row.get("sendAtISO")).replace("Z", "+00:00")
+                ).timestamp()
+            except Exception:
+                continue
+            if oldest_ts <= send_ts <= now_ts:
+                due.append(row)
+        return due
+
+    def is_dose_taken(
+        self,
+        *,
+        user_id: str,
+        med_id: str,
+        scheduled_utc_iso: str,
+        slack_minutes: int = 30,
+    ) -> bool:
+        """Taken-match on stable identifiers only: same authenticated user,
+        same medicine, log time at/after the scheduled occurrence (minus a
+        small slack). Unrelated doses or medicines never suppress."""
+        uid = _safe_text(user_id)
+        mid = _safe_text(med_id)
+        if not uid or not mid:
+            return False
+        try:
+            scheduled = datetime.fromisoformat(
+                _safe_text(scheduled_utc_iso).replace("Z", "+00:00")
+            )
+        except Exception:
+            return False
+        if scheduled.tzinfo is None:
+            scheduled = scheduled.replace(tzinfo=timezone.utc)
+        earliest = scheduled.timestamp() - max(0, int(slack_minutes)) * 60
+        try:
+            rows = self._appwrite.list_documents("med_logs", user_id=uid, limit=self.max_scan)
+        except Exception:
+            return False
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            if _safe_text(row.get("userId") or row.get("user_id")) != uid:
+                continue
+            if _safe_text(row.get("medId") or row.get("med_id")) != mid:
+                continue
+            if _safe_text(row.get("status")).lower() != "taken":
+                continue
+            try:
+                log_ts = datetime.fromisoformat(
+                    _safe_text(row.get("time")).replace("Z", "+00:00")
+                ).timestamp()
+            except Exception:
+                continue
+            if log_ts >= earliest:
+                return True
+        return False
 
     def was_notification_sent(self, *, notification_key: str) -> bool:
         key = _safe_text(notification_key)

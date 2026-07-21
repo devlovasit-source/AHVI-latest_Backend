@@ -680,6 +680,9 @@ def _normalize_weather_context(value: Any) -> Dict[str, Any]:
     aliases = {
         "condition": ("condition", "summary", "description", "weather"),
         "temperature_c": ("temperature_c", "temp_c", "temperature", "temp"),
+        "apparent_temperature_c": (
+            "apparent_temperature_c", "feels_like_c", "apparent_temperature", "feels_like",
+        ),
         "precipitation": ("precipitation", "precipitation_probability", "rain_probability", "rain"),
         "humidity": ("humidity",),
         "wind": ("wind", "wind_speed", "wind_kph"),
