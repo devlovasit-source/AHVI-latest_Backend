@@ -3,7 +3,20 @@ import io
 
 from PIL import Image
 
+from fastapi import BackgroundTasks
+
 from routers import wardrobe_capture as wc
+
+
+def _save_selected(http_request, request):
+    """Test shim for the save_selected router function.
+
+    save_selected() gained a required ``background_tasks`` positional
+    (FastAPI ``BackgroundTasks``). These tests never enqueue background
+    work, so a fresh, empty instance satisfies the signature without
+    changing behavior.
+    """
+    return wc.save_selected(http_request, request, BackgroundTasks())
 
 
 class _State:
@@ -82,7 +95,7 @@ def test_save_selected_runs_separate_rmbg_and_sets_masked_urls(monkeypatch):
         detected_items=[_item("one"), _item("two", (20, 20, 200))],
     )
 
-    result = wc.save_selected(_Request(), request)
+    result = _save_selected(_Request(), request)
 
     assert result["success"] is True
     assert len(calls) == 2
@@ -105,7 +118,7 @@ def test_save_selected_rmbg_failure_falls_back_without_failing_save(monkeypatch)
         detected_items=[_item("one")],
     )
 
-    result = wc.save_selected(_Request(), request)
+    result = _save_selected(_Request(), request)
 
     assert result["success"] is True
     saved = persisted["items"][0]
@@ -125,7 +138,7 @@ def test_save_selected_treats_fail_open_original_bytes_as_rmbg_failure(monkeypat
         detected_items=[_item("one")],
     )
 
-    result = wc.save_selected(_Request(), request)
+    result = _save_selected(_Request(), request)
 
     assert result["success"] is True
     assert persisted["items"][0]["imageStatus"] == "rmbg_failed"
@@ -150,7 +163,7 @@ def test_save_selected_skips_unselected_items_for_rmbg_catalog_and_persist(monke
         detected_items=[_item("one"), _item("two", (20, 20, 200))],
     )
 
-    result = wc.save_selected(_Request(), request)
+    result = _save_selected(_Request(), request)
 
     assert result["success"] is True
     assert calls == {"rmbg": 1, "catalog": 1}
@@ -186,7 +199,7 @@ def test_save_selected_skips_needs_review_and_rejected_items(monkeypatch):
         detected_items=[ok, review, rejected],
     )
 
-    result = wc.save_selected(_Request(), request)
+    result = _save_selected(_Request(), request)
 
     assert result["success"] is True
     assert calls == {"rmbg": 1, "catalog": 1}
@@ -215,7 +228,7 @@ def test_save_selected_response_reports_drop_accounting(monkeypatch):
         detected_items=[ok, rejected],
     )
 
-    result = wc.save_selected(_Request(), request)
+    result = _save_selected(_Request(), request)
 
     assert result["requested_count"] == 2
     assert result["saved_count"] == 1
@@ -249,7 +262,7 @@ def test_save_selected_skips_unsafe_catalog_generation_failure(monkeypatch):
         detected_items=[unsafe],
     )
 
-    result = wc.save_selected(_Request(), request)
+    result = _save_selected(_Request(), request)
 
     assert result["success"] is True
     assert result["saved_count"] == 0
@@ -284,7 +297,7 @@ def test_save_selected_skips_blank_catalog_generation_failure(monkeypatch):
         detected_items=[blank],
     )
 
-    result = wc.save_selected(_Request(), request)
+    result = _save_selected(_Request(), request)
 
     assert result["success"] is True
     assert result["saved_count"] == 0
@@ -314,7 +327,7 @@ def test_save_selected_keeps_clean_catalog_fallback(monkeypatch):
         detected_items=[clean],
     )
 
-    result = wc.save_selected(_Request(), request)
+    result = _save_selected(_Request(), request)
 
     assert result["success"] is True
     assert result["saved_count"] == 1
@@ -347,7 +360,7 @@ def test_save_selected_catalog_generated_uses_normalized_display_url(monkeypatch
         detected_items=[clean],
     )
 
-    result = wc.save_selected(_Request(), request)
+    result = _save_selected(_Request(), request)
 
     assert result["success"] is True
     assert result["saved_count"] == 1
@@ -382,7 +395,7 @@ def test_flat_lay_quality_gate_ok_saves_without_nanobanana(monkeypatch):
     clean["sub_category"] = "T-Shirt"
     clean["validation_status"] = "ok"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["yellow-tee"], detected_items=[clean]),
     )
@@ -416,7 +429,7 @@ def test_flat_lay_catalog_ready_cutout_saves(monkeypatch):
     tee["sub_category"] = "T-Shirt"
     tee["validation_status"] = "ok"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["yellow-tee"], detected_items=[tee]),
     )
@@ -459,7 +472,7 @@ def test_flat_lay_full_image_bbox_catalog_ready_saves(monkeypatch):
 
     assert wc._source_contains_person_item(tee) is False
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["yellow-tee"], detected_items=[tee]),
     )
@@ -489,7 +502,7 @@ def test_fallback_cutout_true_does_not_make_safe_flatlay_unsafe(monkeypatch):
     tee["validation_status"] = "ok"
     tee["source"] = "gemini_single_garment"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["yellow-tee"], detected_items=[tee]),
     )
@@ -518,7 +531,7 @@ def test_provider_env_nanobanana_does_not_make_catalog_ready_cutout_unsafe(monke
     tee["validation_status"] = "ok"
     tee["source"] = "gemini_single_garment"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["yellow-tee"], detected_items=[tee]),
     )
@@ -547,7 +560,7 @@ def test_unsafe_source_catalog_ready_cutout_rejected(monkeypatch):
     unsafe["source_contains_person"] = True
     unsafe["unsafe_source"] = True
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["unsafe-shirt"], detected_items=[unsafe]),
     )
@@ -577,7 +590,7 @@ def test_person_source_catalog_ready_cutout_still_rejected(monkeypatch):
     item["validation_status"] = "ok"
     item["source"] = "person_body_crop"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["person-shirt"], detected_items=[item]),
     )
@@ -606,7 +619,7 @@ def test_mirror_selfie_catalog_ready_cutout_still_rejected(monkeypatch):
     item["validation_status"] = "ok"
     item["source"] = "mirror_selfie"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["mirror-shirt"], detected_items=[item]),
     )
@@ -635,7 +648,7 @@ def test_unsafe_reason_requires_catalog_generated(monkeypatch):
     item = _item("unsafe-reason-shirt")
     item["validation_status"] = "ok"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["unsafe-reason-shirt"], detected_items=[item]),
     )
@@ -668,7 +681,7 @@ def test_selected_item_not_saved_has_skip_reason(monkeypatch):
     tee = _item("yellow-tee", (240, 210, 40))
     tee["validation_status"] = "ok"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["yellow-tee"], detected_items=[tee]),
     )
@@ -707,7 +720,7 @@ def test_save_summary_not_silent_zero(monkeypatch):
     tee = _item("yellow-tee", (240, 210, 40))
     tee["validation_status"] = "ok"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["yellow-tee"], detected_items=[tee]),
     )
@@ -736,7 +749,7 @@ def test_unsafe_source_catalog_generated_is_saved(monkeypatch):
     shirt["source_contains_person"] = True
     shirt["unsafe_source"] = True
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["shirt"], detected_items=[shirt]),
     )
@@ -766,7 +779,7 @@ def test_unsafe_source_low_quality_catalog_is_skipped(monkeypatch):
     jeans["source_contains_person"] = True
     jeans["unsafe_source"] = True
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["jeans"], detected_items=[jeans]),
     )
@@ -796,7 +809,7 @@ def test_unsafe_source_high_quality_catalog_is_saved(monkeypatch):
     shirt["source_contains_person"] = True
     shirt["unsafe_source"] = True
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["shirt"], detected_items=[shirt]),
     )
@@ -823,7 +836,7 @@ def test_clean_source_low_quality_catalog_can_still_save(monkeypatch):
     clean = _item("clean")
     clean["validation_status"] = "ok"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["clean"], detected_items=[clean]),
     )
@@ -852,7 +865,7 @@ def test_unsafe_source_fallback_cutout_is_skipped(monkeypatch):
     jeans["source_contains_person"] = True
     jeans["unsafe_source"] = True
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["jeans"], detected_items=[jeans]),
     )
@@ -874,7 +887,7 @@ def test_screenshot_collage_item_is_not_saved(monkeypatch):
     collage["input_type"] = "screenshot_style_collage"
     collage["detected_text"] = "Save Remix Like Share"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["collage"], detected_items=[collage]),
     )
@@ -897,7 +910,7 @@ def test_male_profile_strong_womenswear_is_blocked(monkeypatch):
     saree["category"] = "Traditional"
     saree["sub_category"] = "Saree"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["saree"], detected_items=[saree]),
     )
@@ -922,7 +935,7 @@ def test_male_profile_unisex_shirt_and_jeans_are_allowed(monkeypatch):
     jeans["name"] = "Distressed Dark Blue Jeans"
     jeans["category"] = "Bottoms"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(
             user_id="user-1",
@@ -962,7 +975,7 @@ def _run_demo_save(monkeypatch, *, score, item_overrides=None, catalog_extra=Non
     item["validation_status"] = "ok"
     for k, v in (item_overrides or {}).items():
         item[k] = v
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["demo-1"], detected_items=[item]),
     )
@@ -1045,7 +1058,7 @@ def test_demo_person_source_cutout_high_score_rejected_unsafe(monkeypatch):
     item["unsafe_source"] = True
     item["source_contains_person"] = True
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["person-cutout"], detected_items=[item]),
     )
@@ -1066,7 +1079,7 @@ def test_demo_person_source_catalog_generated_score_62_saves(monkeypatch):
     item["unsafe_source"] = True
     item["source_contains_person"] = True
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["person-gen"], detected_items=[item]),
     )
@@ -1217,7 +1230,7 @@ def test_full_image_fallback_is_not_saved(monkeypatch):
     item["validation_status"] = "ok"
     item["crop_source"] = "full_image_fallback"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["fullframe-2"], detected_items=[item]),
     )
@@ -1273,7 +1286,7 @@ def test_generated_nanobanana_missing_score_is_rejected(monkeypatch):
     item = _item("noscore-1")
     item["validation_status"] = "ok"
 
-    result = wc.save_selected(
+    result = _save_selected(
         _Request(),
         wc.SaveSelectedRequest(user_id="user-1", selected_item_ids=["noscore-1"], detected_items=[item]),
     )
