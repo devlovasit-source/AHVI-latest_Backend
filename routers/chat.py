@@ -38,6 +38,15 @@ from services.style_flow_service import (
 )
 from services.module_chat_service import handle_module_chat
 from services.style_reasoning_engine import VISUAL_INSPIRATION, style_reasoning_engine
+from services.beta_style_bridge import (
+    decorate_style_response as decorate_beta_style_response,
+    engine_dispatch as beta_style_engine_dispatch,
+    interpret_style_followup,
+    normalize_style_state,
+    refine_style_response as beta_refine_style_response,
+    visual_items_from_response as beta_visual_items_from_response,
+    visual_intelligence as beta_visual_intelligence,
+)
 from services.stylist_knowledge_service import (
     COLOR_BODY_ADVICE,
     SHOPPING_ASSIST,
@@ -2576,6 +2585,47 @@ class TextChatRequest(BaseModel):
     current_look_id: str | None = Field(default=None, max_length=80)
     context: Dict[str, Any] = Field(default_factory=dict)
     style_context: Dict[str, Any] = Field(default_factory=dict)
+    # Compact request-carried board context for beta follow-ups. Optional and
+    # additive: missing state preserves the pre-bridge behavior exactly.
+    style_state: Dict[str, Any] = Field(default_factory=dict)
+
+
+def _beta_style_response(
+    response: Dict[str, Any],
+    *,
+    previous_state: Dict[str, Any],
+    instructions: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Add beta fields without changing any established response field."""
+    image_base64 = ""
+    data = response.get("data") if isinstance(response.get("data"), dict) else {}
+    rendered = data.get("rendered_boards") if isinstance(data.get("rendered_boards"), list) else []
+    if rendered and isinstance(rendered[0], dict):
+        image_base64 = str(
+            rendered[0].get("image_base64")
+            or rendered[0].get("board_base64")
+            or ""
+        ).strip()
+    # Build the state first so the vision wrapper receives only real board IDs.
+    enriched = decorate_beta_style_response(
+        response,
+        previous_state=previous_state,
+        instructions=instructions,
+    )
+    visual = beta_visual_intelligence(
+        state=enriched["style_state"],
+        image_base64=image_base64,
+        visual_items=beta_visual_items_from_response(response),
+        requested=bool(instructions.get("requires_visual_analysis")),
+    )
+    if visual:
+        enriched = decorate_beta_style_response(
+            response,
+            previous_state=previous_state,
+            instructions=instructions,
+            visual=visual,
+        )
+    return enriched
 
 
 class OutfitFeedbackRequest(BaseModel):
@@ -4178,6 +4228,120 @@ def text_chat(request: TextChatRequest, http_request: Request):
     )
     profile_ms = round((time.perf_counter() - profile_started) * 1000, 2)
 
+    # Beta Intelligence Bridge. This is request-carried and persistence-free;
+    # it does not add another intent/model invocation.
+    beta_state = normalize_style_state(request.style_state)
+    beta_instructions = interpret_style_followup(user_input, beta_state)
+    beta_dispatch = beta_style_engine_dispatch(beta_instructions)
+    if beta_state.get("board_items"):
+        logger.info(
+            "beta_style_bridge action=%s engine=%s board_hash=%s",
+            beta_instructions.get("action"),
+            beta_dispatch.get("engine"),
+            str(beta_state.get("board_content_hash") or "")[:12],
+        )
+        if beta_instructions.get("needs_clarification"):
+            question = str(
+                beta_instructions.get("clarification_question")
+                or "What should I preserve, and what should I change?"
+            )
+            return {
+                "success": True,
+                "ok": True,
+                "type": "style_clarification",
+                "message": {"role": "assistant", "content": question},
+                "message_text": question,
+                "response": question,
+                "cards": [],
+                "style_boards": [],
+                "chips": [],
+                "style_state": beta_state,
+                "understood": beta_instructions,
+                "constraint_status": {
+                    "passed_constraints": [],
+                    "unresolved_constraints": ["request_ambiguity"],
+                    "fallback_reason": "clarification_required",
+                    "repair_attempted": False,
+                    "final_validation_status": "clarification",
+                },
+                "visual_intelligence": None,
+                "recommended_actions": [],
+                "meta": {
+                    "mode": "beta_style_clarification",
+                    "beta_style_bridge_version": "1.0",
+                },
+            }
+        if beta_instructions.get("action") in {
+            "explain_current_board",
+            "critique_current_board",
+            "identify_wardrobe_gap",
+        }:
+            action_name = str(beta_instructions.get("action") or "")
+            if action_name == "identify_wardrobe_gap":
+                text = (
+                    "I can assess gaps from the current board, but I need the "
+                    "wardrobe-gap context from the existing Style flow before "
+                    "claiming a missing piece."
+                )
+            elif action_name == "critique_current_board":
+                text = (
+                    "I kept the current board intact. Visual critique is "
+                    "shown when the beta vision flag is enabled and the item "
+                    "images can be composed privately."
+                )
+            else:
+                item_names = [
+                    str(item.get("name") or item.get("role") or "item")
+                    for item in beta_state.get("board_items") or []
+                ]
+                text = (
+                    "This look is built around "
+                    + ", ".join(item_names[:4])
+                    + ". I am using the actual board item IDs, not regenerating it."
+                )
+            base = {
+                "success": True,
+                "ok": True,
+                "type": "style_explanation",
+                "message": {"role": "assistant", "content": text},
+                "message_text": text,
+                "response": text,
+                "cards": [{
+                    "id": beta_state.get("board_id"),
+                    "occasion": beta_state.get("occasion"),
+                    "items": beta_state.get("board_items") or [],
+                }],
+                "style_boards": [],
+                "chips": [],
+            }
+            return _beta_style_response(
+                base,
+                previous_state=beta_state,
+                instructions=beta_instructions,
+            )
+        if beta_instructions.get("action") in {
+            "refine_current_board",
+            "switch_source_mode",
+        }:
+            refined = beta_refine_style_response(
+                state=beta_state,
+                instructions=beta_instructions,
+                candidate_pool=request.wardrobe,
+            )
+            # Never fall through to an unconstrained generator: an exact
+            # mutation either succeeds by construction or fails honestly.
+            if refined.get("success"):
+                return _beta_style_response(
+                    refined,
+                    previous_state=beta_state,
+                    instructions=beta_instructions,
+                )
+            refined.setdefault("style_state", beta_state)
+            refined.setdefault("understood", beta_instructions)
+            refined.setdefault("visual_intelligence", None)
+            refined.setdefault("recommended_actions", [])
+            return refined
+
     # ROUTE PRIORITY (P0): explicit wardrobe > multi_event_style > missing_pieces
     # > visual_inspiration > style_advice > plan_pack > birthday_workflow.
     # A multi-event style prompt ("office meeting then birthday party") must
@@ -4550,7 +4714,11 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "resolved_prompt": forced_prompt,
             "board_type": "wardrobe_style",
         }
-        return style_payload
+        return _beta_style_response(
+            style_payload,
+            previous_state=beta_state,
+            instructions=beta_instructions,
+        )
 
     intent_row = detect_intent(english_input)
     intent = str(intent_row.get("intent") or "general").strip().lower()
@@ -4881,7 +5049,11 @@ def text_chat(request: TextChatRequest, http_request: Request):
                         )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("ahvi.editorial_board_failed err=%s", str(exc)[:140])
-            return style_payload
+            return _beta_style_response(
+                style_payload,
+                previous_state=beta_state,
+                instructions=beta_instructions,
+            )
 
     # -------------------------
     # GENERAL CHAT / LLM ROUTE
@@ -5286,4 +5458,12 @@ def text_chat(request: TextChatRequest, http_request: Request):
     if not cache_visual_boards:
         _CHAT_CACHE.set(cache_key, response)
 
+    if visual_context and (
+        response.get("cards") or response.get("style_boards")
+    ):
+        response = _beta_style_response(
+            response,
+            previous_state=beta_state,
+            instructions=beta_instructions,
+        )
     return response
