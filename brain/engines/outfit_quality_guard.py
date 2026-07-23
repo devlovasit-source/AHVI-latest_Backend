@@ -523,6 +523,109 @@ def _extract_outfit_slots(outfit: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[
     )
 
 
+# ── Complete-outfit slot enforcement ─────────────────────────────────────────
+# A "complete outfit" board must be one of:
+#   (top + bottom + footwear)   OR   (one-piece/dress + footwear)
+# where one-piece covers dress / gown / jumpsuit / saree / lehenga (all map to
+# role "dress" via _role_from_item). Accessories are optional and NEVER satisfy a
+# required clothing slot. Missing required slots -> repair from safe assets
+# (respecting source policy) or reject; never emit an incomplete "complete" board.
+
+def board_roles(items: Any) -> set:
+    roles = set()
+    for item in items or []:
+        if isinstance(item, dict):
+            role = _role_from_item(item)
+            if role:
+                roles.add(role)
+    return roles
+
+
+def is_complete_board(items: Any) -> bool:
+    roles = board_roles(items)
+    if "footwear" not in roles:
+        return False
+    if "dress" in roles:  # one-piece: no separate top/bottom required
+        return True
+    return {"top", "bottom"}.issubset(roles)
+
+
+def missing_required_slots(items: Any) -> List[str]:
+    roles = board_roles(items)
+    if "dress" in roles:
+        return [] if "footwear" in roles else ["footwear"]
+    return [slot for slot in ("top", "bottom", "footwear") if slot not in roles]
+
+
+def _source_ok_for_policy(item: Dict[str, Any], source_policy: str) -> bool:
+    try:
+        from services.style_item_contract import canonical_item_source
+        src = _norm(canonical_item_source(dict(item)))
+    except Exception:
+        src = _norm(item.get("source") or item.get("provenance") or item.get("origin"))
+    policy = _norm(source_policy)
+    if policy in {"wardrobe_only", "wardrobe", "owned"}:
+        # Wardrobe-only repair must never pull catalog / style assets.
+        return src in {"wardrobe", "owned"}
+    return True
+
+
+def _pick_repair_candidate(
+    pool: List[Dict[str, Any]], slot: str, source_policy: str, used_keys: set
+) -> Dict[str, Any] | None:
+    for cand in pool or []:
+        if not isinstance(cand, dict):
+            continue
+        if _role_from_item(cand) != slot:
+            continue
+        if _stable_item_key(cand) in used_keys:
+            continue
+        if not _source_ok_for_policy(cand, source_policy):
+            continue
+        return cand
+    return None
+
+
+def repair_or_reject_board(
+    card: Dict[str, Any],
+    *,
+    source_policy: str = "",
+    candidate_pool: Any = None,
+) -> Tuple[Dict[str, Any] | None, str]:
+    """Return (card, status). Complete -> (card, "complete"). Otherwise fill
+    missing required slots from candidate_pool honoring source_policy
+    (wardrobe_only never uses catalog/style assets). If it cannot be completed
+    -> (None, "rejected_incomplete"). Never fetches; pure over the given pool."""
+    if not isinstance(card, dict):
+        return None, "rejected_incomplete"
+    items = [i for i in (card.get("items") or []) if isinstance(i, dict)]
+    if is_complete_board(items):
+        return card, "complete"
+    pool = [c for c in (candidate_pool or []) if isinstance(c, dict)]
+    used = {_stable_item_key(i) for i in items}
+    repaired = list(items)
+    for slot in missing_required_slots(items):
+        cand = _pick_repair_candidate(pool, slot, source_policy, used)
+        if cand is None:
+            return None, "rejected_incomplete"
+        repaired.append(cand)
+        used.add(_stable_item_key(cand))
+    if not is_complete_board(repaired):
+        return None, "rejected_incomplete"
+    out = dict(card)
+    out["items"] = repaired
+    return out, "repaired"
+
+
+def filter_complete_boards(cards: Any) -> List[Dict[str, Any]]:
+    """Drop cards that are not complete outfits (reject-only, no repair)."""
+    out: List[Dict[str, Any]] = []
+    for card in cards or []:
+        if isinstance(card, dict) and is_complete_board(card.get("items")):
+            out.append(card)
+    return out
+
+
 def _is_male_user(user_profile: Dict[str, Any]) -> bool:
     text = " ".join(
         _norm(user_profile.get(k))
