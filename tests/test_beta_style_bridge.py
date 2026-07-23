@@ -267,6 +267,49 @@ def test_exact_refinement_preserves_and_replaces_by_construction(prompt, kept, r
     assert set(instructions["preserve_item_ids"]) <= ids
 
 
+def test_keep_one_item_and_change_only_another_segments_clauses():
+    # Regression: a keep-clause and a change-clause in the same sentence must
+    # not both claim every mentioned role. Previously "Keep the shirt and
+    # change only the shoes" put the shirt in both preserve and replace and
+    # failed with conflicting_preserve_and_replace.
+    instructions = interpret_style_followup(
+        "Keep the shirt and change only the shoes.", REFINE_STATE
+    )
+    result = refine_style_response(
+        state=REFINE_STATE, instructions=instructions, candidate_pool=REFINE_CANDIDATES
+    )
+    assert result["success"] is True
+    ids = {item["item_id"] for item in result["cards"][0]["items"]}
+    assert {"shirt-123", "pants-456", "bag-1"} <= ids  # kept, incl. the shirt
+    assert "shoe-789" not in ids  # only the footwear changed
+    assert any(item["role"] == "footwear" for item in result["cards"][0]["items"])
+
+
+def test_already_satisfied_exclusion_affirms_board_unchanged():
+    # The board has no neon / polka-dot item, so the exclusion is already met:
+    # affirm the current board instead of failing with no_replacement_scope.
+    instructions = interpret_style_followup("No neon and no polka dots.", REFINE_STATE)
+    result = refine_style_response(
+        state=REFINE_STATE, instructions=instructions, candidate_pool=REFINE_CANDIDATES
+    )
+    assert result["success"] is True
+    assert result["type"] == "style_refinement_satisfied"
+    result_ids = {item["item_id"] for item in result["cards"][0]["items"]}
+    assert result_ids == {it["item_id"] for it in REFINE_STATE["board_items"]}
+
+
+def test_except_absent_item_affirms_board_unchanged():
+    # STATE has no accessory; "except the bag" has nothing to remove -> affirm.
+    instructions = interpret_style_followup("Keep everything except the bag.", STATE)
+    result = refine_style_response(
+        state=STATE, instructions=instructions, candidate_pool=REFINE_CANDIDATES
+    )
+    assert result["success"] is True
+    assert result["type"] == "style_refinement_satisfied"
+    result_ids = {item["item_id"] for item in result["cards"][0]["items"]}
+    assert result_ids == {it["item_id"] for it in STATE["board_items"]}
+
+
 def test_wardrobe_only_and_inspiration_refinement_use_proven_sources():
     wardrobe = interpret_style_followup("Change only the shoes using my wardrobe.", REFINE_STATE)
     wardrobe_result = refine_style_response(

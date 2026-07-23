@@ -183,6 +183,21 @@ def _resolve_item_references(query: str, state: Mapping[str, Any]) -> List[str]:
     return list(dict.fromkeys(item for item in matched if item))
 
 
+_CHANGE_TRIGGER_RE = re.compile(r"\b(?:change|replace|swap|remove|except|instead|different)\b")
+
+
+def _split_keep_change(query: str) -> tuple[str, str]:
+    """Split a follow-up into (keep_clause, change_clause) at the first change
+    trigger. This keeps "keep the shirt and change only the shoes" from letting
+    both clauses claim every mentioned role: the shirt stays in the keep clause,
+    only the shoes fall in the change clause. No trigger -> all keep, no change.
+    """
+    match = _CHANGE_TRIGGER_RE.search(query)
+    if not match:
+        return query, ""
+    return query[: match.start()], query[match.start() :]
+
+
 def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str, Any]:
     """Extend existing deterministic routing with additive Style instructions."""
     query = _text(message).lower()
@@ -242,22 +257,31 @@ def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str,
     replace_roles: List[str] = []
     preserve_ids: List[str] = []
     replace_ids: List[str] = []
+    # Segment the message so a keep-clause and a change-clause in the same
+    # sentence do not both claim every mentioned role. Keep-targets come from
+    # the keep clause; change-targets from the change clause.
+    keep_seg, change_seg = _split_keep_change(query)
+    keep_roles = _mentioned_roles(keep_seg)
+    keep_ref_ids = _resolve_item_references(keep_seg, state)
+    change_roles = _mentioned_roles(change_seg)
+    change_ref_ids = _resolve_item_references(change_seg, state)
     if "keep everything except" in query:
-        replace_roles = roles
-        replace_ids = referenced_ids
+        replace_roles = change_roles
+        replace_ids = change_ref_ids
         replace_set = set(replace_ids)
+        replace_role_set = set(replace_roles)
         preserve_ids = [
             item["item_id"] for item in state["board_items"]
             if item["item_id"] not in replace_set
-            and item.get("role") not in set(replace_roles)
+            and item.get("role") not in replace_role_set
         ]
     elif "keep" in query or "same" in query:
-        preserve_roles = roles
-        preserve_ids = referenced_ids
+        preserve_roles = keep_roles
+        preserve_ids = keep_ref_ids
     if any(term in query for term in ("change", "replace", "remove", "everything else")):
-        replace_roles = list(dict.fromkeys([*replace_roles, *roles]))
+        replace_roles = list(dict.fromkeys([*replace_roles, *change_roles]))
         if "everything else" not in query:
-            replace_ids = list(dict.fromkeys([*replace_ids, *referenced_ids]))
+            replace_ids = list(dict.fromkeys([*replace_ids, *change_ref_ids]))
 
     current_items = state["board_items"]
     if "everything else" in query:
@@ -529,6 +553,44 @@ def refine_style_response(
         dict(item) for item in (candidate_pool or [])
         if isinstance(item, Mapping)
     ]
+    # Already-satisfied request: nothing in the current board matches the
+    # requested change scope (exclude a trait the board lacks, or "except X"
+    # when there is no X). Affirm the board unchanged instead of failing.
+    current_items = [
+        dict(it) for it in normalized.get("board_items") or [] if isinstance(it, Mapping)
+    ]
+    _req_roles = set(_string_list(instructions.get("replace_roles")))
+    _req_ids = set(_string_list(instructions.get("replace_item_ids")))
+    _excluded = [t.lower() for t in _string_list(instructions.get("excluded_terms"))]
+
+    def _is_change_target(item: Mapping[str, Any]) -> bool:
+        return (
+            canonical_item_role(dict(item)) in _req_roles
+            or canonical_item_id(dict(item)) in _req_ids
+            or (bool(_excluded) and any(t in _item_blob(item) for t in _excluded))
+        )
+
+    if (
+        current_items
+        and (_req_roles or _req_ids or _excluded)
+        and not any(_is_change_target(item) for item in current_items)
+    ):
+        affirmed: Dict[str, Any] = {
+            "success": True,
+            "ok": True,
+            "type": "style_refinement_satisfied",
+            "message_text": "Your board already meets that — nothing needed to change.",
+            "response": "Your board already meets that — nothing needed to change.",
+            "cards": [{
+                "id": normalized.get("board_id"),
+                "occasion": normalized.get("occasion"),
+                "items": current_items,
+            }],
+            "style_boards": [],
+            "chips": [],
+        }
+        affirmed["constraint_status"] = validate_style_response(affirmed, instructions)
+        return affirmed
     board, error = _refined_board(
         normalized, instructions, candidates, candidate_offset=0
     )
