@@ -198,6 +198,18 @@ def _split_keep_change(query: str) -> tuple[str, str]:
     return query[: match.start()], query[match.start() :]
 
 
+_WARDROBE_ONLY_PHRASES = (
+    "use only my wardrobe", "only my wardrobe", "wardrobe only", "wardrobe-only",
+    "use my wardrobe", "use what i own", "what i own", "my own clothes",
+    "own wardrobe", "no inspiration", "from my closet", "only what i have",
+)
+_INSPIRATION_PHRASES = (
+    "inspiration option", "inspiration alternative", "inspiration shoes",
+    "inspiration item", "inspiration piece", "add inspiration", "one inspiration",
+    "shopping option", "style asset", "visual inspiration",
+)
+
+
 def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str, Any]:
     """Extend existing deterministic routing with additive Style instructions."""
     query = _text(message).lower()
@@ -220,7 +232,12 @@ def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str,
     explain = any(term in query for term in ("why", "explain", "how does this work"))
     critique = any(term in query for term in ("visually weak", "what looks wrong", "critique", "boring"))
     gap = any(term in query for term in ("missing", "wardrobe gap", "need to buy", "upgrade piece"))
-    source_switch = any(term in query for term in ("use my wardrobe", "wardrobe only", "inspiration option", "visual inspiration"))
+    wardrobe_only_req = any(term in query for term in _WARDROBE_ONLY_PHRASES)
+    inspiration_req = "no inspiration" not in query and (
+        "inspiration" in query
+        or any(term in query for term in _INSPIRATION_PHRASES)
+    )
+    source_switch = wardrobe_only_req or inspiration_req
     refine = has_state and any(
         term in query
         for term in (
@@ -228,9 +245,7 @@ def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str,
             "less serious", "more formal", "less formal", "make it", "no ", "without ",
         )
     )
-    contradictory = any(term in query for term in ("wardrobe only", "use my wardrobe")) and any(
-        term in query for term in ("inspiration option", "shopping option", "style asset")
-    )
+    contradictory = wardrobe_only_req and inspiration_req
     query_words = query.strip(" .!?")
     ambiguous = has_state and query_words in {
         "make it better", "change it", "make it work", "something else",
@@ -317,26 +332,57 @@ def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str,
     preserve_ids = [item_id for item_id in preserve_ids if item_id in state_ids]
     replace_ids = [item_id for item_id in replace_ids if item_id in state_ids]
     source_mode = state["source_mode"]
-    if "wardrobe only" in query or "use my wardrobe" in query:
+    if wardrobe_only_req and not inspiration_req:
         source_mode = "wardrobe_only"
-    elif "inspiration" in query:
-        source_mode = "mixed" if "wardrobe" in query else "style_asset"
-    if action == "switch_source_mode" and not replace_roles:
-        replace_roles = list(dict.fromkeys(
-            item.get("role") for item in current_items if item.get("role")
-        ))
+    elif inspiration_req:
+        source_mode = "mixed" if (wardrobe_only_req or "wardrobe" in query) else "style_asset"
+    if action == "switch_source_mode":
+        # Target only items that violate the requested source policy, so
+        # already-compliant pieces are preserved and an already-compliant
+        # board is affirmed unchanged downstream (no silent provenance mixing).
+        def _violates_source(item: Mapping[str, Any]) -> bool:
+            src = canonical_item_source(dict(item))
+            if source_mode == "wardrobe_only":
+                return src not in ("wardrobe", "owned")
+            if source_mode == "style_asset":
+                return src in ("wardrobe", "owned")
+            return False
+        violating_ids = [
+            item["item_id"] for item in current_items if _violates_source(item)
+        ]
+        if violating_ids:
+            replace_ids = list(dict.fromkeys([*replace_ids, *violating_ids]))
     formality_delta = (
-        "increase" if any(term in query for term in ("more formal", "more serious", "professional"))
-        else "decrease" if any(term in query for term in ("less serious", "less formal", "more casual", "fun"))
+        "increase" if any(term in query for term in ("more formal", "more serious", "professional", "dressier"))
+        else "decrease" if any(term in query for term in ("less serious", "less formal", "more casual", "more relaxed", "more playful", "more fun", "fun"))
         else None
     )
+    # A tone/formality-only request has no concrete role/item/exclusion scope,
+    # so it cannot refine by construction. Ask one concise clarification rather
+    # than returning bare "unsupported" or regenerating blindly.
+    tone_only = (
+        action == "refine_current_board"
+        and formality_delta is not None
+        and not preserve_ids
+        and not replace_roles
+        and not replace_ids
+        and not exclusions
+    )
+    if tone_only:
+        action = "ask_clarification"
     requires_visual = action in {"critique_current_board"} or "visually" in query
     needs_clarification = action == "ask_clarification"
-    clarification = (
-        "Do you want a wardrobe-only look or one inspiration option?"
-        if contradictory
-        else "What should I preserve, and what should I change?"
-    ) if needs_clarification else None
+    if not needs_clarification:
+        clarification = None
+    elif tone_only:
+        clarification = (
+            "Should I make it more casual, more colourful, or less formal "
+            "while keeping the current outfit?"
+        )
+    elif contradictory:
+        clarification = "Do you want a wardrobe-only look or one inspiration option?"
+    else:
+        clarification = "What should I preserve, and what should I change?"
     confidence = 0.98 if action in {"explain_current_board", "critique_current_board"} else (
         0.45 if needs_clarification else 0.84
     )
@@ -570,7 +616,25 @@ def refine_style_response(
             or (bool(_excluded) and any(t in _item_blob(item) for t in _excluded))
         )
 
-    if (
+    _target_mode = _text(instructions.get("source_mode"))
+
+    def _source_complies(item: Mapping[str, Any]) -> bool:
+        src = canonical_item_source(dict(item))
+        if _target_mode == "wardrobe_only":
+            return src in ("wardrobe", "owned")
+        if _target_mode == "style_asset":
+            return src not in ("wardrobe", "owned")
+        return True
+
+    _switch_satisfied = (
+        _text(instructions.get("action")) == "switch_source_mode"
+        and current_items
+        and not _req_ids
+        and not _req_roles
+        and all(_source_complies(item) for item in current_items)
+    )
+
+    if _switch_satisfied or (
         current_items
         and (_req_roles or _req_ids or _excluded)
         and not any(_is_change_target(item) for item in current_items)

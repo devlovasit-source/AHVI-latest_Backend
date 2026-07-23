@@ -310,6 +310,61 @@ def test_except_absent_item_affirms_board_unchanged():
     assert result_ids == {it["item_id"] for it in STATE["board_items"]}
 
 
+@pytest.mark.parametrize(
+    "prompt",
+    ["Use only my wardrobe.", "Only my wardrobe.", "Use what I own.", "No inspiration items."],
+)
+def test_wardrobe_only_phrases_switch_source_mode(prompt):
+    instructions = interpret_style_followup(prompt, REFINE_STATE)
+    assert instructions["action"] == "switch_source_mode"
+    assert instructions["source_mode"] == "wardrobe_only"
+    result = refine_style_response(
+        state=REFINE_STATE, instructions=instructions, candidate_pool=REFINE_CANDIDATES
+    )
+    assert result["success"] is True
+    assert all(
+        item["source"] in ("wardrobe", "owned") for item in result["cards"][0]["items"]
+    )
+
+
+def test_source_switch_enforces_wardrobe_provenance_on_mixed_board():
+    mixed = {
+        "board_id": "mixed-1", "occasion": "office", "source_mode": "mixed",
+        "board_items": [
+            {"item_id": "shirt-123", "role": "top", "source": "wardrobe", "name": "Navy shirt"},
+            {"item_id": "asset-shoe", "role": "footwear", "source": "style_asset", "name": "Editorial shoe"},
+        ],
+    }
+    instructions = interpret_style_followup("Use only my wardrobe.", mixed)
+    result = refine_style_response(
+        state=mixed, instructions=instructions, candidate_pool=REFINE_CANDIDATES
+    )
+    assert result["success"] is True
+    ids = {item["item_id"] for item in result["cards"][0]["items"]}
+    assert "asset-shoe" not in ids  # style asset dropped, no silent mixing
+    assert all(
+        item["source"] in ("wardrobe", "owned") for item in result["cards"][0]["items"]
+    )
+
+
+@pytest.mark.parametrize(
+    "prompt", ["Make it less serious.", "Make it less formal.", "Make it more playful."]
+)
+def test_tone_only_requests_clarify_not_unsupported(prompt):
+    instructions = interpret_style_followup(prompt, REFINE_STATE)
+    assert instructions["action"] == "ask_clarification"
+    assert instructions["needs_clarification"] is True
+    assert "casual" in instructions["clarification_question"].lower()
+
+
+def test_wardrobe_only_plus_inspiration_is_contradictory_clarification():
+    instructions = interpret_style_followup(
+        "Use wardrobe only but add inspiration shoes.", REFINE_STATE
+    )
+    assert instructions["action"] == "ask_clarification"
+    assert "inspiration" in instructions["clarification_question"].lower()
+
+
 def test_wardrobe_only_and_inspiration_refinement_use_proven_sources():
     wardrobe = interpret_style_followup("Change only the shoes using my wardrobe.", REFINE_STATE)
     wardrobe_result = refine_style_response(
