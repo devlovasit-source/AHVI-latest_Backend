@@ -534,17 +534,35 @@ class AppwriteProxy:
                 continue
 
         if int(offset) == 0:
-            data = self._request(
-                "GET",
-                self._url(collection_id),
-            )
-            docs = data.get("documents", [])
-            if isinstance(docs, list):
-                return {
-                    "documents": docs,
-                    "total": data.get("total"),
-                    "used_query_syntax": False,
-                }
+            # Guard the final fallback the same way the param-candidate loop
+            # above is guarded. Previously this call was unguarded, so a missing
+            # collection / bad config / auth / connectivity failure raised out
+            # of list_documents and became an uncaught 500 for read endpoints
+            # (e.g. /api/calendar/today). Reads must degrade to empty, not 500.
+            try:
+                data = self._request(
+                    "GET",
+                    self._url(collection_id),
+                )
+                docs = data.get("documents", [])
+                if isinstance(docs, list):
+                    return {
+                        "documents": docs,
+                        "total": data.get("total"),
+                        "used_query_syntax": False,
+                    }
+            except AppwriteProxyError as exc:
+                logger.warning(
+                    "appwrite.list_documents.unconfigured_or_unreachable collection=%s err=%s",
+                    collection_id,
+                    str(exc)[:160],
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "appwrite.list_documents.fallback_failed collection=%s err=%s",
+                    collection_id,
+                    str(exc)[:160],
+                )
         return {"documents": [], "total": None, "used_query_syntax": False}
 
     def _list_documents_local_filtered(
