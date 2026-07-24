@@ -163,6 +163,11 @@ def today_events(user=Depends(get_current_user), date: str | None = Query(defaul
     try:
         events = list_today_calendar_events(_user_id(user), date=date)
         return {"success": True, "events": events, "count": len(events)}
+    except ValueError as exc:
+        # Bad `date` query param is a client error, not a server failure.
+        raise HTTPException(
+            status_code=400, detail=f"Invalid calendar date: {date}"
+        ) from exc
     except Exception:
         print("❌ /calendar/today error:\n", traceback.format_exc())
         raise HTTPException(status_code=500, detail="Calendar today failed")
