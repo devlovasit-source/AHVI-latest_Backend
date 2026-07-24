@@ -3632,6 +3632,10 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
         profile["user_id"] = user_id
     user_message = str(request.message or "").strip()
     merged_context = {**(request.context_data or {}), **(request.context or {})}
+    # Forward chat history so module handlers (e.g. calendar) can slot-fill
+    # across turns ("tomorrow" from an earlier turn + "shopping at 5pm").
+    if request.history and "history" not in merged_context:
+        merged_context["history"] = request.history
 
     if _is_ask_questions_action(user_message) and module in {"style", "wardrobe", "daily_wear", "chat", ""}:
         return _style_two_questions_response(user_message)
