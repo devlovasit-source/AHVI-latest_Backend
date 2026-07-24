@@ -1,9 +1,12 @@
 import asyncio
+import logging
 import os
 import time
 from typing import Tuple
 
 from services.settings import settings
+
+logger = logging.getLogger(__name__)
 
 try:
     import redis.asyncio as redis_async
@@ -13,30 +16,66 @@ except Exception:  # pragma: no cover - optional dependency at runtime
 
 _redis_client = None
 _redis_lock = asyncio.Lock()
+_redis_disabled: bool | None = None  # None=unknown, True=off (no config / unavailable)
+_redis_next_retry = 0.0
+_REDIS_COOLDOWN_SECONDS = 60.0
 _local_lock = asyncio.Lock()
 _local_windows: dict[str, tuple[int, float]] = {}
 _LOCAL_WINDOW_MAX_BUCKETS = 10000
 
 
+def _redis_configured() -> bool:
+    """True only when a real Redis URL is provided. The bare localhost default
+    means "not configured" — never dial localhost:6379 on Cloud Run."""
+    for var in ("REDIS_URL", "UPSTASH_REDIS_URL", "RAILWAY_REDIS_URL"):
+        if str(os.getenv(var) or "").strip():
+            return True
+    return False
+
+
 async def get_redis_client():
-    global _redis_client
+    """Return a live Redis client, or None. Never dials on every request:
+    unconfigured -> permanently disabled (one warning); a live failure trips a
+    cooldown circuit breaker. Callers fall back to uncached auth (still fully
+    enforced), so a missing/broken Redis never blocks or floods logs."""
+    global _redis_client, _redis_disabled, _redis_next_retry
     if _redis_client is not None:
         return _redis_client
-    if redis_async is None:
+    if _redis_disabled:
         return None
+    if redis_async is None:
+        _redis_disabled = True
+        return None
+    if not _redis_configured():
+        if _redis_disabled is None:
+            logger.warning(
+                "Redis not configured (no REDIS_URL); auth cache disabled, "
+                "using uncached authentication."
+            )
+        _redis_disabled = True
+        return None
+    if time.monotonic() < _redis_next_retry:
+        return None  # circuit breaker: still cooling down after a failure
     async with _redis_lock:
         if _redis_client is not None:
             return _redis_client
         try:
-            _redis_client = redis_async.from_url(
+            client = redis_async.from_url(
                 settings.redis_url,
                 encoding="utf-8",
                 decode_responses=True,
             )
-            await _redis_client.ping()
+            await client.ping()
+            _redis_client = client
+            return _redis_client
         except Exception:
             _redis_client = None
-        return _redis_client
+            _redis_next_retry = time.monotonic() + _REDIS_COOLDOWN_SECONDS
+            logger.warning(
+                "Redis unavailable; falling back to uncached auth for %ss.",
+                int(_REDIS_COOLDOWN_SECONDS),
+            )
+            return None
 
 
 async def is_redis_rate_limit_ready() -> bool:
