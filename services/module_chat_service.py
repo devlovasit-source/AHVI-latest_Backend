@@ -95,62 +95,87 @@ def _envelope(
     }
 
 
+_CALENDAR_DATE_TOKENS = (
+    "today", "tomorrow", "tonight", "monday", "tuesday", "wednesday", "thursday",
+    "friday", "saturday", "sunday", "jan", "january", "feb", "february", "mar",
+    "march", "apr", "april", "may", "jun", "june", "jul", "july", "aug",
+    "august", "sep", "sept", "september", "oct", "october", "nov", "november",
+    "dec", "december",
+)
+# Verbs/nouns that signal an intent to create a calendar item. Broad on purpose:
+# "set a reminder", "add shopping", "schedule", "go for ...", "plan ..." etc.
+_CALENDAR_CREATION_VERBS = (
+    "remind", "reminder", "schedule", "book ", "plan ", "planning",
+    "need to", "have to", "going to", "go for", "set a", "add ",
+    "appointment", "doctor", "dentist", "meeting", "call", "interview",
+    "birthday", "event",
+)
+
+
+def _has_event_date(text: str) -> bool:
+    t = str(text or "").lower()
+    return any(tok in t for tok in _CALENDAR_DATE_TOKENS) or bool(
+        re.search(r"\b\d{1,2}(?:st|nd|rd|th)?\b", t)
+    )
+
+
+def _has_event_time(text: str) -> bool:
+    t = str(text or "").lower()
+    return bool(re.search(r"\b(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b", t)) or any(
+        tok in t for tok in (" morning", " afternoon", " evening", " night")
+    )
+
+
+def _strip_occasion_prefix(message: str) -> str:
+    """Frontend decorates some calendar messages as 'Occasion: X\n\n<raw>'.
+    Drop the prefix so the parser sees clean, non-duplicated intent text."""
+    text = str(message or "")
+    m = re.match(r"^\s*occasion:\s*[^\n]*\n+(.+)$", text, re.I | re.S)
+    if m:
+        return m.group(1).strip()
+    return text.strip()
+
+
+def _recent_date_phrase(context: Dict[str, Any]) -> str:
+    """Recover a date word ('tomorrow', a weekday, ...) from recent chat history
+    so a follow-up like 'shopping at 5pm' keeps the earlier day."""
+    if not isinstance(context, dict):
+        return ""
+    history = context.get("history") or context.get("chat_history")
+    if not isinstance(history, list):
+        return ""
+    for turn in reversed(history[-8:]):
+        if isinstance(turn, dict):
+            content = str(turn.get("content") or turn.get("message") or turn.get("text") or "")
+        else:
+            content = str(turn or "")
+        low = content.lower()
+        for tok in _CALENDAR_DATE_TOKENS:
+            if tok in low:
+                return tok
+    return ""
+
+
+def _assemble_event_text(message: str, context: Dict[str, Any]) -> str:
+    """Multi-turn slot fill: if the message has a time but no date, borrow the
+    most recent date phrase from history so nothing is lost across turns."""
+    text = _strip_occasion_prefix(message)
+    if _has_event_time(text) and not _has_event_date(text):
+        recovered = _recent_date_phrase(context)
+        if recovered:
+            return f"{text} {recovered}".strip()
+    return text
+
+
 def _looks_like_event_create(message: str) -> bool:
-    text = str(message or "").lower().strip()
+    text = _strip_occasion_prefix(message).lower().strip()
     if not text or text in {"add event", "view events", "open events", "open calendar"}:
         return False
-    event_tokens = (
-        "appointment",
-        "doctor",
-        "dentist",
-        "meeting with",
-        "call with",
-        "call at",
-        "interview",
-        "remind me",
-        "schedule meeting",
-        "birthday",
-    )
-    date_tokens = (
-        "today",
-        "tomorrow",
-        "monday",
-        "tuesday",
-        "wednesday",
-        "thursday",
-        "friday",
-        "saturday",
-        "sunday",
-        "jan",
-        "january",
-        "feb",
-        "february",
-        "mar",
-        "march",
-        "apr",
-        "april",
-        "may",
-        "jun",
-        "june",
-        "jul",
-        "july",
-        "aug",
-        "august",
-        "sep",
-        "sept",
-        "september",
-        "oct",
-        "october",
-        "nov",
-        "november",
-        "dec",
-        "december",
-    )
-    has_date = any(token in text for token in date_tokens) or bool(re.search(r"\b\d{1,2}(?:st|nd|rd|th)?\b", text))
-    has_time = bool(re.search(r"\b(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b", text)) or any(
-        token in text for token in (" morning", " afternoon", " evening", " night")
-    )
-    return any(token in text for token in event_tokens) and (has_date or has_time)
+    has_date = _has_event_date(text)
+    has_time = _has_event_time(text)
+    has_verb = any(token in text for token in _CALENDAR_CREATION_VERBS)
+    # A creation verb plus a date or time, OR an explicit date+time, is enough.
+    return (has_verb and (has_date or has_time)) or (has_date and has_time)
 
 
 def _format_event_when(start_time: Any) -> str:
@@ -426,8 +451,11 @@ async def handle_skincare_chat(message: str, context: Dict[str, Any], user_id: s
 
 
 async def handle_calendar_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
-    lower = message.lower()
-    if "add event" in lower:
+    lower = _strip_occasion_prefix(message).lower()
+    # Multi-turn slot fill: recover an earlier date ("tomorrow") when the
+    # follow-up ("shopping at 5pm") only carries a time.
+    event_text = _assemble_event_text(message, context)
+    if lower in {"add event"}:
         reply = "Tell me the event name and date/time. For example: Birthday on 23 July or Doctor appointment tomorrow at 6 PM."
     elif "view events" in lower or "open events" in lower or "open calendar" in lower:
         reply = "Opening Calendar."
@@ -438,13 +466,13 @@ async def handle_calendar_chat(message: str, context: Dict[str, Any], user_id: s
             "Prioritize by urgency and energy: do time-sensitive work first, then high-value tasks, then small admin. "
             "If you share your list, I will sort it into today, later, and optional."
         )
-    elif _looks_like_event_create(message):
+    elif _looks_like_event_create(event_text):
         from services.calendar_service import create_calendar_event, parse_plan_text_to_payload
 
         user_profile = context.get("user_profile") if isinstance(context.get("user_profile"), dict) else {}
         timezone_name = _text(context.get("timezone") or user_profile.get("timezone")) or "Asia/Kolkata"
         try:
-            payload = parse_plan_text_to_payload(message, category="Plan", timezone_name=timezone_name)
+            payload = parse_plan_text_to_payload(event_text, category="Plan", timezone_name=timezone_name)
             event = create_calendar_event(user_id, payload)
             return _calendar_event_created_envelope(event)
         except ValueError as exc:
