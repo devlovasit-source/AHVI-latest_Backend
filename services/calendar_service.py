@@ -33,6 +33,28 @@ def _parse_iso(value: Any) -> Optional[datetime]:
         return None
 
 
+try:  # Local-date semantics for calendar boundaries default to IST.
+    from zoneinfo import ZoneInfo
+
+    _CALENDAR_TZ = ZoneInfo(os.getenv("CALENDAR_TIMEZONE", "Asia/Kolkata"))
+except Exception:  # pragma: no cover - fallback when tzdata is unavailable
+    _CALENDAR_TZ = timezone(timedelta(hours=5, minutes=30))
+
+
+def _as_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """Normalize a datetime to UTC-aware so naive and aware values compare.
+
+    Naive values are ASSIGNED the calendar timezone (never stripped); aware
+    values keep their offset. Both are then converted to UTC. This is what makes
+    a naive local-date boundary comparable to a Z-suffixed stored timestamp.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=_CALENDAR_TZ)
+    return value.astimezone(timezone.utc)
+
+
 def _metadata_to_string(value: Any) -> str:
     if value is None:
         return "{}"
@@ -296,8 +318,8 @@ def list_calendar_events(user_id: str, *, start_time: str | None = None, end_tim
     rows = AppwriteProxy().list_documents(CALENDAR_RESOURCE, limit=max(1, min(int(limit), 500)))
     if isinstance(rows, dict):
         rows = rows.get("documents") or []
-    start_dt = _parse_iso(start_time)
-    end_dt = _parse_iso(end_time)
+    start_dt = _as_utc(_parse_iso(start_time))
+    end_dt = _as_utc(_parse_iso(end_time))
     user = _safe_str(user_id)
     out: List[Dict[str, Any]] = []
     for raw in rows or []:
@@ -306,7 +328,7 @@ def list_calendar_events(user_id: str, *, start_time: str | None = None, end_tim
         row = _normalize_doc(raw)
         if row.get("user_id") != user:
             continue
-        event_dt = _parse_iso(row.get("start_time"))
+        event_dt = _as_utc(_parse_iso(row.get("start_time")))
         if start_dt and event_dt and event_dt < start_dt:
             continue
         if end_dt and event_dt and event_dt > end_dt:
