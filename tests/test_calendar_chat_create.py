@@ -92,3 +92,94 @@ def test_incomplete_request_does_not_create(fake_create):
     resp = asyncio.run(mcs.handle_calendar_chat("i want to plan something", {}, "u1"))
     assert resp.get("intent") != "calendar_event_created"
     assert fake_create == []
+
+
+@pytest.fixture
+def calendar_store(monkeypatch):
+    store = []
+
+    def _create(user_id, payload):
+        event = {
+            "$id": f"evt-{len(store) + 1}",
+            "id": f"evt-{len(store) + 1}",
+            "title": payload.get("title"),
+            "start_time": payload.get("start_time"),
+            "user_id": user_id,
+        }
+        store.append(event)
+        return event
+
+    def _list(user_id, *, start_time=None, end_time=None, limit=200):
+        s = cs._as_utc(cs._parse_iso(start_time))
+        e = cs._as_utc(cs._parse_iso(end_time))
+        out = []
+        for ev in store:
+            if ev.get("user_id") != user_id:
+                continue
+            edt = cs._as_utc(cs._parse_iso(ev.get("start_time")))
+            if s and edt and edt < s:
+                continue
+            if e and edt and edt > e:
+                continue
+            out.append(ev)
+        return out
+
+    monkeypatch.setattr(cs, "create_calendar_event", _create)
+    monkeypatch.setattr(cs, "list_calendar_events", _list)
+    return store
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("set a reminder for tomorrow as I need to go to shopping at 5pm", "Shopping"),
+        ("gym at 6am tomorrow", "Gym"),
+        ("client meeting at 9pm", "Client Meeting"),
+        ("birthday dinner tomorrow at 8pm", "Birthday Dinner"),
+        ("add shopping tomorrow at 5pm", "Shopping"),
+    ],
+)
+def test_clean_title_extraction(text, expected):
+    payload = cs.parse_plan_text_to_payload(text)
+    assert payload["title"] == expected
+
+
+def test_doctor_appointment_title_preserved():
+    payload = cs.parse_plan_text_to_payload("doctor appointment tomorrow at 9am")
+    assert payload["title"].lower() == "doctor appointment"
+
+
+def test_same_request_twice_creates_one_event(calendar_store):
+    msg = "set a reminder for tomorrow as I need to go to shopping at 5pm"
+    r1 = asyncio.run(mcs.handle_calendar_chat(msg, {}, "u1"))
+    r2 = asyncio.run(mcs.handle_calendar_chat(msg, {}, "u1"))
+    assert r1.get("intent") == "calendar_event_created"
+    assert r2.get("intent") == "calendar_event_reused"
+    assert len(calendar_store) == 1
+
+
+def test_equivalent_phrasing_is_deduplicated(calendar_store):
+    asyncio.run(mcs.handle_calendar_chat("add shopping tomorrow at 5pm", {}, "u1"))
+    r2 = asyncio.run(mcs.handle_calendar_chat("schedule shopping at 5pm tomorrow", {}, "u1"))
+    assert r2.get("intent") == "calendar_event_reused"
+    assert len(calendar_store) == 1
+
+
+def test_different_times_create_separate_events(calendar_store):
+    asyncio.run(mcs.handle_calendar_chat("shopping tomorrow at 5pm", {}, "u1"))
+    asyncio.run(mcs.handle_calendar_chat("shopping tomorrow at 7pm", {}, "u1"))
+    assert len(calendar_store) == 2
+
+
+def test_different_users_are_not_deduplicated(calendar_store):
+    asyncio.run(mcs.handle_calendar_chat("shopping tomorrow at 5pm", {}, "u1"))
+    asyncio.run(mcs.handle_calendar_chat("shopping tomorrow at 5pm", {}, "u2"))
+    assert len(calendar_store) == 2
+
+
+def test_multiturn_creation_is_idempotent(calendar_store):
+    ctx = {"history": [{"role": "user", "content": "set a reminder for tomorrow"}]}
+    asyncio.run(mcs.handle_calendar_chat("shopping at 5pm", ctx, "u1"))
+    r2 = asyncio.run(mcs.handle_calendar_chat("shopping at 5pm", ctx, "u1"))
+    assert r2.get("intent") == "calendar_event_reused"
+    assert len(calendar_store) == 1

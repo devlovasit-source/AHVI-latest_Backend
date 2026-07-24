@@ -467,12 +467,27 @@ async def handle_calendar_chat(message: str, context: Dict[str, Any], user_id: s
             "If you share your list, I will sort it into today, later, and optional."
         )
     elif _looks_like_event_create(event_text):
-        from services.calendar_service import create_calendar_event, parse_plan_text_to_payload
+        from services.calendar_service import (
+            create_calendar_event,
+            find_existing_event,
+            parse_plan_text_to_payload,
+        )
 
         user_profile = context.get("user_profile") if isinstance(context.get("user_profile"), dict) else {}
         timezone_name = _text(context.get("timezone") or user_profile.get("timezone")) or "Asia/Kolkata"
         try:
             payload = parse_plan_text_to_payload(event_text, category="Plan", timezone_name=timezone_name)
+            # Idempotency: a repeated identical request (same user + title + start
+            # minute) reuses the existing event instead of creating a duplicate.
+            existing = find_existing_event(user_id, payload.get("title"), payload.get("start_time"))
+            if existing:
+                envelope = _calendar_event_created_envelope(existing)
+                envelope["intent"] = "calendar_event_reused"
+                envelope["reused"] = True
+                if isinstance(envelope.get("data"), dict):
+                    envelope["data"]["intent"] = "calendar_event_reused"
+                    envelope["data"]["reused"] = True
+                return envelope
             event = create_calendar_event(user_id, payload)
             return _calendar_event_created_envelope(event)
         except ValueError as exc:

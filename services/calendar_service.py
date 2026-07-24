@@ -237,10 +237,49 @@ def _extract_event_time(raw: str) -> tuple[int, int, bool]:
     return 9, 0, False
 
 
+_TITLE_STRIP_PHRASES = (
+    "set a reminder", "set reminder", "remind me to", "remind me",
+    "reminder to", "reminder for", "reminder", "create an event",
+    "create event", "add to calendar", "add event", "schedule", "book",
+    "plan to", "i need to go to", "i need to go for", "i need to",
+    "i have to go to", "i have to", "need to go to", "need to go for",
+    "need to", "go for", "go to", "going to",
+    "add", "create", "make", "set",
+)
+
+
+def _clean_event_title(raw: str) -> str:
+    """Reduce a natural-language creation sentence to a clean title.
+
+    "set a reminder for tomorrow as I need to go to shopping at 5pm" -> "Shopping".
+    Strips command phrases, date words and time expressions; keeps the event noun.
+    """
+    t = " " + _safe_str(raw).lower() + " "
+    t = re.sub(
+        r"\b(today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|"
+        r"saturday|sunday|jan|january|feb|february|mar|march|apr|april|may|jun|"
+        r"june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|"
+        r"dec|december)\b",
+        " ",
+        t,
+    )
+    t = re.sub(r"\b(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b", " ", t)
+    # Bare day numbers / ordinals ("23", "23rd").
+    t = re.sub(r"\b\d{1,2}(?:st|nd|rd|th)?\b", " ", t)
+    t = re.sub(r"\b(this|next)\s+(morning|afternoon|evening|night)\b", " ", t)
+    t = re.sub(r"\b(morning|afternoon|evening|night)\b", " ", t)
+    for phrase in sorted(_TITLE_STRIP_PHRASES, key=len, reverse=True):
+        t = re.sub(r"\b" + re.escape(phrase) + r"\b", " ", t)
+    t = re.sub(r"\b(as|for|the|a|an|to|of|on|i|my|please|pls|and|need)\b", " ", t)
+    t = re.sub(r"[^a-z0-9 &/-]", " ", t)
+    t = re.sub(r"\s+", " ", t).strip(" -")
+    return t.title()
+
+
 def _event_type_and_title(raw: str, category: str | None) -> tuple[str, str]:
     lower = raw.lower()
     if "birthday" in lower:
-        return "birthday", "Birthday"
+        return "birthday", _clean_event_title(raw) or "Birthday"
     if "doctor" in lower:
         return "appointment", "Doctor appointment"
     if "dentist" in lower:
@@ -258,11 +297,11 @@ def _event_type_and_title(raw: str, category: str | None) -> tuple[str, str]:
         person = _safe_str(call_with.group(1)).strip(" ,.-")
         return "call", f"Call with {person.title()}" if person else "Call"
     if "meeting" in lower:
-        return "meeting", "Meeting"
+        return "meeting", _clean_event_title(raw) or "Meeting"
     if "call" in lower:
-        return "call", "Call"
+        return "call", _clean_event_title(raw) or "Call"
     event_type = _safe_str(category) or "plan"
-    return event_type, raw[:80]
+    return event_type, _clean_event_title(raw) or raw[:60]
 
 
 def parse_plan_text_to_payload(
@@ -293,6 +332,37 @@ def parse_plan_text_to_payload(
         "status": "scheduled",
         "metadata": {"original_text": raw, "category": event_type, "has_time": has_time},
     }
+
+
+def find_existing_event(
+    user_id: str, title: str, start_iso: str
+) -> Optional[Dict[str, Any]]:
+    """Idempotency check: return an existing event for this user with the same
+    normalized title and the same start minute, else None. Reuses the
+    timezone-normalized read (list_calendar_events) unchanged."""
+    target = _as_utc(_parse_iso(start_iso))
+    norm_title = _safe_str(title).strip().lower()
+    if not target or not norm_title:
+        return None
+    local = target.astimezone(_CALENDAR_TZ)
+    day_start = datetime(local.year, local.month, local.day, tzinfo=_CALENDAR_TZ)
+    day_end = day_start + timedelta(days=1)
+    try:
+        events = list_calendar_events(
+            user_id,
+            start_time=day_start.isoformat(),
+            end_time=day_end.isoformat(),
+            limit=200,
+        )
+    except Exception:
+        return None
+    for event in events:
+        if _safe_str(event.get("title")).strip().lower() != norm_title:
+            continue
+        event_start = _as_utc(_parse_iso(event.get("start_time")))
+        if event_start and abs((event_start - target).total_seconds()) < 60:
+            return event
+    return None
 
 
 def create_calendar_event(user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
