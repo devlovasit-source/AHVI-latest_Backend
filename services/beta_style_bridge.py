@@ -34,6 +34,7 @@ VISUAL_INTELLIGENCE_VERSION = "1.0"
 _TRUE = {"1", "true", "yes", "on"}
 _ALLOWED_ACTIONS = {
     "create_board",
+    "create_alternative_board",
     "refine_current_board",
     "explain_current_board",
     "critique_current_board",
@@ -42,6 +43,27 @@ _ALLOWED_ACTIONS = {
     "answer_style_question",
     "ask_clarification",
 }
+# Canonical alternative-board action + older aliases the frontend / chips may
+# still send. All normalize to create_alternative_board.
+_ALTERNATIVE_ALIASES = {
+    "create_alternative_board",
+    "more_options",
+    "show_closest_option",
+    "show_closest_safe_option",
+    "another_look",
+}
+_ALTERNATIVE_PHRASES = (
+    "another look",
+    "another wardrobe look",
+    "another wardrobe",
+    "another option",
+    "try another",
+    "give me another",
+    "more looks",
+    "different look",
+    "something else",
+    "show me another",
+)
 _ALLOWED_SOURCE_MODES = {"wardrobe", "wardrobe_only", "mixed", "style_asset", "unknown"}
 _ROLE_TERMS = {
     "top": ("top", "shirt", "tee", "blouse", "sweater", "jacket", "blazer"),
@@ -210,8 +232,17 @@ _INSPIRATION_PHRASES = (
 )
 
 
-def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str, Any]:
-    """Extend existing deterministic routing with additive Style instructions."""
+def interpret_style_followup(
+    message: str,
+    style_state: Any = None,
+    explicit_action: str = "",
+) -> Dict[str, Any]:
+    """Extend existing deterministic routing with additive Style instructions.
+
+    `explicit_action` is the structured action the frontend sends (e.g.
+    create_alternative_board, or older aliases more_options /
+    show_closest_option). Any alias normalizes to create_alternative_board.
+    """
     query = _text(message).lower()
     state = normalize_style_state(style_state)
     has_state = bool(state["board_items"])
@@ -248,10 +279,18 @@ def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str,
     contradictory = wardrobe_only_req and inspiration_req
     query_words = query.strip(" .!?")
     ambiguous = has_state and query_words in {
-        "make it better", "change it", "make it work", "something else",
+        "make it better", "change it", "make it work",
     }
+    # Alternative-board follow-up: an explicit action alias from the frontend,
+    # or a "show me another look" style phrase over an existing board.
+    alternative_req = has_state and (
+        _text(explicit_action).lower() in _ALTERNATIVE_ALIASES
+        or any(phrase in query for phrase in _ALTERNATIVE_PHRASES)
+    )
 
-    if contradictory or ambiguous:
+    if alternative_req:
+        action = "create_alternative_board"
+    elif contradictory or ambiguous:
         action = "ask_clarification"
     elif critique:
         action = "critique_current_board"
@@ -393,6 +432,11 @@ def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str,
         "replace_item_ids": replace_ids,
         "replace_roles": replace_roles,
         "excluded_terms": exclusions,
+        "exclude_item_ids": (
+            [item["item_id"] for item in state["board_items"]]
+            if action == "create_alternative_board"
+            else []
+        ),
         "source_mode": source_mode,
         "occasion": state.get("occasion"),
         "formality_delta": formality_delta,
@@ -410,6 +454,8 @@ def engine_dispatch(instructions: Mapping[str, Any]) -> Dict[str, Any]:
     source = _text(instructions.get("source_mode"))
     if action in {"explain_current_board", "critique_current_board"}:
         engine = "metadata_explanation"
+    elif action == "create_alternative_board":
+        engine = "more_options"
     elif action == "identify_wardrobe_gap":
         engine = "style_context_service"
     elif instructions.get("preserve_item_ids") or instructions.get("preserve_roles"):

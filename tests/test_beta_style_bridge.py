@@ -564,3 +564,55 @@ def test_chat_exact_refinement_never_falls_through_to_generator(monkeypatch):
     assert "shirt-123" in ids
     assert not ({"pants-456", "shoe-789", "bag-1"} & ids)
     assert body["constraint_status"]["final_validation_status"] == "passed"
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Show me another look",
+        "show me another wardrobe look",
+        "try another",
+        "give me another option",
+        "more looks",
+        "something else",
+    ],
+)
+def test_alternative_phrases_map_to_create_alternative_board(prompt):
+    routed = interpret_style_followup(prompt, REFINE_STATE)
+    assert routed["action"] == "create_alternative_board"
+    # Context preserved from the previous board.
+    assert routed["occasion"] == REFINE_STATE["occasion"]
+    assert routed["source_mode"] == "wardrobe_only"
+    # Every rendered item is excluded so the alternative differs.
+    assert set(routed["exclude_item_ids"]) == {
+        it["item_id"] for it in REFINE_STATE["board_items"]
+    }
+
+
+@pytest.mark.parametrize(
+    "alias",
+    [
+        "create_alternative_board",
+        "more_options",
+        "show_closest_option",
+        "show_closest_safe_option",
+        "another_look",
+    ],
+)
+def test_alternative_action_aliases_normalize(alias):
+    routed = interpret_style_followup("do it", REFINE_STATE, explicit_action=alias)
+    assert routed["action"] == "create_alternative_board"
+    assert set(routed["exclude_item_ids"]) == {
+        it["item_id"] for it in REFINE_STATE["board_items"]
+    }
+
+
+def test_ordinary_style_question_is_not_alternative():
+    routed = interpret_style_followup("Would this work for dinner?", REFINE_STATE)
+    assert routed["action"] != "create_alternative_board"
+
+
+def test_alternative_requires_existing_board():
+    # No carried board -> a phrase alone must not fabricate an alternative action.
+    routed = interpret_style_followup("show me another look", None)
+    assert routed["action"] != "create_alternative_board"

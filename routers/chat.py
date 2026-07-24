@@ -4231,7 +4231,11 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # Beta Intelligence Bridge. This is request-carried and persistence-free;
     # it does not add another intent/model invocation.
     beta_state = normalize_style_state(request.style_state)
-    beta_instructions = interpret_style_followup(user_input, beta_state)
+    beta_instructions = interpret_style_followup(
+        user_input,
+        beta_state,
+        explicit_action=str(request.action or request.style_action or ""),
+    )
     beta_dispatch = beta_style_engine_dispatch(beta_instructions)
     if beta_state.get("board_items"):
         logger.info(
@@ -4319,6 +4323,61 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 previous_state=beta_state,
                 instructions=beta_instructions,
             )
+        if beta_instructions.get("action") == "create_alternative_board":
+            _alt_occasion = str(beta_instructions.get("occasion") or "").strip()
+            _alt_source = str(beta_instructions.get("source_mode") or "").strip()
+            _exclude_ids = {
+                str(i) for i in (beta_instructions.get("exclude_item_ids") or []) if str(i)
+            }
+            logger.info(
+                "style_followup_alternative occasion=%s source_policy=%s excluded_count=%s",
+                _alt_occasion, _alt_source, len(_exclude_ids),
+            )
+            # Regenerate a wardrobe alternative preserving occasion + source and
+            # excluding the current board's items so the new board differs. Never
+            # degrade to generic advice.
+            _alt_wardrobe = request.wardrobe if isinstance(request.wardrobe, list) else None
+            if _alt_wardrobe and _exclude_ids:
+                _alt_wardrobe = [
+                    it for it in _alt_wardrobe
+                    if str(
+                        (it or {}).get("item_id")
+                        or (it or {}).get("id")
+                        or (it or {}).get("$id")
+                        or ""
+                    ) not in _exclude_ids
+                ]
+            _alt_query = (f"{_alt_occasion} outfit").strip() or user_input
+            _alt_payload = _demo_style_board_payload(
+                user_id=user_id or str(effective_user_profile.get("user_id") or ""),
+                query_text=_alt_query,
+                request_wardrobe=_alt_wardrobe,
+                user_profile=effective_user_profile,
+                style_action="more_options",
+                show_closest_option=True,
+                allow_closest_option=True,
+                closest=True,
+            )
+            _alt_result = _beta_style_response(
+                _alt_payload,
+                previous_state=beta_state,
+                instructions=beta_instructions,
+            )
+            try:
+                _alt_ids = [
+                    i.get("item_id")
+                    for c in (_alt_result.get("cards") or [])
+                    for i in (c.get("items") or [])
+                    if isinstance(i, dict)
+                ]
+                logger.info(
+                    "style_followup_alternative_result board_id=%s item_ids=%s",
+                    (_alt_result.get("style_state") or {}).get("board_id"),
+                    _alt_ids[:8],
+                )
+            except Exception:
+                pass
+            return _alt_result
         if beta_instructions.get("action") in {
             "refine_current_board",
             "switch_source_mode",
