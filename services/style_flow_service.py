@@ -5492,6 +5492,18 @@ def curate_wardrobe_boards(
     )
     for c in curated:
         c["diversity_meta"] = diversity_meta
+    # Final completeness gate: never emit a board labelled "complete outfit"
+    # that is missing a required slot (top+bottom+footwear, or one-piece+footwear).
+    try:
+        from brain.engines.outfit_quality_guard import is_complete_board as _is_complete
+        complete = [c for c in curated if _is_complete(c.get("items"))]
+        if len(complete) != len(curated):
+            logger.warning(
+                "AHVI_BOARD_INCOMPLETE_DROPPED count=%d", len(curated) - len(complete)
+            )
+            curated = complete
+    except Exception:  # noqa: BLE001 - enforcement must never break curation
+        pass
     logger.info(
         "AHVI_BOARD_FINAL_LOOKS selected_count=%d titles=%s strategies=%s",
         len(curated),
