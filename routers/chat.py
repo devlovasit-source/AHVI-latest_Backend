@@ -2003,6 +2003,69 @@ def _should_default_visual_inspiration(
     )
 
 
+def _style_source_policy(cards: Any) -> str:
+    """First non-empty source_policy across candidate cards (defaults empty)."""
+    for card in cards or []:
+        if isinstance(card, dict) and card.get("source_policy"):
+            return str(card.get("source_policy"))
+    return ""
+
+
+def _style_final_roles(cards: Any) -> list:
+    """Union of explicit roles present across the final cards (deterministic)."""
+    try:
+        from services.style_explicit_roles import board_explicit_roles
+
+        roles: set = set()
+        for card in cards or []:
+            if isinstance(card, dict):
+                roles.update(board_explicit_roles(card.get("items")))
+        from services.style_explicit_roles import EXPLICIT_ROLES
+
+        return [r for r in EXPLICIT_ROLES if r in roles]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _emit_style_outcome_trace(
+    *,
+    user_id: Any,
+    intent: str,
+    occasion: str,
+    source_policy: str,
+    requested_roles: list,
+    required_roles: list,
+    final_cards: Any,
+    missing_roles: list,
+    repair_attempted: bool,
+    validation_result: str,
+) -> None:
+    """One stable structured Style decision trace. No tokens / secrets / full
+    profile — only a short stable hash of the user id."""
+    try:
+        import hashlib
+
+        uid = hashlib.sha256(str(user_id or "").encode("utf-8")).hexdigest()[:12]
+        logger.info(
+            "AHVI_STYLE_OUTCOME_TRACE user=%s intent=%s occasion=%s source_policy=%s "
+            "requested_roles=%s required_roles=%s final_roles=%s missing_roles=%s "
+            "repair_attempted=%s fallback_used=%s validation_result=%s",
+            uid,
+            intent,
+            occasion,
+            source_policy,
+            list(requested_roles or []),
+            list(required_roles or []),
+            _style_final_roles(final_cards),
+            list(missing_roles or []),
+            bool(repair_attempted),
+            bool(missing_roles),
+            validation_result,
+        )
+    except Exception:  # noqa: BLE001 - tracing must never break the response
+        pass
+
+
 def _style_curation_brief(query_text: str, occasion: str) -> Dict[str, Any]:
     """Compact stylist brief (goal/impression/atmosphere/confidence_strategy)
     derived deterministically from the occasion. Feeds board curation without
@@ -2159,6 +2222,7 @@ def _demo_style_board_payload(
     if cards and len(cards) >= 1:
         try:
             _brief = _style_curation_brief(query_text, occasion)
+            _enforcement: dict = {}
             curated = curate_wardrobe_boards(
                 cards,
                 query=query_text,
@@ -2166,12 +2230,89 @@ def _demo_style_board_payload(
                 reasoning=_brief,
                 wardrobe_count=len(wardrobe),
                 target=4,
+                candidate_pool=wardrobe if isinstance(wardrobe, list) else None,
+                enforcement=_enforcement,
             )
+            _requested = list(_enforcement.get("requested_roles") or [])
             if curated:
                 response["cards"] = curated
                 if isinstance(response.get("style_boards"), list) and response.get("style_boards"):
                     response["style_boards"] = curated
                 cards = curated
+                _emit_style_outcome_trace(
+                    user_id=user_id,
+                    intent="style_pipeline_adapter",
+                    occasion=occasion,
+                    source_policy=_style_source_policy(curated),
+                    requested_roles=_requested,
+                    required_roles=list(_enforcement.get("required_explicit_roles") or _requested),
+                    final_cards=curated,
+                    missing_roles=[],
+                    repair_attempted=bool(_enforcement.get("repair_attempted")),
+                    validation_result="satisfied",
+                )
+            elif _enforcement.get("status") == "missing_explicit_roles":
+                # The user named roles we cannot satisfy from their wardrobe.
+                # Return a typed gap instead of falling back to the pre-curation
+                # cards, which would ship a board missing what they asked for.
+                missing = list(_enforcement.get("missing_roles") or [])
+                requested = _requested
+                available = list(_enforcement.get("available_roles") or [])
+                source_policy = _style_source_policy(cards) or "wardrobe"
+                _emit_style_outcome_trace(
+                    user_id=user_id,
+                    intent="style_pipeline_adapter",
+                    occasion=occasion,
+                    source_policy=source_policy,
+                    requested_roles=requested,
+                    required_roles=list(_enforcement.get("required_explicit_roles") or requested),
+                    final_cards=[],
+                    missing_roles=missing,
+                    repair_attempted=bool(_enforcement.get("repair_attempted")),
+                    validation_result="missing_explicit_roles",
+                )
+                _missing_label = ", ".join(missing or requested)
+                return {
+                    "success": False,
+                    "reason": "missing_explicit_roles",
+                    "message": (
+                        "I couldn't complete this exact "
+                        + (source_policy or "wardrobe")
+                        + "-only look because your wardrobe doesn't currently "
+                        + "contain a suitable " + _missing_label + ". I can create "
+                        + "a catalog-inspired option or suggest the missing piece."
+                    ),
+                    "board": "style",
+                    "type": "missing_explicit_roles",
+                    "cards": [],
+                    "style_boards": [],
+                    "board_ids": "",
+                    "source_policy": source_policy,
+                    "can_offer_catalog_option": True,
+                    "requested_roles": requested,
+                    "missing_roles": missing,
+                    "available_roles": available,
+                    "repair_attempted": bool(_enforcement.get("repair_attempted")),
+                    "data": {"outfits": [], "rendered_boards": [], "board_item_ids": []},
+                    "meta": {
+                        "mode": "style_flow_service_adapter_v1",
+                        "intent": "style_pipeline_adapter",
+                        "domain": "style",
+                        "occasion": occasion,
+                        "wardrobe_count": len(wardrobe),
+                        "status": "missing_explicit_roles",
+                        "reason": "missing_explicit_roles",
+                        "missing_roles": missing,
+                        "requested_roles": requested,
+                        "required_explicit_roles": list(
+                            _enforcement.get("required_explicit_roles") or requested
+                        ),
+                        "available_roles": available,
+                        "repair_attempted": bool(_enforcement.get("repair_attempted")),
+                        "source_policy": source_policy,
+                        "can_offer_catalog_option": True,
+                    },
+                }
         except Exception as exc:  # noqa: BLE001
             logger.warning("ahvi.board_curation_failed user_id=%s err=%s", user_id, str(exc)[:160])
 

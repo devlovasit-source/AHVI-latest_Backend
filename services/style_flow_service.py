@@ -1374,9 +1374,27 @@ def _allows_headwear(query: str) -> bool:
     )
 
 
+def _explicit_accessory_types(query: str) -> set:
+    """Accessory types the user named outright ("... and a bag"). These are hard
+    constraints: the occasion accessory whitelist must not drop them (a bag was
+    previously discarded for date/dinner because it is not in _DATE_ACCESSORIES)."""
+    try:
+        from services.style_explicit_roles import extract_requested_roles
+
+        roles = set(extract_requested_roles(query))
+    except Exception:  # noqa: BLE001 - never break curation
+        return set()
+    types: set = set()
+    if "bag" in roles:
+        types.add("bag")
+    return types
+
+
 def _accessory_allowed_for_query(item: Dict[str, Any], query: str) -> bool:
     typ = _accessory_type(item)
     kind = _occasion_kind(query)
+    if typ in _explicit_accessory_types(query):
+        return True
     if typ == "headwear" and not _allows_headwear(query):
         return False
     if kind == "office" or kind == "wedding":
@@ -1399,6 +1417,10 @@ def _accessory_allowed_for_query(item: Dict[str, Any], query: str) -> bool:
 def _accessory_priority(item: Dict[str, Any], query: str) -> int:
     typ = _accessory_type(item)
     kind = _occasion_kind(query)
+    # Explicitly requested types outrank every occasion default so the budget
+    # cap can never trim them away.
+    if typ in _explicit_accessory_types(query):
+        return -1
     if kind == "office":
         order = ["watch", "belt", "bag", "scarf", "jewelry", "accessory", "eyewear", "headwear"]
     elif kind == "date":
@@ -1463,6 +1485,13 @@ def _curate_accessories_for_card(card: Dict[str, Any], query: str) -> Dict[str, 
     accessory_budget = max(0, min(6 - len(core), 3))
     if _occasion_kind(query) in {"office", "date", "wedding"}:
         accessory_budget = min(accessory_budget, 2)
+    explicit_types = _explicit_accessory_types(query)
+    if explicit_types:
+        # Never let the occasion cap evict a type the user asked for by name.
+        accessory_budget = max(
+            accessory_budget,
+            sum(1 for a in accessories if _accessory_type(a) in explicit_types),
+        )
     accessories = accessories[:accessory_budget]
 
     fixed = dict(card)
@@ -5375,6 +5404,120 @@ def _signature_parts(card: Dict[str, Any]) -> Dict[str, str]:
     return by_role
 
 
+def _requested_explicit_roles(query: Any) -> List[str]:
+    """Explicit garment roles named in the prompt; [] when nothing explicit."""
+    try:
+        from services.style_explicit_roles import extract_requested_roles
+
+        return list(extract_requested_roles(query))
+    except Exception:  # noqa: BLE001 - never break curation
+        return []
+
+
+def _explicit_role_pool(
+    cards: List[Dict[str, Any]], candidate_pool: Optional[List[Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
+    """Deterministic repair pool: caller-supplied wardrobe pool first, then every
+    item already present on a sibling candidate board."""
+    pool: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    def _add(item: Any) -> None:
+        if not isinstance(item, dict):
+            return
+        key = item_key(item) or _safe_text(item.get("name"))
+        if key and key in seen:
+            return
+        if key:
+            seen.add(key)
+        pool.append(item)
+
+    for item in candidate_pool or []:
+        _add(item)
+    for card in cards or []:
+        if not isinstance(card, dict):
+            continue
+        for item in list(card.get("items") or []) + list(card.get("accessories") or []):
+            _add(item)
+    return pool
+
+
+def _enforce_explicit_roles_on_cards(
+    cards: List[Dict[str, Any]],
+    *,
+    query: str,
+    occasion: str,
+    candidate_pool: Optional[List[Dict[str, Any]]] = None,
+    enforcement: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """Repair-or-reject each card against the explicitly requested roles.
+
+    Returns the surviving cards. When nothing survives, [enforcement] carries the
+    typed failure detail so the router can answer missing_explicit_roles instead
+    of silently shipping an incomplete board.
+    """
+    required = _requested_explicit_roles(query)
+    if isinstance(enforcement, dict):
+        enforcement.setdefault("requested_roles", list(required))
+        enforcement.setdefault("required_explicit_roles", list(required))
+        enforcement.setdefault("repair_attempted", False)
+        enforcement.setdefault("status", "satisfied")
+    if not required:
+        return cards
+
+    try:
+        from services.style_explicit_roles import (
+            board_explicit_roles,
+            enforce_explicit_roles,
+        )
+    except Exception:  # noqa: BLE001 - never break curation
+        return cards
+
+    pool = _explicit_role_pool(cards, candidate_pool)
+    available = sorted(set(board_explicit_roles(pool)))
+    policy = ""
+    for card in cards or []:
+        if isinstance(card, dict) and card.get("source_policy"):
+            policy = _safe_text(card.get("source_policy"))
+            break
+
+    kept: List[Dict[str, Any]] = []
+    all_missing: set = set()
+    for card in cards or []:
+        fixed, status, missing = enforce_explicit_roles(
+            card,
+            required,
+            candidate_pool=pool,
+            source_policy=policy,
+            occasion=occasion,
+        )
+        if fixed is None:
+            all_missing.update(missing)
+            logger.warning(
+                "AHVI_EXPLICIT_ROLES_REJECTED missing=%s requested=%s title=%s",
+                sorted(missing), required, _safe_text(card.get("title")) if isinstance(card, dict) else "",
+            )
+            continue
+        if status == "repaired":
+            logger.info(
+                "AHVI_EXPLICIT_ROLES_REPAIRED requested=%s title=%s",
+                required, _safe_text(fixed.get("title")),
+            )
+        kept.append(fixed)
+
+    if isinstance(enforcement, dict):
+        enforcement["repair_attempted"] = True
+        enforcement["available_roles"] = available
+        enforcement["missing_roles"] = sorted(all_missing) if not kept else []
+        enforcement["status"] = "missing_explicit_roles" if not kept else "satisfied"
+
+    logger.info(
+        "AHVI_EXPLICIT_ROLES_ENFORCED requested=%s kept=%d dropped=%d available=%s",
+        required, len(kept), len(cards or []) - len(kept), available,
+    )
+    return kept
+
+
 def curate_wardrobe_boards(
     cards: List[Dict[str, Any]],
     *,
@@ -5383,6 +5526,8 @@ def curate_wardrobe_boards(
     reasoning: Optional[Dict[str, Any]] = None,
     wardrobe_count: int = 0,
     target: int = 4,
+    candidate_pool: Optional[List[Dict[str, Any]]] = None,
+    enforcement: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """Rank + re-title deterministic candidate cards with Gemini, enforce
     diversity, attach stylist curation metadata. Never invents items."""
@@ -5404,6 +5549,20 @@ def curate_wardrobe_boards(
             kept_guard.append(c)
     if kept_guard:
         valid = kept_guard
+
+    # Explicit requested-role contract. Roles the user named ("... with a dress,
+    # shoes, and a bag") are HARD constraints. Enforced BEFORE Gemini curation so
+    # every title / why / styling note is written against the FINAL item set.
+    valid = _enforce_explicit_roles_on_cards(
+        valid,
+        query=query,
+        occasion=occasion,
+        candidate_pool=candidate_pool,
+        enforcement=enforcement,
+    )
+    if not valid:
+        return []
+
     _rule_source = (
         "occasion_style_rules" if any(r.startswith("rules:") for r in guard_reasons)
         else ("keyword_fallback" if guard_reasons else "none")
@@ -5504,6 +5663,28 @@ def curate_wardrobe_boards(
             curated = complete
     except Exception:  # noqa: BLE001 - enforcement must never break curation
         pass
+    # Explicit roles must still be present after curation / accessory trimming.
+    required_roles = _requested_explicit_roles(query)
+    if required_roles:
+        try:
+            from services.style_explicit_roles import missing_explicit_roles
+
+            kept = []
+            for card in curated:
+                gap = missing_explicit_roles(card.get("items"), required_roles)
+                if gap:
+                    logger.warning(
+                        "AHVI_BOARD_EXPLICIT_ROLE_DROPPED missing=%s title=%s",
+                        gap, _safe_text(card.get("title")),
+                    )
+                    continue
+                kept.append(card)
+            curated = kept
+            if isinstance(enforcement, dict) and not curated:
+                enforcement["status"] = "missing_explicit_roles"
+                enforcement["repair_attempted"] = True
+        except Exception:  # noqa: BLE001
+            pass
     logger.info(
         "AHVI_BOARD_FINAL_LOOKS selected_count=%d titles=%s strategies=%s",
         len(curated),
