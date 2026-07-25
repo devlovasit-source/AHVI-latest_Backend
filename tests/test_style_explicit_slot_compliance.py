@@ -318,3 +318,94 @@ def test_outcome_trace_emits_safe_fields(caplog):
     assert "AHVI_STYLE_OUTCOME_TRACE" in line
     assert "requested_roles" in line and "final_roles" in line
     assert "user_secret_123" not in line  # raw id never logged
+
+
+# ── universal gate: closes the untraced premium/multi-board bypass ──────────
+
+def _bad_dinner_boards():
+    return [
+        {"title": f"Look {i}", "items": [CAMO, SNEAKERS]}  # no dress, no bag
+        for i in range(3)
+    ]
+
+
+def test_gate_closes_untraced_multi_board_dinner_bypass():
+    from routers.chat import _apply_style_compliance_gate
+
+    boards = _bad_dinner_boards()
+    resp = {"success": True, "cards": boards, "style_boards": boards,
+            "board": "style", "meta": {"occasion": "dinner"}}
+    out = _apply_style_compliance_gate(
+        resp,
+        query="create a refined dinner outfit with a dress, shoes, and a bag",
+        user_id="u1",
+        wardrobe=[],
+    )
+    assert out["success"] is False
+    assert out["type"] == "missing_explicit_roles"
+    assert set(out["missing_roles"]) == {"dress", "bag"}
+    # Never falls back to the original unvalidated card list.
+    assert out["cards"] == []
+    assert out["style_boards"] == []
+
+
+def test_gate_repairs_multi_board_dinner_from_wardrobe():
+    from routers.chat import _apply_style_compliance_gate
+    from services.style_explicit_roles import board_explicit_roles
+
+    boards = [{"title": "Look", "items": [DRESS, HEELS]}]
+    resp = {"success": True, "cards": boards, "style_boards": boards,
+            "board": "style", "meta": {"occasion": "dinner"}}
+    out = _apply_style_compliance_gate(
+        resp, query=DINNER_PROMPT, user_id="u1", wardrobe=[BAG]
+    )
+    assert out.get("type") != "missing_explicit_roles"
+    roles = set(board_explicit_roles(out["cards"][0]["items"]))
+    assert {"dress", "footwear", "bag"} <= roles
+
+
+def test_gate_is_idempotent_when_already_gated():
+    from routers.chat import _apply_style_compliance_gate
+
+    boards = _bad_dinner_boards()
+    resp = {"success": True, "cards": boards, "board": "style",
+            "meta": {"occasion": "dinner", "style_compliance_gated": True}}
+    out = _apply_style_compliance_gate(
+        resp, query=DINNER_PROMPT, user_id="u1", wardrobe=[]
+    )
+    assert out is resp  # already gated -> untouched
+
+
+def test_gate_leaves_generic_boards_but_stamps_source_policy():
+    from routers.chat import _apply_style_compliance_gate
+
+    boards = [{"title": "Look", "items": [TOP, TROUSERS, HEELS]}]
+    resp = {"success": True, "cards": boards, "board": "style",
+            "meta": {"occasion": "office"}}
+    out = _apply_style_compliance_gate(
+        resp,
+        query="create a professional office outfit using my wardrobe",
+        user_id="u1",
+        wardrobe=[],
+    )
+    assert out["cards"] == boards  # nothing explicitly requested -> unchanged
+    assert out["source_policy"] == "wardrobe"
+    assert out["meta"]["source_policy"] == "wardrobe"
+
+
+# ── canonical source policy (one derivation, both directions) ────────────────
+
+def test_canonical_source_policy_wardrobe_language():
+    from routers.chat import _canonical_source_policy
+
+    assert _canonical_source_policy("office outfit using my wardrobe") == "wardrobe"
+    assert _canonical_source_policy("use only my wardrobe") == "wardrobe"
+    assert _canonical_source_policy("build a look", action="use_wardrobe") == "wardrobe"
+
+
+def test_canonical_source_policy_not_forced_without_request():
+    from routers.chat import _canonical_source_policy
+
+    # The layered prompt never says wardrobe -> must NOT be stamped wardrobe.
+    assert _canonical_source_policy(LAYERED_PROMPT) == ""
+    assert _canonical_source_policy("create a dinner outfit with a dress") == ""
