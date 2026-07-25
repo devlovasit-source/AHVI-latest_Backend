@@ -2066,6 +2066,180 @@ def _emit_style_outcome_trace(
         pass
 
 
+_WARDROBE_ONLY_PHRASES = (
+    "use my wardrobe",
+    "using my wardrobe",
+    "from my wardrobe",
+    "only my wardrobe",
+    "wardrobe only",
+    "wardrobe-only",
+    "use only my wardrobe",
+    "use what i own",
+    "only items i own",
+    "from my closet",
+    "using my closet",
+    "no inspiration",
+)
+
+
+def _canonical_source_policy(query: Any, *, action: Any = None) -> str:
+    """Single source of truth for source policy, derived from EXPLICIT user
+    language only. "using my wardrobe" -> wardrobe; a use-wardrobe action ->
+    wardrobe; otherwise "" (unspecified — never silently forced to wardrobe).
+
+    Different Style paths used to each derive this independently (some stamped
+    wardrobe with no request, some left it blank despite "using my wardrobe"),
+    so the trace disagreed. Every path now calls this."""
+    text = re.sub(r"\s+", " ", str(query or "").strip().lower())
+    if any(phrase in text for phrase in _WARDROBE_ONLY_PHRASES):
+        return "wardrobe"
+    act = str(action or "").strip().lower()
+    if act in {"use_wardrobe", "wardrobe", "wardrobe_only"}:
+        return "wardrobe"
+    return ""
+
+
+def _style_response_cards(response: Dict[str, Any]) -> list:
+    """The card list a style response actually renders (cards first, then the
+    style_boards mirror)."""
+    for key in ("cards", "style_boards"):
+        value = response.get(key)
+        if isinstance(value, list) and value:
+            return [c for c in value if isinstance(c, dict)]
+    return []
+
+
+def _apply_style_compliance_gate(
+    response: Dict[str, Any],
+    *,
+    query: str,
+    user_id: Any,
+    wardrobe: Any = None,
+    action: Any = None,
+) -> Dict[str, Any]:
+    """Universal explicit-role gate. Runs AFTER every Style path converges on the
+    serializer, so premium / editorial / multi-board / visual routes can no
+    longer ship boards that ignore explicitly requested garment roles.
+
+    Validates EVERY returned card, repairs once from wardrobe + sibling-card
+    items, drops non-compliant cards, and never falls back to the original
+    unvalidated list: if nothing survives it returns the typed
+    missing_explicit_roles result. Also stamps the canonical source_policy and
+    emits exactly one AHVI_STYLE_OUTCOME_TRACE."""
+    if not isinstance(response, dict):
+        return response
+    meta = response.get("meta") if isinstance(response.get("meta"), dict) else {}
+    # Idempotent: the wardrobe adapter already gated + traced its own path.
+    if meta.get("style_compliance_gated"):
+        return response
+
+    source_policy = _canonical_source_policy(query, action=action)
+    cards = _style_response_cards(response)
+    if not cards:
+        # Non-board style reply (advice, clarification): only fix source policy.
+        if source_policy:
+            response["source_policy"] = source_policy
+            response["meta"] = {**meta, "source_policy": source_policy}
+        return response
+
+    try:
+        from services.style_flow_service import _enforce_explicit_roles_on_cards
+        from services.style_explicit_roles import extract_requested_roles
+    except Exception:  # noqa: BLE001 - gate must never break the response
+        return response
+
+    occasion = str(meta.get("occasion") or _ahvi_style_occasion(query) or "").strip()
+    requested = list(extract_requested_roles(query))
+    enforcement: Dict[str, Any] = {}
+    pool = wardrobe if isinstance(wardrobe, list) else None
+    kept = _enforce_explicit_roles_on_cards(
+        cards,
+        query=query,
+        occasion=occasion,
+        candidate_pool=pool,
+        enforcement=enforcement,
+    )
+
+    if requested and not kept and enforcement.get("status") == "missing_explicit_roles":
+        missing = list(enforcement.get("missing_roles") or [])
+        available = list(enforcement.get("available_roles") or [])
+        _emit_style_outcome_trace(
+            user_id=user_id,
+            intent=str(meta.get("intent") or "style"),
+            occasion=occasion,
+            source_policy=source_policy or "wardrobe",
+            requested_roles=requested,
+            required_roles=list(enforcement.get("required_explicit_roles") or requested),
+            final_cards=[],
+            missing_roles=missing,
+            repair_attempted=bool(enforcement.get("repair_attempted")),
+            validation_result="missing_explicit_roles",
+        )
+        _missing_label = ", ".join(missing or requested)
+        return {
+            "success": False,
+            "reason": "missing_explicit_roles",
+            "message": (
+                "I couldn't complete this exact "
+                + (source_policy or "wardrobe")
+                + "-only look because your wardrobe doesn't currently contain a "
+                + "suitable " + _missing_label + ". I can create a catalog-inspired "
+                + "option or suggest the missing piece."
+            ),
+            "board": "style",
+            "type": "missing_explicit_roles",
+            "cards": [],
+            "style_boards": [],
+            "board_ids": "",
+            "source_policy": source_policy or "wardrobe",
+            "can_offer_catalog_option": True,
+            "requested_roles": requested,
+            "missing_roles": missing,
+            "available_roles": available,
+            "repair_attempted": bool(enforcement.get("repair_attempted")),
+            "data": {"outfits": [], "rendered_boards": [], "board_item_ids": []},
+            "meta": {
+                **meta,
+                "status": "missing_explicit_roles",
+                "reason": "missing_explicit_roles",
+                "requested_roles": requested,
+                "missing_roles": missing,
+                "available_roles": available,
+                "repair_attempted": bool(enforcement.get("repair_attempted")),
+                "source_policy": source_policy or "wardrobe",
+                "can_offer_catalog_option": True,
+                "style_compliance_gated": True,
+            },
+        }
+
+    # Compliant (or nothing explicitly requested): keep the validated cards.
+    if kept:
+        response["cards"] = kept
+        if isinstance(response.get("style_boards"), list) and response.get("style_boards"):
+            response["style_boards"] = kept
+    if source_policy:
+        response["source_policy"] = source_policy
+    response["meta"] = {
+        **meta,
+        "source_policy": source_policy or meta.get("source_policy") or "",
+        "requested_roles": requested,
+        "style_compliance_gated": True,
+    }
+    _emit_style_outcome_trace(
+        user_id=user_id,
+        intent=str(meta.get("intent") or "style"),
+        occasion=occasion,
+        source_policy=source_policy,
+        requested_roles=requested,
+        required_roles=requested,
+        final_cards=kept or cards,
+        missing_roles=[],
+        repair_attempted=bool(enforcement.get("repair_attempted")),
+        validation_result="satisfied",
+    )
+    return response
+
+
 def _style_curation_brief(query_text: str, occasion: str) -> Dict[str, Any]:
     """Compact stylist brief (goal/impression/atmosphere/confidence_strategy)
     derived deterministically from the occasion. Feeds board curation without
@@ -2243,7 +2417,7 @@ def _demo_style_board_payload(
                     user_id=user_id,
                     intent="style_pipeline_adapter",
                     occasion=occasion,
-                    source_policy=_style_source_policy(curated),
+                    source_policy=_canonical_source_policy(query_text),
                     requested_roles=_requested,
                     required_roles=list(_enforcement.get("required_explicit_roles") or _requested),
                     final_cards=curated,
@@ -2258,7 +2432,7 @@ def _demo_style_board_payload(
                 missing = list(_enforcement.get("missing_roles") or [])
                 requested = _requested
                 available = list(_enforcement.get("available_roles") or [])
-                source_policy = _style_source_policy(cards) or "wardrobe"
+                source_policy = _canonical_source_policy(query_text) or "wardrobe"
                 _emit_style_outcome_trace(
                     user_id=user_id,
                     intent="style_pipeline_adapter",
@@ -2325,6 +2499,8 @@ def _demo_style_board_payload(
         "style_gender": _ahvi_profile_style_gender(profile),
         "occasion": occasion,
         "style_action": style_action or None,
+        "source_policy": _canonical_source_policy(query_text, action=style_action),
+        "style_compliance_gated": True,
     }
     return response
 
@@ -2736,8 +2912,20 @@ def _beta_style_response(
     *,
     previous_state: Dict[str, Any],
     instructions: Dict[str, Any],
+    query: str = "",
+    wardrobe: Any = None,
+    user_id: Any = "",
+    action: Any = None,
 ) -> Dict[str, Any]:
-    """Add beta fields without changing any established response field."""
+    """Add beta fields without changing any established response field.
+
+    This is the convergence point for every Style path returned from /api/text,
+    so the explicit-role compliance gate runs here — closing the premium /
+    editorial / multi-board routes that previously bypassed validation."""
+    if query:
+        response = _apply_style_compliance_gate(
+            response, query=query, user_id=user_id, wardrobe=wardrobe, action=action
+        )
     image_base64 = ""
     data = response.get("data") if isinstance(response.get("data"), dict) else {}
     rendered = data.get("rendered_boards") if isinstance(data.get("rendered_boards"), list) else []
@@ -4863,6 +5051,10 @@ def text_chat(request: TextChatRequest, http_request: Request):
             style_payload,
             previous_state=beta_state,
             instructions=beta_instructions,
+            query=english_input,
+            wardrobe=request.wardrobe,
+            user_id=user_id,
+            action=request.action or request.style_action,
         )
 
     intent_row = detect_intent(english_input)
@@ -5198,6 +5390,10 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 style_payload,
                 previous_state=beta_state,
                 instructions=beta_instructions,
+                query=english_input,
+                wardrobe=request.wardrobe,
+                user_id=user_id,
+                action=request.action or request.style_action,
             )
 
     # -------------------------
@@ -5610,5 +5806,9 @@ def text_chat(request: TextChatRequest, http_request: Request):
             response,
             previous_state=beta_state,
             instructions=beta_instructions,
+            query=english_input,
+            wardrobe=request.wardrobe,
+            user_id=user_id,
+            action=request.action or request.style_action,
         )
     return response
