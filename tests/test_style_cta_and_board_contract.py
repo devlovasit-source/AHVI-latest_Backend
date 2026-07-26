@@ -143,3 +143,92 @@ def test_wardrobe_source_policy_preserved_on_contract():
     out = _gate(_complete_cards())
     assert all(c["source_policy"] == "wardrobe" for c in out["cards"])
     assert all(i.get("source") == "wardrobe" for c in out["cards"] for i in c["items"])
+
+
+# ── contract reaches EVERY alias Flutter consumes ───────────────────────────
+
+def _gate_aliases(cards, query="Suggest an outfit for today.", **meta):
+    resp = {
+        "success": True,
+        "cards": list(cards),
+        "style_boards": [],
+        "rendered_boards": [],
+        "data": {"outfits": [], "rendered_boards": []},
+        "board": "style",
+        "meta": {"occasion": "office", **meta},
+    }
+    return chat._apply_style_compliance_gate(resp, query=query, user_id="u", wardrobe=[])
+
+
+def _board_ids(coll):
+    return [b.get("board_id") for b in (coll or [])]
+
+
+def test_contract_present_in_all_board_aliases_with_same_id():
+    out = _gate_aliases(_complete_cards())
+    bid = out["cards"][0]["board_id"]
+    assert bid
+    assert _board_ids(out["style_boards"]) == [bid]
+    assert _board_ids(out["rendered_boards"]) == [bid]
+    assert _board_ids(out["data"]["outfits"]) == [bid]
+    assert _board_ids(out["data"]["rendered_boards"]) == [bid]
+
+
+def test_every_item_has_a_usable_snake_case_position():
+    out = _gate_aliases(_complete_cards())
+    for coll in (out["cards"], out["style_boards"], out["rendered_boards"]):
+        for board in coll:
+            for item in board["items"]:
+                pos = item["position"]
+                for key in ("x", "y", "width", "height"):
+                    assert pos.get(key) is not None
+
+
+def test_flutter_snake_case_contract_keys_present():
+    card = _gate_aliases(_complete_cards())["cards"][0]
+    for key in ("board_id", "revision", "source_policy", "occasion"):
+        assert key in card
+    assert isinstance(card["revision"], int) and card["revision"] >= 1
+
+
+# ── alternative-look regeneration hits the completeness gate ─────────────────
+
+ALT = "Show me another look for Understated Ease"
+
+
+def test_alternative_look_is_a_generate_board_request():
+    assert chat._is_alternative_look_request(ALT) is True
+    assert chat._is_alternative_look_request("shuffle this look") is True
+    assert chat._is_generate_style_board_request(ALT) is True
+    # A specific styled request is not an alternative-look regeneration.
+    assert chat._is_alternative_look_request("Create a dinner outfit with a dress") is False
+
+
+def test_alternative_look_cannot_return_bottom_footwear_accessory():
+    out = _gate_aliases([{"title": "Alt", "items": [BOTTOM, SHOE, CAP]}], query=ALT)
+    assert out.get("type") == "no_complete_outfit"
+    assert out["cards"] == []
+    assert out["style_boards"] == []
+
+
+def test_alternative_look_preserves_occasion_and_source_policy():
+    out = _gate_aliases(_complete_cards(), query=ALT, occasion="office")
+    card = out["cards"][0]
+    assert card["occasion"] == "office"
+    assert card["source_policy"] == "wardrobe"
+
+
+def test_alternative_boards_are_independently_complete():
+    dress = _it("Silk Wrap Dress", "dress")
+    heels = _it("Black Heels", "heels")
+    # Good is a one-piece (donates no top); Bad is missing a top with none
+    # available -> Bad drops, Good stays. Proves per-card validation.
+    good = {"title": "Good", "items": [dress, heels]}
+    bad = {"title": "Bad", "items": [BOTTOM, SHOE, CAP]}
+    out = _gate_aliases([good, bad], query=ALT)
+    from brain.engines.outfit_quality_guard import is_complete_board
+    from services.style_explicit_roles import board_explicit_roles
+    for board in out["cards"]:
+        roles = set(board_explicit_roles(board["items"]))
+        assert "footwear" in roles and ("dress" in roles or {"top", "bottom"} <= roles)
+    assert "Bad" not in [b["title"] for b in out["cards"]]
