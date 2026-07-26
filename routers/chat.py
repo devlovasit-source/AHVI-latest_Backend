@@ -2109,6 +2109,150 @@ def _style_response_cards(response: Dict[str, Any]) -> list:
     return []
 
 
+_COMPLETE_OUTFIT_CTA_PHRASES = (
+    "suggest a complete outfit",
+    "create a complete outfit",
+    "build a complete outfit",
+    "complete outfit for me",
+    "complete outfit for today",
+    "full look for today",
+    "full outfit for today",
+    "give me a full look",
+    "what should i wear today",
+    "what should i wear",
+    "style me for today",
+    "style me today",
+    "dress me for today",
+    "outfit for me today",
+    "outfit for today",
+)
+
+
+def _is_complete_outfit_cta(text: Any) -> bool:
+    """The predefined default CTA(s) are complete-outfit GENERATION requests, not
+    generic style advice. Match phrase-first so a bare 'complete outfit' intent
+    routes to the board generator + universal completeness gate."""
+    t = re.sub(r"\s+", " ", str(text or "").strip().lower())
+    if not t:
+        return False
+    if any(p in t for p in _COMPLETE_OUTFIT_CTA_PHRASES):
+        return True
+    # "suggest / create / build ... a complete outfit ..." (words between verb
+    # and the noun phrase).
+    if re.search(r"(suggest|create|build|make|give|show).*complete outfit", t):
+        return True
+    return False
+
+
+def _pool_gender_ok(item: Dict[str, Any], gender: str) -> bool:
+    """Keep opposite-gender assets out of a gendered final board (repair pool),
+    unless gender is unknown. Reuses simple token signals; never the full asset
+    metadata pipeline."""
+    g = str(gender or "").strip().lower()
+    if not g or not isinstance(item, dict):
+        return True
+    blob = " ".join(
+        str(item.get(k) or "").lower()
+        for k in ("name", "category", "sub_category", "subcategory", "gender", "style_gender", "tags")
+    )
+    male = g.startswith("m") or g in {"man", "men", "male"}
+    female = g.startswith("f") or g in {"woman", "women", "female", "lady", "ladies"}
+    if male and any(w in blob for w in ("women", "woman", "female", "ladies", "girl")):
+        return False
+    if female and any(w in blob for w in ("mens", "men's", " male ", " man ")):
+        return False
+    return True
+
+
+def _generic_core_missing(items: Any) -> list:
+    """Core slots a board still needs to be a real outfit: footwear plus either a
+    dress or (top AND bottom). Accessories never fill a core slot. Uses the
+    shared style role vocabulary so heels / pumps / blazers resolve correctly."""
+    try:
+        from services.style_explicit_roles import board_explicit_roles
+    except Exception:  # noqa: BLE001
+        return []
+    roles = set(board_explicit_roles(items))
+    missing: list = []
+    if "footwear" not in roles:
+        missing.append("footwear")
+    if "dress" not in roles:
+        for role in ("top", "bottom"):
+            if role not in roles:
+                missing.append(role)
+    return missing
+
+
+def _enforce_generic_completeness(
+    cards: list,
+    *,
+    wardrobe: Any = None,
+    source_policy: str = "",
+    gender: str = "",
+) -> tuple:
+    """Every board must be a real outfit (top+bottom+footwear OR dress+footwear);
+    accessories never fill a core slot. Repairs once from sibling-card items +
+    wardrobe (sibling first so gender/occasion stay correct), else drops the
+    card. Returns (complete_cards, missing_core_slots)."""
+    try:
+        from services.style_explicit_roles import _item_key, item_explicit_role
+        from services.style_explicit_roles import _source_ok as _src_ok
+    except Exception:  # noqa: BLE001 - never break the response
+        return list(cards or []), []
+
+    sibling_items: list = []
+    for card in cards or []:
+        if isinstance(card, dict):
+            for item in card.get("items") or []:
+                if isinstance(item, dict):
+                    sibling_items.append(item)
+    pool = list(sibling_items)
+    if isinstance(wardrobe, list):
+        pool.extend(w for w in wardrobe if isinstance(w, dict))
+    if gender:
+        pool = [p for p in pool if _pool_gender_ok(p, gender)]
+
+    complete: list = []
+    missing: set = set()
+    for card in cards or []:
+        if not isinstance(card, dict):
+            continue
+        need = _generic_core_missing(card.get("items"))
+        if not need:
+            complete.append(card)
+            continue
+        items = [i for i in (card.get("items") or []) if isinstance(i, dict)]
+        used = {_item_key(i) for i in items}
+        repaired = list(items)
+        ok = True
+        for role in need:
+            picked = None
+            for cand in pool:
+                if item_explicit_role(cand) != role:
+                    continue
+                if _item_key(cand) in used:
+                    continue
+                if not _src_ok(cand, source_policy):
+                    continue
+                picked = cand
+                break
+            if picked is None:
+                ok = False
+                missing.add(role)
+                continue
+            repaired.append(picked)
+            used.add(_item_key(picked))
+        if ok and not _generic_core_missing(repaired):
+            out = dict(card)
+            out["items"] = repaired
+            out["item_count"] = len(repaired)
+            complete.append(out)
+        else:
+            for role in _generic_core_missing(card.get("items")):
+                missing.add(role)
+    return complete, sorted(missing)
+
+
 def _apply_style_compliance_gate(
     response: Dict[str, Any],
     *,
@@ -2116,6 +2260,7 @@ def _apply_style_compliance_gate(
     user_id: Any,
     wardrobe: Any = None,
     action: Any = None,
+    default_cta: bool = False,
 ) -> Dict[str, Any]:
     """Universal explicit-role gate. Runs AFTER every Style path converges on the
     serializer, so premium / editorial / multi-board / visual routes can no
@@ -2212,17 +2357,79 @@ def _apply_style_compliance_gate(
             },
         }
 
-    # Compliant (or nothing explicitly requested): keep the validated cards.
-    if kept:
-        response["cards"] = kept
-        if isinstance(response.get("style_boards"), list) and response.get("style_boards"):
-            response["style_boards"] = kept
+    # Universal generic completeness: with or without explicit roles, every board
+    # must be a real outfit (top+bottom+footwear OR dress+footwear). Accessories
+    # never fill a core slot. Catches truncation-fallback / premium / visual
+    # boards that shipped e.g. bottom+footwear+accessory.
+    base_cards = kept if kept else cards
+    # Generic completeness is enforced for complete-outfit CTA prompts only, so
+    # advice / visual-inspiration / wardrobe-action stubs keep their behaviour.
+    is_cta = bool(default_cta) or _is_complete_outfit_cta(query)
+    if is_cta:
+        complete_cards, generic_missing = _enforce_generic_completeness(
+            base_cards,
+            wardrobe=pool,
+            source_policy=source_policy,
+            gender=str(meta.get("style_gender") or "").strip().lower(),
+        )
+    else:
+        complete_cards, generic_missing = base_cards, []
+    # Default CTA stays compact: at most 2 boards.
+    if (default_cta or bool(meta.get("default_cta"))) and len(complete_cards) > 2:
+        complete_cards = complete_cards[:2]
+
+    if is_cta and not complete_cards:
+        # Nothing is a complete outfit -> typed failure, never ship an incomplete
+        # board labelled as a success, and never restore the original cards.
+        _emit_style_outcome_trace(
+            user_id=user_id,
+            intent=str(meta.get("intent") or "style"),
+            occasion=occasion,
+            source_policy=source_policy,
+            requested_roles=requested,
+            required_roles=requested,
+            final_cards=[],
+            missing_roles=generic_missing or ["top", "bottom", "footwear"],
+            repair_attempted=True,
+            validation_result="no_complete_outfit",
+        )
+        return {
+            "success": False,
+            "reason": "no_complete_outfit",
+            "message": (
+                "I couldn't build a complete outfit yet — I need at least a top, "
+                "a bottom and footwear (or a dress and footwear) to work with."
+            ),
+            "board": "style",
+            "type": "no_complete_outfit",
+            "cards": [],
+            "style_boards": [],
+            "board_ids": "",
+            "source_policy": source_policy or "",
+            "can_offer_catalog_option": True,
+            "missing_roles": generic_missing or ["top", "bottom", "footwear"],
+            "repair_attempted": True,
+            "data": {"outfits": [], "rendered_boards": [], "board_item_ids": []},
+            "meta": {
+                **meta,
+                "status": "no_complete_outfit",
+                "reason": "no_complete_outfit",
+                "missing_roles": generic_missing or ["top", "bottom", "footwear"],
+                "source_policy": source_policy or "",
+                "style_compliance_gated": True,
+            },
+        }
+
+    response["cards"] = complete_cards
+    if isinstance(response.get("style_boards"), list) and response.get("style_boards"):
+        response["style_boards"] = complete_cards
     if source_policy:
         response["source_policy"] = source_policy
     response["meta"] = {
         **meta,
         "source_policy": source_policy or meta.get("source_policy") or "",
         "requested_roles": requested,
+        "board_count": len(complete_cards),
         "style_compliance_gated": True,
     }
     _emit_style_outcome_trace(
@@ -2232,7 +2439,7 @@ def _apply_style_compliance_gate(
         source_policy=source_policy,
         requested_roles=requested,
         required_roles=requested,
-        final_cards=kept or cards,
+        final_cards=complete_cards,
         missing_roles=[],
         repair_attempted=bool(enforcement.get("repair_attempted")),
         validation_result="satisfied",
@@ -2916,6 +3123,7 @@ def _beta_style_response(
     wardrobe: Any = None,
     user_id: Any = "",
     action: Any = None,
+    default_cta: bool = False,
 ) -> Dict[str, Any]:
     """Add beta fields without changing any established response field.
 
@@ -2924,7 +3132,12 @@ def _beta_style_response(
     editorial / multi-board routes that previously bypassed validation."""
     if query:
         response = _apply_style_compliance_gate(
-            response, query=query, user_id=user_id, wardrobe=wardrobe, action=action
+            response,
+            query=query,
+            user_id=user_id,
+            wardrobe=wardrobe,
+            action=action,
+            default_cta=default_cta or _is_complete_outfit_cta(query),
         )
     image_base64 = ""
     data = response.get("data") if isinstance(response.get("data"), dict) else {}
@@ -5122,6 +5335,28 @@ def text_chat(request: TextChatRequest, http_request: Request):
         history=_mem.get("history", []),
     )
     style_mode = str(reasoning.get("mode") or style_mode or "").strip().lower()
+
+    # Default "complete outfit" CTA is a GENERATION request, not advice. Force
+    # the wardrobe board path (so it flows through the universal completeness
+    # gate) instead of the advice / visual-directions route that truncated and
+    # fell back to unvalidated cards.
+    if _is_complete_outfit_cta(english_input):
+        if isinstance(reasoning, dict):
+            reasoning["should_generate_board"] = True
+            reasoning["should_use_wardrobe"] = True
+            if str(reasoning.get("mode") or "").strip().lower() in {
+                STYLE_ADVICE,
+                VISUAL_INSPIRATION,
+                "style_advice",
+            }:
+                reasoning["mode"] = WARDROBE_STYLE
+        style_mode = WARDROBE_STYLE
+        logger.info(
+            "AHVI_DEFAULT_CTA_ROUTE intent=style_request action=complete_outfit "
+            "occasion=%s text=%r",
+            _ahvi_style_occasion(english_input),
+            english_input[:80],
+        )
 
     if style_mode in {
         STYLE_ADVICE,
