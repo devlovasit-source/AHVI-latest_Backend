@@ -231,6 +231,11 @@ def _extract_anchor_piece(query: str) -> str:
             start = max(0, family_index - 3)
             anchor = " ".join(words[start : family_index + 1])
     anchor = re.sub(r"\s+", " ", anchor).strip()
+    # An anchor must actually name a garment. A generic request ("suggest a
+    # complete outfit for me today") names none, so it must NOT yield a false
+    # anchor like "suggest a complete for me".
+    if anchor and not any(_target_family(word) for word in anchor.split()):
+        return ""
     if anchor and anchor != q:
         logger.info("AHVI_ANCHOR_EXTRACTED query=%r anchor=%r", query, anchor)
     return anchor
