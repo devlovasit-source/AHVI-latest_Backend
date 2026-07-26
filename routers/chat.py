@@ -2144,6 +2144,30 @@ def _is_complete_outfit_cta(text: Any) -> bool:
     return False
 
 
+def _is_alternative_look_request(text: Any) -> bool:
+    """An "another look" / "shuffle this look" request is a COMPLETE-outfit
+    regeneration, not generic stylist advice. Route it to the board generator +
+    completeness gate so the alternative is a real outfit, never a
+    bottom+footwear+accessory stub."""
+    t = re.sub(r"\s+", " ", str(text or "").strip().lower())
+    if not t:
+        return False
+    return (
+        "another look" in t
+        or "more looks" in t
+        or "show me another" in t
+        or "different look" in t
+        or "shuffle this look" in t
+        or t.startswith("shuffle")
+    )
+
+
+def _is_generate_style_board_request(text: Any) -> bool:
+    """Any prompt that must produce a complete Style board: the default CTA or an
+    alternative-look regeneration."""
+    return _is_complete_outfit_cta(text) or _is_alternative_look_request(text)
+
+
 def _pool_gender_ok(item: Dict[str, Any], gender: str) -> bool:
     """Keep opposite-gender assets out of a gendered final board (repair pool),
     unless gender is unknown. Reuses simple token signals; never the full asset
@@ -2270,6 +2294,116 @@ def _board_provenance_policy(items: Any) -> str:
     if srcs <= {"catalog", "commerce"}:
         return "catalog"
     return "mixed"
+
+
+# Deterministic normalized flat-lay positions per role so every item satisfies
+# the frontend's StyleBoardState.supportsShuffle (which needs a usable x/y/w/h on
+# every item, in addition to the board-level contract). Kept close to the FE
+# editorial role template so the rendered layout stays sane.
+_ROLE_POSITIONS = {
+    "top": (0.15, 0.06, 0.60, 0.44),
+    "outerwear": (0.05, 0.05, 0.55, 0.55),
+    "bottom": (0.45, 0.40, 0.50, 0.50),
+    "dress": (0.18, 0.05, 0.60, 0.72),
+    "footwear": (0.10, 0.72, 0.44, 0.22),
+    "bag": (0.68, 0.55, 0.24, 0.24),
+    "accessory": (0.70, 0.30, 0.20, 0.20),
+    "unknown": (0.30, 0.35, 0.36, 0.36),
+}
+
+
+def _ensure_item_positions(items: Any) -> None:
+    """Give every board item a usable normalized position (x/y/width/height) when
+    it lacks one, so the locked Shuffle flow is available. Never overwrites a
+    position the pipeline already supplied."""
+    try:
+        from services.style_explicit_roles import item_explicit_role
+    except Exception:  # noqa: BLE001
+        item_explicit_role = None  # type: ignore
+    for idx, item in enumerate(items or []):
+        if not isinstance(item, dict):
+            continue
+        pos = item.get("position")
+        has_nested = isinstance(pos, dict) and all(
+            pos.get(k) is not None for k in ("x", "y", "width", "height")
+        )
+        has_flat = all(item.get(k) is not None for k in ("x", "y", "width", "height"))
+        if has_nested or has_flat:
+            continue
+        role = ""
+        if item_explicit_role is not None:
+            try:
+                role = item_explicit_role(item)
+            except Exception:  # noqa: BLE001
+                role = ""
+        x, y, w, h = _ROLE_POSITIONS.get(role or "unknown", _ROLE_POSITIONS["unknown"])
+        # Nudge duplicates of the same role so two accessories never fully stack.
+        offset = (idx % 3) * 0.02
+        item["position"] = {
+            "x": round(min(0.95 - w, x + offset), 4),
+            "y": round(y, 4),
+            "width": w,
+            "height": h,
+            "z": idx,
+        }
+
+
+def _board_signature(board: Any) -> str:
+    if not isinstance(board, dict):
+        return ""
+    items = board.get("items") or []
+    return "|".join(
+        sorted(
+            str(i.get("item_id") or i.get("id") or i.get("$id") or i.get("name") or "")
+            for i in items
+            if isinstance(i, dict)
+        )
+    )
+
+
+def _propagate_board_contract(
+    response: Dict[str, Any], *, occasion: str, source_policy: str
+) -> None:
+    """Stamp the SAME contract (board_id / revision / source_policy / occasion)
+    and usable item positions onto EVERY representation of a board that Flutter
+    might consume, not just `cards`. All aliases of one board share its board_id.
+    """
+    cards = [c for c in (response.get("cards") or []) if isinstance(c, dict)]
+    canonical: Dict[str, Dict[str, Any]] = {}
+    for card in cards:
+        _ensure_item_positions(card.get("items"))
+        if card.get("board_id"):
+            canonical[_board_signature(card)] = {
+                "board_id": card.get("board_id"),
+                "revision": card.get("revision"),
+                "source_policy": card.get("source_policy"),
+                "occasion": card.get("occasion"),
+            }
+
+    data = response.get("data") if isinstance(response.get("data"), dict) else None
+    collections = [
+        ("style_boards", response),
+        ("rendered_boards", response),
+    ]
+    if data is not None:
+        collections.append(("outfits", data))
+        collections.append(("rendered_boards", data))
+
+    for key, holder in collections:
+        col = holder.get(key)
+        if not isinstance(col, list) or not col:
+            continue
+        for i, board in enumerate(col):
+            if not isinstance(board, dict):
+                continue
+            contract = canonical.get(_board_signature(board))
+            if contract:
+                board.update({k: v for k, v in contract.items() if v is not None})
+            else:
+                _stamp_board_contract(
+                    board, occasion=occasion, index=i, source_policy=source_policy
+                )
+            _ensure_item_positions(board.get("items"))
 
 
 def _stamp_board_contract(
@@ -2417,7 +2551,7 @@ def _apply_style_compliance_gate(
     base_cards = kept if kept else cards
     # Generic completeness is enforced for complete-outfit CTA prompts only, so
     # advice / visual-inspiration / wardrobe-action stubs keep their behaviour.
-    is_cta = bool(default_cta) or _is_complete_outfit_cta(query)
+    is_cta = bool(default_cta) or _is_generate_style_board_request(query)
     if is_cta:
         complete_cards, generic_missing = _enforce_generic_completeness(
             base_cards,
@@ -2479,10 +2613,22 @@ def _apply_style_compliance_gate(
     contract_policy = source_policy or str(meta.get("source_policy") or "")
     for i, card in enumerate(complete_cards):
         _stamp_board_contract(card, occasion=occasion, index=i, source_policy=contract_policy)
+        _ensure_item_positions(card.get("items"))
 
     response["cards"] = complete_cards
-    if isinstance(response.get("style_boards"), list) and response.get("style_boards"):
-        response["style_boards"] = complete_cards
+    # Mirror the validated + stamped boards into every alias Flutter reads, so the
+    # contract reaches style_boards / rendered_boards / data.* and not just cards.
+    response["style_boards"] = complete_cards
+    response["rendered_boards"] = complete_cards
+    _data = response.get("data")
+    if not isinstance(_data, dict):
+        _data = {}
+    _data["outfits"] = complete_cards
+    _data["rendered_boards"] = complete_cards
+    response["data"] = _data
+    # Belt-and-suspenders: re-stamp any board object still present in an alias
+    # that was not replaced above (keeps all representations consistent).
+    _propagate_board_contract(response, occasion=occasion, source_policy=contract_policy)
     board_ids = [str(c.get("board_id") or "") for c in complete_cards if c.get("board_id")]
     if board_ids:
         response["board_ids"] = ",".join(board_ids)
@@ -3201,7 +3347,7 @@ def _beta_style_response(
             user_id=user_id,
             wardrobe=wardrobe,
             action=action,
-            default_cta=default_cta or _is_complete_outfit_cta(query),
+            default_cta=default_cta or _is_generate_style_board_request(query),
         )
     image_base64 = ""
     data = response.get("data") if isinstance(response.get("data"), dict) else {}
@@ -5404,7 +5550,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # the wardrobe board path (so it flows through the universal completeness
     # gate) instead of the advice / visual-directions route that truncated and
     # fell back to unvalidated cards.
-    if _is_complete_outfit_cta(english_input):
+    if _is_generate_style_board_request(english_input):
         if isinstance(reasoning, dict):
             reasoning["should_generate_board"] = True
             reasoning["should_use_wardrobe"] = True
