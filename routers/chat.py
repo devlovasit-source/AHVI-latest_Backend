@@ -2253,6 +2253,59 @@ def _enforce_generic_completeness(
     return complete, sorted(missing)
 
 
+def _board_provenance_policy(items: Any) -> str:
+    """Source policy from item PROVENANCE (where items came from) for the board
+    contract — distinct from the user-language canonical policy. All-wardrobe ->
+    wardrobe; all-catalog -> catalog; else mixed."""
+    srcs = set()
+    for item in items or []:
+        if isinstance(item, dict):
+            src = str(item.get("source") or item.get("provenance") or item.get("origin") or "").strip().lower()
+            if src:
+                srcs.add(src)
+    if not srcs:
+        return "wardrobe"
+    if srcs <= {"wardrobe", "owned", "closet", "uploaded"}:
+        return "wardrobe"
+    if srcs <= {"catalog", "commerce"}:
+        return "catalog"
+    return "mixed"
+
+
+def _stamp_board_contract(
+    card: Dict[str, Any], *, occasion: str, index: int = 0, source_policy: str = ""
+) -> Dict[str, Any]:
+    """Ensure a card carries a durable board contract: board_id, revision (>=1),
+    source_policy and occasion. Stable board_id is derived from the item
+    identities + occasion so the same board keeps its id across serialization."""
+    if not isinstance(card, dict):
+        return card
+    import hashlib
+
+    items = [i for i in (card.get("items") or []) if isinstance(i, dict)]
+    key = "|".join(
+        sorted(
+            str(i.get("item_id") or i.get("id") or i.get("$id") or i.get("name") or "")
+            for i in items
+        )
+    ) + "|" + str(occasion or "") + "|" + str(index)
+    board_id = str(card.get("board_id") or "").strip() or (
+        "board_" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
+    )
+    try:
+        revision = int(card.get("revision"))
+    except (TypeError, ValueError):
+        revision = 0
+    if revision < 1:
+        revision = 1
+    policy = str(card.get("source_policy") or "").strip() or source_policy or _board_provenance_policy(items)
+    card["board_id"] = board_id
+    card["revision"] = revision
+    card["source_policy"] = policy
+    card["occasion"] = card.get("occasion") or occasion or ""
+    return card
+
+
 def _apply_style_compliance_gate(
     response: Dict[str, Any],
     *,
@@ -2420,9 +2473,19 @@ def _apply_style_compliance_gate(
             },
         }
 
+    # Stamp a durable board contract on every card so the frontend can call the
+    # locked Shuffle flow (board_id + revision + source_policy) instead of
+    # falling back to a natural-language "another look" that drops the occasion.
+    contract_policy = source_policy or str(meta.get("source_policy") or "")
+    for i, card in enumerate(complete_cards):
+        _stamp_board_contract(card, occasion=occasion, index=i, source_policy=contract_policy)
+
     response["cards"] = complete_cards
     if isinstance(response.get("style_boards"), list) and response.get("style_boards"):
         response["style_boards"] = complete_cards
+    board_ids = [str(c.get("board_id") or "") for c in complete_cards if c.get("board_id")]
+    if board_ids:
+        response["board_ids"] = ",".join(board_ids)
     if source_policy:
         response["source_policy"] = source_policy
     response["meta"] = {
@@ -2430,6 +2493,7 @@ def _apply_style_compliance_gate(
         "source_policy": source_policy or meta.get("source_policy") or "",
         "requested_roles": requested,
         "board_count": len(complete_cards),
+        "board_ids": board_ids,
         "style_compliance_gated": True,
     }
     _emit_style_outcome_trace(
@@ -5504,7 +5568,13 @@ def text_chat(request: TextChatRequest, http_request: Request):
             (style_interpretation.get("board_generation_notes") or {}).get("occasion_kind")
             or _ahvi_style_occasion(english_input)
         )
-        needs_clarify = _needs_style_clarification(english_input, interpreted_occasion)
+        # The predefined one-tap CTA ("Suggest an outfit for today.") is a
+        # complete-outfit GENERATION request. It must never be intercepted by the
+        # "What are you dressing for?" occasion clarification — generate now with
+        # occasion=today.
+        needs_clarify = _needs_style_clarification(
+            english_input, interpreted_occasion
+        ) and not _is_complete_outfit_cta(english_input)
         intent_status = "clarify" if needs_clarify else "generate"
         logger.info(
             "style_intent user_id=%s intent_status=%s prompt=%s interpreted_occasion=%s visual_context=%s",
