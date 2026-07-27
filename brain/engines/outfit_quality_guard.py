@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import logging
+import re
 from collections import Counter
 from typing import Any, Dict, List, Tuple
 
@@ -113,9 +114,15 @@ def _has_any(text: str, terms: set[str]) -> bool:
 
 
 def _tokens(text: str) -> set[str]:
-    import re
-
     return set(re.sub(r"[^a-z0-9]+", " ", _norm(text)).split())
+
+
+def _is_t_shirt_text(text: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", _norm(text)).strip()
+    return any(
+        f" {term} " in f" {normalized} "
+        for term in ("t shirt", "tshirt", "tee")
+    )
 
 
 def normalize_occasion(occasion: Any) -> str:
@@ -127,6 +134,14 @@ def normalize_occasion(occasion: Any) -> str:
         or tokens.intersection({"training", "yoga", "running", "cardio", "pilates"})
     ):
         return "workout"
+    if "casual dinner" in readable:
+        return "casual_dinner"
+    if any(w in readable for w in ("client dinner", "business dinner")):
+        return "client_dinner"
+    if "dinner" in readable and any(
+        w in readable for w in ("formal", "refined", "elegant", "black tie", "dressy")
+    ):
+        return "client_dinner"
     if any(w in text for w in ["date_night", "date night", "date", "dinner", "tonight"]):
         return "date_night"
     if any(w in text for w in ["beach", "pool", "seaside", "coastal", "resort"]):
@@ -205,6 +220,20 @@ def reject_board_for_occasion(board: dict, occasion: str) -> Tuple[bool, str]:
         return True, f"metadata_forbidden_{normalize_style_occasion(occasion)}"
     blob = _board_blob(board)
     occasion = normalize_occasion(occasion)
+
+    if occasion == "client_dinner":
+        board_items = list(board.get("items") or [])
+        for key in ("top", "bottom", "dress", "footwear", "shoes", "outerwear"):
+            if isinstance(board.get(key), dict):
+                board_items.append(board[key])
+        for item in board_items:
+            if not isinstance(item, dict):
+                continue
+            item_text = _item_text(item)
+            if _is_t_shirt_text(item_text):
+                return True, "formal_dinner_forbidden_t_shirt"
+            if _role_from_item(item) == "bottom" and _tokens(item_text) & {"jeans", "denim"}:
+                return True, "formal_dinner_forbidden_denim"
 
     if occasion == "date_night":
         forbidden = [
@@ -677,7 +706,7 @@ def _is_date_or_evening_context(context_text: str) -> bool:
 
 
 def _is_office_context(context_text: str) -> bool:
-    return any(x in context_text for x in ["office", "business", "meeting", "work", "formal"])
+    return any(x in context_text for x in ["office", "business", "meeting", "work"])
 
 
 def _is_beach_or_relaxed_context(context_text: str) -> bool:
@@ -812,7 +841,11 @@ def _contextual_occasion_weather_adjustment(
             delta += 10
             reasons.append("Shirt, denim and boots create a strong date-night silhouette")
 
-        if "shirt" in top_text and _has_any(footwear_text, {"loafers", "formal shoes", "leather sneakers"}):
+        if (
+            "shirt" in _tokens(top_text)
+            and not _is_t_shirt_text(top_text)
+            and _has_any(footwear_text, {"loafers", "formal shoes", "leather sneakers"})
+        ):
             delta += 7
             reasons.append("Shirt and polished footwear improve smart-casual balance")
 

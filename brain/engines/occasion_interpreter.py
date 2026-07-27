@@ -41,6 +41,13 @@ def detect_occasion(query: str) -> str:
         ),
     ):
         return "office"
+    if "dinner" in q and _has_any(
+        q,
+        ("formal", "refined", "elegant", "black tie", "dressy"),
+    ):
+        # Reuse the existing high-polish dinner archetype instead of letting
+        # an explicit formality signal fall through to generic date night.
+        return "client_dinner"
     if _has_any(q, ("date", "dinner", "tonight", "evening")):
         return "date_night"
     if _has_any(q, ("party", "club", "rave", "after-hours", "night out", "cocktail", "pub", "birthday")):
@@ -104,6 +111,8 @@ def interpret_occasion_context(query: str, context: Optional[Dict[str, Any]] = N
                 ("Rooftop easy", "date_rooftop_easy"),
                 ("Daytime quiet", "date_daytime_quiet"),
             )
+    elif kind == "client_dinner":
+        brief = "formal dinner, composed polish, structured evening"
     elif kind == "beach":
         brief = "beach ready, sand-friendly, relaxed resort casual"
         confidence = "high"
