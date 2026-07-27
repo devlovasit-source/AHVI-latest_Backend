@@ -2762,8 +2762,8 @@ def _demo_style_board_payload(
         return {
             "success": False,
             "message": (
-                "I couldn't build a reliable style board from your wardrobe yet. "
-                "Please add at least one top, bottom, and footwear item."
+                "I couldn't build a reliable style board from your wardrobe right now. "
+                "Please try again."
             ),
             "board": "style",
             "type": "missing_outfit_cards",
@@ -2786,12 +2786,17 @@ def _demo_style_board_payload(
         }
 
     cards = response.get("cards") if isinstance(response.get("cards"), list) else []
-    if not cards and not _ahvi_router_style_fallback_enabled():
+    response_type = str(response.get("type") or "").strip()
+    if (
+        not cards
+        and not response_type
+        and not _ahvi_router_style_fallback_enabled()
+    ):
         logger.info("style.fallback.triggered user_id=%s reason=no_cards wardrobe_count=%s", user_id, len(wardrobe))
         response["success"] = False
         response["message"] = (
-            "I couldn't build a complete style board from your wardrobe yet. "
-            "Please add at least one top, bottom, and footwear item."
+            "I couldn't build a reliable style board from your wardrobe right now. "
+            "Please try again."
         )
         response["type"] = "missing_outfit_cards"
 
