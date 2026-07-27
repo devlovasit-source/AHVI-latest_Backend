@@ -6,6 +6,7 @@ so the frontend can run the locked Shuffle flow instead of a natural-language
 
 import json
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -100,6 +101,115 @@ def test_board_payload_uses_resolved_occasion_before_text_fallback(monkeypatch):
 
     assert contexts[0]["occasion"] == "dinner"
     assert contexts[1]["occasion"] == "today"
+
+
+def _empty_board_payload(monkeypatch, service_response, wardrobe=None):
+    monkeypatch.setattr(chat, "build_style_flow_response", lambda **_kwargs: service_response)
+    monkeypatch.setattr(chat, "_fetch_wardrobe_for_style", lambda *_args: list(wardrobe or []))
+    monkeypatch.setattr(chat, "_ahvi_resolve_effective_user_profile", lambda *_args: {})
+    monkeypatch.delenv("AHVI_ENABLE_ROUTER_STYLE_FALLBACK", raising=False)
+    return chat._demo_style_board_payload(
+        "u",
+        "Create a refined formal dinner outfit using only my wardrobe.",
+        wardrobe or [],
+        resolved_occasion="client_dinner",
+    )
+
+
+def test_board_payload_preserves_missing_occasion_wardrobe(monkeypatch):
+    response = {
+        "success": False,
+        "type": "missing_occasion_wardrobe",
+        "message": "Available pieces do not meet the requested formality.",
+        "cards": [],
+        "style_boards": [],
+        "data": {
+            "occasion": "client_dinner",
+            "slot_counts": {"top": 28, "bottom": 19, "footwear": 9, "total": 67},
+            "missing_items": [{"label": "Structured dinner shirt"}],
+            "weak_occasion_match": False,
+        },
+    }
+
+    result = _empty_board_payload(monkeypatch, response, [TOP, BOTTOM, SHOE])
+
+    assert result["type"] == "missing_occasion_wardrobe"
+    assert result["message"] == response["message"]
+    assert result["data"]["occasion"] == "client_dinner"
+    assert result["data"]["slot_counts"]["footwear"] == 9
+    assert "missing_slots" not in result["data"]
+    assert "Please add at least one top" not in result["message"]
+
+
+def test_board_payload_preserves_missing_core_wardrobe_slots(monkeypatch):
+    response = {
+        "success": True,
+        "type": "missing_core_wardrobe_slots",
+        "message": "I found your top and bottom slots, but I still need footwear.",
+        "cards": [],
+        "style_boards": [],
+        "data": {
+            "missing_slots": ["footwear"],
+            "slot_counts": {"top": 1, "bottom": 1, "footwear": 0, "total": 2},
+        },
+    }
+
+    result = _empty_board_payload(monkeypatch, response, [TOP, BOTTOM])
+
+    assert result["type"] == "missing_core_wardrobe_slots"
+    assert result["message"] == response["message"]
+    assert result["data"]["missing_slots"] == ["footwear"]
+
+
+@pytest.mark.parametrize(
+    "response_type",
+    ["clarification", "weak_occasion_match", "missing_outfit_cards", "missing_public_outfit"],
+)
+def test_board_payload_preserves_other_typed_no_card_responses(monkeypatch, response_type):
+    response = {
+        "success": True,
+        "type": response_type,
+        "message": f"typed:{response_type}",
+        "cards": [],
+        "style_boards": [],
+        "data": {},
+    }
+
+    result = _empty_board_payload(monkeypatch, response)
+
+    assert result["type"] == response_type
+    assert result["message"] == f"typed:{response_type}"
+
+
+def test_board_payload_uses_neutral_fallback_for_untyped_no_card_response(monkeypatch):
+    result = _empty_board_payload(
+        monkeypatch,
+        {"success": True, "message": "", "cards": [], "style_boards": [], "data": {}},
+    )
+
+    assert result["type"] == "missing_outfit_cards"
+    assert result["success"] is False
+    assert "Please try again" in result["message"]
+    assert "top" not in result["message"].lower()
+    assert "bottom" not in result["message"].lower()
+    assert "footwear" not in result["message"].lower()
+
+
+def test_board_payload_exception_uses_neutral_wording(monkeypatch):
+    def raise_flow(**_kwargs):
+        raise RuntimeError("internal failure")
+
+    monkeypatch.setattr(chat, "build_style_flow_response", raise_flow)
+    monkeypatch.setattr(chat, "_fetch_wardrobe_for_style", lambda *_args: [TOP, BOTTOM, SHOE])
+    monkeypatch.setattr(chat, "_ahvi_resolve_effective_user_profile", lambda *_args: {})
+
+    result = chat._demo_style_board_payload("u", "formal dinner", [TOP, BOTTOM, SHOE])
+
+    assert result["type"] == "missing_outfit_cards"
+    assert "Please try again" in result["message"]
+    assert "top" not in result["message"].lower()
+    assert "bottom" not in result["message"].lower()
+    assert "footwear" not in result["message"].lower()
 
 
 # ── 2. board contract on every card (gate-level) ─────────────────────────────

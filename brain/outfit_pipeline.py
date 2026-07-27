@@ -331,6 +331,7 @@ def _normalize_pipeline_occasion(value: Any, context: Dict[str, Any] | None = No
     )
     normalized = normalize_occasion(source)
     return normalized if normalized in {
+        "client_dinner",
         "date_night",
         "beach",
         "office",
