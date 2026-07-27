@@ -84,6 +84,24 @@ def test_default_cta_returns_cards_not_clarification(monkeypatch):
     assert card.get("occasion")
 
 
+def test_board_payload_uses_resolved_occasion_before_text_fallback(monkeypatch):
+    contexts = []
+
+    def fake_flow(**kwargs):
+        contexts.append(kwargs["context"])
+        return {"cards": [], "style_boards": [], "data": {}, "meta": {}}
+
+    monkeypatch.setattr(chat, "build_style_flow_response", fake_flow)
+    monkeypatch.setattr(chat, "_fetch_wardrobe_for_style", lambda *_args: [])
+    monkeypatch.setattr(chat, "_ahvi_resolve_effective_user_profile", lambda *_args: {})
+
+    chat._demo_style_board_payload("u", "Another look", [], resolved_occasion="dinner")
+    chat._demo_style_board_payload("u", "Another look", [])
+
+    assert contexts[0]["occasion"] == "dinner"
+    assert contexts[1]["occasion"] == "today"
+
+
 # ── 2. board contract on every card (gate-level) ─────────────────────────────
 
 def _gate(cards, query="Suggest an outfit for today.", **meta):
@@ -216,6 +234,58 @@ def test_alternative_look_preserves_occasion_and_source_policy():
     card = out["cards"][0]
     assert card["occasion"] == "office"
     assert card["source_policy"] == "wardrobe"
+
+
+def test_beta_refinement_without_query_stamps_every_board_alias():
+    response = {
+        "success": True,
+        "type": "style_refinement",
+        "cards": _complete_cards(),
+        "style_boards": [],
+        "rendered_boards": [],
+        "data": {"outfits": [], "rendered_boards": []},
+    }
+    instructions = {
+        "action": "refine_current_board",
+        "occasion": "office",
+        "source_mode": "wardrobe_only",
+        "preserve_item_ids": [],
+        "replace_roles": [],
+        "excluded_terms": [],
+        "confidence": 1,
+    }
+    out = chat._beta_style_response(
+        response, previous_state={}, instructions=instructions
+    )
+    fields = ("board_id", "revision", "source_policy", "occasion")
+    aliases = (
+        out["cards"], out["style_boards"], out["rendered_boards"],
+        out["data"]["outfits"], out["data"]["rendered_boards"],
+    )
+    expected = {field: out["cards"][0][field] for field in fields}
+    assert expected["revision"] >= 1
+    assert expected["occasion"] == "office"
+    assert all(
+        {field: boards[0][field] for field in fields} == expected
+        for boards in aliases
+    )
+
+
+def test_beta_explanation_without_query_is_not_converted_to_board_aliases():
+    response = {
+        "success": True,
+        "type": "style_explanation",
+        "cards": _complete_cards(),
+        "style_boards": [],
+        "data": {"outfits": [], "rendered_boards": []},
+    }
+    out = chat._beta_style_response(
+        response,
+        previous_state={},
+        instructions={"action": "explain_current_board", "occasion": "office"},
+    )
+    assert out["style_boards"] == []
+    assert out["data"]["outfits"] == []
 
 
 def test_alternative_boards_are_independently_complete():

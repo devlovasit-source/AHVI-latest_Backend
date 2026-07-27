@@ -349,6 +349,13 @@ def _normalize_occasion_value(value: Any, query: Any = "") -> str:
         resolved = "beach_dinner" if "dinner" in combined_text else "beach"
         logger.info("AHVI_OCCASION_ARCHETYPE=%s source=%s", resolved, "coastal_guard")
         return resolved
+    if explicit == "client_dinner":
+        return explicit
+    if "dinner" in combined_text and any(
+        token in combined_text
+        for token in ("formal", "refined", "elegant", "black tie", "dressy")
+    ):
+        return "client_dinner"
     if resolve_occasion_archetype is not None:
         try:
             archetype = resolve_occasion_archetype(explicit, combined_text)
@@ -718,7 +725,35 @@ def _ahvi_missing_occasion_response(
     closest_board: dict | None = None,
 ) -> dict:
     normalized = str(occasion or "").lower()
-    if normalized in {"coffee_date", "coffee"}:
+    strict_formal_dinner = normalized == "client_dinner"
+    if strict_formal_dinner:
+        message = (
+            "I don't see enough formal dinner pieces in your wardrobe yet. "
+            "I won't force a casual look into a refined evening brief."
+        )
+        missing_items = [
+            {
+                "label": "Structured dinner shirt",
+                "reason": "Creates the high-polish foundation a formal dinner needs.",
+                "cta": "Find this",
+            },
+            {
+                "label": "Tailored trousers",
+                "reason": "Keeps the silhouette formal rather than casual.",
+                "cta": "Find this",
+            },
+            {
+                "label": "Formal footwear",
+                "reason": "Completes the refined dinner register.",
+                "cta": "Find this",
+            },
+        ]
+        chips = [
+            "Try another occasion",
+            "Find structured dinner shirt",
+            "Find tailored trousers",
+        ]
+    elif normalized in {"coffee_date", "coffee"}:
         message = (
             "I don't see enough relaxed coffee-date pieces yet. "
             "Your current options lean too formal or too statement-heavy for that mood."
@@ -809,13 +844,10 @@ def _ahvi_missing_occasion_response(
             "Show closest option",
             "Try another occasion",
         ]
+    weak_match = _ahvi_has_core_slots(slot_counts) and not strict_formal_dinner
     payload = {
-        "success": True,
-        "type": (
-            "weak_occasion_match"
-            if _ahvi_has_core_slots(slot_counts)
-            else "missing_occasion_wardrobe"
-        ),
+        "success": not strict_formal_dinner,
+        "type": "weak_occasion_match" if weak_match else "missing_occasion_wardrobe",
         "message": message,
         "cards": [],
         "style_boards": [],
@@ -838,7 +870,7 @@ def _ahvi_missing_occasion_response(
                 if isinstance(item, dict)
             ],
             "owned_percentage": 0 if not _ahvi_has_core_slots(slot_counts) else 50,
-            "weak_occasion_match": _ahvi_has_core_slots(slot_counts),
+            "weak_occasion_match": weak_match,
             "closest_safe_brief": (
                 "evening casual"
                 if normalized in {"date", "date_night"}
@@ -847,7 +879,7 @@ def _ahvi_missing_occasion_response(
         },
         "chips": chips,
     }
-    if closest_board:
+    if closest_board and not strict_formal_dinner:
         board_metadata = _board_metadata_summary([closest_board])
         payload["message"] = (
             "I don't see strong occasion-ready pieces yet, but I found one safe direction."
@@ -1909,10 +1941,15 @@ def _wardrobe_gap_response(
     notes = _dict(interpretation.get("board_generation_notes"))
     occasion = _safe_text(interpretation.get("occasion") or notes.get("occasion_kind") or _occasion_kind(query))
     occasion = _normalize_occasion_value(occasion, query) or occasion
+    strict_formal_dinner = occasion == "client_dinner"
     wardrobe_items = wardrobe if isinstance(wardrobe, list) else []
     slot_counts = _ahvi_slot_counts(wardrobe_items)
     has_core_slots = _ahvi_has_core_slots(slot_counts)
-    response_type = "weak_occasion_match" if has_core_slots else "missing_occasion_wardrobe"
+    response_type = (
+        "missing_occasion_wardrobe"
+        if strict_formal_dinner or not has_core_slots
+        else "weak_occasion_match"
+    )
     if detect_wardrobe_gap is not None and get_occasion_rule is not None:
         try:
             gap = detect_wardrobe_gap(wardrobe_items, occasion, get_occasion_rule(occasion))
@@ -1946,7 +1983,13 @@ def _wardrobe_gap_response(
         _safe_text(occasion).lower().replace("-", "_").replace(" ", "_")
     )
 
-    if normalized_occasion in {"date", "date_night", "datenight"}:
+    if strict_formal_dinner:
+        chips = find_chips[:3]
+        message = (
+            "I don't see enough formal dinner pieces in your wardrobe yet. "
+            "I won't force a casual look into a refined evening brief."
+        )
+    elif normalized_occasion in {"date", "date_night", "datenight"}:
         message = (
             "I don't see enough strong date-night options yet. "
             "I'd avoid forcing office styling into an evening brief."
@@ -2001,7 +2044,7 @@ def _wardrobe_gap_response(
                 "slot_counts": slot_counts,
                 "slot_scores": _dict(gap.get("slot_scores")),
                 "has_enough": bool(gap.get("has_enough")),
-                "weak_occasion_match": has_core_slots,
+                "weak_occasion_match": has_core_slots and not strict_formal_dinner,
                 "reason": response_type,
             },
         }
@@ -2016,7 +2059,7 @@ def _wardrobe_gap_response(
     )
 
     return {
-        "success": True,
+        "success": not strict_formal_dinner,
         "message": message,
         "board": "style",
         "type": response_type,
@@ -2035,7 +2078,7 @@ def _wardrobe_gap_response(
                 "occasion": occasion,
                 "missing_count": len(missing_items),
                 "slot_counts": slot_counts,
-                "weak_occasion_match": has_core_slots,
+                "weak_occasion_match": has_core_slots and not strict_formal_dinner,
                 "closest_safe_brief": _safe_text(gap.get("closest_safe_brief")) or "clean daily",
             },
         },
@@ -4310,9 +4353,14 @@ def finalize_style_response_payload(
         len(rejected_cards),
     )
     if not filtered_cards:
-        closest_board = _ahvi_pick_closest_safe_board(cards, normalized_occasion)
+        strict_formal_dinner = normalized_occasion == "client_dinner"
+        closest_board = (
+            None
+            if strict_formal_dinner
+            else _ahvi_pick_closest_safe_board(cards, normalized_occasion)
+        )
         closest_rejected_reason = ""
-        if closest_option_requested and not closest_board:
+        if closest_option_requested and not closest_board and not strict_formal_dinner:
             closest_source = None
             if rejected_cards:
                 closest_source, closest_rejected_reason = rejected_cards[0]
@@ -4324,7 +4372,7 @@ def finalize_style_response_payload(
                         break
             if closest_source:
                 closest_board = dict(closest_source)
-        if closest_option_requested and closest_board:
+        if closest_option_requested and closest_board and not strict_formal_dinner:
             closest_board["title"] = "Closest wardrobe option"
             closest_board["badge"] = "CLOSEST OPTION"
             closest_board["occasion_label"] = "CLOSEST OPTION"

@@ -129,7 +129,9 @@ def normalize_style_state(raw: Any) -> Dict[str, Any]:
         active.get("exclude") or source.get("excluded_terms"),
         limit=30,
     )
-    source_mode = _text(source.get("source_mode") or "unknown").lower()
+    source_mode = _text(
+        source.get("source_mode") or source.get("source_policy") or "unknown"
+    ).lower()
     if source_mode not in _ALLOWED_SOURCE_MODES:
         source_mode = "unknown"
     board_hash = _text(source.get("board_content_hash") or source.get("snapshot_hash"))
@@ -238,6 +240,13 @@ def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str,
         or any(term in query for term in _INSPIRATION_PHRASES)
     )
     source_switch = wardrobe_only_req or inspiration_req
+    another_look = any(
+        term in query
+        for term in (
+            "another look", "more looks", "show me another", "different look",
+            "shuffle this look",
+        )
+    )
     refine = has_state and any(
         term in query
         for term in (
@@ -263,6 +272,8 @@ def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str,
         action = "switch_source_mode"
     elif refine:
         action = "refine_current_board"
+    elif has_state and another_look:
+        action = "create_board"
     elif has_state and len(query.split()) <= 2:
         action = "ask_clarification"
     else:
@@ -809,7 +820,12 @@ def state_from_response(
             board.get("occasion") or response.get("occasion") or previous.get("occasion")
         ).lower() or None,
         "source_mode": _text(
-            (instructions or {}).get("source_mode") or previous.get("source_mode")
+            (instructions or {}).get("source_mode")
+            or board.get("source_mode")
+            or board.get("source_policy")
+            or response.get("source_mode")
+            or response.get("source_policy")
+            or previous.get("source_mode")
         ).lower() or "unknown",
         "hero_item_id": (
             canonical_item_id(compact[0]) if compact else previous.get("hero_item_id")

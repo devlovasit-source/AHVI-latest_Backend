@@ -2685,6 +2685,7 @@ def _demo_style_board_payload(
     query_text,
     request_wardrobe,
     user_profile=None,
+    resolved_occasion: str = "",
     style_action: str = "",
     show_closest_option: bool = False,
     allow_closest_option: bool = False,
@@ -2709,7 +2710,7 @@ def _demo_style_board_payload(
         if _ahvi_item_allowed_for_user_profile(item, profile, query_text)
     ]
 
-    occasion = _ahvi_style_occasion(query_text)
+    occasion = str(resolved_occasion or "").strip() or _ahvi_style_occasion(query_text)
     logger.info("style.intent.detected user_id=%s occasion=%s prompt=%r", user_id, occasion, query_text)
     if any(token in str(query_text or "").lower() for token in ("meeting", "client", "presentation", "interview")):
         logger.info("style.sub_intent.detected user_id=%s sub_intent=office_meeting prompt=%r", user_id, query_text)
@@ -3340,7 +3341,22 @@ def _beta_style_response(
     This is the convergence point for every Style path returned from /api/text,
     so the explicit-role compliance gate runs here — closing the premium /
     editorial / multi-board routes that previously bypassed validation."""
-    if query:
+    response_type = str(response.get("type") or "").strip().lower()
+    has_board_response = bool(_style_response_cards(response)) and response_type not in {
+        "style_explanation",
+        "stylist_advice",
+        "text",
+        "clarification",
+        "style_clarification",
+    }
+    if query or has_board_response:
+        if has_board_response:
+            meta = response.get("meta") if isinstance(response.get("meta"), dict) else {}
+            response["meta"] = {
+                **meta,
+                "occasion": meta.get("occasion") or instructions.get("occasion") or "",
+                "source_policy": meta.get("source_policy") or instructions.get("source_mode") or "",
+            }
         response = _apply_style_compliance_gate(
             response,
             query=query,
@@ -5714,6 +5730,11 @@ def text_chat(request: TextChatRequest, http_request: Request):
             (style_interpretation.get("board_generation_notes") or {}).get("occasion_kind")
             or _ahvi_style_occasion(english_input)
         )
+        resolved_occasion = (
+            beta_instructions.get("occasion")
+            or beta_state.get("occasion")
+            or interpreted_occasion
+        )
         # The predefined one-tap CTA ("Suggest an outfit for today.") is a
         # complete-outfit GENERATION request. It must never be intercepted by the
         # "What are you dressing for?" occasion clarification — generate now with
@@ -5748,6 +5769,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 english_input,
                 request.wardrobe,
                 effective_user_profile,
+                resolved_occasion=resolved_occasion,
                 style_action=style_action,
                 show_closest_option=closest_requested,
                 allow_closest_option=closest_requested,
