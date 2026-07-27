@@ -3983,7 +3983,9 @@ def _event_card(event: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _calendar_event_created_response(event: Dict[str, Any]) -> Dict[str, Any]:
+def _calendar_event_created_response(
+    event: Dict[str, Any], *, reused: bool = False
+) -> Dict[str, Any]:
     title = str(event.get("title") or "Event")
     start_raw = str(event.get("start_time") or "")
     day_text = "your calendar"
@@ -3993,6 +3995,8 @@ def _calendar_event_created_response(event: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         pass
     message = f"{title} added for {day_text}."
+    if reused:
+        message = f"{title} is already on your calendar for {day_text}."
     actions = ["View events", "Add reminder", "Plan outfit"]
     cta = {"label": "Open calendar", "route": "calendar", "module": "calendar"}
     return {
@@ -4000,7 +4004,8 @@ def _calendar_event_created_response(event: Dict[str, Any]) -> Dict[str, Any]:
         "type": "module_response",
         "module": "calendar",
         "domain": "calendar",
-        "intent": "event_created",
+        "intent": "calendar_event_reused" if reused else "event_created",
+        "reused": reused,
         "message": {"role": "assistant", "content": message},
         "message_text": message,
         "response": message,
@@ -4010,7 +4015,12 @@ def _calendar_event_created_response(event: Dict[str, Any]) -> Dict[str, Any]:
         "quick_actions": actions,
         "cta": cta,
         "open_module": cta,
-        "data": {"module": "calendar", "intent": "event_created", "event": event},
+        "data": {
+            "module": "calendar",
+            "intent": "calendar_event_reused" if reused else "event_created",
+            "reused": reused,
+            "event": event,
+        },
     }
 
 
@@ -4491,10 +4501,24 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
         )
 
     if module in {"calendar", "planner", "chat", ""} and user_id and _looks_like_event_create_text(user_message):
-        from services.calendar_service import create_calendar_event, parse_plan_text_to_payload
+        from services.calendar_service import (
+            create_calendar_event,
+            find_existing_event,
+            parse_plan_text_to_payload,
+        )
 
         try:
             payload = parse_plan_text_to_payload(user_message, timezone_name="Asia/Kolkata")
+            # Same idempotency rule as module_chat_service: reuse the existing
+            # event (same user + normalized title + start minute) instead of
+            # creating a duplicate. Shared helper, not a second implementation.
+            # ponytail: query-then-create, still non-atomic — concurrent
+            # identical requests can duplicate; needs a unique index to close.
+            existing = find_existing_event(
+                user_id, payload.get("title"), payload.get("start_time")
+            )
+            if existing:
+                return _calendar_event_created_response(existing, reused=True)
             event = create_calendar_event(user_id, payload)
             return _calendar_event_created_response(event)
         except ValueError as exc:
