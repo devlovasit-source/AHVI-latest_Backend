@@ -382,10 +382,12 @@ def process_assets(*, apply: bool, scan_limit: int, limit: int = 0, category: st
                     "style_assets",
                     doc_id,
                     {
+                        # board_image_url is FIRST in the style/wardrobe reader
+                        # priority chain, so a validated cutout here wins over
+                        # masked_url/image_url. The style_assets collection has
+                        # no masked_url attribute — writing one makes Appwrite
+                        # reject the whole update (400 invalid structure).
                         "board_image_url": public_url,
-                        # masked_url is what the style/wardrobe readers fall back
-                        # to; only ever set it to a VALIDATED cutout.
-                        "masked_url": public_url,
                         "board_r2_key": key,
                         "cutout_status": "ready",
                         "catalog_image_url": _source_url(asset),
@@ -394,7 +396,7 @@ def process_assets(*, apply: bool, scan_limit: int, limit: int = 0, category: st
                 print(json.dumps({
                     "event": "AHVI_STYLE_ASSET_RMBG_UPDATE",
                     "asset_id": doc_id,
-                    "field": "masked_url",
+                    "field": "board_image_url",
                 }))
             stats["ready"] += 1
             print(json.dumps({"event": "AHVI_STYLE_ASSET_CUTOUT_READY", "asset_id": doc_id, "role": role, "url": public_url}))
