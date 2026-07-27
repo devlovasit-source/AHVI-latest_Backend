@@ -4587,6 +4587,16 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
             request_wardrobe=wardrobe,
             user_profile=profile,
         )
+        # /api/module-chat must stamp the durable board contract too — it does
+        # not converge on _beta_style_response like /api/text, so without this
+        # the wardrobe boards ship with id=outfit_card_N but no board_id /
+        # revision / source_policy and the app disables locked Shuffle.
+        style_payload = _apply_style_compliance_gate(
+            style_payload,
+            query=user_message,
+            user_id=user_id or str(profile.get("user_id") or profile.get("$id") or ""),
+            wardrobe=wardrobe,
+        )
         return _module_style_response_envelope(module, style_payload)
 
     return _module_llm_response(
