@@ -13,6 +13,7 @@ from services.beta_style_bridge import (
     interpret_style_followup,
     normalize_style_state,
     refine_style_response,
+    state_from_response,
     validate_style_response,
     visual_intelligence,
 )
@@ -58,6 +59,23 @@ def test_state_is_compact_deterministic_and_rejects_image_bytes():
     assert state == normalize_style_state(state)
 
 
+def test_stamped_source_policy_round_trips_through_style_state():
+    stamped = {**STATE, "source_mode": "", "source_policy": "wardrobe"}
+    normalized = normalize_style_state(stamped)
+    assert normalized["source_mode"] == "wardrobe"
+
+    response = {
+        "cards": [{
+            "board_id": "board-1",
+            "occasion": "office",
+            "source_policy": "wardrobe",
+            "items": STATE["board_items"],
+        }]
+    }
+    round_tripped = state_from_response(response, previous_state={})
+    assert round_tripped["source_mode"] == "wardrobe"
+
+
 @pytest.mark.parametrize(
     ("prompt", "action"),
     [
@@ -73,6 +91,14 @@ def test_state_is_compact_deterministic_and_rejects_image_bytes():
 )
 def test_followup_actions(prompt, action):
     assert interpret_style_followup(prompt, STATE)["action"] == action
+
+
+@pytest.mark.parametrize("occasion", ["dinner", "office"])
+def test_another_look_keeps_the_carried_occasion(occasion):
+    state = {**STATE, "occasion": occasion}
+    instructions = interpret_style_followup("Another look", state)
+    assert instructions["action"] == "create_board"
+    assert instructions["occasion"] == occasion
 
 
 def test_router_never_invents_item_ids():
