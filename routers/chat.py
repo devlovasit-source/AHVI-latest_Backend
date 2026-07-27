@@ -2440,6 +2440,32 @@ def _stamp_board_contract(
     return card
 
 
+def _stamp_response_contract(
+    response: Dict[str, Any], *, occasion: str, source_policy: str
+) -> None:
+    """Stamp board_id / revision / source_policy + item positions on the
+    response's existing cards and mirror to every alias. Used when the wardrobe
+    adapter already enforced roles (meta.style_compliance_gated) but never
+    stamped the durable board contract."""
+    cards = [c for c in _style_response_cards(response) if isinstance(c, dict)]
+    if not cards:
+        return
+    for i, card in enumerate(cards):
+        _stamp_board_contract(card, occasion=occasion, index=i, source_policy=source_policy)
+        _ensure_item_positions(card.get("items"))
+    response["cards"] = cards
+    response["style_boards"] = cards
+    response["rendered_boards"] = cards
+    _data = response.get("data") if isinstance(response.get("data"), dict) else {}
+    _data["outfits"] = cards
+    _data["rendered_boards"] = cards
+    response["data"] = _data
+    _propagate_board_contract(response, occasion=occasion, source_policy=source_policy)
+    bids = [str(c.get("board_id") or "") for c in cards if c.get("board_id")]
+    if bids:
+        response["board_ids"] = ",".join(bids)
+
+
 def _apply_style_compliance_gate(
     response: Dict[str, Any],
     *,
@@ -2461,8 +2487,20 @@ def _apply_style_compliance_gate(
     if not isinstance(response, dict):
         return response
     meta = response.get("meta") if isinstance(response.get("meta"), dict) else {}
-    # Idempotent: the wardrobe adapter already gated + traced its own path.
+    # The wardrobe adapter enforces roles and sets style_compliance_gated, but it
+    # never stamps the durable board contract — so stamp it here (idempotent:
+    # _stamp_board_contract keeps any board_id already present) before returning,
+    # else /api/text adapter boards ship without board_id/revision/source_policy
+    # and the app disables locked Shuffle.
     if meta.get("style_compliance_gated"):
+        _stamp_response_contract(
+            response,
+            occasion=str(meta.get("occasion") or _ahvi_style_occasion(query) or "").strip(),
+            source_policy=(
+                _canonical_source_policy(query, action=action)
+                or str(meta.get("source_policy") or "")
+            ),
+        )
         return response
 
     source_policy = _canonical_source_policy(query, action=action)
