@@ -494,9 +494,8 @@ def _provider_output_to_transparent(
     """Provider output -> RMBG -> transparent catalogue canvas.
 
     Returns (png_bytes, reason). On any failure returns (b"", reason) so the
-    caller keeps the original bytes and normal validation rejects an opaque
-    image. RMBG stays the enforcement step because the model may ignore the
-    prompt's transparency instruction."""
+    caller can discard the opaque provider output. RMBG stays the enforcement
+    step because the model may ignore the prompt's transparency instruction."""
     try:
         if not is_effectively_transparent(image_bytes):
             from services.bg_service import remove_bg_external_sync
@@ -1704,6 +1703,14 @@ def generate_catalog_png(
                 image_bytes=transparent_bytes,
                 provider=provider_result.provider,
             )
+        else:
+            provider_result = CatalogProviderResult(
+                success=False,
+                reason=_rmbg_reason or "rmbg_failed",
+                provider=provider_result.provider,
+            )
+
+    if provider_result.success and provider_result.image_bytes:
         if provider_result.provider == "nanobanana":
             logger.info(
                 "ahvi.capture.catalog.nanobanana.success item_id=%s category=%s",

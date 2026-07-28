@@ -100,7 +100,7 @@ def test_already_transparent_provider_output_skips_rmbg(monkeypatch):
     assert cg.is_effectively_transparent(out) is True
 
 
-def test_rmbg_failure_returns_empty_so_caller_keeps_original(monkeypatch):
+def test_rmbg_failure_returns_empty_so_caller_discards_original(monkeypatch):
     def _boom(data):
         raise RuntimeError("rmbg down")
 

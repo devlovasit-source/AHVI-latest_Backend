@@ -345,6 +345,14 @@ def test_nanobanana_black_frame_output_is_cropped_before_acceptance(monkeypatch)
 
     monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
 
+    def _transparent_after_crop(image_bytes, *_args):
+        assert pngsvc._black_frame_metrics(image_bytes)["detected"] is False
+        return _garment_png(), "ok"
+
+    monkeypatch.setattr(
+        pngsvc, "_provider_output_to_transparent", _transparent_after_crop
+    )
+
     result = pngsvc.generate_catalog_png(
         _garment_png(),
         provider="nanobanana",
@@ -666,18 +674,25 @@ def test_vertex_imagen_config_validation_error_falls_back_to_cutout(monkeypatch)
     assert result["catalog_png_bytes"]
 
 
-def test_vertex_imagen_opaque_generated_output_is_accepted_for_demo(monkeypatch):
+def test_opaque_provider_output_is_discarded_when_rmbg_fails(monkeypatch):
+    opaque_provider_bytes = _opaque_product_png(color=(190, 60, 60))
+
     class _Provider(pngsvc.CatalogProvider):
         name = "vertex_imagen"
 
         def generate(self, **kwargs):
             return pngsvc.CatalogProviderResult(
                 True,
-                image_bytes=_opaque_product_png(color=(190, 60, 60)),
+                image_bytes=opaque_provider_bytes,
                 provider=self.name,
             )
 
     monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _Provider())
+    monkeypatch.setattr(
+        pngsvc,
+        "_provider_output_to_transparent",
+        lambda *_args: (b"", "still_opaque"),
+    )
 
     result = pngsvc.generate_catalog_png(
         _garment_png(color=(190, 60, 60, 255)),
@@ -691,10 +706,11 @@ def test_vertex_imagen_opaque_generated_output_is_accepted_for_demo(monkeypatch)
     )
 
     assert result["success"] is True
-    assert result["status"] == "catalog_generated"
+    assert result["status"] == "fallback_cutout"
     assert result["catalog_provider"] == "vertex_imagen"
-    assert result["reason"] == "demo_accept_background"
-    assert result["validation"]["checks"]["alpha_or_palette_mode"] is False
+    assert result["reason"] == "still_opaque"
+    assert result["catalog_png_bytes"] != opaque_provider_bytes
+    assert pngsvc.is_effectively_transparent(result["catalog_png_bytes"]) is True
 
 
 def test_vertex_imagen_invalid_size_still_falls_back(monkeypatch):
