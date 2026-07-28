@@ -123,8 +123,10 @@ def test_save_selected_rmbg_failure_falls_back_without_failing_save(monkeypatch)
     assert result["success"] is True
     saved = persisted["items"][0]
     assert saved["imageStatus"] == "rmbg_failed"
-    assert saved["maskedUrl"]
-    assert _R2.calls[0][1] == _R2.calls[0][2]
+    assert "masked_image_base64" not in saved
+    assert not saved.get("maskedUrl")
+    assert not saved.get("masked_url")
+    assert _R2.calls == []
 
 
 def test_save_selected_treats_fail_open_original_bytes_as_rmbg_failure(monkeypatch):
@@ -141,7 +143,35 @@ def test_save_selected_treats_fail_open_original_bytes_as_rmbg_failure(monkeypat
     result = _save_selected(_Request(), request)
 
     assert result["success"] is True
-    assert persisted["items"][0]["imageStatus"] == "rmbg_failed"
+    saved = persisted["items"][0]
+    assert saved["imageStatus"] == "rmbg_failed"
+    assert "masked_image_base64" not in saved
+    assert _R2.calls == []
+
+
+def test_save_selected_rmbg_failure_preserves_existing_masked_url(monkeypatch):
+    async def _remove_bg(_raw):
+        raise RuntimeError("service unavailable")
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    item = _item("one")
+    item["masked_url"] = "https://masked.test/one-valid.png"
+    item["maskedUrl"] = item["masked_url"]
+    request = wc.SaveSelectedRequest(
+        user_id="user-1",
+        selected_item_ids=["one"],
+        detected_items=[item],
+    )
+
+    result = _save_selected(_Request(), request)
+
+    assert result["success"] is True
+    saved = persisted["items"][0]
+    assert saved["imageStatus"] == "rmbg_failed"
+    assert saved["masked_url"] == "https://masked.test/one-valid.png"
+    assert saved["maskedUrl"] == saved["masked_url"]
+    assert "masked_image_base64" not in saved
+    assert _R2.calls == []
 
 
 def test_save_selected_skips_unselected_items_for_rmbg_catalog_and_persist(monkeypatch):

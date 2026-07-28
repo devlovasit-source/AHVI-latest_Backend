@@ -920,13 +920,12 @@ def test_save_selected_survives_rmbg_failure(monkeypatch):
     )
     result = wc.save_selected(_FakeHttpRequest(), request, BackgroundTasks())
 
-    # Save must not fail; raw crop is uploaded as the cutout.
+    # Save must not fail, but the raw crop must not be published as a cutout.
     assert result["success"] is True
-    assert len(_FakeR2Upload.last_calls) == 1
-    call = _FakeR2Upload.last_calls[0]
-    assert call["masked"] == call["raw"]
+    assert _FakeR2Upload.last_calls == []
     saved = persisted["detected_items"][0]
-    assert saved.get("image_url")
+    assert not saved.get("masked_url")
+    assert not saved.get("masked_image_base64")
     assert saved.get("imageStatus") == "rmbg_failed"
     assert saved.get("image_status") == "rmbg_failed"
     assert saved.get("preview_cutout_pending") is False
