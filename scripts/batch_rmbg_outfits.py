@@ -24,6 +24,7 @@ from typing import Any, Dict, List
 from urllib.parse import urlparse
 
 import requests
+import time
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -63,6 +64,31 @@ def _cutout_key(doc: Dict[str, Any]) -> str:
     return name if parent in {"", "."} else f"{parent}/{name}"
 
 
+# The CDN rate-limits rapid sequential fetches; without pacing+retry ~40 items
+# came back as transient failures and were left UNCLASSIFIED (not "fine"), which
+# made the candidate count unstable between runs.
+DOWNLOAD_PACE_SECONDS = float(os.getenv("OUTFIT_RMBG_PACE_SECONDS", "0.35"))
+DOWNLOAD_RETRIES = int(os.getenv("OUTFIT_RMBG_RETRIES", "4"))
+
+
+def _download(url: str) -> bytes:
+    """GET with exponential backoff. Raises only after the last attempt, so a
+    transient 429/5xx never silently drops an item from the candidate set."""
+    last: Exception | None = None
+    for attempt in range(DOWNLOAD_RETRIES):
+        try:
+            resp = requests.get(url, timeout=30)
+            if resp.status_code in {429, 500, 502, 503, 504}:
+                raise RuntimeError(f"http_{resp.status_code}")
+            resp.raise_for_status()
+            return resp.content
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            if attempt < DOWNLOAD_RETRIES - 1:
+                time.sleep(min(8.0, (2 ** attempt) * 0.75))
+    raise last if last else RuntimeError("download_failed")
+
+
 def _list_outfits(scan_limit: int) -> List[Dict[str, Any]]:
     proxy = AppwriteProxy()
     rows: List[Dict[str, Any]] = []
@@ -99,7 +125,7 @@ def _upload_png(storage: R2Storage, *, key: str, data: bytes) -> str:
     return f"{base.rstrip('/')}/{key}"
 
 
-def process(*, apply: bool, scan_limit: int, limit: int, doc_id: str) -> Dict[str, Any]:
+def process(*, apply: bool, scan_limit: int, limit: int, doc_id: str, snapshot_path: str = "") -> Dict[str, Any]:
     _preflight(apply)
     proxy = AppwriteProxy()
     storage = R2Storage()
@@ -107,6 +133,9 @@ def process(*, apply: bool, scan_limit: int, limit: int, doc_id: str) -> Dict[st
     if doc_id:
         rows = [r for r in rows if _doc_id(r) == doc_id]
     stats = {"scanned": 0, "already_transparent": 0, "processed": 0, "updated": 0, "failed": 0, "skipped": 0}
+    # Rollback snapshot: the pre-change URLs for every opaque candidate. Written
+    # outside the repo (contains user ids + private wardrobe URLs).
+    snapshot: List[Dict[str, Any]] = []
 
     for doc in rows:
         did = _doc_id(doc)
@@ -116,9 +145,8 @@ def process(*, apply: bool, scan_limit: int, limit: int, doc_id: str) -> Dict[st
             stats["skipped"] += 1
             continue
         try:
-            raw = requests.get(url, timeout=25)
-            raw.raise_for_status()
-            source = raw.content
+            source = _download(url)
+            time.sleep(DOWNLOAD_PACE_SECONDS)
         except Exception as exc:  # noqa: BLE001
             stats["failed"] += 1
             print(json.dumps({"event": "AHVI_OUTFIT_RMBG_FAILED", "doc_id": did, "reason": f"download:{str(exc)[:60]}"}))
@@ -135,6 +163,18 @@ def process(*, apply: bool, scan_limit: int, limit: int, doc_id: str) -> Dict[st
             continue
 
         stats["processed"] += 1
+        entry = {
+            "doc_id": did,
+            "user_id": _text(doc.get("userId") or doc.get("user_id")),
+            "name": _text(doc.get("name")),
+            "category": _text(doc.get("category")),
+            "image_url": _text(doc.get("image_url")),
+            "masked_url": _text(doc.get("masked_url")),
+            "normalized_url": _text(doc.get("normalized_url")),
+            "replacement_url": "",
+            "source_transparent_ratio": round(ratio, 4),
+        }
+        snapshot.append(entry)
         print(json.dumps({"event": "AHVI_OUTFIT_RMBG_START", "doc_id": did}))
         try:
             png = _encode_png(remove_bg_external_sync(source))
@@ -143,8 +183,10 @@ def process(*, apply: bool, scan_limit: int, limit: int, doc_id: str) -> Dict[st
                 raise RuntimeError(why)
             key = _cutout_key(doc)
             public_url = f"dry-run://{key}"
+            entry["replacement_url"] = public_url
             if apply:
                 public_url = _upload_png(storage, key=key, data=png)
+                entry["replacement_url"] = public_url
                 # image_url stays as the original; only the rendered fields move.
                 proxy.update_document(RESOURCE, did, {"masked_url": public_url, "normalized_url": public_url})
                 stats["updated"] += 1
@@ -155,6 +197,10 @@ def process(*, apply: bool, scan_limit: int, limit: int, doc_id: str) -> Dict[st
             print(json.dumps({"event": "AHVI_OUTFIT_RMBG_FAILED", "doc_id": did, "reason": str(exc)[:120]}))
         if limit and stats["processed"] >= limit:
             break
+    if snapshot_path:
+        Path(snapshot_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(snapshot_path).write_text(json.dumps(snapshot, indent=2, sort_keys=True), encoding="utf-8")
+        print(json.dumps({"event": "AHVI_OUTFIT_SNAPSHOT_WRITTEN", "count": len(snapshot), "path": snapshot_path}))
     return stats
 
 
@@ -164,8 +210,15 @@ def main() -> None:
     ap.add_argument("--scan-limit", type=int, default=500)
     ap.add_argument("--limit", type=int, default=0, help="Cap processed (opaque) items.")
     ap.add_argument("--doc-id", default="", help="Process a single outfits document id.")
+    ap.add_argument("--snapshot", default="", help="Write a rollback snapshot JSON to this path (keep it outside the repo).")
     args = ap.parse_args()
-    stats = process(apply=bool(args.apply), scan_limit=max(1, args.scan_limit), limit=max(0, args.limit), doc_id=args.doc_id)
+    stats = process(
+        apply=bool(args.apply),
+        scan_limit=max(1, args.scan_limit),
+        limit=max(0, args.limit),
+        doc_id=args.doc_id,
+        snapshot_path=args.snapshot,
+    )
     print(json.dumps({"success": True, "dry_run": not args.apply, "stats": stats}, indent=2, sort_keys=True))
 
 
