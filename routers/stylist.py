@@ -9,6 +9,7 @@ from brain.personalization.style_dna_engine import style_dna_engine
 from services import ai_gateway
 from services.appwrite_proxy import AppwriteProxy
 from services.style_flow_service import build_style_flow_response, item_role
+from services.location_weather_context import resolve_location_weather_context
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.stylist")
@@ -70,6 +71,14 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
     context = dict(request.context or {})
     context["query"] = request.query
     context["user_id"] = request.user_id
+    resolved = resolve_location_weather_context(
+        user_id=request.user_id,
+        request_data={**request.model_dump(exclude_none=True), **context},
+        profile=request.user_profile,
+    )
+    context["location_context"] = resolved["location"]
+    context["weather"] = resolved["weather"]
+    context["weather_context"] = resolved["weather"]
 
     wardrobe = request.wardrobe
     if wardrobe is None:
@@ -93,7 +102,7 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
             user_id=request.user_id,
             query=request.query,
             wardrobe=wardrobe,
-            user_profile=request.user_profile or {},
+            user_profile=resolved["profile"],
             context=context,
             include_base64=bool(request.include_base64),
             upload_to_r2=bool(request.upload_style_boards_to_r2),
@@ -104,6 +113,7 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
             "query": request.query,
             "analysis_source": "style_flow_service",
         }
+        response["context_usage"] = resolved["context_usage"]
         return response
     except Exception as exc:
         logger.exception(
@@ -129,6 +139,7 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
                 "analysis_source": "outfit_pipeline",
                 "error": "outfit_pipeline_failed",
             },
+            "context_usage": resolved["context_usage"],
         }
 
 
@@ -170,6 +181,12 @@ class ItemStyleRequest(BaseModel):
     wardrobe: Any = None
     user_profile: Dict[str, Any] = Field(default_factory=dict)
     context: Dict[str, Any] = Field(default_factory=dict)
+    weather: Any = None
+    weather_context: Any = None
+    location: Any = None
+    coordinates: Any = None
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 def _txt(value: Any) -> str:
@@ -511,6 +528,26 @@ def _lite_needed_slots(anchor_role: str) -> List[str]:
     return ["dress", "footwear"]  # accessory anchor -> hero garment + shoes
 
 
+def _lite_weather_note(weather: Dict[str, Any]) -> str:
+    if weather.get("status") != "available":
+        return ""
+    condition = _txt(weather.get("condition") or weather.get("weather_type")).lower()
+    temp_level = _txt(weather.get("temp_level") or weather.get("temperature_band")).lower()
+    humidity = weather.get("humidity")
+    if any(token in condition for token in ("rain", "storm", "drizzle", "snow")):
+        return "Rain-safe adjustment: add a water-resistant layer and closed footwear."
+    if temp_level in {"hot", "very_hot", "extreme_heat", "warm"} or (
+        isinstance(humidity, (int, float)) and humidity >= 70
+    ):
+        return "Heat adjustment: favor breathable fabrics and minimal layering."
+    if temp_level in {"cold", "very_cold"}:
+        return "Cold-weather adjustment: add a warm outer layer."
+    signals = weather.get("signals") if isinstance(weather.get("signals"), dict) else {}
+    if signals.get("avoid_loose_flow"):
+        return "Wind adjustment: favor secure layers over loose, trailing pieces."
+    return ""
+
+
 def _lite_build_outfit(
     anchor: Dict[str, Any],
     wardrobe: List[Dict[str, Any]],
@@ -520,6 +557,7 @@ def _lite_build_outfit(
     prefer=(),
     note: str = "",
     variant: int = 0,
+    weather: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     is_dress = _anchor_is_dress(anchor) or _lite_role(anchor) == "dress"
     anchor_role = "dress" if is_dress else _lite_role(anchor)
@@ -541,21 +579,31 @@ def _lite_build_outfit(
         "title": title or _outfit_title(occasion),
         "items": items,
         "missing_items": missing,
-        "reason": note or "Built from pieces you already own, anchored on this item.",
+        "reason": " ".join(
+            part for part in (
+                note or "Built from pieces you already own, anchored on this item.",
+                _lite_weather_note(weather or {}),
+            ) if part
+        ),
     }
 
 
-def _lite_directions(anchor: Dict[str, Any], wardrobe: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _lite_directions(
+    anchor: Dict[str, Any],
+    wardrobe: List[Dict[str, Any]],
+    weather: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
     directions = []
     for idx, (title, prefer, note) in enumerate(_LITE_STYLE_DIRECTIONS):
         look = _lite_build_outfit(
-            anchor, wardrobe, None, title=title, prefer=prefer, note=note, variant=idx
+            anchor, wardrobe, None, title=title, prefer=prefer, note=note,
+            variant=idx, weather=weather,
         )
         directions.append({
             "title": title,
             "items": look["items"],
             "missing_items": look["missing_items"],
-            "styling_note": note,
+            "styling_note": look["reason"],
         })
     return directions
 
@@ -573,22 +621,34 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
         mode = "build_outfit"
     wardrobe = _resolve_wardrobe(request)
     anchor = _resolve_anchor(request, item_id, wardrobe)
+    resolved = resolve_location_weather_context(
+        user_id=request.user_id,
+        request_data={**request.model_dump(exclude_none=True), **request.context},
+        profile=request.user_profile,
+    )
 
     try:
         if mode == "style_this":
-            directions = _lite_directions(anchor, wardrobe)
+            directions = _lite_directions(anchor, wardrobe, resolved["weather"])
             logger.info(
                 "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d",
                 item_id, len(directions), len(wardrobe),
             )
-            return {"success": True, "mode": mode, "anchor_item": anchor, "style_directions": directions}
+            return {"success": True, "mode": mode, "anchor_item": anchor, "style_directions": directions, "context_usage": resolved["context_usage"]}
 
-        outfit = _lite_build_outfit(anchor, wardrobe, request.occasion)
+        outfit = _lite_build_outfit(
+            anchor,
+            wardrobe,
+            request.occasion,
+            weather=resolved["weather"],
+        )
         logger.info(
             "stylist.item_style mode=build_outfit item_id=%s items=%d missing=%d wardrobe=%d",
             item_id, len(outfit["items"]), len(outfit["missing_items"]), len(wardrobe),
         )
-        return {"success": True, "mode": mode, "anchor_item": anchor, "outfit": outfit}
+        return {"success": True, "mode": mode, "anchor_item": anchor, "outfit": outfit, "context_usage": resolved["context_usage"]}
     except Exception as exc:  # noqa: BLE001 - CTA must never dead-end the UI
         logger.exception("stylist.item_style failed item_id=%s mode=%s err=%s", item_id, mode, str(exc))
-        return _style_fallback(mode, anchor)
+        fallback = _style_fallback(mode, anchor)
+        fallback["context_usage"] = resolved["context_usage"]
+        return fallback

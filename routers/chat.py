@@ -67,6 +67,7 @@ from services.task_queue import enqueue_task
 
 # Ã°Å¸â€Â¥ NEW
 from services.weather_service import get_hourly_weather
+from services.location_weather_context import resolve_location_weather_context
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.routers.chat")
@@ -3366,6 +3367,16 @@ class TextChatRequest(BaseModel):
     # Compact request-carried board context for beta follow-ups. Optional and
     # additive: missing state preserves the pre-bridge behavior exactly.
     style_state: Dict[str, Any] = Field(default_factory=dict)
+    weather: Any = None
+    weather_context: Any = None
+    weatherData: Any = None
+    location: Any = None
+    coordinates: Any = None
+    latitude: float | None = None
+    longitude: float | None = None
+    lat: float | None = None
+    lon: float | None = None
+    lng: float | None = None
 
 
 def _beta_style_response(
@@ -3474,6 +3485,16 @@ class ModuleChatRequest(BaseModel):
     context_data: Dict[str, Any] = Field(default_factory=dict)
     context: Dict[str, Any] = Field(default_factory=dict)
     user_profile: Dict[str, Any] = Field(default_factory=dict)
+    weather: Any = None
+    weather_context: Any = None
+    weatherData: Any = None
+    location: Any = None
+    coordinates: Any = None
+    latitude: float | None = None
+    longitude: float | None = None
+    lat: float | None = None
+    lon: float | None = None
+    lng: float | None = None
 
 
 _MODULE_CHAT_PROMPTS: Dict[str, str] = {
@@ -4338,6 +4359,7 @@ def _module_plan_pack_response(
             "module_route": module_key or "planner",
             "action_intent": action_intent,
         },
+        "context_usage": context.get("context_usage") or {},
     }
 
 
@@ -4453,6 +4475,18 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
         profile["user_id"] = user_id
     user_message = str(request.message or "").strip()
     merged_context = {**(request.context_data or {}), **(request.context or {})}
+    resolved_context = resolve_location_weather_context(
+        user_id=user_id,
+        request_data=request.model_dump(exclude_none=True),
+        profile=profile,
+    )
+    profile = resolved_context["profile"]
+    merged_context["location_context"] = resolved_context["location"]
+    merged_context["weather_context"] = resolved_context["weather"]
+    merged_context["weather_data"] = resolved_context["weather"]
+    merged_context["context_usage"] = resolved_context["context_usage"]
+    if resolved_context["weather"].get("status") == "available":
+        profile["weather"] = resolved_context["weather"]
     # Forward chat history so module handlers (e.g. calendar) can slot-fill
     # across turns ("tomorrow" from an earlier turn + "shopping at 5pm").
     if request.history and "history" not in merged_context:
@@ -5076,6 +5110,20 @@ def text_chat(request: TextChatRequest, http_request: Request):
         request.user_profile if isinstance(request.user_profile, dict) else {},
     )
     profile_ms = round((time.perf_counter() - profile_started) * 1000, 2)
+    resolved_context = resolve_location_weather_context(
+        user_id=user_id,
+        request_data=request.model_dump(exclude_none=True),
+        profile=effective_user_profile,
+    )
+    effective_user_profile = resolved_context["profile"]
+    weather_data = resolved_context["weather"]
+    weather_for_consumers = weather_data if weather_data.get("status") == "available" else {}
+    if weather_data.get("status") == "available":
+        effective_user_profile["weather"] = weather_data
+    request.context["location_context"] = resolved_context["location"]
+    request.context["weather_context"] = resolved_context["weather"]
+    request.context["weather_data"] = resolved_context["weather"]
+    request.context["context_usage"] = resolved_context["context_usage"]
 
     # Beta Intelligence Bridge. This is request-carried and persistence-free;
     # it does not add another intent/model invocation.
@@ -5274,7 +5322,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
         return _module_plan_pack_response(
             module_key=str(request.module_context or "planner"),
             user_message=user_input,
-            context_data={},
+            context_data={"context_usage": resolved_context["context_usage"]},
             user_profile=effective_user_profile,
             user_id=user_id,
         )
@@ -5627,7 +5675,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "user_id": user_id,
             "occasion": _ahvi_style_occasion(english_input),
             "wardrobe": request.wardrobe if isinstance(request.wardrobe, list) else [],
-            "weather": weather_data if "weather_data" in locals() else {},
+            "weather": weather_for_consumers,
             "last_style_context": _last_style_context,
         },
         wardrobe_summary={
@@ -5798,7 +5846,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
                     "module_context": request.module_context or "style",
                     "user_profile": effective_user_profile,
                     "wardrobe": request.wardrobe,
-                    "weather": weather_data.get("condition") if "weather_data" in locals() else None,
+                    "weather": weather_for_consumers.get("condition"),
                 },
             )
         except Exception:
@@ -5992,17 +6040,6 @@ def text_chat(request: TextChatRequest, http_request: Request):
     # -------------------------
     # WEATHER
     # -------------------------
-    weather_data = {}
-    try:
-        location = effective_user_profile.get("location") or {}
-        lat, lon = location.get("lat"), location.get("lon")
-
-        if lat is not None and lon is not None:
-            weather_data = _get_weather_cached(lat=lat, lon=lon)
-
-    except Exception as e:
-        logger.warning("weather lookup failed %s", e)
-
     # -------------------------
     # ORCHESTRATOR (TIMEOUT SAFE)
     # -------------------------
@@ -6028,6 +6065,10 @@ def text_chat(request: TextChatRequest, http_request: Request):
                 "wardrobe": request.wardrobe,
                 "history": merged_history[-20:],
                 "weather": weather_data.get("condition"),
+                "weather_data": weather_data,
+                "weather_context": weather_data,
+                "location_context": resolved_context["location"],
+                "context_usage": resolved_context["context_usage"],
                 "time_of_day": weather_data.get("time_of_day"),
                 "signals": {"user_message_style": user_message_style},
                 "style_action": style_action,
@@ -6341,6 +6382,7 @@ def text_chat(request: TextChatRequest, http_request: Request):
             "style_cache_bypass": bool(cache_visual_boards),
         },
         "audio_job_id": audio_job_id,
+        "context_usage": resolved_context["context_usage"],
     }
 
     # -------------------------

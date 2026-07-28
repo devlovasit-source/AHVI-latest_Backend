@@ -1,179 +1,143 @@
-import requests
+from __future__ import annotations
+
 from datetime import datetime
+from typing import Any, Dict
+
+import requests
+
+
+class WeatherProviderError(RuntimeError):
+    """A stable, non-provider-specific weather lookup failure."""
+
+    def __init__(self, code: str, message: str = "Weather provider unavailable"):
+        super().__init__(message)
+        self.code = code
+
+
+def _weather_type(code: int) -> str:
+    if code == 0:
+        return "clear"
+    if code in {1, 2}:
+        return "partly_cloudy"
+    if code == 3:
+        return "cloudy"
+    if code in {45, 48}:
+        return "fog"
+    if code in {51, 53, 55, 61, 63, 65, 80, 81, 82}:
+        return "rain"
+    if code in {71, 73, 75, 77, 85, 86}:
+        return "snow"
+    if code in {95, 96, 99}:
+        return "storm"
+    return "unknown"
+
+
+def _time_of_day(value: Any) -> str:
+    try:
+        hour = datetime.fromisoformat(str(value)).hour
+    except (TypeError, ValueError):
+        raise WeatherProviderError("invalid_provider_time")
+    if 5 <= hour < 12:
+        return "morning"
+    if 12 <= hour < 17:
+        return "afternoon"
+    if 17 <= hour < 21:
+        return "evening"
+    return "night"
 
 
 class WeatherEngine:
-    """
-    🔥 ELITE WEATHER INTELLIGENCE ENGINE
-
-    Converts raw weather → styling signals
-
-    Outputs:
-    - temperature intelligence
-    - condition intelligence
-    - styling signals
-    """
-
-    def get_weather_context(self, lat: float, lon: float):
-
+    def get_weather_context(self, lat: float, lon: float) -> Dict[str, Any]:
+        url = (
+            "https://api.open-meteo.com/v1/forecast"
+            f"?latitude={lat}&longitude={lon}"
+            "&current=temperature_2m,apparent_temperature,relative_humidity_2m,"
+            "precipitation,rain,weather_code,wind_speed_10m"
+            "&hourly=precipitation_probability"
+            "&timezone=auto"
+        )
         try:
-            url = (
-                f"https://api.open-meteo.com/v1/forecast"
-                f"?latitude={lat}&longitude={lon}"
-                f"&hourly=temperature_2m,weathercode,wind_speed_10m"
-                f"&timezone=auto"
-            )
+            response = requests.get(url, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+        except requests.Timeout as exc:
+            raise WeatherProviderError("provider_timeout") from exc
+        except requests.RequestException as exc:
+            raise WeatherProviderError("provider_request_failed") from exc
+        except ValueError as exc:
+            raise WeatherProviderError("invalid_provider_response") from exc
 
-            res = requests.get(url, timeout=5)
-            res.raise_for_status()
-            data = res.json()
+        current = data.get("current") if isinstance(data, dict) else None
+        if not isinstance(current, dict):
+            raise WeatherProviderError("incomplete_provider_response")
+        try:
+            temperature = float(current["temperature_2m"])
+            code = int(current["weather_code"])
+            wind = float(current["wind_speed_10m"])
+            observed_at = str(current["time"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise WeatherProviderError("incomplete_provider_response") from exc
 
-            hourly = data.get("hourly") or {}
-            times = hourly.get("time") or []
-            temps = hourly.get("temperature_2m") or []
-            codes = hourly.get("weathercode") or []
-            winds = hourly.get("wind_speed_10m") or []
-            if not (times and temps and codes and winds):
-                raise ValueError("incomplete hourly weather data")
-
-            now = datetime.now()
-            now_str = now.strftime("%Y-%m-%dT%H:00")
-
-            # -------------------------
-            # SAFE INDEX MATCH
-            # -------------------------
-            if now_str in times:
-                idx = times.index(now_str)
-            else:
-                now_epoch = now.timestamp()
-
-                def _hour_distance(index: int) -> float:
-                    try:
-                        return abs(
-                            datetime.fromisoformat(str(times[index])).timestamp()
-                            - now_epoch
-                        )
-                    except Exception:
-                        return float("inf")
-
-                idx = min(range(len(times)), key=_hour_distance)
-                if idx >= len(temps) or idx >= len(codes) or idx >= len(winds):
-                    idx = 0
-
-            temp = temps[idx]
-            code = codes[idx]
-            wind = winds[idx]
-
-            # -------------------------
-            # 🌡️ TEMPERATURE INTELLIGENCE
-            # -------------------------
-            if temp >= 35:
-                temp_level = "extreme_heat"
-                sweat_risk = "very_high"
-            elif temp >= 30:
-                temp_level = "very_hot"
-                sweat_risk = "high"
-            elif temp >= 26:
-                temp_level = "hot"
-                sweat_risk = "medium"
-            elif temp >= 18:
-                temp_level = "mild"
-                sweat_risk = "low"
-            else:
-                temp_level = "cold"
-                sweat_risk = "low"
-
-            # -------------------------
-            # 🌧️ WEATHER TYPE
-            # -------------------------
-            if code == 0:
-                weather_type = "clear"
-            elif code in [1, 2]:
-                weather_type = "partly_cloudy"
-            elif code == 3:
-                weather_type = "cloudy"
-            elif code in [45, 48]:
-                weather_type = "fog"
-            elif code in [51, 53, 55, 61, 63, 65, 80, 81, 82]:
-                weather_type = "rain"
-            elif code in [95, 96, 99]:
-                weather_type = "storm"
-            else:
-                weather_type = "unknown"
-
-            # -------------------------
-            # 🌬️ WIND INTELLIGENCE
-            # -------------------------
-            if wind >= 25:
-                wind_level = "strong"
-            elif wind >= 12:
-                wind_level = "moderate"
-            else:
-                wind_level = "light"
-
-            # -------------------------
-            # 🌅 TIME OF DAY
-            # -------------------------
-            hour = now.hour
-
-            if 5 <= hour < 12:
-                time_of_day = "morning"
-            elif 12 <= hour < 17:
-                time_of_day = "afternoon"
-            elif 17 <= hour < 21:
-                time_of_day = "evening"
-            else:
-                time_of_day = "night"
-
-            # -------------------------
-            # 🔥 STYLE SIGNALS (THE REAL MAGIC)
-            # -------------------------
-            signals = {
-                "layering_needed": temp < 20 or weather_type in ["rain", "storm"],
-                "breathable_required": temp >= 28,
-                "waterproof_required": weather_type in ["rain", "storm"],
-                "avoid_loose_flow": wind_level == "strong",
-                "prefer_light_colors": temp >= 30,
-                "prefer_dark_colors": weather_type in ["cloudy", "storm"],
-                "outdoor_friendly": weather_type in ["clear", "partly_cloudy"],
-                "sweat_risk": sweat_risk,
-            }
-
-            return {
-                "temperature": temp,
-                "temp_level": temp_level,
-                "weather_type": weather_type,
-                "wind_level": wind_level,
-                "time_of_day": time_of_day,
-                "signals": signals,
-                "raw": {"code": code, "wind_speed": wind},
-            }
-
-        except Exception as e:
-            print("Weather engine failed:", str(e))
-
-            return {
-                "temperature": 25,
-                "temp_level": "mild",
-                "weather_type": "clear",
-                "wind_level": "light",
-                "time_of_day": "day",
-                "signals": {
-                    "layering_needed": False,
-                    "breathable_required": True,
-                    "waterproof_required": False,
-                    "avoid_loose_flow": False,
-                    "prefer_light_colors": True,
-                    "prefer_dark_colors": False,
-                    "outdoor_friendly": True,
-                    "sweat_risk": "low",
-                },
-                "raw": {},
-            }
+        condition = _weather_type(code)
+        if temperature >= 35:
+            temp_level, sweat_risk = "extreme_heat", "very_high"
+        elif temperature >= 30:
+            temp_level, sweat_risk = "very_hot", "high"
+        elif temperature >= 26:
+            temp_level, sweat_risk = "hot", "medium"
+        elif temperature >= 18:
+            temp_level, sweat_risk = "mild", "low"
+        else:
+            temp_level, sweat_risk = "cold", "low"
+        wind_level = "strong" if wind >= 25 else "moderate" if wind >= 12 else "light"
+        signals = {
+            "layering_needed": temperature < 20 or condition in {"rain", "storm", "snow"},
+            "breathable_required": temperature >= 28,
+            "waterproof_required": condition in {"rain", "storm", "snow"},
+            "avoid_loose_flow": wind_level == "strong",
+            "prefer_light_colors": temperature >= 30,
+            "prefer_dark_colors": condition in {"cloudy", "storm"},
+            "outdoor_friendly": condition in {"clear", "partly_cloudy"},
+            "sweat_risk": sweat_risk,
+        }
+        feels_like = current.get("apparent_temperature")
+        humidity = current.get("relative_humidity_2m")
+        hourly = data.get("hourly") if isinstance(data.get("hourly"), dict) else {}
+        hourly_times = hourly.get("time") if isinstance(hourly.get("time"), list) else []
+        rain_probabilities = (
+            hourly.get("precipitation_probability")
+            if isinstance(hourly.get("precipitation_probability"), list)
+            else []
+        )
+        rain_probability = None
+        if observed_at in hourly_times:
+            index = hourly_times.index(observed_at)
+            if index < len(rain_probabilities):
+                rain_probability = rain_probabilities[index]
+        return {
+            "status": "available",
+            "temperature": temperature,
+            "temp_c": temperature,
+            "temperature_c": temperature,
+            "feels_like_c": float(feels_like) if feels_like is not None else temperature,
+            "humidity": float(humidity) if humidity is not None else None,
+            "rain_probability": rain_probability,
+            "temp_level": temp_level,
+            "condition": condition,
+            "weather_type": condition,
+            "wind_speed": wind,
+            "wind_level": wind_level,
+            "time_of_day": _time_of_day(observed_at),
+            "observed_at": observed_at,
+            "weather_timestamp": observed_at,
+            "provider": "open-meteo",
+            "signals": signals,
+            "raw": {"code": code, "wind_speed": wind},
+        }
 
 
 weather_engine = WeatherEngine()
 
 
-def get_hourly_weather(lat: float, lon: float):
+def get_hourly_weather(lat: float, lon: float) -> Dict[str, Any]:
     return weather_engine.get_weather_context(lat, lon)

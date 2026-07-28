@@ -19,8 +19,15 @@ def _weather_context(payload: Dict[str, Any]) -> Dict[str, Any]:
     raw = payload.get("weather") or payload.get("weather_context") or {}
     if not isinstance(raw, dict):
         raw = {"condition": str(raw)}
-    condition = str(raw.get("condition") or "").lower()
-    temp = raw.get("temperature") or raw.get("temp_c")
+    condition = str(
+        raw.get("condition")
+        or raw.get("weather_type")
+        or raw.get("weatherType")
+        or ""
+    ).lower()
+    temp = raw.get("temperature")
+    if temp is None:
+        temp = raw.get("temp_c")
     humidity = raw.get("humidity")
     recommendation = "normal"
     if "rain" in condition or "storm" in condition:
@@ -32,6 +39,7 @@ def _weather_context(payload: Dict[str, Any]) -> Dict[str, Any]:
         recommendation = "shorter"
         condition = condition or "hot"
     return {
+        "status": "available" if condition or temp is not None or humidity is not None else "unavailable",
         "condition": condition or "unknown",
         "temperature": temp,
         "humidity": humidity,
@@ -81,7 +89,8 @@ def build_workout_context(user_id: str, payload: Dict[str, Any]) -> Dict[str, An
     except Exception:
         duration = 20
 
-    location = str(payload.get("location") or "").lower().strip()
+    location_value = payload.get("location")
+    location = str(location_value if isinstance(location_value, str) else "").lower().strip()
     if not location:
         location = "home" if weather["recommendation"] in {"indoor", "shorter"} else "home"
 

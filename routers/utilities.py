@@ -83,27 +83,15 @@ def anthropic_messages(request: AnthropicRequest):
 
 @router.get("/api/weather")
 def weather(latitude: float, longitude: float):
-    # Open-Meteo is keyless and suitable for quick weather snapshots.
-    url = (
-        "https://api.open-meteo.com/v1/forecast"
-        f"?latitude={latitude}&longitude={longitude}&current=temperature_2m,weather_code,wind_speed_10m"
-    )
     try:
-        res = requests.get(url, timeout=20)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Weather request failed: {exc}")
+        from services.weather_service import WeatherProviderError, get_hourly_weather
 
-    if res.status_code >= 400:
-        logger.warning(
-            "weather_upstream_error status=%d body_len=%d",
-            res.status_code,
-            len(res.text or ""),
-        )
+        return get_hourly_weather(latitude, longitude)
+    except WeatherProviderError as exc:
         raise HTTPException(
-            status_code=502 if res.status_code >= 500 else 400,
-            detail="Upstream weather error",
-        )
-    return res.json()
+            status_code=502,
+            detail={"type": "weather_provider_error", "code": exc.code},
+        ) from exc
 
 
 @router.post("/api/uploads/avatar")
