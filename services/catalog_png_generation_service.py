@@ -78,8 +78,8 @@ Requirements:
 - no model
 - no props
 - no accessories
-- white background
-- plain pure white studio background only
+- transparent background with a clean alpha channel
+- no baked background fill of any colour
 - garment only, centered, natural catalog lighting
 - no black border
 - no outline
@@ -111,7 +111,7 @@ Reconstruct any parts hidden, flattened, or distorted in the source (collar, sho
 
 Preserve EXACTLY: the same garment, its color, print/pattern, fabric texture, silhouette, proportions, neckline, sleeves, straps, and hemline length. Do NOT redesign, recolor, or alter the print. Never convert full-length to short.
 
-Background: pure white studio, soft even lighting, a subtle natural contact shadow under the garment only.
+Background: fully transparent with a clean alpha channel, soft even lighting, a subtle natural contact shadow under the garment only.
 
 Output ONE clean catalog image: garment only on an invisible mannequin. No text, watermark, border, frame, card, template, person, visible mannequin, hanger, or background clutter."""
 
@@ -231,7 +231,7 @@ Single garment product photo.
 Centered.
 Upright.
 Clean studio lighting.
-Pure white background.
+Transparent background with a clean alpha channel.
 No black border, no outline, no rectangular frame, no product card, no box, no mat, no template border.
 Entire dress visible from top to hem.
 Fashion catalog quality.{anchor}{final_anchor}"""
@@ -301,6 +301,17 @@ def _truthy(value: Any) -> bool:
 def _forced_provider_reason(metadata: Optional[Dict[str, Any]], category: str) -> str:
     meta = metadata or {}
     blob = _text_blob(meta)
+    # Explicit boolean risk signals win over text sniffing — a person/mirror
+    # source must never fall through to a plain cutout.
+    unsafe_reason = str(
+        meta.get("unsafe_reason") or meta.get("unsafeSourceReason") or ""
+    ).strip()
+    if (
+        _truthy(meta.get("unsafe_source"))
+        or _truthy(meta.get("source_contains_person"))
+        or unsafe_reason
+    ):
+        return "unsafe_person_source"
     if _truthy(meta.get("needs_review")) or _truthy(meta.get("requires_manual_entry")):
         return "needs_review"
     crop_quality = str(meta.get("crop_quality") or meta.get("cropQuality") or "").strip().lower()
@@ -475,6 +486,69 @@ def _transparent_catalog_canvas(image_bytes: bytes, category: Any) -> Tuple[Opti
     canvas.alpha_composite(resized, (x, y))
     bounds = {"x": int(x), "y": int(y), "w": int(resized.size[0]), "h": int(resized.size[1])}
     return canvas, rotation, bounds, ""
+
+
+def _provider_output_to_transparent(
+    image_bytes: bytes, category: Any, item_id: Any = ""
+) -> Tuple[bytes, str]:
+    """Provider output -> RMBG -> transparent catalogue canvas.
+
+    Returns (png_bytes, reason). On any failure returns (b"", reason) so the
+    caller keeps the original bytes and normal validation rejects an opaque
+    image. RMBG stays the enforcement step because the model may ignore the
+    prompt's transparency instruction."""
+    try:
+        if not is_effectively_transparent(image_bytes):
+            from services.bg_service import remove_bg_external_sync
+
+            image_bytes = remove_bg_external_sync(image_bytes)
+            # bg_service fails OPEN (returns the input unchanged when RMBG is
+            # unset or errors). Check BEFORE canvasing: the canvas adds
+            # transparent padding around the garment, which would mask a
+            # still-white cutout and reproduce the white-box bug.
+            if not is_effectively_transparent(image_bytes):
+                logger.info(
+                    "ahvi.catalog.transparency.still_opaque item_id=%s", item_id
+                )
+                return b"", "still_opaque"
+        canvas, _rot, _bounds, reason = _transparent_catalog_canvas(image_bytes, category)
+        if canvas is None:
+            logger.info(
+                "ahvi.catalog.transparency.canvas_failed item_id=%s reason=%s",
+                item_id,
+                reason,
+            )
+            return b"", reason or "canvas_failed"
+        out = _encode_png(canvas)
+        if not is_effectively_transparent(out):
+            logger.info(
+                "ahvi.catalog.transparency.still_opaque item_id=%s", item_id
+            )
+            return b"", "still_opaque"
+        logger.info("ahvi.catalog.transparency.ok item_id=%s", item_id)
+        return out, "ok"
+    except Exception as exc:  # noqa: BLE001 - never break generation
+        logger.info(
+            "ahvi.catalog.transparency.failed item_id=%s err=%s",
+            item_id,
+            str(exc)[:120],
+        )
+        return b"", "rmbg_failed"
+
+
+def is_effectively_transparent(image_bytes: bytes) -> bool:
+    """True when the image carries real transparency (>=1% transparent pixels)."""
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        if img.mode not in {"RGBA", "LA", "P"}:
+            return False
+        alpha = img.convert("RGBA").getchannel("A")
+        values = list(alpha.resize((64, 64)).getdata())
+        if not values:
+            return False
+        return (sum(1 for v in values if v < 16) / float(len(values))) >= 0.01
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _encode_png(img: Image.Image) -> bytes:
@@ -1616,6 +1690,20 @@ def generate_catalog_png(
                     )
 
     if provider_result.success and provider_result.image_bytes:
+        # The provider returns an OPAQUE image (white studio background), and
+        # convert("RGBA") does not remove it — that is what produced white boxes
+        # in Wardrobe/Style Boards. Run the same RMBG service used everywhere
+        # else, then recentre on the transparent catalogue canvas, BEFORE
+        # validation so an opaque result can never be demo-accepted.
+        transparent_bytes, _rmbg_reason = _provider_output_to_transparent(
+            provider_result.image_bytes, category, meta.get("item_id")
+        )
+        if transparent_bytes:
+            provider_result = CatalogProviderResult(
+                success=True,
+                image_bytes=transparent_bytes,
+                provider=provider_result.provider,
+            )
         if provider_result.provider == "nanobanana":
             logger.info(
                 "ahvi.capture.catalog.nanobanana.success item_id=%s category=%s",

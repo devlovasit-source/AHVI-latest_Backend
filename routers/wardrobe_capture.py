@@ -2065,6 +2065,16 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
                 "source": item.get("source"),
                 "label_source": item.get("label_source"),
                 "validation_status": item.get("validation_status"),
+                # Explicit risk signals: the generator must force Imagen for
+                # person/mirror/selfie sources, and text sniffing alone can miss
+                # them.
+                "unsafe_source": bool(item.get("unsafe_source")),
+                "source_contains_person": bool(item.get("source_contains_person")),
+                "unsafe_reason": (
+                    item.get("unsafe_reason")
+                    or item.get("unsafeSourceReason")
+                    or ""
+                ),
             }
             logger.info(
                 "ahvi.catalog.metadata item_id=%s crop_quality=%s needs_review=%s review_reason=%s",
@@ -4266,6 +4276,14 @@ def save_selected(
         result["saved_count"] = saved_count
         result["dropped_count"] = dropped_count
         result["dropped_reasons"] = dropped_reasons
+        # Never report success when nothing was durably saved.
+        if requested_count > 0 and saved_count == 0:
+            result["success"] = False
+            result["message"] = "Selected wardrobe items could not be saved."
+            result["retryable"] = True
+        elif dropped_count > 0:
+            result["partial_success"] = True
+            result["message"] = f"Saved {saved_count} of {requested_count} selected items."
         if dropped_count and not int(result.get("skipped") or 0) and not result.get("errors"):
             result["skipped"] = dropped_count
         try:

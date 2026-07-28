@@ -264,7 +264,9 @@ def test_save_selected_skips_unsafe_catalog_generation_failure(monkeypatch):
 
     result = _save_selected(_Request(), request)
 
-    assert result["success"] is True
+    # Nothing was durably saved -> the response must not claim success.
+    assert result["success"] is False
+    assert result.get("retryable") is True
     assert result["saved_count"] == 0
     assert persisted["items"] == []
     assert result["selected_count"] == 0
@@ -299,7 +301,9 @@ def test_save_selected_skips_blank_catalog_generation_failure(monkeypatch):
 
     result = _save_selected(_Request(), request)
 
-    assert result["success"] is True
+    # Nothing was durably saved -> the response must not claim success.
+    assert result["success"] is False
+    assert result.get("retryable") is True
     assert result["saved_count"] == 0
     assert persisted["items"] == []
     assert result["dropped_count"] == 1
