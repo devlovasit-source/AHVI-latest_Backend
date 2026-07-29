@@ -10,6 +10,7 @@ from services.location_weather_context import resolve_location_weather_context
 from services.workout_card_service import get_today_workout_card
 from services.workout_context_service import build_workout_context
 from services.diet_service import get_diet_recommendation
+from services.today_meal_plan_service import get_today_meal_plan
 from services.adherence_read_service import (
     get_today_skincare_state_readonly,
     get_today_medicine_state_readonly,
@@ -18,6 +19,11 @@ from services.adherence_read_service import (
 logger = logging.getLogger("ahvi.services.home_summary_service")
 
 CONTEXT_VERSION = "2.2.0"
+
+def _str_or(value, fallback: str) -> str:
+    text = str(value if value is not None else "").strip()
+    return text or fallback
+
 
 def _obfuscate_uid(user_id: str) -> str:
     if not user_id:
@@ -218,36 +224,65 @@ async def generate_home_summary(
     # 3. EAT CARD (Diet)
     # -------------------------------------------------------------
     try:
-        diet_res = get_diet_recommendation(
-            user_id=user_id,
-            local_date=local_date,
-            local_hour=local_hour,
-            meal_type=None,
-            profile=user_profile
-        )
-        if diet_res and diet_res.get("status") == "ready" and diet_res.get("recommendation"):
-            profile_used = True
-            rec = diet_res["recommendation"]
+        eat_card = None
+
+        # A. Today's persisted meal plan wins. Read-only; never crashes the card.
+        try:
+            plan_res = get_today_meal_plan(user_id=user_id, local_now=local_now)
+        except Exception:
+            logger.exception("Today meal plan lookup failed")
+            plan_res = None
+
+        if plan_res and plan_res.get("status") == "ready" and plan_res.get("meal"):
+            meal = plan_res["meal"]
+            meal_type_label = (_str_or(meal.get("type"), "Meal")).title()
             cards["eat"] = {
-                "headline": f"Balanced {rec['meal_type']} recommendation",
-                "context": rec["title"],
+                "headline": f"{meal_type_label} from today's plan",
+                "context": _str_or(meal.get("name"), "Today's meal"),
                 "status": "ready",
                 "action": "open_diet",
-                "entity_id": rec["id"],
+                "entity_id": plan_res.get("plan_id"),
                 "available": True,
                 "reason": None,
-                "source": "diet_recommendation"
+                "source": "meal_plan"
             }
-        else:
+            eat_card = cards["eat"]
+
+        # C. No same-day plan -> preserve the existing recommendation path.
+        if eat_card is None:
+            diet_res = get_diet_recommendation(
+                user_id=user_id,
+                local_date=local_date,
+                local_hour=local_hour,
+                meal_type=None,
+                profile=user_profile
+            )
+            if diet_res and diet_res.get("status") == "ready" and diet_res.get("recommendation"):
+                profile_used = True
+                rec = diet_res["recommendation"]
+                cards["eat"] = {
+                    "headline": f"Balanced {rec['meal_type']} recommendation",
+                    "context": rec["title"],
+                    "status": "ready",
+                    "action": "open_diet",
+                    "entity_id": rec["id"],
+                    "available": True,
+                    "reason": None,
+                    "source": "diet_recommendation"
+                }
+                eat_card = cards["eat"]
+
+        # D. Neither plan nor recommendation resolved.
+        if eat_card is None:
             cards["eat"] = {
-                "headline": "Recommendation unavailable",
-                "context": "Open the module to continue",
+                "headline": "No meal planned yet",
+                "context": "Open Diet to create today's plan",
                 "status": "unavailable",
                 "action": "open_diet",
                 "entity_id": None,
                 "available": False,
-                "reason": diet_res.get("reason") or "diet_constraints_unresolved",
-                "source": "diet_recommendation"
+                "reason": "today_meal_plan_missing",
+                "source": "meal_plan"
             }
     except Exception as exc:
         logger.exception("Eat card generation failed")
