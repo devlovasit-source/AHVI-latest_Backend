@@ -8,9 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from brain.engines.fitness.fitness_engine import fitness_engine
-from brain.engines.fitness.workout_ranker import workout_ranker
 from middleware.auth_middleware import get_current_user
-from services.workout_card_service import build_workout_card
+from services.workout_card_service import get_workout_recommendations, get_today_workout_card
 from services.workout_context_service import build_workout_context
 from services.appwrite_proxy import AppwriteProxy
 from services.location_weather_context import resolve_location_weather_context
@@ -52,11 +51,11 @@ class WorkoutFeedbackRequest(BaseModel):
     reason: str | None = None
 
 
-def _user_id(user: Any, fallback: str | None = None) -> str:
+def _user_id(user: Any) -> str:
     uid = str(
         (user or {}).get("user_id")
         or (user or {}).get("$id")
-        or fallback
+        or (user or {}).get("id")
         or ""
     ).strip()
     if not uid:
@@ -68,18 +67,12 @@ def _history_for(user_id: str) -> List[Dict[str, Any]]:
     return _WORKOUT_HISTORY.setdefault(user_id, [])
 
 
-def _recommendations(context: Dict[str, Any], limit: int = 3) -> List[Dict[str, Any]]:
-    raw = fitness_engine.filter_sessions(context)
-    if not raw:
-        raw = fitness_engine.relaxed_fallback(context, limit=max(limit, 3))
-    ranked = workout_ranker.rank(raw, context, limit=limit)
-    return [build_workout_card(session, context) for session in ranked]
-
-
 def _weather_note(context: Dict[str, Any]) -> str:
     weather = context.get("weather_context") if isinstance(context.get("weather_context"), dict) else {}
     condition = str(weather.get("condition") or "").strip()
-    temp = weather.get("temp_c") or weather.get("temperature") or weather.get("temperature_c")
+    temp = weather.get("temp_c") if weather.get("temp_c") is not None else (
+        weather.get("temperature") if weather.get("temperature") is not None else weather.get("temperature_c")
+    )
     bits: List[str] = []
     if temp not in (None, ""):
         bits.append(f"{temp}°C")
@@ -149,7 +142,8 @@ def recommend_workout(
     req: WorkoutRecommendRequest,
     user=Depends(get_current_user),
 ):
-    user_id = _user_id(user, req.user_id)
+    # Ignore request-body user_id; authenticated identity is authoritative
+    user_id = _user_id(user)
     skipped = [
         item["workout_id"]
         for item in _history_for(user_id)[-10:]
@@ -167,7 +161,9 @@ def recommend_workout(
         dict.fromkeys((payload.get("recent_skipped_workout_ids") or []) + skipped)
     )
     context = build_workout_context(user_id, payload)
-    cards = _recommendations(context)
+
+    # Call public service
+    cards = get_workout_recommendations(user_id=user_id, context=context) or []
     _persist_cards(user_id, cards, context)
     return {
         "type": "fitness_recommendation",
@@ -203,12 +199,15 @@ def today_workout(request: Request, user=Depends(get_current_user)):
             "duration": 12,
             "location": "home",
             "equipment": "none",
-            "profile": user or {},
+            "profile": resolved["profile"],
             "weather_context": resolved["weather"],
             "location_context": resolved["location"],
         },
     )
-    cards = _recommendations(context, limit=1)
+
+    # Call public service
+    card = get_today_workout_card(user_id=user_id, profile=user, context=context)
+    cards = [card] if card else []
     _persist_cards(user_id, cards, context)
     first = cards[0] if cards else None
     return {
@@ -223,7 +222,7 @@ def today_workout(request: Request, user=Depends(get_current_user)):
 
 @router.post("/complete")
 def complete_workout(req: WorkoutFeedbackRequest, user=Depends(get_current_user)):
-    user_id = _user_id(user, req.user_id)
+    user_id = _user_id(user)
     entry = {
         "user_id": user_id,
         "workout_id": req.workout_id,
@@ -239,7 +238,7 @@ def complete_workout(req: WorkoutFeedbackRequest, user=Depends(get_current_user)
 
 @router.post("/skip")
 def skip_workout(req: WorkoutFeedbackRequest, user=Depends(get_current_user)):
-    user_id = _user_id(user, req.user_id)
+    user_id = _user_id(user)
     entry = {
         "user_id": user_id,
         "workout_id": req.workout_id,

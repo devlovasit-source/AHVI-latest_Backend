@@ -136,6 +136,8 @@ skincare_adherence_router = _load_optional_router("routers.skincare_adherence")
 notifications_router = _load_optional_router("routers.notifications")
 workouts_router = _load_optional_router("routers.workouts")
 bills_router = _load_optional_router("routers.bills")
+home_router = _load_optional_router("routers.home")
+diet_router = _load_optional_router("routers.diet")
 lens_similar_router = _load_optional_router("routers.lens_similar")
 contacts_router = _load_optional_router("routers.ahvi_contacts")
 
@@ -717,6 +719,12 @@ if workouts_router:
 
 if bills_router:
     app.include_router(bills_router)
+
+if home_router:
+    app.include_router(home_router, prefix="/api")
+
+if diet_router:
+    app.include_router(diet_router, prefix="/api")
 
 if lens_similar_router:
     app.include_router(lens_similar_router)
