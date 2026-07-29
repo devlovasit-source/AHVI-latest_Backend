@@ -10,6 +10,8 @@ Covers:
 
 from __future__ import annotations
 
+from fastapi import BackgroundTasks
+
 import asyncio
 import base64
 import io
@@ -888,7 +890,7 @@ def test_save_selected_runs_rmbg_for_gemini_multi_items(monkeypatch):
         selected_item_ids=["id-1", "id-2"],
         detected_items=items,
     )
-    result = wc.save_selected(_FakeHttpRequest(), request)
+    result = wc.save_selected(_FakeHttpRequest(), request, BackgroundTasks())
 
     assert result["success"] is True
     assert calls["count"] == 2
@@ -916,15 +918,14 @@ def test_save_selected_survives_rmbg_failure(monkeypatch):
         selected_item_ids=["id-1"],
         detected_items=items,
     )
-    result = wc.save_selected(_FakeHttpRequest(), request)
+    result = wc.save_selected(_FakeHttpRequest(), request, BackgroundTasks())
 
-    # Save must not fail; raw crop is uploaded as the cutout.
+    # Save must not fail, but the raw crop must not be published as a cutout.
     assert result["success"] is True
-    assert len(_FakeR2Upload.last_calls) == 1
-    call = _FakeR2Upload.last_calls[0]
-    assert call["masked"] == call["raw"]
+    assert _FakeR2Upload.last_calls == []
     saved = persisted["detected_items"][0]
-    assert saved.get("image_url")
+    assert not saved.get("masked_url")
+    assert not saved.get("masked_image_base64")
     assert saved.get("imageStatus") == "rmbg_failed"
     assert saved.get("image_status") == "rmbg_failed"
     assert saved.get("preview_cutout_pending") is False
@@ -960,7 +961,7 @@ def test_save_selected_prefers_each_item_crop_over_shared_collage_url(monkeypatc
         detected_items=items,
     )
 
-    result = wc.save_selected(_FakeHttpRequest(), request)
+    result = wc.save_selected(_FakeHttpRequest(), request, BackgroundTasks())
 
     assert result["success"] is True
     calls_by_id = {call["file_id"]: call for call in _FakeR2Upload.last_calls}
@@ -1060,3 +1061,53 @@ def test_gemini_multi_does_not_change_save_schema(monkeypatch):
         "crop_quality_score", "detection_mode", "regen_provider", "input_type",
     ):
         assert key in gemini_keys, key
+
+
+# ── save_selected must not report success when nothing was saved ───────────
+
+async def _passthrough_bg(data: bytes) -> bytes:
+    return data
+
+
+def test_save_selected_reports_failure_when_nothing_is_saved(monkeypatch):
+    """requested>0 and saved==0 previously still returned success=True, so the
+    app showed 'added' for items that were never persisted."""
+    _wire_save_selected(monkeypatch, _passthrough_bg)
+
+    def _persist_nothing(*, user_id, selected_item_ids, detected_items):
+        return {"success": True, "saved_count": 0, "errors": []}
+
+    monkeypatch.setattr(wc, "persist_selected_items", _persist_nothing)
+
+    items = [_gemini_preview_save_item("id-1")]
+    request = wc.SaveSelectedRequest(
+        user_id="u1", selected_item_ids=["id-1"], detected_items=items
+    )
+    result = wc.save_selected(_FakeHttpRequest(), request, BackgroundTasks())
+
+    assert result["requested_count"] == 1
+    assert result["saved_count"] == 0
+    assert result["success"] is False
+    assert result.get("retryable") is True
+    assert "could not be saved" in str(result.get("message", "")).lower()
+
+
+def test_save_selected_reports_partial_success_when_some_dropped(monkeypatch):
+    _wire_save_selected(monkeypatch, _passthrough_bg)
+
+    def _persist_one(*, user_id, selected_item_ids, detected_items):
+        return {"success": True, "saved_count": 1, "errors": []}
+
+    monkeypatch.setattr(wc, "persist_selected_items", _persist_one)
+
+    items = [_gemini_preview_save_item("id-1"), _gemini_preview_save_item("id-2", "Blue Bag")]
+    request = wc.SaveSelectedRequest(
+        user_id="u1", selected_item_ids=["id-1", "id-2"], detected_items=items
+    )
+    result = wc.save_selected(_FakeHttpRequest(), request, BackgroundTasks())
+
+    assert result["requested_count"] == 2
+    assert result["saved_count"] == 1
+    assert result["dropped_count"] == 1
+    assert result.get("partial_success") is True
+    assert "1 of 2" in str(result.get("message", ""))

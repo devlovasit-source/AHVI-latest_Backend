@@ -412,8 +412,11 @@ def list_today_calendar_events(user_id: str, *, date: str | None = None) -> List
     if date:
         base = datetime.fromisoformat(date)
     else:
-        base = datetime.now()
-    start = datetime(base.year, base.month, base.day)
+        base = datetime.now(_CALENDAR_TZ)
+    # Build the day window in the calendar timezone. A naive server-local now()
+    # (UTC on Cloud Run) rolled "today" to the previous day between 00:00 and
+    # 05:30 IST.
+    start = datetime(base.year, base.month, base.day, tzinfo=_CALENDAR_TZ)
     end = start + timedelta(days=1)
     return list_calendar_events(user_id, start_time=start.isoformat(), end_time=end.isoformat(), limit=300)
 

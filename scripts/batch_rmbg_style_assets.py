@@ -101,14 +101,58 @@ def _target_key(asset: Dict[str, Any]) -> str:
     path = Path(existing)
     stem = path.stem
     parent = str(path.parent).replace("\\", "/")
-    filename = f"{stem}_cutout.png"
+    filename = f"{stem}_cutout_v{CUTOUT_VERSION}.png"
     return filename if parent in {"", "."} else f"{parent}/{filename}"
+
+
+CUTOUT_VERSION = int(os.getenv("STYLE_ASSET_CUTOUT_VERSION", "1"))
+
+
+def png_alpha_stats(image_bytes: bytes) -> Tuple[bool, float, str]:
+    """Inspect the ACTUAL pixels: (has_alpha_channel, transparent_ratio, reason).
+
+    Never trusts the filename or a DB flag — a catalog_*.png can be RGBA with
+    every alpha byte at 255 (fully opaque, baked white background)."""
+    try:
+        img = Image.open(BytesIO(image_bytes))
+        if img.mode not in {"RGBA", "LA", "P"}:
+            return False, 0.0, "no_alpha_mode"
+        alpha = img.convert("RGBA").getchannel("A")
+        values = list(alpha.resize((96, 96)).getdata())
+        if not values:
+            return False, 0.0, "empty_alpha"
+        ratio = sum(1 for v in values if v < 16) / float(len(values))
+        return True, ratio, "ok"
+    except Exception as exc:  # noqa: BLE001
+        return False, 0.0, f"invalid_image:{str(exc)[:60]}"
+
+
+def is_effectively_opaque(image_bytes: bytes) -> bool:
+    """True when the image has no usable transparency (needs background removal)."""
+    _has_alpha, ratio, reason = png_alpha_stats(image_bytes)
+    if reason.startswith("invalid_image"):
+        return False
+    return ratio < 0.01
 
 
 def _download(url: str) -> bytes:
     response = requests.get(url, timeout=25)
     response.raise_for_status()
     return response.content
+
+
+def validate_cutout_png(image_bytes: bytes) -> Tuple[bool, str, float]:
+    """Accept a processed cutout only when it decodes, carries alpha, and has
+    BOTH transparent background and opaque foreground in sane proportions."""
+    ok, reason = validate_alpha_png(image_bytes)
+    if not ok:
+        return False, reason, 0.0
+    _has_alpha, ratio, _r = png_alpha_stats(image_bytes)
+    if ratio >= 0.995:
+        return False, "almost_fully_transparent", ratio
+    if ratio < 0.01:
+        return False, "still_opaque", ratio
+    return True, "ok", ratio
 
 
 def validate_alpha_png(image_bytes: bytes) -> Tuple[bool, str]:
@@ -195,6 +239,11 @@ def _category_filter(value: Any) -> str:
     return aliases.get(text, text)
 
 
+def _select_by_asset_id(rows: List[Dict[str, Any]], asset_id: str) -> List[Dict[str, Any]]:
+    wanted = _text(asset_id)
+    return [a for a in rows if _doc_id(a) == wanted and _source_url(a)]
+
+
 def _select_p0_assets(
     rows: Iterable[Dict[str, Any]], *, limit: int = 0, category: str = "", gender: str = ""
 ) -> List[Dict[str, Any]]:
@@ -244,11 +293,15 @@ def _preflight_rmbg(apply: bool) -> None:
     print(f"[WARN] {msg} (dry-run: results will be opaque/invalid)", file=sys.stderr)
 
 
-def process_assets(*, apply: bool, scan_limit: int, limit: int = 0, category: str = "", gender: str = "") -> Dict[str, Any]:
+def process_assets(*, apply: bool, scan_limit: int, limit: int = 0, category: str = "", gender: str = "", asset_id: str = "") -> Dict[str, Any]:
     _preflight_rmbg(apply)
     proxy = AppwriteProxy()
     storage = R2Storage()
-    selected = _select_p0_assets(_list_style_assets(scan_limit), limit=limit, category=category, gender=gender)
+    rows = _list_style_assets(scan_limit)
+    if asset_id:
+        selected = _select_by_asset_id(rows, asset_id)
+    else:
+        selected = _select_p0_assets(rows, limit=limit, category=category, gender=gender)
     selected_by_role = Counter(_asset_role(asset) for asset in selected)
     selected_by_gender = Counter(_norm(asset.get("gender") or "unknown") or "unknown" for asset in selected)
     samples = [
@@ -279,6 +332,7 @@ def process_assets(*, apply: bool, scan_limit: int, limit: int = 0, category: st
         "skipped": 0,
         "ready": 0,
         "failed": 0,
+        "already_transparent": 0,
         "by_role": defaultdict(int),
     }
     for asset in selected:
@@ -286,13 +340,40 @@ def process_assets(*, apply: bool, scan_limit: int, limit: int = 0, category: st
         doc_id = _doc_id(asset)
         stats["processed"] += 1
         stats["by_role"][role] += 1
+        print(json.dumps({"event": "AHVI_STYLE_ASSET_RMBG_START", "asset_id": doc_id, "role": role}))
         try:
             raw = _download(_source_url(asset))
+            # Inspect the real pixels: a catalog_*.png can be RGBA yet fully
+            # opaque. Already-transparent sources are left alone (idempotent).
+            if not is_effectively_opaque(raw):
+                stats["processed"] -= 1
+                stats["by_role"][role] -= 1
+                stats["skipped"] += 1
+                stats["already_transparent"] += 1
+                print(json.dumps({
+                    "event": "AHVI_STYLE_ASSET_RMBG_SKIP",
+                    "asset_id": doc_id,
+                    "reason": "already_transparent",
+                }))
+                continue
             cutout = remove_bg_external_sync(raw)
             png = _encode_png(cutout)
-            ok, reason = validate_alpha_png(png)
+            ok, reason, ratio = validate_cutout_png(png)
             if not ok:
+                # bg_service fails OPEN (returns the original opaque bytes when
+                # RMBG is unset/errors), so an unvalidated result would ship a
+                # white rectangle. Never promote it.
+                print(json.dumps({
+                    "event": "AHVI_STYLE_ASSET_RMBG_FAILED",
+                    "asset_id": doc_id,
+                    "reason": reason,
+                }))
                 raise RuntimeError(reason)
+            print(json.dumps({
+                "event": "AHVI_STYLE_ASSET_RMBG_OK",
+                "asset_id": doc_id,
+                "transparent_ratio": round(ratio, 4),
+            }))
             key = _target_key(asset)
             public_url = f"dry-run://{key}"
             if apply:
@@ -301,12 +382,22 @@ def process_assets(*, apply: bool, scan_limit: int, limit: int = 0, category: st
                     "style_assets",
                     doc_id,
                     {
+                        # board_image_url is FIRST in the style/wardrobe reader
+                        # priority chain, so a validated cutout here wins over
+                        # masked_url/image_url. The style_assets collection has
+                        # no masked_url attribute — writing one makes Appwrite
+                        # reject the whole update (400 invalid structure).
                         "board_image_url": public_url,
                         "board_r2_key": key,
                         "cutout_status": "ready",
                         "catalog_image_url": _source_url(asset),
                     },
                 )
+                print(json.dumps({
+                    "event": "AHVI_STYLE_ASSET_RMBG_UPDATE",
+                    "asset_id": doc_id,
+                    "field": "board_image_url",
+                }))
             stats["ready"] += 1
             print(json.dumps({"event": "AHVI_STYLE_ASSET_CUTOUT_READY", "asset_id": doc_id, "role": role, "url": public_url}))
         except Exception as exc:  # noqa: BLE001
@@ -333,6 +424,13 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="Cap processed assets after P0 selection.")
     parser.add_argument("--category", default="", help="Optional role/category filter: tops, bottoms, footwear, dresses, outerwear, accessories.")
     parser.add_argument("--gender", default="", help="Optional gender filter: male, female, unisex.")
+    parser.add_argument("--asset-id", default="", help="Process a single style asset document id.")
+    parser.add_argument(
+        "--only-opaque",
+        action="store_true",
+        default=True,
+        help="Skip assets whose source image already has real transparency (default on).",
+    )
     args = parser.parse_args()
     stats = process_assets(
         apply=bool(args.apply),
@@ -340,6 +438,7 @@ def main() -> None:
         limit=max(0, args.limit),
         category=args.category,
         gender=args.gender,
+        asset_id=args.asset_id,
     )
     print(json.dumps({"success": True, "dry_run": not args.apply, "stats": stats}, indent=2, sort_keys=True))
 

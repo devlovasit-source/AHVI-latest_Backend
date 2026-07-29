@@ -706,18 +706,36 @@ def _scenario_addons(scenario: str) -> List[str]:
 
 
 def _normalize_weather(context: Dict[str, Any]) -> str:
-    weather = str(context.get("weather") or "").lower()
-    if not weather:
+    destination_weather = (
+        context.get("destination_weather")
+        or context.get("destinationWeather")
+        or context.get("trip_weather")
+        or context.get("tripWeather")
+    )
+    if not destination_weather and str(context.get("weather_scope") or "").lower() == "destination":
+        destination_weather = context.get("weather") or context.get("weather_data")
+    # Direct engine callers historically passed `weather`; retain that only
+    # when no device-context provenance is present.
+    if not destination_weather and not context.get("context_usage") and not context.get("location_context"):
+        destination_weather = context.get("weather") or context.get("weather_data")
+    if isinstance(destination_weather, dict):
         weather = str(
-            (context.get("weather_data") or {}).get("condition") or ""
+            destination_weather.get("condition")
+            or destination_weather.get("weather_type")
+            or destination_weather.get("summary")
+            or ""
         ).lower()
+    else:
+        weather = str(destination_weather or "").lower()
     if any(k in weather for k in ["rain", "storm", "drizzle"]):
         return "rainy"
     if any(k in weather for k in ["cold", "chill", "winter"]):
         return "cold"
     if any(k in weather for k in ["hot", "heat", "humid", "warm", "summer"]):
         return "hot"
-    return "mild"
+    if any(k in weather for k in ["mild", "clear", "cloud", "temperate"]):
+        return "mild"
+    return "unavailable"
 
 
 def _time_of_day(context: Dict[str, Any]) -> str:
@@ -734,7 +752,9 @@ def _weather_layer_items(weather: str) -> List[str]:
         return ["Warm jacket", "Thermal innerwear", "Socks x2 extra"]
     if weather == "hot":
         return ["Breathable cotton/linen", "Cap/hat", "Hydration bottle"]
-    return ["Light layer for evenings"]
+    if weather == "mild":
+        return ["Light layer for evenings"]
+    return ["Destination weather unavailable - check forecast"]
 
 
 def _time_based_tasks(time_of_day: str) -> List[str]:
@@ -984,6 +1004,8 @@ def build_plan_pack_response(
             "destination": destination,
             "scenario": scenario,
             "weather": weather,
+            "weather_status": "available" if weather != "unavailable" else "unavailable",
+            "weather_scope": "destination",
             "time_of_day": time_of_day,
             "can_save_to_life_board": True,
             "source_text": text,

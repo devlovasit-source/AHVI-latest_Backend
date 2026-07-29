@@ -77,3 +77,41 @@ def test_final_persistence_normalizes_jeans_shorts_label():
     assert normalized["name"] == "Distressed Jeans"
     assert normalized["category"] == "Bottoms"
     assert normalized["sub_category"] == "Jeans"
+
+
+def _image_doc(*, raw_url="", masked_url="", normalized_url=""):
+    return persistence._build_appwrite_doc(
+        user_id="user-1",
+        file_id="item-1",
+        item={"name": "Blue Shirt", "category": "Tops"},
+        raw_url=raw_url,
+        masked_url=masked_url,
+        normalized_url=normalized_url,
+    )
+
+
+def test_normalized_url_is_not_published_as_masked():
+    doc = _image_doc(normalized_url="https://catalog.test/item-1.png")
+
+    assert doc["normalized_url"] == "https://catalog.test/item-1.png"
+    assert doc["masked_url"] == ""
+
+
+def test_original_image_url_is_not_published_as_masked():
+    doc = _image_doc(raw_url="https://raw.test/item-1.png")
+
+    assert doc["image_url"] == "https://raw.test/item-1.png"
+    assert doc["masked_url"] == ""
+    assert doc["normalized_url"] == ""
+
+
+def test_existing_masked_url_is_preserved_without_aliasing_other_fields():
+    doc = _image_doc(
+        raw_url="https://raw.test/item-1.png",
+        masked_url="https://masked.test/item-1.png",
+        normalized_url="https://catalog.test/item-1.png",
+    )
+
+    assert doc["image_url"] == "https://raw.test/item-1.png"
+    assert doc["masked_url"] == "https://masked.test/item-1.png"
+    assert doc["normalized_url"] == "https://catalog.test/item-1.png"

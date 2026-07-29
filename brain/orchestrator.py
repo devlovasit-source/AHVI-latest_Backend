@@ -851,7 +851,7 @@ class AhviOrchestrator:
             scenario = _safe_text(_dict(out.get("data")).get("scenario") or "travel")
             destination = _safe_text(_dict(out.get("data")).get("destination") or "your trip")
             days = _dict(out.get("data")).get("days") or 3
-            weather = _safe_text(_dict(out.get("data")).get("weather") or _safe_text(ctx.get("weather")) or "mild")
+            weather = _safe_text(_dict(out.get("data")).get("weather") or _safe_text(ctx.get("weather")) or "unavailable")
             travel_style_cards: List[Dict[str, Any]] = []
             if wardrobe:
                 try:

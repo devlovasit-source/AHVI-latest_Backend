@@ -1516,18 +1516,22 @@ def _vision_extract_attributes(
 async def _full_image_fallback_item(
     image: Image.Image, source_bytes: bytes, reason: str
 ) -> Dict[str, Any]:
-    masked_bytes = source_bytes
-    masked_mime = "image/png"
+    masked_bytes = b""
+    image_status = "rmbg_pending"
     if _env_enabled("WARDROBE_CAPTURE_FAST_MODE", "true"):
         reason = f"{reason}; fast_mode_bg_skipped"
     else:
         try:
             masked_bytes = await remove_bg_bytes(source_bytes)
+            if not masked_bytes:
+                raise RuntimeError("rmbg_returned_empty_image")
+            if masked_bytes == source_bytes:
+                raise RuntimeError("rmbg_returned_original_image")
+            image_status = "rmbg_complete"
         except Exception as exc:
             reason = f"{reason}; bg_fallback:{exc}"
-            buf = io.BytesIO()
-            image.save(buf, format="PNG")
-            masked_bytes = buf.getvalue()
+            masked_bytes = b""
+            image_status = "rmbg_failed"
 
     return {
         "item_id": str(uuid.uuid4()),
@@ -1541,8 +1545,13 @@ async def _full_image_fallback_item(
         "masked_url": None,
         "raw_image_base64": "data:image/png;base64,"
         + base64.b64encode(source_bytes).decode("ascii"),
-        "masked_image_base64": f"data:{masked_mime};base64,"
-        + base64.b64encode(masked_bytes).decode("ascii"),
+        "masked_image_base64": (
+            "data:image/png;base64," + base64.b64encode(masked_bytes).decode("ascii")
+            if masked_bytes
+            else ""
+        ),
+        "imageStatus": image_status,
+        "image_status": image_status,
         "upload_error": reason,
     }
 
@@ -2065,6 +2074,16 @@ def _maybe_generate_catalog_image(item: Dict[str, Any]) -> None:
                 "source": item.get("source"),
                 "label_source": item.get("label_source"),
                 "validation_status": item.get("validation_status"),
+                # Explicit risk signals: the generator must force Imagen for
+                # person/mirror/selfie sources, and text sniffing alone can miss
+                # them.
+                "unsafe_source": bool(item.get("unsafe_source")),
+                "source_contains_person": bool(item.get("source_contains_person")),
+                "unsafe_reason": (
+                    item.get("unsafe_reason")
+                    or item.get("unsafeSourceReason")
+                    or ""
+                ),
             }
             logger.info(
                 "ahvi.catalog.metadata item_id=%s crop_quality=%s needs_review=%s review_reason=%s",
@@ -3584,7 +3603,7 @@ def _needs_save_rmbg_cleanup(item: Dict[str, Any]) -> bool:
 
 
 async def _save_rmbg_cleanup(items: List[Dict[str, Any]]) -> "tuple[int, int]":
-    """Run RMBG on selected raw crops and retain the crop on failure."""
+    """Run RMBG on selected raw crops without labelling failures as cutouts."""
     sem = asyncio.Semaphore(
         max(1, int(os.getenv("WARDROBE_SAVE_RMBG_PARALLELISM", "6")))
     )
@@ -3592,6 +3611,7 @@ async def _save_rmbg_cleanup(items: List[Dict[str, Any]]) -> "tuple[int, int]":
     async def _one(item: Dict[str, Any]) -> bool:
         raw_bytes = _decode_inline_image(item.get("raw_image_base64"))
         if not raw_bytes:
+            item.pop("masked_image_base64", None)
             item["preview_cutout_pending"] = False
             item["imageStatus"] = "rmbg_failed"
             item["image_status"] = "rmbg_failed"
@@ -3623,7 +3643,7 @@ async def _save_rmbg_cleanup(items: List[Dict[str, Any]]) -> "tuple[int, int]":
             return True
         except Exception as exc:
             reason = str(exc)[:160] or exc.__class__.__name__
-            item["masked_image_base64"] = item.get("raw_image_base64")
+            item.pop("masked_image_base64", None)
             item["preview_cutout_pending"] = False
             item["imageStatus"] = "rmbg_failed"
             item["image_status"] = "rmbg_failed"
@@ -3843,6 +3863,7 @@ def save_selected(
     if cleanup_items and _async_rmbg:
         for i in cleanup_items:
             if isinstance(i, dict):
+                i.pop("masked_image_base64", None)
                 i["imageStatus"] = "rmbg_pending"
                 i["image_status"] = "rmbg_pending"
         logger.info(
@@ -3854,6 +3875,7 @@ def save_selected(
         except Exception as exc:  # noqa: BLE001 - save must never fail on RMBG
             cleanup_ok, cleanup_failed = 0, len(cleanup_items)
             for i in cleanup_items:
+                i.pop("masked_image_base64", None)
                 i["preview_cutout_pending"] = False
                 i["imageStatus"] = "rmbg_failed"
                 i["image_status"] = "rmbg_failed"
@@ -3913,6 +3935,7 @@ def save_selected(
                 )
             else:
                 reason = str(item.get("upload_error") or "masked_upload_failed")[:160]
+                item.pop("masked_image_base64", None)
                 item["imageStatus"] = "rmbg_failed"
                 item["image_status"] = "rmbg_failed"
                 item["_rmbg_failure_reason"] = reason
@@ -4266,6 +4289,14 @@ def save_selected(
         result["saved_count"] = saved_count
         result["dropped_count"] = dropped_count
         result["dropped_reasons"] = dropped_reasons
+        # Never report success when nothing was durably saved.
+        if requested_count > 0 and saved_count == 0:
+            result["success"] = False
+            result["message"] = "Selected wardrobe items could not be saved."
+            result["retryable"] = True
+        elif dropped_count > 0:
+            result["partial_success"] = True
+            result["message"] = f"Saved {saved_count} of {requested_count} selected items."
         if dropped_count and not int(result.get("skipped") or 0) and not result.get("errors"):
             result["skipped"] = dropped_count
         try:

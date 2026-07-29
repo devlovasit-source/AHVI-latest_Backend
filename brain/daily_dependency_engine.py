@@ -330,7 +330,8 @@ def _candidate_cards(
         _card(
             "generic_fallback",
             "Quick Suggestion",
-            f"Context-aware default for {time_slot} in {weather or 'mild'} conditions.",
+            f"Context-aware default for {time_slot}"
+            + (f" in {weather} conditions." if weather else "."),
             priority=50,
             action={"type": "open_dashboard"},
         )
@@ -355,7 +356,7 @@ def build_daily_dependency_response(
     weather = str(
         context.get("weather")
         or (context.get("weather_data", {}) or {}).get("condition")
-        or "mild"
+        or ""
     )
 
     counts = {
@@ -382,6 +383,7 @@ def build_daily_dependency_response(
             "time_slot": time_slot,
             "persona": persona,
             "weather": weather,
+            "weather_status": "available" if weather else "unavailable",
             "counts": counts,
         },
         top_n=3,
@@ -399,6 +401,7 @@ def build_daily_dependency_response(
             "counts": counts,
             "max_cards": 3,
             "weather": weather,
+            "weather_status": "available" if weather else "unavailable",
             "decision": decision_meta,
         },
         "meta": {

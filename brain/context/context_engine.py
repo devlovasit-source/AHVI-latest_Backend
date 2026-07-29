@@ -131,7 +131,7 @@ class ContextEngine:
         except Exception as e:
             print("Weather error:", str(e))
 
-        return {"condition": "mild"}
+        return {"status": "unavailable"}
 
     # -------------------------
     # ⏰ TIME CONTEXT

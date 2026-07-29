@@ -869,13 +869,13 @@ def _build_appwrite_doc(
         # than leaking a face.
         garment_url = normalized_url
         stored_image_url = garment_url
-        stored_masked_url = garment_url
+        stored_masked_url = ""
         stored_normalized_url = garment_url
     else:
         final_image_url = normalized_url or masked_url or raw_url
         stored_image_url = raw_url or item.get("image_url") or item.get("imageUrl") or final_image_url
-        stored_masked_url = masked_url or final_image_url
-        stored_normalized_url = normalized_url or final_image_url
+        stored_masked_url = masked_url
+        stored_normalized_url = normalized_url
     pixel_hash = _safe_text(
         item.get("pixel_hash") or item.get("pixelHash") or item.get("masked_pixel_hash")
     )
@@ -1003,12 +1003,8 @@ def persist_selected_items(
                 # the best available display image, not necessarily the raw original.
                 legacy_image_url = _first_url(item, "image_url", "imageUrl", "url")
 
-                if not normalized_url:
-                    normalized_url = masked_url or legacy_image_url
-                if not masked_url:
-                    masked_url = normalized_url or legacy_image_url or raw_url
                 if not raw_url:
-                    raw_url = legacy_image_url or masked_url or normalized_url
+                    raw_url = legacy_image_url
 
             if not raw_url and not masked_url and not normalized_url:
                 skipped += 1
