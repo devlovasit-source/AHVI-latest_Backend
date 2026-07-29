@@ -149,7 +149,7 @@ async def test_projections_have_null_entity_id():
         [] if coll == "med_logs" else [{"$id": "med_active_123", "userId": "user_abc", "active": True, "time": "12:00"}]
     )
 
-    local_now = datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Kolkata"))
+    local_now = datetime(2026, 7, 29, 10, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
 
     med_state = get_today_medicine_state_readonly("user_abc", local_now, proxy_client=mock_proxy)
     assert med_state["status"] == "later"
