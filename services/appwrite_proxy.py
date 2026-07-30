@@ -10,7 +10,9 @@ logger = logging.getLogger(__name__)
 
 
 class AppwriteProxyError(Exception):
-    pass
+    def __init__(self, *args: Any, status_code: Optional[int] = None):
+        super().__init__(*args)
+        self.status_code = status_code
 
 
 def _load_local_env() -> None:
@@ -383,7 +385,8 @@ class AppwriteProxy:
             raise AppwriteProxyError(f"Appwrite connection failed: {exc}") from exc
         if response.status_code >= 400:
             raise AppwriteProxyError(
-                f"Appwrite request failed ({response.status_code}): {response.text}"
+                f"Appwrite request failed ({response.status_code}): {response.text}",
+                status_code=int(response.status_code),
             )
         if not response.text:
             return {}
@@ -428,7 +431,8 @@ class AppwriteProxy:
             raise AppwriteProxyError(f"Appwrite connection failed: {exc}") from exc
         if response.status_code >= 400:
             raise AppwriteProxyError(
-                f"Appwrite request failed ({response.status_code}): {response.text}"
+                f"Appwrite request failed ({response.status_code}): {response.text}",
+                status_code=int(response.status_code),
             )
         if not response.text:
             return {}
