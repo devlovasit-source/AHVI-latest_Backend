@@ -140,6 +140,35 @@ def _is_bad_dress_footwear(raw: Dict[str, Any]) -> bool:
     return any(t in _blob(raw) for t in _BAD_DRESS_FOOTWEAR_TOKENS)
 
 
+def _strategy_avoid_match(item: Dict[str, Any], strategy: Dict[str, Any]) -> bool:
+    meta = item.get("style_metadata") if isinstance(item.get("style_metadata"), dict) else {}
+    blob = " ".join(
+        [
+            _blob(item),
+            str(item.get("style") or ""),
+            str(item.get("pattern") or ""),
+            str(item.get("tags") or ""),
+            str(meta.get("style_keywords") or ""),
+        ]
+    ).lower()
+    return any(
+        str(token or "").strip().lower() in blob
+        for token in strategy.get("avoid") or []
+        if str(token or "").strip()
+    )
+
+
+def _formality_value(value: Any) -> Optional[float]:
+    if isinstance(value, (int, float)):
+        return float(value)
+    key = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return {
+        "homewear": 1.0, "athletic": 2.0, "casual": 3.0,
+        "smart_casual": 5.0, "business_casual": 6.0,
+        "formal": 8.0, "business_formal": 8.0,
+    }.get(key)
+
+
 class ConstrainedOutfitBuilder:
     """Builds outfits around immutable fixed items with typed failures."""
 
@@ -165,6 +194,7 @@ class ConstrainedOutfitBuilder:
         prefer_footwear = tuple(context.get("prefer_footwear") or ())
         accessory_budget = min(2, max(0, int(context.get("accessory_budget", 1))))
         weather_context = context.get("weather_context") or context.get("weather")
+        style_strategy = context.get("style_strategy") if isinstance(context.get("style_strategy"), dict) else {}
 
         # --- Fixed items: normalize + validate identity -------------------
         fixed_raw = [i for i in (fixed_items or []) if isinstance(i, dict)]
@@ -262,6 +292,8 @@ class ConstrainedOutfitBuilder:
                 continue  # unknown / non-fashion / sport-swim
             if canonical_item_source(raw) not in allowed_sources:
                 continue  # unknown source is NOT wardrobe
+            if style_strategy and _strategy_avoid_match(raw, style_strategy):
+                continue
             if professional:
                 decision = evaluate_professional_safety(raw, occasion)
                 if not decision["allowed"]:
@@ -324,6 +356,7 @@ class ConstrainedOutfitBuilder:
                 seed=f"{seed_base}:{slot}",
                 occasion=occasion,
                 weather_context=weather_context,
+                style_strategy=style_strategy,
             )
             if picked is None:
                 missing_slots.append(slot)
@@ -479,6 +512,7 @@ class ConstrainedOutfitBuilder:
         seed: str,
         occasion: Optional[str],
         weather_context: Optional[Dict[str, Any]] = None,
+        style_strategy: Optional[Dict[str, Any]] = None,
     ) -> Optional[Tuple[Dict[str, Any], Dict[str, Any]]]:
         cands = list(pools.get(slot) or [])
         if slot == "footwear" and dress_in_outfit:
@@ -522,6 +556,22 @@ class ConstrainedOutfitBuilder:
                 except Exception:
                     # Missing optional weather metadata is neutral.
                     pass
+            strategy = style_strategy if isinstance(style_strategy, dict) else {}
+            palette = {
+                str(value or "").strip().lower()
+                for value in strategy.get("palette") or []
+                if str(value or "").strip()
+            }
+            if palette and color:
+                if any(color == p or color in p or p in color for p in palette):
+                    score += 3.0
+                elif color in _NEUTRAL_COLORS:
+                    score += 0.5
+            strategy_formality = _formality_value(strategy.get("formality"))
+            raw_meta = raw.get("style_metadata") if isinstance(raw.get("style_metadata"), dict) else {}
+            item_formality = _formality_value(raw.get("formality") or raw_meta.get("formality"))
+            if strategy_formality is not None and item_formality is not None:
+                score += max(0.0, 2.0 - abs(strategy_formality - item_formality) * 0.4)
             return score
 
         # Deterministic: sort by (score desc, id) then rotate by variant +
@@ -532,6 +582,11 @@ class ConstrainedOutfitBuilder:
             # Preference-driven slots (footwear directions) always take the
             # best match so "Date Night" really prefers heels.
             return cands[0]
+        if style_strategy:
+            best_score = _score(cands[0])
+            best = [pair for pair in cands if _score(pair) == best_score]
+            offset = (variant + _stable_offset(seed, len(best))) % len(best)
+            return best[offset]
         offset = (variant + _stable_offset(seed, len(cands))) % len(cands)
         return cands[offset]
 

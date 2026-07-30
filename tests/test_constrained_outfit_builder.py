@@ -269,3 +269,25 @@ def test_professional_occasion_filters_unsafe_candidates():
     assert result["success"] is True
     assert "camo-1" not in _ids(result)
     assert "bottom-1" in _ids(result)
+
+
+def test_stored_strategy_rejects_explicit_avoid_match():
+    top = _w("top-1", "Teal Shirt", "Tops")
+    loud = _w("bottom-loud", "Loud Logo Trousers", "Bottoms")
+    quiet = _w("bottom-quiet", "Charcoal Trousers", "Bottoms", color="charcoal")
+    result = _gen(
+        [top],
+        wardrobe=[top, loud, quiet],
+        context={
+            "wardrobe": [top, loud, quiet],
+            "style_strategy": {
+                "archetype_id": "modern_minimal",
+                "palette": ["charcoal", "black"],
+                "avoid": ["loud logo"],
+                "formality": 6,
+            },
+        },
+    )
+    assert result["success"] is True
+    assert "bottom-loud" not in _ids(result)
+    assert "bottom-quiet" in _ids(result)

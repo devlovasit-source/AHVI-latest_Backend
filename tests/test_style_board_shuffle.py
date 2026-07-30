@@ -97,6 +97,13 @@ def test_one_lock_shuffles_other_slots():
     assert result["changed_slots"], "unlocked slots should change"
 
 
+def test_legacy_board_without_style_strategy_still_shuffles():
+    result = _shuffle()
+    assert result["success"] is True
+    assert result["style_strategy"] is None
+    assert sbs.get_board_state("b-1")["style_strategy"] is None
+
+
 def test_multiple_locks_all_preserved():
     locked = [
         _locked_top(),

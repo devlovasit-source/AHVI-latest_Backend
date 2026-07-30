@@ -20,6 +20,7 @@ from services.style_item_contract import (
     canonical_item_role,
     canonical_item_source,
 )
+from services.stylist_knowledge_service import resolve_style_archetypes
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.stylist")
@@ -161,12 +162,6 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
 
 _FRIENDLY_FAIL = (
     "AHVI could not build a complete outfit yet. Try adding shoes or accessories."
-)
-
-_STYLE_DIRECTIONS = (
-    ("Casual Brunch", "a relaxed casual brunch"),
-    ("Date Night", "a date night"),
-    ("Vacation Day", "an easy vacation day"),
 )
 
 # Footwear that should NOT lead a dress look (men's / formal leather).
@@ -381,7 +376,11 @@ def _outfit_title(occasion: Optional[str]) -> str:
     }.get(occ, "Casual Day Look")
 
 
-def _style_fallback(mode: str, anchor: Dict[str, Any]) -> Dict[str, Any]:
+def _style_fallback(
+    mode: str,
+    anchor: Dict[str, Any],
+    strategies: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     missing = (
         list(_DRESS_FOOTWEAR_SUGGESTIONS)
         if _anchor_is_dress(anchor)
@@ -389,14 +388,22 @@ def _style_fallback(mode: str, anchor: Dict[str, Any]) -> Dict[str, Any]:
     )
     anchor_items = [anchor] if anchor else []
     if mode == "style_this":
+        fallback_strategies = strategies or [
+            {"direction_title": f"Style Edit {index + 1}"} for index in range(3)
+        ]
         return {
             "success": False,
             "mode": mode,
             "anchor_item": anchor,
             "message": _FRIENDLY_FAIL,
             "style_directions": [
-                {"title": t, "items": anchor_items, "missing_items": missing, "styling_note": _FRIENDLY_FAIL}
-                for t, _ in _STYLE_DIRECTIONS
+                {
+                    "title": str(strategy.get("direction_title") or "Style Edit"),
+                    "items": anchor_items,
+                    "missing_items": missing,
+                    "styling_note": _FRIENDLY_FAIL,
+                }
+                for strategy in fallback_strategies[:3]
             ],
         }
     return {
@@ -441,13 +448,6 @@ _LITE_MISSING = {
     "accessory": {"label": "A small bag or jewelry", "reason": "Finishes the look.", "cta": "Find this"},
     "dress": {"label": "A standout dress", "reason": "Gives the accessory something to sit on.", "cta": "Find this"},
 }
-
-_LITE_STYLE_DIRECTIONS = [
-    ("Casual Brunch", ("sneaker", "flat", "loafer", "mule"), "Relaxed and easy — let the piece breathe."),
-    ("Date Night", ("heel", "sandal", "boot", "pump"), "A touch sharper for the evening."),
-    ("Vacation Day", ("sandal", "flat", "sneaker", "espadrille"), "Light, breezy, low-effort."),
-]
-
 
 def _lite_role(item: Dict[str, Any]) -> str:
     blob = " ".join(
@@ -502,13 +502,51 @@ def _lite_group(wardrobe: List[Dict[str, Any]], exclude_id: str) -> Dict[str, Li
 
 
 def _lite_pick(
-    groups: Dict[str, List[Dict[str, Any]]], role: str, is_dress: bool, prefer=(), variant: int = 0
+    groups: Dict[str, List[Dict[str, Any]]],
+    role: str,
+    is_dress: bool,
+    prefer=(),
+    variant: int = 0,
+    strategy: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     cands = list(groups.get(role) or [])
     if is_dress and role == "footwear":
         cands = [c for c in cands if not _is_bad_dress_footwear(c)]
     if not cands:
         return None
+    if strategy:
+        avoid = [str(value).strip().lower() for value in strategy.get("avoid") or [] if str(value).strip()]
+        safe = [
+            candidate for candidate in cands
+            if not any(token in _lite_item_blob(candidate) for token in avoid)
+        ]
+        cands = safe
+        if not cands:
+            return None
+
+        palette = [str(value).strip().lower() for value in strategy.get("palette") or [] if str(value).strip()]
+        target_formality = _lite_formality_value(strategy.get("formality"))
+
+        def _strategy_score(candidate: Dict[str, Any]) -> float:
+            score = 0.0
+            color = _txt(
+                candidate.get("color")
+                or candidate.get("colour")
+                or candidate.get("color_name")
+                or candidate.get("color_code")
+            ).lower()
+            if palette and color and any(color == p or color in p or p in color for p in palette):
+                score += 3.0
+            meta = candidate.get("style_metadata") if isinstance(candidate.get("style_metadata"), dict) else {}
+            item_formality = _lite_formality_value(candidate.get("formality") or meta.get("formality"))
+            if target_formality is not None and item_formality is not None:
+                score += max(0.0, 2.0 - abs(target_formality - item_formality) * 0.4)
+            return score
+
+        ranked = [(candidate, _strategy_score(candidate)) for candidate in cands]
+        best_score = max(score for _, score in ranked)
+        best = [candidate for candidate, score in ranked if score == best_score]
+        return best[variant % len(best)]
     if prefer:
         def _score(c: Dict[str, Any]) -> int:
             blob = " ".join(_txt(c.get(k)) for k in ("name", "label", "sub_category", "subcategory")).lower()
@@ -518,6 +556,31 @@ def _lite_pick(
     # No preference (tops/bottoms/accessories): rotate by variant so different
     # directions show different owned pieces when more than one exists.
     return cands[variant % len(cands)]
+
+
+def _lite_item_blob(item: Dict[str, Any]) -> str:
+    return " ".join(
+        _txt(item.get(key))
+        for key in (
+            "name", "label", "category", "sub_category", "subcategory",
+            "style", "pattern", "material", "tags", "style_tags",
+        )
+    ).lower()
+
+
+def _lite_formality_value(value: Any) -> Optional[float]:
+    if isinstance(value, (int, float)):
+        return float(value)
+    key = _txt(value).lower().replace("-", "_").replace(" ", "_")
+    return {
+        "homewear": 1.0,
+        "athletic": 2.0,
+        "casual": 3.0,
+        "smart_casual": 5.0,
+        "business_casual": 6.0,
+        "formal": 8.0,
+        "business_formal": 8.0,
+    }.get(key)
 
 
 def _lite_missing(role: str, is_dress: bool) -> Dict[str, Any]:
@@ -568,6 +631,7 @@ def _lite_build_outfit(
     note: str = "",
     variant: int = 0,
     weather: Optional[Dict[str, Any]] = None,
+    strategy: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     is_dress = _anchor_is_dress(anchor) or _lite_role(anchor) == "dress"
     anchor_role = "dress" if is_dress else _lite_role(anchor)
@@ -579,19 +643,30 @@ def _lite_build_outfit(
             groups, slot, is_dress,
             prefer=prefer if slot == "footwear" else (),
             variant=variant,
+            strategy=strategy,
         )
         if pick:
             items.append(_lite_item(pick, "accent" if slot == "accessory" else "support"))
             groups[slot] = [g for g in groups[slot] if _item_id_of(g) != _item_id_of(pick)]
         else:
             missing.append(_lite_missing(slot, is_dress))
+    reason = note or "Built from pieces you already own, anchored on this item."
+    if strategy:
+        anchor_name = _txt(anchor.get("name") or anchor.get("label")) or _anchor_desc(anchor)
+        support = next((item["name"] for item in items[1:] if item.get("name")), "the supporting pieces")
+        direction_title = _txt(strategy.get("direction_title")) or "this direction"
+        intent = (_txt(strategy.get("reasoning_intent")) or "intentional").replace(", ", " and ")
+        reason = (
+            f"{support} complements {anchor_name}, keeping the {direction_title} "
+            f"direction {intent.lower()}."
+        )
     return {
         "title": title or _outfit_title(occasion),
         "items": items,
         "missing_items": missing,
         "reason": " ".join(
             part for part in (
-                note or "Built from pieces you already own, anchored on this item.",
+                reason,
                 _lite_weather_note(weather or {}),
             ) if part
         ),
@@ -602,18 +677,29 @@ def _lite_directions(
     anchor: Dict[str, Any],
     wardrobe: List[Dict[str, Any]],
     weather: Optional[Dict[str, Any]] = None,
+    strategies: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
+    selected = strategies or resolve_style_archetypes(
+        {"occasion": "daily"}, anchor_item=anchor, direction_count=3
+    )
     directions = []
-    for idx, (title, prefer, note) in enumerate(_LITE_STYLE_DIRECTIONS):
+    for idx, strategy in enumerate(selected[:3]):
+        title = _txt(strategy.get("direction_title")) or f"Style Edit {idx + 1}"
         look = _lite_build_outfit(
-            anchor, wardrobe, None, title=title, prefer=prefer, note=note,
-            variant=idx, weather=weather,
+            anchor, wardrobe, None, title=title,
+            variant=idx, weather=weather, strategy=strategy,
         )
         directions.append({
             "title": title,
             "items": look["items"],
             "missing_items": look["missing_items"],
             "styling_note": look["reason"],
+            "archetype_id": strategy.get("archetype_id"),
+            "formality": strategy.get("formality"),
+            "palette": list(strategy.get("palette") or []),
+            "avoid": list(strategy.get("avoid") or []),
+            "reasoning_intent": strategy.get("reasoning_intent"),
+            "style_strategy": dict(strategy),
         })
     return directions
 
@@ -736,6 +822,11 @@ def _register_style_this_direction(
             allow_wardrobe_fallback=source_policy == "mixed",
             occasion=occasion,
             style_direction=str(direction.get("title") or ""),
+            style_strategy=(
+                direction.get("style_strategy")
+                if isinstance(direction.get("style_strategy"), dict)
+                else None
+            ),
             items=canonical_items,
             user_id=user_id,
         )
@@ -784,10 +875,27 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
         request_data={**request.model_dump(exclude_none=True), **request.context},
         profile=request.user_profile,
     )
+    strategies: List[Dict[str, Any]] = []
 
     try:
         if mode == "style_this":
-            directions = _lite_directions(anchor, wardrobe, resolved["weather"])
+            profile_dna = (
+                request.user_profile.get("style_dna")
+                if isinstance(request.user_profile.get("style_dna"), dict)
+                else {}
+            )
+            resolver_context = {
+                **dict(request.context or {}),
+                "occasion": request.occasion or request.context.get("occasion") or "daily",
+                "style_dna": request.context.get("style_dna") or profile_dna,
+                "gender": request.user_profile.get("style_gender") or request.user_profile.get("gender") or "unknown",
+            }
+            strategies = resolve_style_archetypes(
+                resolver_context, anchor_item=anchor, direction_count=3
+            )
+            directions = _lite_directions(
+                anchor, wardrobe, resolved["weather"], strategies=strategies
+            )
             directions = [
                 _register_style_this_direction(
                     direction,
@@ -817,6 +925,6 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
         return {"success": True, "mode": mode, "anchor_item": anchor, "outfit": outfit, "context_usage": resolved["context_usage"]}
     except Exception as exc:  # noqa: BLE001 - CTA must never dead-end the UI
         logger.exception("stylist.item_style failed item_id=%s mode=%s err=%s", item_id, mode, str(exc))
-        fallback = _style_fallback(mode, anchor)
+        fallback = _style_fallback(mode, anchor, strategies=strategies)
         fallback["context_usage"] = resolved["context_usage"]
         return fallback

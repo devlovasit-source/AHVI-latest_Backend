@@ -43,9 +43,13 @@ def test_style_this_returns_three_directions():
 
     assert result["success"] is True
     dirs = result["style_directions"]
-    assert [d["title"] for d in dirs] == ["Casual Brunch", "Date Night", "Vacation Day"]
+    titles = [d["title"] for d in dirs]
+    assert len(set(titles)) == 3
+    assert not {"Casual Brunch", "Date Night", "Vacation Day"} & set(titles)
     for d in dirs:
         assert "styling_note" in d
+        assert d["archetype_id"]
+        assert d["style_strategy"]["direction_title"] == d["title"]
         assert any(i["item_id"] == "dress-1" for i in d["items"])
 
 

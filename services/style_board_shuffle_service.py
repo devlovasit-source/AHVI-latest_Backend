@@ -143,6 +143,7 @@ def _payload_to_state(record: Dict[str, Any]) -> Dict[str, Any]:
         "allow_wardrobe_fallback": bool(payload.get("allow_wardrobe_fallback")),
         "occasion": payload.get("occasion"),
         "style_direction": payload.get("style_direction"),
+        "style_strategy": dict(payload.get("style_strategy")) if isinstance(payload.get("style_strategy"), dict) else None,
     }
 
 
@@ -175,6 +176,7 @@ def _build_payload(
     allow_wardrobe_fallback: bool,
     occasion: Any,
     style_direction: Any,
+    style_strategy: Any,
     items: Optional[List[Dict[str, Any]]],
     previous_revision: Optional[int] = None,
 ) -> Dict[str, Any]:
@@ -184,13 +186,14 @@ def _build_payload(
         "allow_wardrobe_fallback": bool(allow_wardrobe_fallback),
         "occasion": occasion,
         "style_direction": style_direction,
+        "style_strategy": dict(style_strategy) if isinstance(style_strategy, dict) else None,
         "items": [dict(i) for i in (items or []) if isinstance(i, dict)],
         "previous_revision": previous_revision,
     }
 
 
 def _payload_contract_equivalent(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
-    keys = ("scenario", "source_policy", "allow_wardrobe_fallback")
+    keys = ("scenario", "source_policy", "allow_wardrobe_fallback", "style_strategy")
     return all(a.get(k) == b.get(k) for k in keys)
 
 
@@ -202,6 +205,7 @@ def register_board(
     allow_wardrobe_fallback: bool = False,
     occasion: Optional[str] = None,
     style_direction: Optional[str] = None,
+    style_strategy: Optional[Dict[str, Any]] = None,
     items: Optional[List[Dict[str, Any]]] = None,
     user_id: str = "",
 ) -> Dict[str, Any]:
@@ -230,6 +234,7 @@ def register_board(
         allow_wardrobe_fallback=bool(allow_wardrobe_fallback) or policy == "mixed",
         occasion=occasion,
         style_direction=style_direction,
+        style_strategy=style_strategy,
         items=items,
         previous_revision=None,
     )
@@ -346,6 +351,11 @@ def shuffle_board(
     stored_policy = canonical_board_policy(stored_payload.get("source_policy"))
     stored_scenario = str(stored_payload.get("scenario") or "").strip().lower()
     stored_style_direction = stored_payload.get("style_direction")
+    stored_style_strategy = (
+        dict(stored_payload.get("style_strategy"))
+        if isinstance(stored_payload.get("style_strategy"), dict)
+        else None
+    )
 
     # --- Board policy resolution (NEVER inferred from locked-item sources) --
     # Precedence: explicit dict (internal) > explicit canonical string >
@@ -409,6 +419,7 @@ def shuffle_board(
         # rotate variety with the revision so consecutive shuffles differ
         "variant": int(context.get("variant", revision)),
         "accessory_budget": max(1, shuffle_slots.count("accessory")),
+        "style_strategy": stored_style_strategy,
     }
     result = _builder.generate(
         scenario="shuffle_unlocked",
@@ -497,6 +508,7 @@ def shuffle_board(
         allow_wardrobe_fallback=allow_wardrobe_fallback,
         occasion=occasion if occasion is not None else stored_payload.get("occasion"),
         style_direction=stored_style_direction,
+        style_strategy=stored_style_strategy,
         items=out_items,
         previous_revision=previous_revision,
     )
@@ -549,6 +561,7 @@ def shuffle_board(
         "source_policy": resolved_policy,
         "allow_wardrobe_fallback": allow_wardrobe_fallback,
         "occasion": result.get("occasion"),
+        "style_strategy": stored_style_strategy,
         "source": result.get("source"),
         "changed_slots": result.get("changed_slots", []),
         "missing_items": result.get("missing_items", []),

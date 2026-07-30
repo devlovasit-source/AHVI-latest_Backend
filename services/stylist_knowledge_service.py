@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from prompts.core_prompts import AHVI_SYSTEM_PROMPT
 from prompts.styling_prompts import OCCASION_INTERPRETER_PROMPT
@@ -1408,6 +1408,116 @@ def select_archetypes(*, anchor=None, occasion="", style_keywords=None,
         anchor_blob[:40], occ, has_dna, [a["name"] for a in chosen],
     )
     return chosen
+
+
+def resolve_style_archetypes(
+    context: Any,
+    anchor_item: Optional[Dict[str, Any]] = None,
+    direction_count: int = 3,
+) -> List[Dict[str, Any]]:
+    """Normalize the existing archetype selector for direct styling flows.
+
+    This is intentionally a thin adapter: ``ARCHETYPE_LIBRARY`` and
+    ``select_archetypes`` remain the definition and scoring authorities.
+    Unknown anchor metadata is neutral rather than restrictive.
+    """
+    ctx = context if isinstance(context, dict) else {}
+    anchor = dict(anchor_item or {})
+    count = max(1, min(int(direction_count or 3), 5))
+    occasion = str(
+        ctx.get("canonical_occasion") or ctx.get("occasion") or "daily"
+    ).strip()
+    style_tags = _string_list(
+        anchor.get("style_tags")
+        or anchor.get("tags")
+        or ctx.get("style_keywords"),
+        limit=8,
+    )
+    formality = anchor.get("formality") or ctx.get("formality") or 0
+    try:
+        formality_hint = int(float(formality))
+    except (TypeError, ValueError):
+        formality_hint = 0
+    style_dna = ctx.get("style_dna") if isinstance(ctx.get("style_dna"), dict) else {}
+    gender = str(ctx.get("gender") or "unknown")
+
+    selected = select_archetypes(
+        anchor=anchor,
+        occasion=occasion,
+        style_keywords=style_tags,
+        formality_hint=formality_hint,
+        style_dna=style_dna,
+        gender=gender,
+        limit=max(count, 4),
+    )
+
+    anchor_color = _norm(
+        anchor.get("color") or anchor.get("colour") or anchor.get("color_name")
+    )
+    anchor_role = _norm(
+        anchor.get("role")
+        or anchor.get("category")
+        or anchor.get("sub_category")
+        or anchor.get("subcategory")
+    )
+    anchor_terms = set(_norm(" ".join(style_tags)).split())
+
+    def _compatibility(arch: Dict[str, Any]) -> float:
+        score = 0.0
+        palette = {_norm(value) for value in arch.get("palette") or []}
+        if anchor_color and any(
+            anchor_color == color or anchor_color in color or color in anchor_color
+            for color in palette if color
+        ):
+            score += 2.0
+        arch_terms = set(
+            _norm(
+                " ".join(
+                    str(value)
+                    for value in (
+                        (arch.get("style_keywords") or [])
+                        + (arch.get("impression") or [])
+                    )
+                )
+            ).split()
+        )
+        score += 0.5 * len(anchor_terms & arch_terms)
+        preferred = _norm(" ".join(str(value) for value in arch.get("preferred_items") or []))
+        if anchor_role and any(term in preferred for term in anchor_role.split() if len(term) > 3):
+            score += 1.0
+        if formality_hint:
+            score -= abs(int(arch.get("formality") or 5) - formality_hint) * 0.05
+        return score
+
+    # Stable sort preserves the existing selector order when metadata provides
+    # no additional compatibility signal.
+    selected = sorted(selected, key=_compatibility, reverse=True)[:count]
+    out: List[Dict[str, Any]] = []
+    used_titles: set[str] = set()
+    generic_titles = {"", "general", "default", "style direction", "curated direction"}
+    for index, arch in enumerate(selected):
+        name = str(arch.get("name") or "").strip()
+        title = name
+        if _norm(title) in generic_titles:
+            impression = [str(v).strip().title() for v in arch.get("impression") or [] if str(v).strip()]
+            title = f"{impression[0]} Edit" if impression else f"Style Edit {index + 1}"
+        if title.lower() in used_titles:
+            title = f"{title} {index + 1}"
+        used_titles.add(title.lower())
+        intent_parts = [str(v).strip() for v in arch.get("impression") or [] if str(v).strip()]
+        if not intent_parts:
+            intent_parts = [str(v).strip() for v in arch.get("style_keywords") or [] if str(v).strip()]
+        out.append(
+            {
+                "archetype_id": _norm(name).replace(" ", "_"),
+                "direction_title": title,
+                "formality": arch.get("formality"),
+                "palette": [str(v) for v in arch.get("palette") or [] if str(v).strip()],
+                "avoid": [str(v) for v in arch.get("avoid_items") or [] if str(v).strip()],
+                "reasoning_intent": ", ".join(intent_parts[:2]) or "intentional styling",
+            }
+        )
+    return out
 
 
 def filter_items_for_persona(items, gender):

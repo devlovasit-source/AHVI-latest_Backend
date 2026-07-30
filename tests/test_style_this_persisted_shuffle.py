@@ -86,6 +86,8 @@ def test_each_direction_has_unique_persisted_uuid_revision_one():
         assert state is not None
         assert state["revision"] == 1
         assert state["source_policy"] == direction["source_policy"]
+        assert state["style_strategy"] == direction["style_strategy"]
+        assert state["style_strategy"]["archetype_id"] == direction["archetype_id"]
 
 
 def test_anchor_is_present_and_is_the_only_locked_item():
@@ -99,6 +101,19 @@ def test_anchor_is_present_and_is_the_only_locked_item():
         assert anchor["masked_url"] == "https://images.test/top-1-masked.png"
         assert anchor["selected_image_source"] == "masked_url"
         assert isinstance(anchor["position"], dict)
+        assert all(item["source"] == "wardrobe" for item in direction["items"])
+
+
+def test_direction_titles_and_reasons_are_archetype_and_item_specific():
+    directions = _style_this()["style_directions"]
+    assert len({direction["title"] for direction in directions}) == 3
+    assert all(direction["title"] not in {"Casual Brunch", "Date Night", "Vacation Day"} for direction in directions)
+    for direction in directions:
+        selected_names = [item["name"] for item in direction["items"]]
+        note = direction["styling_note"]
+        assert "White Shirt" in note
+        assert any(name in note for name in selected_names if name != "White Shirt")
+        assert direction["title"] in note
 
 
 def test_registration_preserves_mixed_source_policy():
@@ -203,12 +218,15 @@ def test_style_this_board_shuffles_revision_one_to_two_via_route():
     assert shuffled["board_id"] == direction["board_id"]
     assert shuffled["previous_revision"] == 1
     assert shuffled["revision"] == 2
+    assert shuffled["style_strategy"]["archetype_id"] == direction["style_strategy"]["archetype_id"]
     anchor_after = next(item for item in shuffled["board_items"] if item["item_id"] == "top-1")
     for field in ("item_id", "image_url", "masked_url", "source", "position"):
         assert anchor_after[field] == anchor_before[field]
     old_ids = {item["item_id"] for item in unlocked_before}
     new_ids = {item["item_id"] for item in shuffled["board_items"] if not item["locked"]}
     assert new_ids != old_ids
+    state = shuffle_service.get_board_state(direction["board_id"])
+    assert state["style_strategy"] == direction["style_strategy"]
 
     stale = shuffle_service.shuffle_board(
         board_id=direction["board_id"],
