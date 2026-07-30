@@ -16,7 +16,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from services.appwrite_proxy import AppwriteProxy
-from services.auth_helpers import bind_request_user
+from services.auth_helpers import enforce_owner
 from services import style_board_shuffle_service
 
 router = APIRouter()
@@ -101,7 +101,7 @@ def shuffle_style_board(
     # Bind to the authenticated user; a mismatched body user_id is a 403 and
     # the wardrobe is only ever loaded for the authenticated id. Inline
     # wardrobe (tests / offline) is preserved but never marked trusted.
-    user_id = bind_request_user(http_request, request.user_id)
+    user_id = enforce_owner(http_request, request.user_id)
     wardrobe, wardrobe_source_trusted = _resolve_wardrobe(request, user_id)
     locked = [dict(item) for item in request.locked_items]
     inline_assets = (

@@ -1,6 +1,8 @@
+import hashlib
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -10,6 +12,14 @@ from services import ai_gateway
 from services.appwrite_proxy import AppwriteProxy
 from services.style_flow_service import build_style_flow_response, item_role
 from services.location_weather_context import resolve_location_weather_context
+from services.style_board_shuffle_service import _default_position, register_board
+from services.style_item_contract import (
+    canonical_accessory_type,
+    canonical_image_url,
+    canonical_item_id,
+    canonical_item_role,
+    canonical_item_source,
+)
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.stylist")
@@ -608,6 +618,154 @@ def _lite_directions(
     return directions
 
 
+def _style_this_registration_error(code: str, message: str) -> Dict[str, str]:
+    return {"code": code, "message": message}
+
+
+def _register_style_this_direction(
+    direction: Dict[str, Any],
+    *,
+    anchor: Dict[str, Any],
+    wardrobe: List[Dict[str, Any]],
+    user_id: str,
+    occasion: Optional[str],
+) -> Dict[str, Any]:
+    board_id = str(uuid4())
+    anchor_id = canonical_item_id(anchor)
+    wardrobe_by_id = {
+        canonical_item_id(item): dict(item)
+        for item in wardrobe
+        if canonical_item_id(item)
+    }
+    canonical_items: List[Dict[str, Any]] = []
+    error: Optional[Dict[str, str]] = None
+
+    if not anchor_id:
+        error = _style_this_registration_error(
+            "INVALID_ANCHOR_ITEM",
+            "The selected item does not have a stable item ID.",
+        )
+
+    seen_ids = set()
+    for item in direction.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        item_id = canonical_item_id(item)
+        source_item = wardrobe_by_id.get(item_id, {})
+        current = {**source_item, **item}
+        current_id = canonical_item_id(current)
+        if not current_id:
+            error = error or _style_this_registration_error(
+                "INVALID_ITEM_ID",
+                "A board item does not have a stable item ID.",
+            )
+            continue
+        if current_id in seen_ids:
+            error = error or _style_this_registration_error(
+                "DUPLICATE_ITEM_ID",
+                "A board cannot contain the same item more than once.",
+            )
+            continue
+        seen_ids.add(current_id)
+
+        board_role = str(current.get("board_role") or current.get("role") or "").strip()
+        role = canonical_item_role(current)
+        source = canonical_item_source(current)
+        if source == "unknown" and current_id in wardrobe_by_id:
+            source = "wardrobe"
+        if role == "unknown":
+            error = error or _style_this_registration_error(
+                "INVALID_SLOT",
+                f"Board item {current_id} does not have a canonical slot.",
+            )
+        if source not in {"wardrobe", "style_asset"}:
+            error = error or _style_this_registration_error(
+                "UNKNOWN_ITEM_SOURCE",
+                f"Board item {current_id} does not have a trusted source.",
+            )
+
+        current["item_id"] = current_id
+        current["role"] = role
+        current["slot"] = role
+        current["source"] = source
+        current["locked"] = current_id == anchor_id
+        if board_role:
+            current["board_role"] = board_role
+        image_url = canonical_image_url(current)
+        if image_url:
+            current["image_url"] = image_url
+        if role == "accessory" and not current.get("accessory_type"):
+            current["accessory_type"] = canonical_accessory_type(current)
+        if not isinstance(current.get("position"), dict):
+            current["position"] = _default_position(current_id, role)
+        canonical_items.append(current)
+
+    anchor_matches = [item for item in canonical_items if item["item_id"] == anchor_id]
+    if len(anchor_matches) != 1:
+        error = _style_this_registration_error(
+            "INVALID_ANCHOR_ITEM",
+            "The selected anchor is missing from this Style This direction.",
+        )
+
+    sources = {item.get("source") for item in canonical_items}
+    if sources == {"wardrobe"}:
+        source_policy = "wardrobe"
+    elif sources == {"style_asset"}:
+        source_policy = "style_asset"
+    elif sources and sources <= {"wardrobe", "style_asset"}:
+        source_policy = "mixed"
+    else:
+        source_policy = ""
+
+    registration: Dict[str, Any]
+    if error or not source_policy:
+        registration = {
+            "ok": False,
+            "error": error
+            or _style_this_registration_error(
+                "BOARD_REGISTRATION_INVALID",
+                "The board source policy could not be determined.",
+            ),
+        }
+    else:
+        registration = register_board(
+            board_id=board_id,
+            revision=1,
+            scenario="style_this",
+            source_policy=source_policy,
+            allow_wardrobe_fallback=source_policy == "mixed",
+            occasion=occasion,
+            style_direction=str(direction.get("title") or ""),
+            items=canonical_items,
+            user_id=user_id,
+        )
+
+    direction["board_id"] = board_id
+    direction["revision"] = 1
+    direction["scenario"] = "style_this"
+    direction["interaction_mode"] = "style_this"
+    direction["source_policy"] = source_policy or None
+    direction["board_items"] = canonical_items
+    direction["items"] = canonical_items
+    direction["shuffle_available"] = bool(registration.get("ok"))
+    if not registration.get("ok"):
+        direction["shuffle_state_error"] = registration.get("error")
+
+    user_fingerprint = hashlib.sha256(str(user_id or "").encode("utf-8")).hexdigest()[:12]
+    logger.info(
+        "AHVI_STYLE_THIS_BOARD_REGISTERED user_id=%s anchor_item_id=%s board_id=%s "
+        "revision=1 source_policy=%s item_count=%s locked_count=%s shuffle_available=%s",
+        user_fingerprint,
+        anchor_id,
+        board_id,
+        source_policy or "unknown",
+        len(canonical_items),
+        sum(1 for item in canonical_items if item.get("locked")),
+        str(bool(registration.get("ok"))).lower(),
+    )
+    return direction
+
+
 @router.post("/items/{item_id}/style")
 def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, Any]:
     """Power the item-detail CTAs (fast lite-pairing path).
@@ -630,6 +788,16 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
     try:
         if mode == "style_this":
             directions = _lite_directions(anchor, wardrobe, resolved["weather"])
+            directions = [
+                _register_style_this_direction(
+                    direction,
+                    anchor=anchor,
+                    wardrobe=wardrobe,
+                    user_id=request.user_id,
+                    occasion=request.occasion,
+                )
+                for direction in directions
+            ]
             logger.info(
                 "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d",
                 item_id, len(directions), len(wardrobe),
