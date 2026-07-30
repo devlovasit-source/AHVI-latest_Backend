@@ -1277,14 +1277,23 @@ class CatalogProviderNanoBanana(CatalogProvider):
             or "gemini-2.5-flash-image-preview"
         ).strip()
 
-    def _client(self):
+    def _client(self, timeout_s: Optional[int] = None):
         if genai is None or types is None:
             return None
+        http_kwargs: Dict[str, Any] = {"api_version": "v1"}
+        # Bound the Vertex image-gen call. Without this the SDK call is
+        # unbounded, so a cold/slow generation stretches save-selected toward
+        # its 120s client timeout. HttpOptions.timeout is milliseconds; only
+        # set it when the installed SDK supports the field.
+        if timeout_s and timeout_s > 0:
+            fields = getattr(types.HttpOptions, "model_fields", {}) or {}
+            if not fields or "timeout" in fields:
+                http_kwargs["timeout"] = int(timeout_s * 1000)
         return genai.Client(
             vertexai=True,
             project=_vertex_project(),
             location=_vertex_location(),
-            http_options=types.HttpOptions(api_version="v1"),
+            http_options=types.HttpOptions(**http_kwargs),
         )
 
     def _config(self):
@@ -1299,9 +1308,18 @@ class CatalogProviderNanoBanana(CatalogProvider):
         return types.GenerateContentConfig(**kwargs)
 
     def generate(self, *, cutout_bytes: bytes, prompt: str, item_metadata: Dict[str, Any], timeout: int) -> CatalogProviderResult:
-        del timeout  # Vertex SDK call timeout is controlled by client/http options.
+        # Bound the Vertex image-gen call so a cold/slow generation can't drag
+        # save-selected to its 120s tail. A normal success is ~35-40s, so use a
+        # nanobanana-specific cap (default 75s) well above that; the generic
+        # CATALOG_TIMEOUT_SECONDS (~30s) would kill healthy generations.
         try:
-            client = self._client()
+            nb_timeout = int(os.getenv("NANO_BANANA_TIMEOUT_SECONDS", "75") or 75)
+        except (TypeError, ValueError):
+            nb_timeout = 75
+        if timeout and timeout > nb_timeout:
+            nb_timeout = timeout
+        try:
+            client = self._client(timeout_s=nb_timeout)
             if client is None:
                 return CatalogProviderResult(False, reason="google_genai_unavailable", provider=self.name)
             if not self.model:

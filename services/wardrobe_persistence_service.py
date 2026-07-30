@@ -1306,11 +1306,14 @@ def update_wardrobe_item_images(
     item_id: str,
     masked_url: str = "",
     image_status: str = "",
+    normalized_url: str = "",
+    catalog_status: str = "",
 ) -> bool:
-    """Best-effort patch of a wardrobe item's cutout fields after async RMBG
-    finishes in the background. Returns True on success. Never raises — the
-    item is already saved with its catalog image; this only fills the masked
-    (cutout) fallback fields. Unknown attributes are dropped by _patch_document.
+    """Best-effort patch of a wardrobe item's image fields after async RMBG or
+    async catalog finishes in the background. Returns True on success. Never
+    raises. Used both to fill the masked (cutout) fallback and to patch the
+    generated catalog image (normalized_url) once it lands. Unknown attributes
+    are dropped by _patch_document.
     """
     log = logging.getLogger("ahvi.wardrobe_persistence")
     item_id = _safe_text(item_id)
@@ -1321,16 +1324,23 @@ def update_wardrobe_item_images(
         patch["masked_url"] = masked_url
     if image_status:
         patch["image_status"] = image_status
+    if normalized_url:
+        patch["normalized_url"] = normalized_url
+    if catalog_status:
+        patch["catalog_status"] = catalog_status
     if not patch:
         return False
     try:
         _patch_document(item_id, patch)
         log.info(
-            "ahvi.async_rmbg.patched user_id=%s item_id=%s masked_url=%s status=%s",
+            "ahvi.async_image.patched user_id=%s item_id=%s masked_url=%s "
+            "normalized_url=%s status=%s catalog_status=%s",
             user_id,
             item_id,
             masked_url,
+            normalized_url,
             image_status,
+            catalog_status,
         )
         return True
     except Exception as exc:  # noqa: BLE001 — background, must never raise

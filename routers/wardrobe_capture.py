@@ -1886,6 +1886,12 @@ def _save_selected_block_reason(item: Dict[str, Any]) -> str:
     validation_status = str(item.get("validation_status") or "").strip().lower()
     if validation_status and validation_status != "ok":
         return "validation_not_ok"
+    if status == "catalog_pending":
+        # WARDROBE_ASYNC_CATALOG: catalog is generated post-response. The item
+        # already carries a valid rmbg/raw display image, so don't gate on
+        # catalog quality here — _run_bg_finalize_catalog patches it (or leaves
+        # the cutout) once it lands.
+        return ""
     if status == "catalog_ready":
         if provider and provider not in {"cutout", "disabled", "none"}:
             return "unsupported_catalog_status"
@@ -3682,6 +3688,24 @@ def _async_rmbg_enabled() -> bool:
     }
 
 
+def _async_catalog_enabled() -> bool:
+    """Defer the ~37s catalog PNG generation to a post-response background task
+    so save-selected returns after persist (~1s). The item is saved with its
+    rmbg/raw display image and the catalog is patched in when it lands.
+
+    Hard-disabled under WARDROBE_PRIVACY_CATALOG_ONLY: there, only the face-free
+    catalog image may be stored, so it cannot be deferred past persist.
+    """
+    if _privacy_catalog_only():
+        return False
+    return str(os.getenv("WARDROBE_ASYNC_CATALOG", "false")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _privacy_catalog_only() -> bool:
     """When on, only the regenerated catalog image (face-free) may be stored.
     The raw crop and RMBG cutout can contain the user's face on worn/selfie
@@ -3786,6 +3810,56 @@ def _run_bg_finalize_rmbg(user_id: str, cleanup_items: List[Dict[str, Any]]) -> 
         logger.warning("ahvi.async_rmbg.finalize_failed err=%s", str(exc)[:200])
 
 
+def _run_bg_finalize_catalog(
+    user_id: str, catalog_items: List[Dict[str, Any]]
+) -> None:
+    """Background (post-response) finalize for WARDROBE_ASYNC_CATALOG: generate
+    the Nano Banana catalog PNG per item (concurrently), upload it, then patch
+    each already-saved doc's normalized_url + catalog_status. The item is saved
+    with its rmbg/raw display image; this swaps in the polished catalog when it
+    lands. Best-effort; never raises."""
+    try:
+        items = [i for i in catalog_items if isinstance(i, dict)]
+        if not items:
+            return
+        from concurrent.futures import ThreadPoolExecutor
+
+        workers = max(
+            1,
+            min(len(items), int(os.getenv("WARDROBE_SAVE_CATALOG_PARALLELISM", "6") or 6)),
+        )
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(_maybe_generate_catalog_image, items))
+        for it in items:
+            item_id = str(it.get("item_id") or "").strip()
+            if not item_id:
+                continue
+            _apply_display_image_fields(it)
+            status = str(it.get("catalogStatus") or it.get("catalog_status") or "").strip()
+            normalized = str(it.get("normalized_url") or it.get("normalizedUrl") or "").strip()
+            # Only patch when a real catalog landed; otherwise leave the cutout.
+            if status == "catalog_generated" and normalized:
+                update_wardrobe_item_images(
+                    user_id=user_id,
+                    item_id=item_id,
+                    normalized_url=normalized,
+                    catalog_status=status,
+                )
+                logger.info(
+                    "ahvi.async_catalog.patched item_id=%s normalized_url=%s",
+                    item_id,
+                    normalized,
+                )
+            else:
+                logger.info(
+                    "ahvi.async_catalog.kept_cutout item_id=%s status=%s",
+                    item_id,
+                    status or "none",
+                )
+    except Exception as exc:  # noqa: BLE001 — background must never raise
+        logger.warning("ahvi.async_catalog.finalize_failed err=%s", str(exc)[:200])
+
+
 @router.post("/save-selected")
 def save_selected(
     http_request: Request,
@@ -3794,6 +3868,7 @@ def save_selected(
 ):
     user_id = _effective_user_id(http_request, request.user_id)
     _async_rmbg = _async_rmbg_enabled()
+    _async_catalog = _async_catalog_enabled()
 
     # Per-stage latency timers (RMBG -> catalog -> persist). Initialized to the
     # start so the summary log is safe even when a stage is skipped.
@@ -3989,7 +4064,19 @@ def save_selected(
     # N x. Each call mutates its own item dict in place, is idempotent, and never
     # raises. Cap via WARDROBE_SAVE_CATALOG_PARALLELISM (default 6 = max items).
     regen_attempted_count += len(prepared_items)
-    if prepared_items:
+    if prepared_items and _async_catalog:
+        # WARDROBE_ASYNC_CATALOG: defer the ~37s catalog gen to a post-response
+        # background task. Mark pending so save-gating doesn't reject on catalog
+        # quality; the item persists with its rmbg/raw display image and the
+        # catalog is patched in by _run_bg_finalize_catalog when it lands.
+        for _it in prepared_items:
+            if isinstance(_it, dict):
+                _it["catalogStatus"] = "catalog_pending"
+                _it["catalog_status"] = "catalog_pending"
+        logger.info(
+            "ahvi.capture.save_selected.catalog_deferred items=%d", len(prepared_items)
+        )
+    elif prepared_items:
         from concurrent.futures import ThreadPoolExecutor
 
         _cat_workers = max(
@@ -4032,6 +4119,9 @@ def save_selected(
                 if item_id:
                     unsafe_catalog_skipped_items[item_id] = dict(item)
                 continue
+            elif status == "catalog_pending":
+                # Deferred to _run_bg_finalize_catalog; not a failure.
+                pass
             elif status:
                 catalog_failed_count += 1
             item["regen_provider"] = (
@@ -4341,6 +4431,26 @@ def save_selected(
                 "ahvi.async_rmbg.scheduled user_id=%s items=%d",
                 user_id,
                 len(_to_finalize),
+            )
+
+    # WARDROBE_ASYNC_CATALOG: generate + patch the catalog PNG off the response
+    # path for the items that actually saved.
+    if _async_catalog and prepared_items:
+        _approved_cat = set(approved_selected_ids)
+        _cat_finalize = [
+            i
+            for i in prepared_items
+            if isinstance(i, dict)
+            and str(i.get("item_id") or "").strip() in _approved_cat
+        ]
+        if _cat_finalize:
+            background_tasks.add_task(
+                _run_bg_finalize_catalog, user_id, _cat_finalize
+            )
+            logger.info(
+                "ahvi.async_catalog.scheduled user_id=%s items=%d",
+                user_id,
+                len(_cat_finalize),
             )
 
     # Per-stage latency for the 30s-save target: upload+RMBG -> catalog -> persist.
