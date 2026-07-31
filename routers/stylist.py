@@ -869,6 +869,7 @@ def _register_style_this_direction(
     direction["board_items"] = canonical_items
     direction["items"] = canonical_items
     direction["shuffle_available"] = bool(registration.get("ok"))
+    direction["can_shuffle"] = bool(registration.get("ok"))
     if not registration.get("ok"):
         direction["shuffle_state_error"] = registration.get("error")
 

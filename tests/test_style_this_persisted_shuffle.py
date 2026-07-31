@@ -82,6 +82,7 @@ def test_each_direction_has_unique_persisted_uuid_revision_one():
         assert direction["interaction_mode"] == "style_this"
         assert direction["source_policy"] == "wardrobe"
         assert direction["shuffle_available"] is True
+        assert direction["can_shuffle"] is True
         state = shuffle_service.get_board_state(direction["board_id"])
         assert state is not None
         assert state["revision"] == 1
@@ -142,6 +143,7 @@ def test_registration_preserves_mixed_source_policy():
 
     assert registered["source_policy"] == "mixed"
     assert registered["shuffle_available"] is True
+    assert registered["can_shuffle"] is True
     state = shuffle_service.get_board_state(registered["board_id"])
     assert state["source_policy"] == "mixed"
     assert state["allow_wardrobe_fallback"] is True
@@ -164,6 +166,7 @@ def test_registration_failure_disables_shuffle_with_typed_error():
     directions = stylist.style_wardrobe_item("top-1", _request())["style_directions"]
 
     assert all(direction["shuffle_available"] is False for direction in directions)
+    assert all(direction["can_shuffle"] is False for direction in directions)
     assert all(
         direction["shuffle_state_error"]["code"] == "BOARD_STATE_UNAVAILABLE"
         for direction in directions
