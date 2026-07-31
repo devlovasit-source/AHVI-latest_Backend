@@ -4077,6 +4077,8 @@ def _build_visual_board_envelope(
     """Build a visual_board envelope, reusing existing module engines."""
     from services.board_service import (
         _detect_diet_variant,
+        _detect_diet_restrictions,
+        _detect_meal_slot,
         build_diet_visual_board,
         build_pack_visual_board,
         build_plan_visual_board,
@@ -4093,6 +4095,8 @@ def _build_visual_board_envelope(
             engine_result=None,
             user_context=context,
             diet_variant=diet_variant,
+            meal_slot=_detect_meal_slot(user_message),
+            restrictions=_detect_diet_restrictions(user_message),
         )
     elif board_type == "packing_checklist":
         # Reuse the existing plan/pack engine for trip-aware sections.
@@ -4123,6 +4127,13 @@ def _build_visual_board_envelope(
         "principles": board.get("principles") or [],
         "sections": board.get("sections") or [],
         "why_this_plan": board.get("why_this_plan") or "",
+        # Diet slot/restriction metadata (present only for diet_plan boards;
+        # backward-compatible extra fields, ignored by other clients).
+        "meal_slot": board.get("meal_slot"),
+        "restrictions": board.get("restrictions"),
+        "reason": board.get("reason"),
+        "fallback_reason": board.get("fallback_reason"),
+        "context_used": board.get("context_used"),
         "visual_board": board,
         # Text fallback for clients that do not render visual boards yet.
         "message": message_text,

@@ -1,7 +1,10 @@
 import base64
+import logging
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger("ahvi.diet_board")
 
 from fastapi import HTTPException
 
@@ -462,10 +465,193 @@ def _detect_diet_variant(text: str) -> str:
     return "balanced"
 
 
+# ── Meal slot + dietary restriction parsing (beta correctness) ──────────────
+# Parsed SEPARATELY from diet_variant so a restriction-oriented prompt
+# ("gluten free") no longer collapses to the balanced full-day template.
+
+_MEAL_SLOTS = ("breakfast", "lunch", "dinner", "snack", "full_day")
+
+
+def _detect_meal_slot(text: str) -> str:
+    t = str(text or "").lower()
+    if any(k in t for k in ("breakfast", "morning meal")):
+        return "breakfast"
+    if any(k in t for k in ("lunch", "midday", "mid-day", "noon")):
+        return "lunch"
+    if any(k in t for k in ("dinner", "supper", "evening meal")):
+        return "dinner"
+    if "snack" in t:
+        return "snack"
+    if any(
+        k in t
+        for k in ("full day", "full-day", "today's meals", "todays meals",
+                  "whole day", "all meals")
+    ):
+        return "full_day"
+    return "full_day"
+
+
+def _detect_diet_restrictions(text: str) -> List[str]:
+    t = str(text or "").lower()
+    out: List[str] = []
+    if "gluten-free" in t or "glutenfree" in t or ("gluten" in t and "free" in t):
+        out.append("gluten_free")
+    if ("dairy" in t or "lactose" in t) and "free" in t:
+        out.append("dairy_free")
+    if "vegetarian" in t:
+        out.append("vegetarian")
+    if any(k in t for k in ("vegan", "plant based", "plant-based")):
+        out.append("vegan")
+    if "high protein" in t or "high-protein" in t or "highprotein" in t:
+        out.append("high_protein")
+    if any(k in t for k in ("keto", "ketogenic", "low carb", "low-carb")):
+        out.append("keto")
+    return out
+
+
+# Ingredient tokens that make an item incompatible with a restriction. Bounded
+# to what the current templates actually contain — extend when templates grow.
+_GLUTEN_TOKENS = (
+    "wheat", "bread", "roti", "chapati", "chapatti", "naan", "paratha", "pasta",
+    "noodle", "couscous", "barley", "rye", "seitan", "cracker", "biscuit",
+    "toast", "bun", "wrap", "burrito", "tortilla", "oat", "muesli", "granola",
+)
+_DAIRY_TOKENS = (
+    "milk", "paneer", "cheese", "curd", "yogurt", "yoghurt", "butter", "ghee",
+    "cream", "lassi", "buttermilk",
+)
+_MEAT_TOKENS = (
+    "chicken", "fish", "mutton", "beef", "pork", "prawn", "shrimp", "meat",
+    "lamb", "turkey", "bacon", "ham", "salmon", "tuna",
+)
+_ANIMAL_TOKENS = ("egg", "honey")  # vegan-only extras (dairy handled separately)
+
+
+def _restriction_bad_tokens(restrictions: List[str]) -> set:
+    bad: set = set()
+    if "gluten_free" in restrictions:
+        bad |= set(_GLUTEN_TOKENS)
+    if "dairy_free" in restrictions or "vegan" in restrictions:
+        bad |= set(_DAIRY_TOKENS)
+    if "vegetarian" in restrictions or "vegan" in restrictions:
+        bad |= set(_MEAT_TOKENS)
+    if "vegan" in restrictions:
+        bad |= set(_ANIMAL_TOKENS)
+    return bad
+
+
+def _text_compatible(text: str, bad_tokens: set) -> bool:
+    if not bad_tokens:
+        return True
+    t = str(text or "").lower()
+    # An item explicitly marked gluten-free / dairy-free overrides the token
+    # exclusion for that restriction (templates may add such marks later).
+    gf_marked = "gluten-free" in t or "gluten free" in t or "certified gf" in t
+    df_marked = "dairy-free" in t or "dairy free" in t
+    for tok in bad_tokens:
+        if gf_marked and tok in _GLUTEN_TOKENS:
+            continue
+        if df_marked and tok in _DAIRY_TOKENS:
+            continue
+        if re.search(r"\b" + re.escape(tok), t):
+            return False
+    return True
+
+
+def _filter_meal_section(section: Dict[str, Any], bad_tokens: set):
+    """Return (filtered_section_or_None, excluded_count)."""
+    excluded = 0
+    if section.get("layout") == "batch_prep":  # Lunch: category → options[]
+        new_items = []
+        for it in section.get("items", []):
+            options = list(it.get("options", []))
+            keep = [o for o in options if _text_compatible(o, bad_tokens)]
+            excluded += len(options) - len(keep)
+            if keep:
+                new_items.append({**it, "options": keep})
+        if not new_items:
+            return None, excluded
+        out = {**section, "items": new_items}
+        if "turn_into" in section:
+            out["turn_into"] = [
+                x for x in section.get("turn_into", []) if _text_compatible(x, bad_tokens)
+            ]
+        return out, excluded
+    # meal_options / simple_combinations: items = [{name, pairing}]
+    new_items = []
+    for it in section.get("items", []):
+        text = f"{it.get('name', '')} {it.get('pairing', '')}"
+        if _text_compatible(text, bad_tokens):
+            new_items.append(it)
+        else:
+            excluded += 1
+    if not new_items:
+        return None, excluded
+    return {**section, "items": new_items}, excluded
+
+
+_SLOT_TITLES = {"breakfast": "Breakfast", "lunch": "Lunch", "dinner": "Dinner"}
+
+
+def _diet_fallback_board(slot, restrictions, fallback_reason, context_used):
+    """Truthful fallback — never the incompatible default. Offers a safe
+    generic suggestion only when its compatibility with the restrictions is
+    known."""
+    bad = _restriction_bad_tokens(restrictions)
+    candidates = [
+        {"name": "Grilled vegetables", "pairing": "with a protein of choice"},
+        {"name": "Fresh fruit and nuts", "pairing": ""},
+        {"name": "Mixed salad", "pairing": "with olive oil"},
+    ]
+    safe = [
+        c for c in candidates
+        if _text_compatible(f"{c['name']} {c['pairing']}", bad)
+    ]
+    restr_text = ", ".join(r.replace("_", " ") for r in restrictions) or "your request"
+    slot_text = "meal" if slot == "full_day" else slot.replace("_", " ")
+    reason = (
+        f"I couldn't build a {slot_text} plan that fits {restr_text} from the "
+        "current meal templates."
+    )
+    sections: List[Dict[str, Any]] = []
+    if safe:
+        reason += " Here are a few compatible options instead."
+        sections = [{
+            "title": slot_text.title(),
+            "layout": "meal_options",
+            "items": safe,
+        }]
+    board = _visual_board("diet_plan", "Meal Plan", reason, sections,
+                          principles=[], why_this_plan=reason)
+    board["meal_slot"] = slot
+    board["restrictions"] = restrictions
+    board["reason"] = reason
+    board["fallback_reason"] = fallback_reason
+    board["context_used"] = context_used
+    return board
+
+
 def build_diet_visual_board(
-    engine_result=None, user_context=None, diet_variant: str = "balanced"
+    engine_result=None,
+    user_context=None,
+    diet_variant: str = "balanced",
+    meal_slot: str = "full_day",
+    restrictions: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     variant = _DIET_VARIANTS.get(diet_variant) or _DIET_VARIANTS["balanced"]
+    restrictions = list(restrictions or [])
+    slot = meal_slot if meal_slot in _MEAL_SLOTS else "full_day"
+    context_used = {
+        "diet_variant": diet_variant,
+        "meal_slot": slot,
+        "restrictions": restrictions,
+    }
+
+    logger.info(
+        "AHVI_MEAL_TEMPLATE_SELECTED diet_variant=%s meal_slot=%s "
+        "restriction_count=%d template_id=%s",
+        diet_variant, slot, len(restrictions), diet_variant,
+    )
 
     why = ""
     if isinstance(engine_result, dict):
@@ -479,7 +665,7 @@ def build_diet_visual_board(
     if not why:
         why = variant["why"]
 
-    sections = [
+    all_sections = [
         {
             "title": "Breakfast",
             "layout": "meal_options",
@@ -501,14 +687,56 @@ def build_diet_visual_board(
             "items": list(variant["dinner"]),
         },
     ]
-    return _visual_board(
+
+    # base template → requested slot → dietary variant (already picked) →
+    # restriction compatibility.
+    if slot in _SLOT_TITLES:
+        kept = [s for s in all_sections if s["title"] == _SLOT_TITLES[slot]]
+    elif slot == "snack":
+        kept = []  # templates carry no snack section
+    else:
+        kept = list(all_sections)
+
+    bad = _restriction_bad_tokens(restrictions)
+    filtered: List[Dict[str, Any]] = []
+    excluded_total = 0
+    for section in kept:
+        fs, ex = _filter_meal_section(section, bad)
+        excluded_total += ex
+        if fs is not None:
+            filtered.append(fs)
+
+    if not filtered:
+        fallback_reason = (
+            "no_slot_template" if slot == "snack"
+            else "no_compatible_template_for_restrictions"
+        )
+        logger.info(
+            "AHVI_MEAL_TEMPLATE_FILTERED excluded_count=%d fallback_reason=%s",
+            excluded_total, fallback_reason,
+        )
+        return _diet_fallback_board(slot, restrictions, fallback_reason, context_used)
+
+    if excluded_total:
+        logger.info(
+            "AHVI_MEAL_TEMPLATE_FILTERED excluded_count=%d fallback_reason=%s",
+            excluded_total, "",
+        )
+
+    board = _visual_board(
         "diet_plan",
         variant["title"],
         variant["subtitle"],
-        sections,
+        filtered,
         principles=list(variant["principles"]),
         why_this_plan=why,
     )
+    board["meal_slot"] = slot
+    board["restrictions"] = restrictions
+    board["reason"] = ""
+    board["fallback_reason"] = ""
+    board["context_used"] = context_used
+    return board
 
 
 def build_pack_visual_board(engine_result=None, user_context=None) -> Dict[str, Any]:
@@ -654,4 +882,7 @@ __all__ = [
     "build_diet_visual_board",
     "build_pack_visual_board",
     "build_plan_visual_board",
+    "_detect_diet_variant",
+    "_detect_meal_slot",
+    "_detect_diet_restrictions",
 ]
