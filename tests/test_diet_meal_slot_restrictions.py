@@ -105,6 +105,24 @@ def test_no_compatible_template_returns_truthful_fallback():
         assert tok not in txt, tok
 
 
+def test_typo_high_protien_breakfast_maps_to_high_protein_breakfast_only():
+    b = _board_for("high protien breakfast")
+    assert _titles(b) == ["Breakfast"]
+    assert b["context_used"]["diet_variant"] == "high_protein"
+
+
+def test_high_protein_breakfast_only():
+    b = _board_for("high protein breakfast")
+    assert _titles(b) == ["Breakfast"]
+    assert b["context_used"]["diet_variant"] == "high_protein"
+
+
+def test_bare_breakfast_is_breakfast_only_without_variant():
+    b = _board_for("breakfast")
+    assert _titles(b) == ["Breakfast"]
+    assert b["meal_slot"] == "breakfast"
+
+
 def test_existing_templates_still_build_full_day():
     for variant in ("balanced", "vegan", "high_protein", "keto"):
         b = build_diet_visual_board(diet_variant=variant)

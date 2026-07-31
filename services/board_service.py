@@ -444,9 +444,14 @@ _DIET_VARIANTS: Dict[str, Dict[str, Any]] = {
 }
 
 
+def _normalize_diet_text(text: str) -> str:
+    # Tolerate common misspellings so "high protien" still reads as protein.
+    return str(text or "").lower().replace("protien", "protein")
+
+
 def _detect_diet_variant(text: str) -> str:
     """Pick a diet variant key from the user's prompt."""
-    lowered = str(text or "").lower()
+    lowered = _normalize_diet_text(text)
     if any(k in lowered for k in ("vegan", "plant based", "plant-based")):
         return "vegan"
     if "high protein" in lowered or "high-protein" in lowered or "highprotein" in lowered:
@@ -492,7 +497,7 @@ def _detect_meal_slot(text: str) -> str:
 
 
 def _detect_diet_restrictions(text: str) -> List[str]:
-    t = str(text or "").lower()
+    t = _normalize_diet_text(text)
     out: List[str] = []
     if "gluten-free" in t or "glutenfree" in t or ("gluten" in t and "free" in t):
         out.append("gluten_free")
