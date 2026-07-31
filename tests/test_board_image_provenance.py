@@ -1,0 +1,68 @@
+"""Board-item image provenance guard (style_flow_service._adapt_board_item).
+
+A raw image_url (often a selfie/mirror photo) must never be promoted to
+board_image_url + cutout_ready. Only real transparent cutouts earn cutout_ready.
+"""
+from services.style_flow_service import _adapt_board_item
+
+_SELFIE = "https://cdn/user/selfie.jpg"
+_MASK = "https://cdn/masked/shirt.png"
+_CAT = "https://cdn/catalog_jeans.png"
+
+
+def test_raw_selfie_not_promoted_to_board_cutout():
+    # Device failure: image_url is a selfie, no cutout/normalized.
+    e = _adapt_board_item({"name": "Blue shirt", "role": "top", "image_url": _SELFIE})
+    assert e is not None  # role kept
+    assert e.get("board_image_url") is None  # NOT copied
+    assert e.get("board_status") != "cutout_ready"  # NOT stamped ready
+    assert e["image_url"] == _SELFIE  # raw preserved (frontend guard omits it)
+
+
+def test_masked_cutout_wins_over_raw():
+    e = _adapt_board_item(
+        {"name": "Shirt", "role": "top", "image_url": _SELFIE, "masked_url": _MASK}
+    )
+    assert e["board_image_url"] == _MASK
+    assert e["board_status"] == "cutout_ready"
+
+
+def test_raw_plus_catalog_keeps_catalog_not_cutout():
+    e = _adapt_board_item(
+        {"name": "Jeans", "role": "bottom", "image_url": _SELFIE, "normalized_url": _CAT}
+    )
+    assert e.get("board_image_url") is None  # no forged cutout
+    assert e.get("board_status") != "cutout_ready"
+    assert e["normalized_url"] == _CAT  # frontend frames the catalog jeans
+
+
+def test_bare_board_image_url_without_provenance_not_trusted():
+    e = _adapt_board_item(
+        {"name": "X", "role": "top", "board_image_url": _SELFIE, "image_url": _SELFIE}
+    )
+    assert e.get("board_image_url") is None  # bare board_image_url stripped
+    assert e.get("board_status") != "cutout_ready"
+
+
+def test_transparent_field_earns_cutout_ready():
+    e = _adapt_board_item(
+        {"name": "Tee", "role": "top", "transparent_url": _MASK}
+    )
+    assert e["board_image_url"] == _MASK
+    assert e["board_status"] == "cutout_ready"
+
+
+def test_no_name_skipped():
+    assert _adapt_board_item({"role": "top", "masked_url": _MASK}) is None
+
+
+def test_no_image_at_all_skipped():
+    assert _adapt_board_item({"name": "Empty", "role": "top"}) is None
+
+
+def test_forged_cutout_ready_is_scrubbed_for_raw_only():
+    # Upstream falsely stamped cutout_ready on a raw item -> must be removed.
+    e = _adapt_board_item(
+        {"name": "Y", "role": "top", "image_url": _SELFIE, "board_status": "cutout_ready"}
+    )
+    assert e.get("board_status") != "cutout_ready"

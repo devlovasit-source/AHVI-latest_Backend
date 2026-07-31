@@ -4157,6 +4157,57 @@ def _board_metadata_summary(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return summary
 
 
+def _adapt_board_item(_it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Provenance-safe board item for the flat-lay board. Returns None to skip.
+
+    Only a real transparent cutout (masked/transparent/cutout field) may be
+    stamped board_image_url + cutout_ready. A raw image_url — often a selfie or
+    mirror photo — is NEVER promoted to a board cutout (that forged provenance
+    is what put a person photo on the board). Catalog/normalized stays on its
+    own field for the frontend to frame; a bare board_image_url with no cutout
+    provenance is dropped.
+    """
+    _name = str(_it.get("name") or _it.get("title") or _it.get("label") or "").strip()
+    if not _name:
+        return None
+    _cutout = str(
+        _it.get("masked_url")
+        or _it.get("transparent_url")
+        or _it.get("transparent_image_url")
+        or _it.get("cutout_url")
+        or ""
+    ).strip()
+    _raw = str(
+        _it.get("image_url") or _it.get("raw_url") or _it.get("url") or ""
+    ).strip()
+    _entry = {**_it, "name": _name, "role": _it.get("role") or ""}
+    if _cutout:
+        _entry["board_image_url"] = _cutout
+        _entry["board_status"] = "cutout_ready"
+        _selected, _rejected_raw = "masked_cutout", False
+    else:
+        # No trusted cutout — never forge one from a raw upload.
+        _entry.pop("board_image_url", None)
+        if _entry.get("board_status") == "cutout_ready":
+            _entry.pop("board_status", None)
+        _selected = "catalog" if _it.get("normalized_url") else "raw_rejected"
+        _rejected_raw = bool(_raw) and _selected == "raw_rejected"
+    if not (_entry.get("board_image_url") or _it.get("normalized_url") or _raw):
+        return None
+    logger.info(
+        "AHVI_BOARD_IMAGE_PROVENANCE role=%s has_cutout=%s has_normalized=%s "
+        "has_raw=%s selected=%s board_status=%s rejected_raw=%s",
+        _entry.get("role") or "unknown",
+        bool(_cutout),
+        bool(_it.get("normalized_url")),
+        bool(_raw),
+        _selected,
+        _entry.get("board_status") or "none",
+        _rejected_raw,
+    )
+    return _entry
+
+
 def finalize_style_response_payload(
     result: Dict[str, Any],
     *,
@@ -4601,26 +4652,9 @@ def finalize_style_response_payload(
         for _it in _card.get("items") or []:
             if not isinstance(_it, dict):
                 continue
-            _url = str(
-                _it.get("image_url")
-                or _it.get("board_image_url")
-                or _it.get("normalized_url")
-                or _it.get("masked_url")
-                or ""
-            ).strip()
-            _name = str(_it.get("name") or _it.get("title") or _it.get("label") or "").strip()
-            if not _url or not _name:
-                continue
-            _board_items.append(
-                {
-                    **_it,
-                    "name": _name,
-                    "role": _it.get("role") or "",
-                    "image_url": _url,
-                    "board_image_url": _url,
-                    "board_status": "cutout_ready",
-                }
-            )
+            _entry = _adapt_board_item(_it)
+            if _entry is not None:
+                _board_items.append(_entry)
         if _board_items:
             _card["board_items"] = _board_items
         # Additive styling-intent brief for the frontend board renderer.
