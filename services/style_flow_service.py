@@ -4180,6 +4180,28 @@ def _adapt_board_item(_it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     _raw = str(
         _it.get("image_url") or _it.get("raw_url") or _it.get("url") or ""
     ).strip()
+    # A masked/cutout URL that is just the raw upload is a fabricated cutout, not
+    # a real transparent one: `row.setdefault("masked_url", image)` copies the
+    # raw image (often a selfie/mirror photo) into masked_url when RMBG produced
+    # nothing. Trusting it stamps cutout_ready on a person photo. Reject any
+    # cutout candidate that aliases a raw field.
+    _raw_aliases = {
+        str(_it.get(_k) or "").strip()
+        for _k in (
+            "image_url",
+            "imageUrl",
+            "raw_url",
+            "rawUrl",
+            "url",
+            "original_image_url",
+            "originalImageUrl",
+            "preview_url",
+            "previewUrl",
+        )
+    }
+    _raw_aliases.discard("")
+    if _cutout and _cutout in _raw_aliases:
+        _cutout = ""
     _entry = {**_it, "name": _name, "role": _it.get("role") or ""}
     if _cutout:
         _entry["board_image_url"] = _cutout

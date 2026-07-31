@@ -66,3 +66,29 @@ def test_forged_cutout_ready_is_scrubbed_for_raw_only():
         {"name": "Y", "role": "top", "image_url": _SELFIE, "board_status": "cutout_ready"}
     )
     assert e.get("board_status") != "cutout_ready"
+
+
+def test_masked_url_aliasing_raw_is_not_a_cutout():
+    # Device blocker: row.setdefault("masked_url", image) copies the raw selfie
+    # into masked_url. That fabricated cutout must NOT be trusted as board-ready.
+    e = _adapt_board_item(
+        {"name": "Black T-Shirt", "role": "top", "image_url": _SELFIE, "masked_url": _SELFIE}
+    )
+    assert e.get("board_image_url") is None
+    assert e.get("board_status") != "cutout_ready"
+
+
+def test_masked_alias_falls_back_to_catalog():
+    # Same fabricated masked, but a real catalog image exists -> keep catalog,
+    # not cutout_ready (opaque product image, frontend frames it).
+    e = _adapt_board_item(
+        {
+            "name": "Black T-Shirt",
+            "role": "top",
+            "image_url": _SELFIE,
+            "masked_url": _SELFIE,
+            "normalized_url": _CAT,
+        }
+    )
+    assert e.get("board_status") != "cutout_ready"
+    assert e["normalized_url"] == _CAT
