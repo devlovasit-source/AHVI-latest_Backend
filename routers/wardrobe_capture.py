@@ -3838,26 +3838,33 @@ def _run_bg_finalize_catalog(
             status = str(it.get("catalogStatus") or it.get("catalog_status") or "").strip()
             normalized = str(it.get("normalized_url") or it.get("normalizedUrl") or "").strip()
             # Only patch when a real catalog landed; otherwise leave the cutout.
-            if status == "catalog_generated" and normalized:
-                update_wardrobe_item_images(
+            if status in {"catalog_ready", "catalog_generated"} and normalized:
+                patched = update_wardrobe_item_images(
                     user_id=user_id,
                     item_id=item_id,
                     normalized_url=normalized,
                     catalog_status=status,
                 )
-                logger.info(
-                    "ahvi.async_catalog.patched item_id=%s normalized_url=%s",
-                    item_id,
-                    normalized,
-                )
+                if patched:
+                    logger.info("AHVI_ASYNC_CATALOG_COMPLETED item_id=%s", item_id)
+                else:
+                    logger.warning(
+                        "AHVI_ASYNC_CATALOG_FAILED item_id=%s reason=patch_failed",
+                        item_id,
+                    )
             else:
-                logger.info(
-                    "ahvi.async_catalog.kept_cutout item_id=%s status=%s",
+                update_wardrobe_item_images(
+                    user_id=user_id,
+                    item_id=item_id,
+                    catalog_status="catalog_failed",
+                )
+                logger.warning(
+                    "AHVI_ASYNC_CATALOG_FAILED item_id=%s reason=%s",
                     item_id,
-                    status or "none",
+                    status or "generation_failed",
                 )
     except Exception as exc:  # noqa: BLE001 — background must never raise
-        logger.warning("ahvi.async_catalog.finalize_failed err=%s", str(exc)[:200])
+        logger.warning("AHVI_ASYNC_CATALOG_FAILED reason=finalize_error err=%s", str(exc)[:200])
 
 
 @router.post("/save-selected")
@@ -4063,7 +4070,6 @@ def save_selected(
     # CONCURRENTLY so a multi-item save costs ~one item's provider latency, not
     # N x. Each call mutates its own item dict in place, is idempotent, and never
     # raises. Cap via WARDROBE_SAVE_CATALOG_PARALLELISM (default 6 = max items).
-    regen_attempted_count += len(prepared_items)
     if prepared_items and _async_catalog:
         # WARDROBE_ASYNC_CATALOG: defer the ~37s catalog gen to a post-response
         # background task. Mark pending so save-gating doesn't reject on catalog
@@ -4077,6 +4083,7 @@ def save_selected(
             "ahvi.capture.save_selected.catalog_deferred items=%d", len(prepared_items)
         )
     elif prepared_items:
+        regen_attempted_count += len(prepared_items)
         from concurrent.futures import ThreadPoolExecutor
 
         _cat_workers = max(
@@ -4289,6 +4296,7 @@ def save_selected(
 
     _t_persist = time.perf_counter()
 
+    saved_ids: set[str] = set()
     if isinstance(result, dict):
         if isinstance(result.get("items"), list):
             result["items"] = [
@@ -4304,6 +4312,9 @@ def save_selected(
         result.setdefault("regen_attempted_count", regen_attempted_count)
         result.setdefault("regen_skipped_count", regen_skipped_count)
         result.setdefault("rejected_selected_count", rejected_selected_count)
+        result.setdefault("catalog_processing", False)
+        result.setdefault("catalog_processing_semantics", "best_effort")
+        result.setdefault("catalog_scheduled_count", 0)
 
         # Explicit save accounting so callers never see a silent drop.
         requested_count = len(selected_set)
@@ -4436,21 +4447,22 @@ def save_selected(
     # WARDROBE_ASYNC_CATALOG: generate + patch the catalog PNG off the response
     # path for the items that actually saved.
     if _async_catalog and prepared_items:
-        _approved_cat = set(approved_selected_ids)
         _cat_finalize = [
             i
             for i in prepared_items
             if isinstance(i, dict)
-            and str(i.get("item_id") or "").strip() in _approved_cat
+            and str(i.get("item_id") or "").strip() in saved_ids
         ]
         if _cat_finalize:
             background_tasks.add_task(
                 _run_bg_finalize_catalog, user_id, _cat_finalize
             )
+            if isinstance(result, dict):
+                result["catalog_scheduled_count"] = len(_cat_finalize)
+                result["catalog_processing"] = True
             logger.info(
-                "ahvi.async_catalog.scheduled user_id=%s items=%d",
-                user_id,
-                len(_cat_finalize),
+                "AHVI_ASYNC_CATALOG_SCHEDULED user_id=%s items=%d semantics=best_effort",
+                user_id, len(_cat_finalize),
             )
 
     # Per-stage latency for the 30s-save target: upload+RMBG -> catalog -> persist.

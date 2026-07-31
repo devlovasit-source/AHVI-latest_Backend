@@ -51,7 +51,12 @@ def test_module_chat_office_board_has_contract_on_all_aliases(monkeypatch):
     assert card["board_id"] != card["id"]
     assert int(card["revision"]) >= 1
     assert card["source_policy"] == "wardrobe"
+    assert card["interaction_mode"] == "recommendation"
+    assert card["shuffle_available"] is False
+    assert card["can_shuffle"] is False
     bid = card["board_id"]
     assert b["style_boards"][0]["board_id"] == bid
     assert b["data"]["outfits"][0]["board_id"] == bid
     assert b["data"]["rendered_boards"][0]["board_id"] == bid
+    assert b["style_boards"][0]["shuffle_available"] is False
+    assert b["data"]["outfits"][0]["can_shuffle"] is False

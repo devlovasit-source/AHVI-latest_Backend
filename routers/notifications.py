@@ -107,7 +107,10 @@ def schedule_reminders(req: ScheduleRemindersRequest, user=Depends(get_current_u
         reminders=req.reminders,
         source=req.source,
     )
-    return {"success": True, "scheduled": int(out.get("scheduled") or 0)}
+    return {
+        "success": bool(out.get("success")),
+        "scheduled": int(out.get("scheduled") or 0),
+    }
 
 
 @router.post("/dispatch-due")

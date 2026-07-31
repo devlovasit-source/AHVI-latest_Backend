@@ -53,10 +53,15 @@ def _assert_contract(body):
     assert card["id"] == "outfit_card_1"  # transient presentation id preserved
     assert int(card["revision"]) >= 1
     assert card["source_policy"] == "wardrobe"
+    assert card["interaction_mode"] == "recommendation"
+    assert card["shuffle_available"] is False
+    assert card["can_shuffle"] is False
     bid = card["board_id"]
     assert body["style_boards"][0]["board_id"] == bid
     assert body["data"]["outfits"][0]["board_id"] == bid
     assert body["data"]["rendered_boards"][0]["board_id"] == bid
+    assert body["style_boards"][0]["shuffle_available"] is False
+    assert body["data"]["outfits"][0]["can_shuffle"] is False
 
 
 def test_api_text_office_wardrobe_board_has_contract_on_all_aliases(monkeypatch):

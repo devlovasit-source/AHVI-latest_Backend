@@ -145,7 +145,6 @@ def create_notification_reminder(
         source=source,
         reminders=[
             {
-                "status": "pending",
                 "priority": priority,
                 "offsetMinutes": offset_minutes,
                 "message": message,

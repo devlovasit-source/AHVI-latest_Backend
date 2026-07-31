@@ -512,7 +512,22 @@ async def handle_medi_chat(message: str, context: Dict[str, Any], user_id: str) 
 
     meds = context.get("medications")
     count = len(meds) if isinstance(meds, list) else 0
-    if "due" in message.lower() or "today" in message.lower():
+    lower = message.lower()
+    if any(token in lower for token in ("remind me", "set a reminder", "set reminder")):
+        reply = (
+            "I could not schedule that medicine reminder from this chat. "
+            "No reminder was saved. Please use the medicine tracker reminder control."
+        )
+        return _envelope(
+            domain="medi",
+            message=reply,
+            chips=["Open Medicines"],
+            data={
+                "intent": "medicine_reminder_not_scheduled",
+                "persisted": False,
+            },
+        ) | {"persisted": False}
+    if "due" in lower or "today" in lower:
         reply = (
             f"I can help review today's medication schedule. I see {count} medication entries in context. "
             "Use the tracker status as the source of truth, and check with your clinician before changing any dose."

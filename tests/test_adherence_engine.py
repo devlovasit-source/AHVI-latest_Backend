@@ -50,6 +50,7 @@ class FakeNotifications:
 
 def test_med_daily_generation_creates_pending_logs_and_reminders(monkeypatch):
     from brain.engines import adherence_engine
+    from services.notification_store import NotificationStore
 
     proxy = FakeProxy(
         {
@@ -57,7 +58,8 @@ def test_med_daily_generation_creates_pending_logs_and_reminders(monkeypatch):
             "med_logs": [],
         }
     )
-    notifications = FakeNotifications()
+    notifications = NotificationStore()
+    notifications._appwrite = proxy
     monkeypatch.setattr(adherence_engine, "notification_store", notifications)
 
     with patch.object(adherence_engine, "AppwriteProxy", return_value=proxy):
@@ -69,7 +71,16 @@ def test_med_daily_generation_creates_pending_logs_and_reminders(monkeypatch):
     assert len(data["logs"]) == 1
     assert data["logs"][0]["status"] == "pending"
     assert proxy.created[0][0] == "med_logs"
-    assert len(notifications.calls) == 2
+    reminders = proxy.rows[notifications.reminders_resource]
+    assert len(reminders) == 2
+    assert all(reminder["status"] == "scheduled" for reminder in reminders)
+    due = notifications.list_due_reminders(
+        now=datetime(2026, 5, 29, 0, 0, tzinfo=timezone.utc),
+        window_seconds=60,
+    )
+    assert {reminder["$id"] for reminder in due} == {
+        reminder["$id"] for reminder in reminders
+    }
 
 
 def test_med_auto_missed_and_manual_taken(monkeypatch):

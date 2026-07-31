@@ -4,12 +4,13 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from brain.personalization.style_dna_engine import style_dna_engine
 from services import ai_gateway
 from services.appwrite_proxy import AppwriteProxy
+from services.auth_helpers import enforce_owner
 from services.style_flow_service import build_style_flow_response, item_role
 from services.location_weather_context import resolve_location_weather_context
 from services.style_board_shuffle_service import _default_position, register_board
@@ -311,6 +312,35 @@ def _resolve_anchor(
         if _item_id_of(item) == _txt(item_id):
             return dict(item)
     return {"item_id": _txt(item_id)}
+
+
+def _list_all_documents(
+    proxy: AppwriteProxy, resource: str, *, user_id: str | None = None
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    offset = 0
+    while True:
+        page = proxy.list_documents(
+            resource,
+            user_id=user_id,
+            limit=100,
+            offset=offset,
+            return_meta=True,
+        ) or []
+        if isinstance(page, dict):
+            documents = page.get("documents") or []
+            meta = page.get("meta") if isinstance(page.get("meta"), dict) else {}
+            has_more = bool(meta.get("has_more"))
+            next_offset = meta.get("next_offset")
+        else:
+            documents = page
+            has_more = len(documents) >= 100
+            next_offset = None
+        clean = [dict(item) for item in documents if isinstance(item, dict)]
+        rows.extend(clean)
+        if not has_more:
+            return rows
+        offset = int(next_offset) if next_offset is not None else offset + len(documents)
 
 
 def _anchor_desc(anchor: Dict[str, Any]) -> str:
@@ -858,13 +888,49 @@ def _register_style_this_direction(
 
 
 @router.post("/items/{item_id}/style")
-def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, Any]:
+def style_wardrobe_item(
+    item_id: str, request: ItemStyleRequest, http_request: Request = None
+) -> Dict[str, Any]:
     """Power the item-detail CTAs (fast lite-pairing path).
 
     mode=style_this -> 3 editorial styling directions.
     mode=build_outfit -> 1 practical outfit anchored on the item.
     Never raises: returns a friendly fallback so the UI never dead-ends.
     """
+    if http_request is not None:
+        user_id = enforce_owner(http_request, request.user_id)
+        proxy = AppwriteProxy()
+        try:
+            wardrobe = _list_all_documents(proxy, "outfits", user_id=user_id)
+        except Exception:
+            wardrobe = []
+        anchor = next(
+            (dict(item) for item in wardrobe if _item_id_of(item) == _txt(item_id)),
+            None,
+        )
+        if anchor is None:
+            try:
+                shared_assets = _list_all_documents(proxy, "style_assets")
+            except Exception:
+                shared_assets = []
+            anchor = next(
+                (item for item in shared_assets if _item_id_of(item) == _txt(item_id)),
+                None,
+            )
+            if anchor is not None:
+                anchor["source"] = "style_asset"
+                wardrobe.append(anchor)
+        if anchor is None:
+            raise HTTPException(status_code=404, detail="Wardrobe item not found")
+        anchor.setdefault("source", "wardrobe")
+        request = request.model_copy(
+            update={
+                "user_id": user_id,
+                "wardrobe": wardrobe,
+                "anchor_item": anchor,
+            }
+        )
+
     mode = _txt(request.mode).lower()
     if mode not in {"build_outfit", "style_this"}:
         mode = "build_outfit"

@@ -79,6 +79,7 @@ class NotificationStoreTests(unittest.TestCase):
                 source="medi",
                 reminders=[
                     {
+                        "status": "pending",
                         "sendAtISO": "2026-05-01T12:00:00+00:00",
                         "message": "Take vitamin D",
                         "priority": "high",
@@ -88,9 +89,9 @@ class NotificationStoreTests(unittest.TestCase):
             )
 
         self.assertEqual(result["scheduled"], 1)
+        self.assertTrue(result["success"])
         self.assertEqual(proxy.updated[0][0], "notification_reminders")
-        # Default is now "scheduled" so dispatch_due_reminders_task (which only
-        # picks status=="scheduled") can actually send them.
+        # Caller-local states are normalized to the state scanned by dispatch.
         self.assertEqual(proxy.updated[0][2]["status"], "scheduled")
         self.assertEqual(proxy.updated[0][2]["message"], "Take vitamin D")
         self.assertEqual(proxy.updated[0][2]["lastError"], "")

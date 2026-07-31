@@ -1333,12 +1333,12 @@ def update_wardrobe_item_images(
     try:
         _patch_document(item_id, patch)
         log.info(
-            "ahvi.async_image.patched user_id=%s item_id=%s masked_url=%s "
-            "normalized_url=%s status=%s catalog_status=%s",
+            "ahvi.async_image.patched user_id=%s item_id=%s has_masked_url=%s "
+            "has_normalized_url=%s status=%s catalog_status=%s",
             user_id,
             item_id,
-            masked_url,
-            normalized_url,
+            bool(masked_url),
+            bool(normalized_url),
             image_status,
             catalog_status,
         )

@@ -131,7 +131,8 @@ class NotificationStore:
                 "eventId": eid,
                 # Default scheduled (not pending) so the dispatch task, which
                 # only picks status=="scheduled", can actually send them.
-                "status": _safe_text(r.get("status") or "scheduled"),
+                # Confirmed reminders must use the state scanned by dispatch.
+                "status": "scheduled",
                 "priority": _safe_text(r.get("priority") or "normal"),
                 "toneProfile": _safe_text(r.get("toneProfile") or ""),
                 "offsetMinutes": int(r.get("offsetMinutes") or 0),
@@ -153,7 +154,7 @@ class NotificationStore:
                 except Exception:
                     continue
 
-        return {"success": True, "scheduled": scheduled}
+        return {"success": scheduled > 0, "scheduled": scheduled}
 
     def list_due_reminders(
         self, *, now: Optional[datetime] = None, window_seconds: int = 60

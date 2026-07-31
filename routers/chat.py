@@ -2410,9 +2410,7 @@ def _propagate_board_contract(
 def _stamp_board_contract(
     card: Dict[str, Any], *, occasion: str, index: int = 0, source_policy: str = ""
 ) -> Dict[str, Any]:
-    """Ensure a card carries a durable board contract: board_id, revision (>=1),
-    source_policy and occasion. Stable board_id is derived from the item
-    identities + occasion so the same board keeps its id across serialization."""
+    """Stamp stable presentation metadata on an unregistered chat board."""
     if not isinstance(card, dict):
         return card
     import hashlib
@@ -2438,16 +2436,20 @@ def _stamp_board_contract(
     card["revision"] = revision
     card["source_policy"] = policy
     card["occasion"] = card.get("occasion") or occasion or ""
+    # Generic chat boards are not persisted by the canonical board-state
+    # service. A stable presentation id must never imply mutation capability.
+    card["interaction_mode"] = "recommendation"
+    card["shuffle_available"] = False
+    card["can_shuffle"] = False
     return card
 
 
 def _stamp_response_contract(
     response: Dict[str, Any], *, occasion: str, source_policy: str
 ) -> None:
-    """Stamp board_id / revision / source_policy + item positions on the
+    """Stamp presentation metadata + item positions on the
     response's existing cards and mirror to every alias. Used when the wardrobe
-    adapter already enforced roles (meta.style_compliance_gated) but never
-    stamped the durable board contract."""
+    adapter already enforced roles (meta.style_compliance_gated)."""
     cards = [c for c in _style_response_cards(response) if isinstance(c, dict)]
     if not cards:
         return
@@ -2489,10 +2491,10 @@ def _apply_style_compliance_gate(
         return response
     meta = response.get("meta") if isinstance(response.get("meta"), dict) else {}
     # The wardrobe adapter enforces roles and sets style_compliance_gated, but it
-    # never stamps the durable board contract — so stamp it here (idempotent:
+    # never stamps board presentation metadata — so stamp it here (idempotent:
     # _stamp_board_contract keeps any board_id already present) before returning,
     # else /api/text adapter boards ship without board_id/revision/source_policy
-    # and the app disables locked Shuffle.
+    # and the app can render a stable recommendation board without Shuffle.
     if meta.get("style_compliance_gated"):
         _stamp_response_contract(
             response,
@@ -2646,9 +2648,8 @@ def _apply_style_compliance_gate(
             },
         }
 
-    # Stamp a durable board contract on every card so the frontend can call the
-    # locked Shuffle flow (board_id + revision + source_policy) instead of
-    # falling back to a natural-language "another look" that drops the occasion.
+    # Stamp stable presentation metadata on every generic chat card. These cards
+    # are not registered board state, so Shuffle remains explicitly unavailable.
     contract_policy = source_policy or str(meta.get("source_policy") or "")
     for i, card in enumerate(complete_cards):
         _stamp_board_contract(card, occasion=occasion, index=i, source_policy=contract_policy)
