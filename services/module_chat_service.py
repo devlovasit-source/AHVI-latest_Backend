@@ -506,14 +506,21 @@ async def handle_calendar_chat(message: str, context: Dict[str, Any], user_id: s
 
 
 async def handle_medi_chat(message: str, context: Dict[str, Any], user_id: str) -> Dict[str, Any]:
-    mark_result = _handle_medi_mark_taken(message, user_id)
-    if mark_result:
-        return mark_result
-
     meds = context.get("medications")
     count = len(meds) if isinstance(meds, list) else 0
     lower = message.lower()
-    if any(token in lower for token in ("remind me", "set a reminder", "set reminder")):
+    if any(
+        token in lower
+        for token in (
+            "remind me",
+            "set a reminder",
+            "set reminder",
+            "schedule a reminder",
+            "schedule reminder",
+            "notify me",
+            "alert me",
+        )
+    ):
         reply = (
             "I could not schedule that medicine reminder from this chat. "
             "No reminder was saved. Please use the medicine tracker reminder control."
@@ -527,6 +534,11 @@ async def handle_medi_chat(message: str, context: Dict[str, Any], user_id: str) 
                 "persisted": False,
             },
         ) | {"persisted": False}
+
+    mark_result = _handle_medi_mark_taken(message, user_id)
+    if mark_result:
+        return mark_result
+
     if "due" in lower or "today" in lower:
         reply = (
             f"I can help review today's medication schedule. I see {count} medication entries in context. "
