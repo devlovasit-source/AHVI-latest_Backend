@@ -4157,6 +4157,35 @@ def _board_metadata_summary(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return summary
 
 
+def _enrich_board_piece_from_wardrobe(
+    piece: Dict[str, Any],
+    wardrobe_by_id: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Overlay a board piece with its Appwrite wardrobe record's image URLs.
+
+    Board pieces arrive with a fabricated masked_url=raw and no normalized_url,
+    so a cutout-less piece has nothing clean to render. The wardrobe record
+    carries the real cutout/masked/normalized URLs from catalog generation;
+    join by stable id and copy them so the piece resolves to a true cutout or a
+    framed catalog image (never the raw upload). Missing record -> unchanged.
+    """
+    rec = wardrobe_by_id.get(item_key(piece))
+    if not isinstance(rec, dict):
+        return piece
+    merged = dict(piece)
+    for snake, camel in (
+        ("cutout_url", "cutoutUrl"),
+        ("transparent_url", "transparentUrl"),
+        ("masked_url", "maskedUrl"),
+        ("normalized_url", "normalizedUrl"),
+        ("catalog_image_url", "catalogImageUrl"),
+    ):
+        val = _safe_text(rec.get(snake) or rec.get(camel))
+        if val:
+            merged[snake] = val
+    return merged
+
+
 def _adapt_board_item(_it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Provenance-safe board item for the flat-lay board. Returns None to skip.
 
@@ -4170,21 +4199,13 @@ def _adapt_board_item(_it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     _name = str(_it.get("name") or _it.get("title") or _it.get("label") or "").strip()
     if not _name:
         return None
-    _cutout = str(
-        _it.get("masked_url")
-        or _it.get("transparent_url")
-        or _it.get("transparent_image_url")
-        or _it.get("cutout_url")
-        or ""
-    ).strip()
     _raw = str(
         _it.get("image_url") or _it.get("raw_url") or _it.get("url") or ""
     ).strip()
     # A masked/cutout URL that is just the raw upload is a fabricated cutout, not
     # a real transparent one: `row.setdefault("masked_url", image)` copies the
     # raw image (often a selfie/mirror photo) into masked_url when RMBG produced
-    # nothing. Trusting it stamps cutout_ready on a person photo. Reject any
-    # cutout candidate that aliases a raw field.
+    # nothing. Trusting it stamps cutout_ready on a person photo.
     _raw_aliases = {
         str(_it.get(_k) or "").strip()
         for _k in (
@@ -4200,8 +4221,15 @@ def _adapt_board_item(_it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         )
     }
     _raw_aliases.discard("")
-    if _cutout and _cutout in _raw_aliases:
-        _cutout = ""
+    # Pick the first cutout candidate that is NOT a raw alias, so a fabricated
+    # masked=raw never shadows a real cutout_url that arrived from the wardrobe
+    # record.
+    _cutout = ""
+    for _cand in ("masked_url", "transparent_url", "transparent_image_url", "cutout_url"):
+        _cv = str(_it.get(_cand) or "").strip()
+        if _cv and _cv not in _raw_aliases:
+            _cutout = _cv
+            break
     _entry = {**_it, "name": _name, "role": _it.get("role") or ""}
     if _cutout:
         _entry["board_image_url"] = _cutout
@@ -4660,6 +4688,19 @@ def finalize_style_response_payload(
     # NOT `board_items`; the renderer reads `board_items` and only trusts an
     # image when it sees board_image_url / cutout_ready, so without this it
     # dropped every piece and rendered a checklist instead of a board.
+    # Join board pieces back to their Appwrite wardrobe record by stable id.
+    # Board pieces otherwise arrive with a fabricated masked_url=raw and no
+    # normalized_url (has_normalized=False), so a cutout-less piece has nothing
+    # clean to show. The record carries the real cutout/masked/normalized from
+    # catalog generation — overlay them so the piece renders a true cutout or a
+    # framed catalog image, never the raw upload.
+    _wardrobe_by_id: Dict[str, Dict[str, Any]] = {}
+    for _rec in wardrobe_items:
+        if isinstance(_rec, dict):
+            _k = item_key(_rec)
+            if _k:
+                _wardrobe_by_id.setdefault(_k, _rec)
+
     for _card in cards:
         if not isinstance(_card, dict):
             continue
@@ -4674,7 +4715,9 @@ def finalize_style_response_payload(
         for _it in _card.get("items") or []:
             if not isinstance(_it, dict):
                 continue
-            _entry = _adapt_board_item(_it)
+            _entry = _adapt_board_item(
+                _enrich_board_piece_from_wardrobe(_it, _wardrobe_by_id)
+            )
             if _entry is not None:
                 _board_items.append(_entry)
         if _board_items:

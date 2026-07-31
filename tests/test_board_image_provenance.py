@@ -3,7 +3,10 @@
 A raw image_url (often a selfie/mirror photo) must never be promoted to
 board_image_url + cutout_ready. Only real transparent cutouts earn cutout_ready.
 """
-from services.style_flow_service import _adapt_board_item
+from services.style_flow_service import (
+    _adapt_board_item,
+    _enrich_board_piece_from_wardrobe,
+)
 
 _SELFIE = "https://cdn/user/selfie.jpg"
 _MASK = "https://cdn/masked/shirt.png"
@@ -76,6 +79,31 @@ def test_masked_url_aliasing_raw_is_not_a_cutout():
     )
     assert e.get("board_image_url") is None
     assert e.get("board_status") != "cutout_ready"
+
+
+def test_enrich_pulls_catalog_from_wardrobe_record():
+    # Board piece has only a fabricated masked=raw; the wardrobe record has the
+    # real catalog image. Join by id -> piece resolves to framed catalog, not raw.
+    by_id = {"tee-1": {"item_id": "tee-1", "normalized_url": _CAT}}
+    piece = {"item_id": "tee-1", "name": "Black T-Shirt", "role": "top",
+             "image_url": _SELFIE, "masked_url": _SELFIE}
+    e = _adapt_board_item(_enrich_board_piece_from_wardrobe(piece, by_id))
+    assert e.get("board_status") != "cutout_ready"
+    assert e["normalized_url"] == _CAT
+
+
+def test_enrich_pulls_real_cutout_from_wardrobe_record():
+    by_id = {"tee-1": {"item_id": "tee-1", "cutout_url": _MASK}}
+    piece = {"item_id": "tee-1", "name": "Black T-Shirt", "role": "top",
+             "image_url": _SELFIE, "masked_url": _SELFIE}
+    e = _adapt_board_item(_enrich_board_piece_from_wardrobe(piece, by_id))
+    assert e["board_image_url"] == _MASK
+    assert e["board_status"] == "cutout_ready"
+
+
+def test_enrich_no_matching_record_is_unchanged():
+    piece = {"item_id": "x", "name": "Y", "role": "top", "image_url": _SELFIE}
+    assert _enrich_board_piece_from_wardrobe(piece, {}) == piece
 
 
 def test_masked_alias_falls_back_to_catalog():
