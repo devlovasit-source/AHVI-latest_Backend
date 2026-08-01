@@ -4095,6 +4095,417 @@ def sanitize_board_items_for_visual_board(
     return slots
 
 
+
+def _visual_board_item_role(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return ""
+
+    name = _asset_text(
+        item.get("name")
+        or item.get("title")
+        or item.get("label")
+    )
+    role_hint = (
+        item.get("role")
+        or item.get("slot")
+        or item.get("category")
+        or item.get("subcategory")
+    )
+
+    return _board_item_role(name, role_hint)
+
+
+def _visual_board_item_key(item: Dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return ""
+
+    for key in (
+        "asset_id",
+        "item_id",
+        "$id",
+        "id",
+        "wardrobe_item_id",
+    ):
+        value = _asset_text(item.get(key))
+        if value:
+            return f"id::{value.lower()}"
+
+    for key in (
+        "board_image_url",
+        "cutout_url",
+        "normalized_url",
+        "catalog_image_url",
+        "image_url",
+    ):
+        value = _asset_text(item.get(key))
+        if value:
+            return f"url::{value.lower()}"
+
+    name = _asset_text(
+        item.get("name")
+        or item.get("title")
+        or item.get("label")
+    ).lower()
+    role = _visual_board_item_role(item)
+
+    return f"name::{role}::{name}" if name else ""
+
+
+def _visual_core_candidate(
+    assets: List[Dict[str, Any]],
+    *,
+    role: str,
+    direction: Dict[str, Any],
+    occasion: str,
+    target_gender: str,
+    allow_feminine_accessory: bool,
+    brief: Any,
+    used_keys: set[str],
+) -> Dict[str, Any]:
+    role_probe = {
+        "top": "coordinating shirt",
+        "bottom": "coordinating trousers",
+        "footwear": "coordinating shoes",
+    }.get(role, role)
+
+    probe = dict(direction)
+    probe["hero_piece"] = role_probe
+    probe["items"] = [role_probe]
+    probe["pieces"] = [role_probe]
+    probe.pop("complete_the_look", None)
+    probe.pop("board_items", None)
+    probe.pop("boardItems", None)
+
+    candidates = _best_style_assets(
+        assets,
+        direction=probe,
+        occasion=occasion,
+        accessory_only=False,
+        target_gender=target_gender,
+        allow_feminine_accessory=allow_feminine_accessory,
+        limit=80,
+        brief=brief,
+    )
+
+    for asset in candidates:
+        if not isinstance(asset, dict):
+            continue
+
+        candidate_role = _board_item_role(
+            _asset_text(asset.get("name")),
+            asset.get("role")
+            or asset.get("slot")
+            or asset.get("category")
+            or asset.get("subcategory"),
+        )
+
+        if candidate_role != role:
+            continue
+
+        item = _accessory_asset_to_complete_item(asset, direction)
+        enriched = enrich_style_asset_rows(
+            [item],
+            inventory=assets,
+        )
+
+        if not enriched:
+            continue
+
+        candidate = enriched[0]
+        candidate_key = _visual_board_item_key(candidate)
+
+        if candidate_key and candidate_key in used_keys:
+            continue
+
+        return candidate
+
+    return {}
+
+
+def _repair_visual_board_core(
+    board_items: List[Dict[str, Any]],
+    *,
+    assets: List[Dict[str, Any]],
+    direction: Dict[str, Any],
+    occasion: str,
+    target_gender: str,
+    allow_feminine_accessory: bool,
+    brief: Any,
+) -> List[Dict[str, Any]]:
+    """Repair a generic Visual Inspiration board before publishing it.
+
+    Contract:
+    - separates must contain top + bottom + footwear;
+    - a dress look must contain dress + footwear;
+    - at most one item per core role;
+    - at most one accessory;
+    - optional outerwear is retained;
+    - every returned item keeps the complete Style Asset image contract.
+    """
+
+    working = [
+        dict(item)
+        for item in board_items
+        if isinstance(item, dict)
+    ]
+
+    working = enrich_style_asset_rows(
+        working,
+        inventory=assets,
+    )
+
+    used_keys = {
+        key
+        for key in (
+            _visual_board_item_key(item)
+            for item in working
+        )
+        if key
+    }
+
+    roles = {
+        _visual_board_item_role(item)
+        for item in working
+    }
+
+    required_roles = (
+        ("footwear",)
+        if "dress" in roles
+        else ("top", "bottom", "footwear")
+    )
+
+    added_roles: List[str] = []
+
+    for role in required_roles:
+        if role in roles:
+            continue
+
+        candidate = _visual_core_candidate(
+            assets,
+            role=role,
+            direction=direction,
+            occasion=occasion,
+            target_gender=target_gender,
+            allow_feminine_accessory=allow_feminine_accessory,
+            brief=brief,
+            used_keys=used_keys,
+        )
+
+        if not candidate:
+            continue
+
+        candidate_key = _visual_board_item_key(candidate)
+        if candidate_key:
+            used_keys.add(candidate_key)
+
+        working.append(candidate)
+        roles.add(role)
+        added_roles.append(role)
+
+    # Re-enrich after repair so newly selected candidates carry stable IDs,
+    # board_image_url and image provenance.
+    working = enrich_style_asset_rows(
+        working,
+        inventory=assets,
+    )
+
+    unique: List[Dict[str, Any]] = []
+    seen_keys: set[str] = set()
+
+    for item in working:
+        key = _visual_board_item_key(item)
+        if key and key in seen_keys:
+            continue
+        if key:
+            seen_keys.add(key)
+        unique.append(item)
+
+    first_by_role: Dict[str, Dict[str, Any]] = {}
+    accessories: List[Dict[str, Any]] = []
+
+    for item in unique:
+        role = _visual_board_item_role(item)
+
+        if role == "accessory":
+            accessories.append(item)
+            continue
+
+        if role in {
+            "top",
+            "bottom",
+            "footwear",
+            "dress",
+            "outerwear",
+        }:
+            first_by_role.setdefault(role, item)
+
+    selected: List[Dict[str, Any]] = []
+
+    if "dress" in first_by_role:
+        selected.append(first_by_role["dress"])
+
+        if "footwear" in first_by_role:
+            selected.append(first_by_role["footwear"])
+
+        if "outerwear" in first_by_role:
+            selected.append(first_by_role["outerwear"])
+    else:
+        for role in ("top", "bottom", "footwear"):
+            item = first_by_role.get(role)
+            if item:
+                selected.append(item)
+
+        if "outerwear" in first_by_role:
+            selected.append(first_by_role["outerwear"])
+
+    # Accessories may enhance a complete look, but may never displace a core
+    # garment or footwear slot.
+    if accessories:
+        selected.append(accessories[0])
+
+    final_roles = {
+        _visual_board_item_role(item)
+        for item in selected
+    }
+
+    logger.info(
+        "AHVI_VISUAL_CORE_REPAIR title=%r added_roles=%s "
+        "final_roles=%s item_count=%s accessory_count=%s viable=%s",
+        _asset_text(
+            direction.get("title")
+            or direction.get("direction_name")
+            or direction.get("archetype")
+        ),
+        ",".join(added_roles) or "none",
+        ",".join(sorted(role for role in final_roles if role)) or "none",
+        len(selected),
+        sum(
+            1
+            for item in selected
+            if _visual_board_item_role(item) == "accessory"
+        ),
+        _board_items_viable(selected),
+    )
+
+    return selected
+
+
+def _sync_visual_direction_copy(
+    direction: Dict[str, Any],
+    board_items: List[Dict[str, Any]],
+) -> None:
+    """Make the visible explanation describe an item actually on the board."""
+
+    if not board_items:
+        return
+
+    preferred_id = _asset_text(
+        direction.get("asset_id")
+        or direction.get("item_id")
+    )
+
+    hero: Dict[str, Any] = {}
+
+    if preferred_id:
+        hero = next(
+            (
+                item
+                for item in board_items
+                if _asset_text(
+                    item.get("asset_id")
+                    or item.get("item_id")
+                    or item.get("$id")
+                    or item.get("id")
+                )
+                == preferred_id
+            ),
+            {},
+        )
+
+    if not hero:
+        for preferred_role in (
+            "dress",
+            "top",
+            "outerwear",
+            "bottom",
+            "footwear",
+        ):
+            hero = next(
+                (
+                    item
+                    for item in board_items
+                    if _visual_board_item_role(item) == preferred_role
+                ),
+                {},
+            )
+            if hero:
+                break
+
+    if not hero:
+        hero = board_items[0]
+
+    hero_name = _asset_text(
+        hero.get("name")
+        or hero.get("title")
+        or hero.get("label")
+    )
+
+    if not hero_name:
+        return
+
+    hero_id = _asset_text(
+        hero.get("asset_id")
+        or hero.get("item_id")
+        or hero.get("$id")
+        or hero.get("id")
+    )
+
+    title = _asset_text(
+        direction.get("title")
+        or direction.get("direction_name")
+        or direction.get("archetype")
+    ) or "This direction"
+
+    explanation = (
+        f"{title} is anchored by {hero_name}, with the supporting "
+        "pieces completing a coherent look."
+    )
+
+    direction["hero_piece"] = hero_name
+    direction["heroPiece"] = hero_name
+    direction["hero_piece_reasoning"] = explanation
+    direction["short_note"] = explanation
+    direction["why_it_works"] = explanation
+    direction["why_this_works"] = explanation
+
+    if hero_id:
+        direction["asset_id"] = hero_id
+
+    _apply_board_image_fields(direction, hero)
+
+    direction["items"] = [
+        _asset_text(
+            item.get("name")
+            or item.get("title")
+            or item.get("label")
+        )
+        for item in board_items
+        if _asset_text(
+            item.get("name")
+            or item.get("title")
+            or item.get("label")
+        )
+    ]
+    direction["pieces"] = list(direction["items"])
+
+    hero_key = _visual_board_item_key(hero)
+    direction["complete_the_look"] = [
+        item
+        for item in board_items
+        if _visual_board_item_key(item) != hero_key
+    ]
+
+
 def _enrich_visual_directions_with_assets(
     visual_directions: List[Dict[str, Any]],
     *,
@@ -4325,6 +4736,44 @@ def _enrich_visual_directions_with_assets(
                     )
                 ),
             )
+
+        # Generic Visual Inspiration must publish an outfit, not an
+        # accessory collage. Repair missing core slots from the same filtered
+        # Style Asset inventory, then fail closed if the board is still partial.
+        if not wardrobe_intent and assets:
+            board_items = _repair_visual_board_core(
+                board_items,
+                assets=assets,
+                direction=out,
+                occasion=occasion_text,
+                target_gender=target_gender,
+                allow_feminine_accessory=allow_feminine_accessory,
+                brief=brief,
+            )
+
+            if not _board_items_viable(board_items):
+                logger.warning(
+                    "AHVI_VISUAL_DIRECTION_REJECTED title=%r "
+                    "reason=incomplete_core roles=%s",
+                    _asset_text(
+                        out.get("title")
+                        or out.get("direction_name")
+                        or out.get("archetype")
+                    ),
+                    ",".join(
+                        sorted(
+                            {
+                                _visual_board_item_role(item)
+                                for item in board_items
+                                if isinstance(item, dict)
+                            }
+                        )
+                    )
+                    or "none",
+                )
+                continue
+
+            _sync_visual_direction_copy(out, board_items)
 
         viable = _board_items_viable(board_items)
         if wardrobe_intent and not viable:

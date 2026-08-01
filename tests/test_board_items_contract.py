@@ -135,6 +135,75 @@ def test_visual_enrichment_prefers_cutout_ready_assets(monkeypatch):
         ],
     )
 
+    # AHVI_COMPLETE_VISUAL_FIXTURE
+    # This test validates image selection/propagation. The production path now
+    # also enforces a complete core outfit, so provide deterministic supporting
+    # assets rather than weakening the completeness validator.
+    repair_bottom = {
+        "asset_id": "fixture-bottom-1",
+        "name": "Tailored Navy Trouser",
+        "category": "bottom",
+        "role": "bottom",
+        "image_url": "https://cdn.example/fixture-bottom.jpg",
+        "board_image_url": "https://cdn.example/fixture-bottom.png",
+        "catalog_image_url": "https://cdn.example/fixture-bottom.jpg",
+        "cutout_status": "ready",
+        "archetypes": ["Modern Professional"],
+        "occasions": ["office", "coffee date", "today"],
+        "gender": "unisex",
+        "status": "active",
+    }
+
+    repair_footwear = {
+        "asset_id": "fixture-footwear-1",
+        "name": "Minimal Navy Sneaker",
+        "category": "footwear",
+        "role": "footwear",
+        "image_url": "https://cdn.example/fixture-footwear.jpg",
+        "board_image_url": "https://cdn.example/fixture-footwear.png",
+        "catalog_image_url": "https://cdn.example/fixture-footwear.jpg",
+        "cutout_status": "ready",
+        "archetypes": ["Modern Professional"],
+        "occasions": ["office", "coffee date", "today"],
+        "gender": "unisex",
+        "status": "active",
+    }
+
+    original_best_style_assets = engine._best_style_assets
+
+    def _fixture_best_style_assets(
+        _assets,
+        *,
+        direction,
+        **_kwargs,
+    ):
+        probe = str(
+            direction.get("hero_piece")
+            or direction.get("heroPiece")
+            or ""
+        ).lower()
+
+        if "trouser" in probe:
+            return [dict(repair_bottom)]
+
+        if "shoe" in probe:
+            return [dict(repair_footwear)]
+
+        # Preserve the real asset-ranking behaviour for the hero-selection
+        # call. This test specifically proves that the cutout-ready shirt wins
+        # even though the catalogue-only shirt appears first in inventory.
+        return original_best_style_assets(
+            _assets,
+            direction=direction,
+            **_kwargs,
+        )
+
+    monkeypatch.setattr(
+        engine,
+        "_best_style_assets",
+        _fixture_best_style_assets,
+    )
+
     directions = _enrich_visual_directions_with_assets(
         [
             {

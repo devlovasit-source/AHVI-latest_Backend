@@ -473,7 +473,13 @@ def _style_reasoning_chat_response(
             "why_it_works": str(item.get("why_it_works") or ""),
             "why_this_works": str(item.get("why_this_works") or item.get("why_it_works") or ""),
             "style_note": str(item.get("style_note") or ""),
-            "styling_tip": str(item.get("styling_tip") or item.get("style_note") or "")[:80],
+            # Do not slice styling copy mid-word. The board renderer owns
+            # visual line limits; the API must preserve the complete sentence.
+            "styling_tip": str(
+                item.get("styling_tip")
+                or item.get("style_note")
+                or ""
+            ).strip(),
             "use_case": str(item.get("use_case") or ""),
             "avoid": item.get("avoid") if isinstance(item.get("avoid"), list) else [],
             "archetype_reasoning": str(item.get("archetype_reasoning") or ""),
