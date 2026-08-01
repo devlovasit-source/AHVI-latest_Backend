@@ -24,6 +24,7 @@ from services.stylist_knowledge_service import (
     WARDROBE_STYLE,
     classify_style_mode,
 )
+from services.style_asset_contract import enrich_style_asset_rows
 
 GENERAL = "general"
 VISUAL_INSPIRATION = "visual_inspiration"
@@ -4151,6 +4152,19 @@ def _enrich_visual_directions_with_assets(
                 out.pop("imageUrl", None)
                 out.pop("asset_id", None)
                 image_url = ""
+            elif attached_asset:
+                # The direction already carried image_url, so the old path
+                # validated the matching Appwrite asset but never restored its
+                # prepared board PNG. Apply the complete image contract now.
+                _apply_board_image_fields(out, attached_asset)
+                out["asset_id"] = _asset_text(
+                    attached_asset.get("asset_id")
+                    or attached_asset.get("$id")
+                    or attached_asset.get("id")
+                )
+                image_url = _asset_text(
+                    out.get("image_url") or out.get("imageUrl")
+                )
         if not image_url and assets:
             asset = _best_style_asset(
                 assets,
@@ -4280,7 +4294,38 @@ def _enrich_visual_directions_with_assets(
             allow_feminine=allow_feminine_accessory,
         )
         # Itemized board contract for the 85 board (additive — legacy fields kept).
-        board_items = _build_board_items(out, wardrobe_intent=wardrobe_intent)
+        board_items = _build_board_items(
+            out,
+            wardrobe_intent=wardrobe_intent,
+        )
+
+        # Generic Visual Inspiration is asset-only. Join flattened generated
+        # items back to their complete Appwrite Style Asset records so the
+        # frontend receives the stable asset_id, board_image_url,
+        # catalog_image_url and original image_url together.
+        if not wardrobe_intent and assets:
+            board_items = enrich_style_asset_rows(
+                board_items,
+                inventory=assets,
+            )
+            logger.info(
+                "AHVI_VISUAL_BOARD_ASSET_CONTRACT item_count=%s "
+                "board_png_count=%s stable_id_count=%s",
+                len(board_items),
+                sum(
+                    1
+                    for item in board_items
+                    if _asset_text(item.get("board_image_url"))
+                ),
+                sum(
+                    1
+                    for item in board_items
+                    if _asset_text(
+                        item.get("asset_id") or item.get("item_id")
+                    )
+                ),
+            )
+
         viable = _board_items_viable(board_items)
         if wardrobe_intent and not viable:
             out["board_status"] = "insufficient_wardrobe_items"
