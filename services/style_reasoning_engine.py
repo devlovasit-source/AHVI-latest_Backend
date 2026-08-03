@@ -1785,6 +1785,211 @@ def _asset_family(asset: Dict[str, Any]) -> str:
     return _detect_family(blob)
 
 
+def _visual_archetype_profile(direction: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve a selected direction to its curated archetype metadata."""
+    if not isinstance(direction, dict):
+        return {}
+    lookup_values = (
+        direction.get("archetype"),
+        direction.get("title"),
+        direction.get("direction_name"),
+    )
+    wanted = {_norm(value) for value in lookup_values if _norm(value)}
+    if not wanted:
+        return {}
+    for entry in ARCHETYPE_LIBRARY or []:
+        if isinstance(entry, dict) and _norm(entry.get("name")) in wanted:
+            return dict(entry)
+    return {}
+
+
+_VISUAL_POLISHED_SIGNALS = {
+    "refined", "polished", "formal", "professional", "tailored", "classic",
+    "sharp", "credible", "elegant", "understated", "boardroom", "ceremony",
+    "dignified", "timeless", "premium", "luxury",
+}
+_VISUAL_UTILITY_SIGNALS = {
+    "cargo", "utility", "rugged", "workwear", "practical", "outdoor",
+    "explorer", "field jacket", "chore jacket",
+}
+_VISUAL_SPORTY_SIGNALS = {
+    "athletic", "sport", "running", "training", "active", "trainer",
+    "trainers", "sportswear", "gym", "jogging",
+}
+_VISUAL_RELAXED_SIGNALS = {
+    "relaxed", "casual", "easy", "approachable", "weekend", "soft",
+}
+_VISUAL_MINIMAL_SIGNALS = {
+    "minimal", "classic", "clean", "quiet", "understated", "timeless",
+}
+
+
+def _visual_direction_traits(
+    direction: Dict[str, Any],
+    *,
+    occasion: Any = "",
+    brief: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Derive reusable, metadata-driven traits for a Visual Inspiration direction."""
+    profile = _visual_archetype_profile(direction)
+    source = profile or direction if isinstance(direction, dict) else {}
+    brief = brief if isinstance(brief, dict) else {}
+
+    positive_values: List[Any] = []
+    for key in (
+        "impression", "style_keywords", "preferred_items", "palette", "best_for",
+        "formality", "occasion", "brief", "style_brief",
+    ):
+        positive_values.append(source.get(key))
+        if source is not direction and isinstance(direction, dict):
+            positive_values.append(direction.get(key))
+        positive_values.append(brief.get(key))
+    positive_values.append(occasion)
+    positive_text = _norm(" ".join(_asset_text(value) for value in positive_values))
+    avoid_items = [
+        *_asset_list(profile.get("avoid_items")),
+        *_asset_list(direction.get("avoid_items") if isinstance(direction, dict) else ""),
+        *_asset_list(brief.get("avoid_items")),
+    ]
+    preferred_items = [
+        *_asset_list(profile.get("preferred_items")),
+        *_asset_list(direction.get("preferred_items") if isinstance(direction, dict) else ""),
+        *_asset_list(brief.get("preferred_items")),
+    ]
+    formality = source.get("formality")
+    if not isinstance(formality, (int, float)) and isinstance(direction, dict):
+        formality = direction.get("formality")
+    if not isinstance(formality, (int, float)):
+        formality = brief.get("formality")
+    signals = set(re.findall(r"[a-z0-9]+", positive_text))
+    positive_blob = f"{positive_text} {' '.join(preferred_items).lower()}"
+    polished = (
+        isinstance(formality, (int, float)) and float(formality) >= 7
+    ) or bool(signals.intersection(_VISUAL_POLISHED_SIGNALS))
+    utility = any(signal in positive_blob for signal in _VISUAL_UTILITY_SIGNALS)
+    sporty = any(signal in positive_blob for signal in _VISUAL_SPORTY_SIGNALS)
+    relaxed = (
+        isinstance(formality, (int, float)) and float(formality) <= 4
+    ) or bool(signals.intersection(_VISUAL_RELAXED_SIGNALS))
+    minimal = bool(signals.intersection(_VISUAL_MINIMAL_SIGNALS))
+    return {
+        "polished_or_formal": polished,
+        "sporty_or_athletic": sporty,
+        "utility_or_rugged": utility,
+        "relaxed_or_casual": relaxed,
+        "minimal_or_classic": minimal,
+        "formality": formality,
+        "preferred_items": list(dict.fromkeys(preferred_items)),
+        "avoid_items": list(dict.fromkeys(avoid_items)),
+        "profile_name": _asset_text(profile.get("name")),
+    }
+
+
+def _visual_asset_key(item: Dict[str, Any]) -> str:
+    """Stable diversity key using catalog IDs before normalized-name fallback."""
+    if not isinstance(item, dict):
+        return ""
+    for field in ("asset_id", "item_id", "$id", "id"):
+        value = _asset_text(item.get(field))
+        if value:
+            return f"id::{value.lower()}"
+    name = _norm(item.get("name") or item.get("title") or item.get("label"))
+    return f"name::{name}" if name else ""
+
+
+def _visual_term_matches(term: Any, blob: str) -> bool:
+    normalized = _norm(term)
+    if not normalized:
+        return False
+    return normalized in _norm(blob)
+
+
+def _visual_is_athletic_footwear(asset: Dict[str, Any]) -> bool:
+    try:
+        from brain.engines.outfit_quality_guard import _is_athletic_footwear
+
+        return bool(_is_athletic_footwear(asset))
+    except Exception:  # noqa: BLE001
+        blob = _asset_policy_blob(asset)
+        return any(term in blob for term in _VISUAL_SPORTY_SIGNALS)
+
+
+def _visual_asset_compatibility(
+    asset: Dict[str, Any],
+    *,
+    direction: Dict[str, Any],
+    occasion: str = "",
+    placement: str = "complete",
+    target_text: str = "",
+    brief: Dict[str, Any] | None = None,
+) -> tuple[bool, str]:
+    """Apply archetype metadata after the existing central asset policy."""
+    if not isinstance(asset, dict):
+        return False, "not_an_asset"
+    if not _asset_allowed_for_context(
+        asset,
+        occasion=occasion,
+        placement=placement,
+        target_text=target_text,
+    ):
+        return False, "existing_context_policy"
+
+    traits = _visual_direction_traits(direction, occasion=occasion, brief=brief)
+    blob = _asset_policy_blob(asset)
+    family = _asset_family(asset)
+    role = _visual_board_item_role(asset)
+    for avoided in traits["avoid_items"]:
+        if _visual_term_matches(avoided, blob):
+            return False, "archetype_avoid_item"
+
+    if traits["polished_or_formal"] and not traits["utility_or_rugged"]:
+        if family == "cargo_pants" or (
+            role == "bottom" and any(term in blob for term in ("cargo", "utility"))
+        ):
+            return False, "utility_bottom_in_polished_direction"
+        if any(term in blob for term in ("camo", "camouflage")):
+            return False, "camouflage_in_polished_direction"
+        if role == "footwear" and _visual_is_athletic_footwear(asset):
+            return False, "athletic_footwear_in_polished_direction"
+        try:
+            from brain.engines.outfit_quality_guard import _is_relaxed_footwear
+
+            if role == "footwear" and _is_relaxed_footwear(asset):
+                return False, "relaxed_footwear_in_polished_direction"
+        except Exception:  # noqa: BLE001
+            pass
+
+    if role == "footwear" and _visual_is_athletic_footwear(asset):
+        if not traits["sporty_or_athletic"]:
+            return False, "athletic_footwear_not_supported"
+
+    return True, ""
+
+
+def _visual_compatibility_log(
+    direction: Dict[str, Any],
+    asset: Dict[str, Any],
+    reason: str,
+    *,
+    traits: Dict[str, Any] | None = None,
+) -> None:
+    traits = traits or _visual_direction_traits(direction)
+    logger.info(
+        "AHVI_VISUAL_COMPATIBILITY_REJECTED traits=%s role=%s asset=%s name=%s reason=%s",
+        {
+            key: traits.get(key)
+            for key in (
+                "polished_or_formal", "sporty_or_athletic", "utility_or_rugged",
+                "relaxed_or_casual", "minimal_or_classic",
+            )
+        },
+        _visual_board_item_role(asset),
+        _asset_text(asset.get("asset_id") or asset.get("item_id") or asset.get("$id") or asset.get("id")),
+        _asset_text(asset.get("name")),
+        reason,
+    )
+
+
 def _target_family(target_text: str) -> str:
     return _detect_family(target_text)
 
@@ -2908,6 +3113,7 @@ def _asset_score(
     occasion: str,
     target_gender: str = "unknown",
     brief: Dict[str, Any] | None = None,
+    apply_visual_inspiration_policy: bool = False,
 ) -> int:
     blob = " ".join(
         [
@@ -2925,6 +3131,12 @@ def _asset_score(
         ]
     ).lower()
     score = 0
+    if apply_visual_inspiration_policy:
+        visual_traits = _visual_direction_traits(direction, occasion=occasion, brief=brief)
+        for preferred in visual_traits["preferred_items"]:
+            if _visual_term_matches(preferred, blob):
+                score += 12
+                break
     if _asset_text(asset.get("status")).lower() not in {"", "active", "published"}:
         score -= 8
     if _asset_text(asset.get("image_url") or asset.get("imageUrl")):
@@ -3048,6 +3260,8 @@ def _best_style_asset(
     allow_feminine_accessory: bool = False,
     placement: str | None = None,
     brief: Dict[str, Any] | None = None,
+    excluded_asset_keys: set[str] | None = None,
+    apply_visual_inspiration_policy: bool = False,
 ) -> Dict[str, Any] | None:
     matches = _best_style_assets(
         assets,
@@ -3059,6 +3273,8 @@ def _best_style_asset(
         limit=1,
         placement=placement,
         brief=brief,
+        excluded_asset_keys=excluded_asset_keys,
+        apply_visual_inspiration_policy=apply_visual_inspiration_policy,
     )
     return matches[0] if matches else None
 
@@ -3074,6 +3290,8 @@ def _best_style_assets(
     limit: int = 3,
     placement: str | None = None,
     brief: Dict[str, Any] | None = None,
+    excluded_asset_keys: set[str] | None = None,
+    apply_visual_inspiration_policy: bool = False,
 ) -> List[Dict[str, Any]]:
     # Resolve placement so the central policy can gate + score correctly.
     if placement is None:
@@ -3087,6 +3305,14 @@ def _best_style_assets(
     rejected_logged = 0
     rejected_total = 0
     occasion_blocked: List[str] = []
+    visual_rejected_logged = 0
+    visual_rejected_total = 0
+    all_candidates: List[tuple[int, Dict[str, Any]]] = []
+    traits = (
+        _visual_direction_traits(direction, occasion=occasion, brief=brief)
+        if apply_visual_inspiration_policy
+        else {}
+    )
     for raw_asset in assets:
         asset = dict(raw_asset)
         asset["_allow_feminine_accessory"] = allow_feminine_accessory
@@ -3150,7 +3376,34 @@ def _best_style_assets(
                     )
                     rejected_logged += 1
             continue
-        score = _asset_score(asset, direction=direction, occasion=occasion, target_gender=target_gender, brief=brief)
+        if apply_visual_inspiration_policy:
+            visual_allowed, visual_reason = _visual_asset_compatibility(
+                asset,
+                direction=direction,
+                occasion=occasion,
+                placement=placement,
+                target_text=target_text,
+                brief=brief,
+            )
+            if not visual_allowed:
+                visual_rejected_total += 1
+                if visual_rejected_logged < reject_log_cap:
+                    _visual_compatibility_log(
+                        direction,
+                        asset,
+                        visual_reason,
+                        traits=traits,
+                    )
+                    visual_rejected_logged += 1
+                continue
+        score = _asset_score(
+            asset,
+            direction=direction,
+            occasion=occasion,
+            target_gender=target_gender,
+            brief=brief,
+            apply_visual_inspiration_policy=apply_visual_inspiration_policy,
+        )
         score += _asset_context_score(
             asset,
             occasion=occasion,
@@ -3158,13 +3411,28 @@ def _best_style_assets(
             target_text=target_text,
         )
         if score > 0:
-            candidates.append((score, asset))
+            all_candidates.append((score, asset))
+    excluded = excluded_asset_keys if apply_visual_inspiration_policy else set()
+    if excluded:
+        unused_candidates = [
+            pair for pair in all_candidates if _visual_asset_key(pair[1]) not in excluded
+        ]
+        candidates = unused_candidates or all_candidates
+    else:
+        candidates = all_candidates
     if not accessory_only and rejected_total > reject_log_cap:
         logger.info(
             "AHVI_HERO_ASSET_REJECTED_SUMMARY hero=%r rejected=%d suppressed=%d",
             _asset_text(direction.get("hero_piece")),
             rejected_total,
             rejected_total - rejected_logged,
+        )
+    if visual_rejected_total > reject_log_cap:
+        logger.info(
+            "AHVI_VISUAL_COMPATIBILITY_REJECTED_SUMMARY direction=%r rejected=%d suppressed=%d",
+            _asset_text(direction.get("title") or direction.get("direction_name") or direction.get("archetype")),
+            visual_rejected_total,
+            visual_rejected_total - visual_rejected_logged,
         )
     if not candidates:
         logger.info(
@@ -3672,6 +3940,93 @@ def _filter_complete_the_look_for_occasion(
     return kept
 
 
+def _visual_filter_complete_the_look(
+    complete: List[Dict[str, Any]],
+    *,
+    direction: Dict[str, Any],
+    occasion: str,
+    target_gender: str,
+    allow_feminine: bool = False,
+    brief: Dict[str, Any] | None = None,
+    apply_visual_inspiration_policy: bool = False,
+) -> List[Dict[str, Any]]:
+    """Remove incompatible generated support items before core repair."""
+    if not apply_visual_inspiration_policy:
+        return complete
+    kept: List[Dict[str, Any]] = []
+    accessories: List[Dict[str, Any]] = []
+    for item in complete or []:
+        if not isinstance(item, dict):
+            continue
+        if not _complete_item_allowed_for_gender(
+            item,
+            target_gender=target_gender,
+            allow_feminine=allow_feminine,
+        ):
+            continue
+        allowed, reason = _visual_asset_compatibility(
+            item,
+            direction=direction,
+            occasion=occasion,
+            placement="complete",
+            target_text=_asset_text(item.get("name") or item.get("title")),
+            brief=brief,
+        )
+        if not allowed:
+            _visual_compatibility_log(direction, item, reason)
+            continue
+        if _visual_board_item_role(item) == "accessory":
+            accessories.append(item)
+        else:
+            kept.append(item)
+
+    # Visual Inspiration gets one accessory at most. Core roles remain intact.
+    if accessories:
+        kept.append(_visual_rank_accessories(accessories, direction, brief=brief)[0])
+    return _sanitize_complete_the_look(
+        kept,
+        target_gender=target_gender,
+        allow_feminine=allow_feminine,
+        limit=3,
+    )
+
+
+def _visual_rank_accessories(
+    assets: List[Dict[str, Any]],
+    direction: Dict[str, Any],
+    *,
+    brief: Dict[str, Any] | None = None,
+    apply_visual_inspiration_policy: bool = False,
+) -> List[Dict[str, Any]]:
+    """Prefer meaningful accessories over an incidental belt."""
+    if not apply_visual_inspiration_policy:
+        return list(assets)
+    traits = _visual_direction_traits(direction, brief=brief)
+    preferred = traits["preferred_items"]
+    explicit_belt = any(_visual_term_matches(item, "belt") for item in preferred)
+
+    def accessory_score(asset: Dict[str, Any]) -> int:
+        blob = _asset_policy_blob(asset)
+        score = 0
+        if any(term in blob for term in ("bag", "watch", "jewelry", "jewellery")):
+            score += 4
+        elif any(term in blob for term in ("scarf", "sunglass")):
+            score += 2
+        # Generated fallback copy has no catalog identity; keep its established
+        # meaningful-item ordering rather than letting a preferred palette word
+        # choose a scarf over a watch. Catalog assets still receive the bonus.
+        if (
+            (_asset_text(asset.get("asset_id") or asset.get("item_id") or asset.get("$id")))
+            and any(_visual_term_matches(item, blob) for item in preferred)
+        ):
+            score += 8
+        if "belt" in blob and not explicit_belt:
+            score -= 5
+        return score
+
+    return sorted(assets, key=accessory_score, reverse=True)
+
+
 # ── Itemized board_items contract for the frontend 85 flat-lay board ─────────
 # Frontend (commit 0057706) renders AhviOutfitBoardCard -> EditorialBoardCanvas
 # only when a direction carries real, role-tagged, image-bearing pieces. One
@@ -4161,10 +4516,21 @@ def _visual_core_candidate(
     allow_feminine_accessory: bool,
     brief: Any,
     used_keys: set[str],
+    excluded_asset_keys: set[str] | None = None,
+    apply_visual_inspiration_policy: bool = False,
 ) -> Dict[str, Any]:
+    traits = (
+        _visual_direction_traits(direction, occasion=occasion, brief=brief if isinstance(brief, dict) else None)
+        if apply_visual_inspiration_policy
+        else {}
+    )
     role_probe = {
         "top": "coordinating shirt",
-        "bottom": "coordinating trousers",
+        "bottom": (
+            "cargo trousers"
+            if apply_visual_inspiration_policy and traits["utility_or_rugged"]
+            else "coordinating trousers"
+        ),
         "footwear": "coordinating shoes",
     }.get(role, role)
 
@@ -4180,11 +4546,17 @@ def _visual_core_candidate(
         assets,
         direction=probe,
         occasion=occasion,
-        accessory_only=False,
+        # The catalog groups footwear with complete-look accessories. Reuse
+        # that established grouping for footwear repair, while keeping the
+        # repair role gate below authoritative.
+        accessory_only=apply_visual_inspiration_policy and role == "footwear",
         target_gender=target_gender,
         allow_feminine_accessory=allow_feminine_accessory,
         limit=80,
+        placement="complete" if role == "footwear" else None,
         brief=brief,
+        excluded_asset_keys=excluded_asset_keys,
+        apply_visual_inspiration_policy=apply_visual_inspiration_policy,
     )
 
     for asset in candidates:
@@ -4231,6 +4603,8 @@ def _repair_visual_board_core(
     target_gender: str,
     allow_feminine_accessory: bool,
     brief: Any,
+    excluded_asset_keys: set[str] | None = None,
+    apply_visual_inspiration_policy: bool = False,
 ) -> List[Dict[str, Any]]:
     """Repair a generic Visual Inspiration board before publishing it.
 
@@ -4253,6 +4627,23 @@ def _repair_visual_board_core(
         working,
         inventory=assets,
     )
+
+    if apply_visual_inspiration_policy:
+        compatible_working: List[Dict[str, Any]] = []
+        for item in working:
+            allowed, reason = _visual_asset_compatibility(
+                item,
+                direction=direction,
+                occasion=occasion,
+                placement="complete",
+                target_text=_asset_text(item.get("name") or item.get("title")),
+                brief=brief if isinstance(brief, dict) else None,
+            )
+            if allowed:
+                compatible_working.append(item)
+            else:
+                _visual_compatibility_log(direction, item, reason)
+        working = compatible_working
 
     used_keys = {
         key
@@ -4289,6 +4680,8 @@ def _repair_visual_board_core(
             allow_feminine_accessory=allow_feminine_accessory,
             brief=brief,
             used_keys=used_keys,
+            excluded_asset_keys=excluded_asset_keys,
+            apply_visual_inspiration_policy=apply_visual_inspiration_policy,
         )
 
         if not candidate:
@@ -4514,17 +4907,25 @@ def _enrich_visual_directions_with_assets(
     allow_feminine_accessory: bool = False,
     brief: Dict[str, Any] | None = None,
     wardrobe_intent: bool = False,
+    apply_visual_inspiration_policy: bool = False,
 ) -> List[Dict[str, Any]]:
     if not visual_directions:
         return visual_directions
     assets = _style_asset_rows()
     occasion_text = _asset_text(occasion)
     enriched: List[Dict[str, Any]] = []
+    used_bottom_keys: set[str] = set()
+    used_footwear_keys: set[str] = set()
     for idx, direction in enumerate(visual_directions):
         out = _sanitize_direction_for_gender(
             dict(direction),
             target_gender=target_gender,
             allow_feminine=allow_feminine_accessory,
+        )
+        direction_exclusions = (
+            used_bottom_keys | used_footwear_keys
+            if apply_visual_inspiration_policy
+            else set()
         )
         image_url = _asset_text(out.get("image_url") or out.get("imageUrl"))
         if image_url and assets:
@@ -4543,8 +4944,20 @@ def _enrich_visual_directions_with_assets(
                 ),
                 None,
             )
+            attached_visual_incompatible = (
+                apply_visual_inspiration_policy
+                and not _visual_asset_compatibility(
+                    attached_asset,
+                    direction=out,
+                    occasion=occasion_text,
+                    placement="hero",
+                    target_text=_asset_text(out.get("hero_piece")),
+                    brief=brief,
+                )[0]
+            ) if attached_asset else False
             if attached_asset and (
                 _is_nonfashion_asset(attached_asset)
+                or attached_visual_incompatible
                 or not _asset_allowed_for_context(
                     attached_asset,
                     occasion=occasion_text,
@@ -4584,6 +4997,8 @@ def _enrich_visual_directions_with_assets(
                 target_gender=target_gender,
                 allow_feminine_accessory=allow_feminine_accessory,
                 brief=brief,
+                excluded_asset_keys=direction_exclusions,
+                apply_visual_inspiration_policy=apply_visual_inspiration_policy,
             )
             if asset:
                 _apply_board_image_fields(out, asset)
@@ -4597,6 +5012,15 @@ def _enrich_visual_directions_with_assets(
             allow_feminine=allow_feminine_accessory,
             limit=3,
         )
+        complete = _visual_filter_complete_the_look(
+            complete,
+            direction=out,
+            occasion=occasion_text,
+            target_gender=target_gender,
+            allow_feminine=allow_feminine_accessory,
+            brief=brief,
+            apply_visual_inspiration_policy=apply_visual_inspiration_policy,
+        )
         if assets:
             accessory_assets = _best_style_assets(
                 assets,
@@ -4607,7 +5031,23 @@ def _enrich_visual_directions_with_assets(
                 allow_feminine_accessory=allow_feminine_accessory,
                 limit=3,
                 brief=brief,
+                apply_visual_inspiration_policy=apply_visual_inspiration_policy,
             )
+            if apply_visual_inspiration_policy:
+                # Footwear is a core slot on a Visual Inspiration board, not an
+                # optional accessory. Leave it for the core repair path so it
+                # participates in completeness and cross-direction diversity.
+                accessory_assets = [
+                    asset
+                    for asset in accessory_assets
+                    if _visual_board_item_role(asset) == "accessory"
+                ]
+                accessory_assets = _visual_rank_accessories(
+                    accessory_assets,
+                    out,
+                    brief=brief,
+                    apply_visual_inspiration_policy=apply_visual_inspiration_policy,
+                )[:1]
             if accessory_assets:
                 # Keep essential outfit pieces (bottom/footwear/top/outerwear)
                 # AHEAD of accessories so the limit=3 cap can't evict the pant.
@@ -4650,6 +5090,15 @@ def _enrich_visual_directions_with_assets(
             occasion_text,
             out,
         )
+        complete = _visual_filter_complete_the_look(
+            complete,
+            direction=out,
+            occasion=occasion_text,
+            target_gender=target_gender,
+            allow_feminine=allow_feminine_accessory,
+            brief=brief,
+            apply_visual_inspiration_policy=apply_visual_inspiration_policy,
+        )
         # Guarantee a bottom on top-led catalog boards. If neither the hero nor
         # the completed pieces carry a bottom (e.g. accessories filled the slots),
         # retrieve the best bottom asset so the board never ships pant-less.
@@ -4665,7 +5114,12 @@ def _enrich_visual_directions_with_assets(
                 # Score against a BOTTOM hero so the retrieval surfaces bottoms
                 # (scoring against the real top-hero only returns tops).
                 bottom_dir = dict(out)
-                bottom_dir["hero_piece"] = "tailored trousers"
+                bottom_traits = _visual_direction_traits(bottom_dir, occasion=occasion_text, brief=brief)
+                bottom_dir["hero_piece"] = (
+                    "cargo trousers"
+                    if apply_visual_inspiration_policy and bottom_traits["utility_or_rugged"]
+                    else "tailored trousers"
+                )
                 bottom_dir.pop("complete_the_look", None)
                 bottom_candidates = _best_style_assets(
                     assets,
@@ -4676,6 +5130,8 @@ def _enrich_visual_directions_with_assets(
                     allow_feminine_accessory=allow_feminine_accessory,
                     limit=25,
                     brief=brief,
+                    excluded_asset_keys=direction_exclusions,
+                    apply_visual_inspiration_policy=apply_visual_inspiration_policy,
                 )
                 bottom_asset = next(
                     (
@@ -4749,6 +5205,8 @@ def _enrich_visual_directions_with_assets(
                 target_gender=target_gender,
                 allow_feminine_accessory=allow_feminine_accessory,
                 brief=brief,
+                excluded_asset_keys=direction_exclusions,
+                apply_visual_inspiration_policy=apply_visual_inspiration_policy,
             )
 
             if not _board_items_viable(board_items):
@@ -4774,6 +5232,40 @@ def _enrich_visual_directions_with_assets(
                 continue
 
             _sync_visual_direction_copy(out, board_items)
+
+            if apply_visual_inspiration_policy and _board_items_viable(board_items):
+                selected_bottom = next(
+                    (
+                        item for item in board_items
+                        if _visual_board_item_role(item) == "bottom"
+                    ),
+                    None,
+                )
+                selected_footwear = next(
+                    (
+                        item for item in board_items
+                        if _visual_board_item_role(item) == "footwear"
+                    ),
+                    None,
+                )
+                bottom_key = _visual_asset_key(selected_bottom or {})
+                footwear_key = _visual_asset_key(selected_footwear or {})
+                reused_bottom = bool(bottom_key and bottom_key in used_bottom_keys)
+                reused_footwear = bool(footwear_key and footwear_key in used_footwear_keys)
+                if bottom_key:
+                    used_bottom_keys.add(bottom_key)
+                if footwear_key:
+                    used_footwear_keys.add(footwear_key)
+                logger.info(
+                    "AHVI_VISUAL_DIVERSITY_SELECTION direction_index=%d bottom_id=%s footwear_id=%s "
+                    "reused_bottom=%s reused_footwear=%s inventory_limited=%s",
+                    idx,
+                    bottom_key or "none",
+                    footwear_key or "none",
+                    reused_bottom,
+                    reused_footwear,
+                    reused_bottom or reused_footwear,
+                )
 
         viable = _board_items_viable(board_items)
         if wardrobe_intent and not viable:
@@ -8424,6 +8916,7 @@ def _build_response(
         visual_directions,
         occasion=asset_occasion,
     )
+    wardrobe_intent = final_mode == WARDROBE_STYLE
     visual_directions = _enrich_visual_directions_with_assets(
         visual_directions,
         occasion=asset_occasion,
@@ -8433,7 +8926,11 @@ def _build_response(
         # None unless STYLE_SHARED_BRAIN is on (canonical_ctx built only then).
         brief=canonical_ctx,
         # Wardrobe intent -> board_items must be owned-only (no generic assets).
-        wardrobe_intent=(final_mode == WARDROBE_STYLE),
+        wardrobe_intent=wardrobe_intent,
+        apply_visual_inspiration_policy=(
+            final_mode == VISUAL_INSPIRATION
+            and not wardrobe_intent
+        ),
     )
     # Shared Style Brain (Phase C): post-generation visual guard. No-op unless
     # STYLE_SHARED_BRAIN is enabled. Same list-of-dicts shape in/out.

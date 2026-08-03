@@ -661,13 +661,15 @@ def test_complete_the_look_varies_by_archetype(monkeypatch):
         ],
         occasion="startup event",
         target_gender="male",
+        apply_visual_inspiration_policy=True,
     )
 
     sets = [tuple(item["name"] for item in card["complete_the_look"]) for card in directions]
     assert len(set(sets)) == 3
+    assert all(len(items) == 1 for items in sets)
     assert "Leather-Strap Watch" in sets[0]
     assert "Tech Backpack" in sets[1]
-    assert "Fashion Sneaker" in sets[2]
+    assert sets[2][0] == "Fashion Sneaker"
 
 
 def test_generic_visual_diversity_guard_replaces_repeated_blazer_formula():
