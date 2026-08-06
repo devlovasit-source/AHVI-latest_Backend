@@ -105,15 +105,17 @@ Quality priority:
 # instead of the flat repair/cleanup the default prompt yields.
 GHOST_MANNEQUIN_PROMPT = """Create a premium fashion e-commerce catalog photo of this garment on an INVISIBLE (ghost) mannequin.
 
-Render the garment in its natural worn 3D form — structured shoulders, filled sleeves, natural drape and volume from neckline to hem — as if worn on a body, but with NO visible body, person, face, hands, mannequin, hanger, hook, or prop. The garment holds a realistic worn shape on its own.
+The source photo may show the garment being WORN by a person — a selfie, mirror shot, or on-body photo. Completely REMOVE the person and everything that is not the garment itself: face, hair, skin, neck, chest, shoulders, arms, hands, fingers, legs, torso, the whole body, any other person, and the entire background. NOT A SINGLE PATCH OF SKIN, BODY, OR PERSON MAY REMAIN — treat any exposed skin at the neckline, armholes, or hems as empty transparent space, not part of the product.
 
-Reconstruct any parts hidden, flattened, or distorted in the source (collar, shoulders, sleeves, hemline) so the COMPLETE garment is shown front-facing, upright, centered, top to hem.
+Render the garment in its natural worn 3D form — structured shoulders, filled sleeves, natural drape and volume from neckline to hem — as if worn on a body, but with NO visible body, person, face, hands, skin, mannequin, hanger, hook, or prop. The garment holds a realistic worn shape on its own.
+
+Reconstruct any parts hidden, flattened, distorted, or occluded by the body in the source (collar, shoulders, sleeves, hemline) so the COMPLETE garment is shown front-facing, upright, centered, top to hem.
 
 Preserve EXACTLY: the same garment, its color, print/pattern, fabric texture, silhouette, proportions, neckline, sleeves, straps, and hemline length. Do NOT redesign, recolor, or alter the print. Never convert full-length to short.
 
 Background: fully transparent with a clean alpha channel, soft even lighting, a subtle natural contact shadow under the garment only.
 
-Output ONE clean catalog image: garment only on an invisible mannequin. No text, watermark, border, frame, card, template, person, visible mannequin, hanger, or background clutter."""
+Output ONE clean catalog image: garment only on an invisible mannequin, with ZERO skin, ZERO body, and ZERO person visible anywhere. No text, watermark, border, frame, card, template, person, visible mannequin, hanger, or background clutter."""
 
 
 def _ghost_mannequin_enabled() -> bool:
@@ -933,13 +935,27 @@ def score_catalog_quality(image_bytes: bytes, *, original_bytes: bytes = b"", it
     if cat not in {"bag", "footwear", "accessory", "jewellery", "jewelry"} and skin > 0.25:
         human_penalty += 30
 
-    original_avg = _foreground_avg(_open_rgba(original_bytes)) if original_bytes else None
+    original_img = _open_rgba(original_bytes) if original_bytes else None
+    original_avg = _foreground_avg(original_img) if original_img else None
     generated_avg = _foreground_avg(img)
     color_distance = None
     color_score = 88
     if original_avg and generated_avg:
-        color_distance = sum(abs(a - b) for a, b in zip(original_avg, generated_avg))
-        color_score = max(0, min(100, int(100 - color_distance / 2)))
+        # The colour-preservation check compares the generated catalog's average
+        # foreground colour against the SOURCE cutout. That comparison is only
+        # valid when the output is a like-for-like flat cutout. It is INVALID and
+        # false-rejects when the source/output legitimately differ:
+        #   - worn/on-body/selfie source: the cutout is full of skin, so a correct
+        #     garment-only catalog (skin removed) reads as a huge colour_distance;
+        #   - ghost-mannequin output: the garment is reshaped into a 3D worn form,
+        #     shifting the foreground average away from the flat source.
+        # In those cases keep the neutral colour score (88) instead of penalising
+        # exactly the extraction we want. (See identity_drift: colour_distance must
+        # not gate acceptance -- Nano Banana recolours and false-rejects.)
+        original_skin = _skin_ratio(original_img) if original_img is not None else 0.0
+        if original_skin <= 0.25 and not _ghost_mannequin_enabled():
+            color_distance = sum(abs(a - b) for a, b in zip(original_avg, generated_avg))
+            color_score = max(0, min(100, int(100 - color_distance / 2)))
 
     orientation_quality = 100 if metrics["center_offset"] <= 0.08 else max(40, int(100 - metrics["center_offset"] * 220))
     cleanliness = 100 - human_penalty
@@ -1777,9 +1793,21 @@ def generate_catalog_png(
                 generated_validation.get("image_mode"),
             )
         logger.info(
-            "ahvi.catalog_png.provider_validation_failed provider=%s reason=%s",
+            "ahvi.catalog_png.provider_validation_failed provider=%s reason=%s score=%s threshold=%s "
+            "skin=%s edge=%s orient=%s clean=%s complete=%s color=%s color_dist=%s touches_edge=%s visible=%s",
             provider_result.provider,
-            generated_validation.get("reason"),
+            generated_validation.get("reason") or "low_score",
+            generated_validation.get("score"),
+            QUALITY_READY_THRESHOLD,
+            generated_validation.get("skin_ratio"),
+            generated_validation.get("edge_quality"),
+            generated_validation.get("orientation_quality"),
+            generated_validation.get("cleanliness"),
+            generated_validation.get("garment_completeness"),
+            generated_validation.get("color_preservation"),
+            generated_validation.get("color_distance"),
+            generated_validation.get("touches_edge"),
+            generated_validation.get("visible_ratio"),
         )
 
     if provider_obj.name == "nanobanana" and not fallback_used:
