@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import logging
 import os
 import time
@@ -125,6 +126,202 @@ def _ghost_mannequin_enabled() -> bool:
         "yes",
         "on",
     }
+
+
+# ── Catalogue orientation gate (flag-gated) ──────────────────────────────────
+# A stochastic image model occasionally renders apparel SIDEWAYS. The quality
+# scorer only checks centering (center_offset), not uprightness, so a
+# centered-but-rotated garment scores fine and gets stored -- then propagates to
+# Wardrobe, Style This, boards and sharing. This gate REJECTS a clearly-sideways
+# apparel catalogue, regenerates ONCE with a hardened upright prompt, and never
+# persists a result that still fails. It does NOT auto-rotate: bounding-box
+# aspect alone must never rotate wide/oversized tops, skirts, bags or footwear.
+ORIENTATION_HARDENING_SUFFIX = """
+
+CRITICAL ORIENTATION:
+Render the garment perfectly UPRIGHT and VERTICAL, front-facing, exactly as it
+hangs on a body. The neckline / collar / waistband MUST be at the TOP of the
+image and the hem at the BOTTOM. Do NOT rotate, tilt, or lay the garment on its
+side. The garment's height must be greater than its width -- portrait
+orientation only."""
+
+# Categories that are taller-than-wide when upright, so a clearly landscape
+# result signals rotation. Skirts, bags, footwear, accessories and jewellery are
+# excluded (legitimately wide or square).
+_ORIENTATION_PORTRAIT_CATEGORIES = {"top", "dress", "outerwear", "ethnic"}
+_ORIENTATION_FULL_LENGTH_BOTTOM_TOKENS = (
+    "trouser", "pant", "chino", "jean", "slack", "cargo", "legging", "jogger",
+)
+
+
+def _orientation_gate_enabled() -> bool:
+    return str(os.getenv("CATALOG_ORIENTATION_GATE", "false")).strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _orientation_autorotate_enabled() -> bool:
+    # Reserved for a future, test-matrix-validated auto-rotation pass. Disabled
+    # on purpose: this patch only REJECTS + regenerates, never rotates.
+    return str(os.getenv("CATALOG_ORIENTATION_AUTOROTATE", "false")).strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _orientation_sideways_aspect() -> float:
+    try:
+        return float(os.getenv("CATALOG_ORIENTATION_SIDEWAYS_ASPECT", "1.5") or 1.5)
+    except Exception:
+        return 1.5
+
+
+def _orientation_relevant_category(category: Any, meta: Optional[Dict[str, Any]] = None) -> bool:
+    """Only gate categories that are portrait when upright. Full-length bottoms
+    (trousers/jeans) are portrait; skirts/shorts are not, so 'bottom' is gated
+    only when the metadata names a full-length garment."""
+    cat = normalize_catalog_category(category)
+    if cat in _ORIENTATION_PORTRAIT_CATEGORIES:
+        return True
+    if cat == "bottom":
+        blob = _text_blob(meta or {})
+        return any(t in blob for t in _ORIENTATION_FULL_LENGTH_BOTTOM_TOKENS)
+    return False
+
+
+def _apparel_looks_sideways(
+    image_bytes: bytes, category: Any, meta: Optional[Dict[str, Any]] = None
+) -> Tuple[bool, float]:
+    """True when a portrait-expected garment's foreground is CLEARLY landscape
+    (width/height >= threshold, default 1.5). Conservative on purpose so wide or
+    oversized tops are not flagged. Returns (sideways, aspect)."""
+    if not _orientation_relevant_category(category, meta):
+        return False, 0.0
+    try:
+        img = _open_rgba(image_bytes)
+        bbox = img.getchannel("A").getbbox()
+        if not bbox:
+            return False, 0.0
+        w = max(1, bbox[2] - bbox[0])
+        h = max(1, bbox[3] - bbox[1])
+        aspect = w / h
+        return aspect >= _orientation_sideways_aspect(), round(aspect, 2)
+    except Exception:
+        return False, 0.0
+
+
+def _orientation_vision_check_enabled() -> bool:
+    return str(os.getenv("CATALOG_ORIENTATION_VISION_CHECK", "false")).strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _orientation_confidence_min() -> float:
+    try:
+        return float(os.getenv("CATALOG_ORIENTATION_CONFIDENCE_MIN", "0.85") or 0.85)
+    except (TypeError, ValueError):
+        return 0.85
+
+
+def _orientation_regen_max() -> int:
+    try:
+        return max(0, int(os.getenv("CATALOG_ORIENTATION_REGEN_MAX", "1") or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+_ORIENTATION_ALLOWED = {
+    "upright", "sideways_left", "sideways_right", "upside_down", "uncertain",
+}
+
+
+def _classify_orientation(
+    image_bytes: bytes, category: Any, meta: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Vision uprightness classification of a generated catalogue image.
+
+    Returns {orientation, confidence, evidence}. FAIL-SAFE: any error, timeout,
+    unavailable client, or unparseable response returns orientation='uncertain'
+    with confidence 0 — never a false 'upright' — so the caller rejects/regenerates.
+    Deterministic (temperature 0), short timeout, structured JSON only. Uses the
+    vision text model (GEMINI_MODEL), NOT the image-generation call.
+    """
+    if genai is None or types is None:
+        return {"orientation": "uncertain", "confidence": 0.0, "evidence": "genai_unavailable"}
+    cat = normalize_catalog_category(category)
+    rules = (
+        "For trousers: the waistband must be at the top and the leg openings at the bottom."
+        if cat == "bottom"
+        else "For tops, jackets and dresses: the neckline/collar must be at the top, "
+        "the hem at the bottom, and sleeves extend mainly left and right."
+    )
+    prompt = (
+        "Determine whether this generated catalogue image is correctly oriented.\n"
+        f"Category: {cat}\n\n{rules}\n\n"
+        "Return JSON only:\n"
+        '{"orientation":"upright|sideways_left|sideways_right|upside_down|uncertain",'
+        '"confidence":0.0-1.0,"evidence":"short reason code"}'
+    )
+    try:
+        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash"
+        try:
+            to_s = int(os.getenv("CATALOG_ORIENTATION_TIMEOUT_SECONDS", "12") or 12)
+        except (TypeError, ValueError):
+            to_s = 12
+        http_kwargs: Dict[str, Any] = {"api_version": "v1"}
+        http_fields = getattr(types.HttpOptions, "model_fields", {}) or {}
+        if not http_fields or "timeout" in http_fields:
+            http_kwargs["timeout"] = int(to_s * 1000)
+        client = genai.Client(
+            vertexai=True,
+            project=_vertex_project(),
+            location=_vertex_location(),
+            http_options=types.HttpOptions(**http_kwargs),
+        )
+        cfg_fields = getattr(types.GenerateContentConfig, "model_fields", {}) or {}
+        ckw: Dict[str, Any] = {}
+        if not cfg_fields or "temperature" in cfg_fields:
+            ckw["temperature"] = 0
+        if not cfg_fields or "candidate_count" in cfg_fields:
+            ckw["candidate_count"] = 1
+        if not cfg_fields or "response_mime_type" in cfg_fields:
+            ckw["response_mime_type"] = "application/json"
+        img_part = types.Part.from_bytes(data=image_bytes, mime_type="image/png")
+        resp = client.models.generate_content(
+            model=model, contents=[prompt, img_part],
+            config=types.GenerateContentConfig(**ckw),
+        )
+        text = (getattr(resp, "text", None) or "").strip()
+        data = json.loads(text)
+        o = str(data.get("orientation") or "uncertain").strip().lower()
+        if o not in _ORIENTATION_ALLOWED:
+            o = "uncertain"
+        try:
+            c = float(data.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            c = 0.0
+        return {
+            "orientation": o,
+            "confidence": max(0.0, min(1.0, c)),
+            "evidence": str(data.get("evidence") or "")[:60],
+        }
+    except Exception as exc:  # noqa: BLE001 - fail-safe: never pass through
+        return {
+            "orientation": "uncertain",
+            "confidence": 0.0,
+            "evidence": f"error:{type(exc).__name__}",
+        }
+
+
+def _rotate_png(image_bytes: bytes, angle_ccw: int) -> Optional[bytes]:
+    """Rotate a transparent PNG by angle_ccw degrees (expand canvas). Returns
+    None on failure. Used only by the flag-gated auto-rotate path; every rotated
+    candidate is re-classified before it can be accepted, so a wrong angle is
+    never stored."""
+    try:
+        img = _open_rgba(image_bytes)
+        return _encode_png(img.rotate(angle_ccw, expand=True))
+    except Exception:
+        return None
 
 
 def _build_catalog_prompt(category: Any, metadata: Optional[Dict[str, Any]] = None) -> str:
@@ -1743,6 +1940,125 @@ def generate_catalog_png(
                 reason=_rmbg_reason or "rmbg_failed",
                 provider=provider_result.provider,
             )
+
+    # Orientation gate (flag-gated). A VISION classifier decides uprightness for
+    # portrait-oriented apparel — bbox aspect can't detect a rotated boxy tee
+    # (bbox stays portrait) so it is TELEMETRY ONLY here. Not-confidently-upright
+    # -> regenerate up to CATALOG_ORIENTATION_REGEN_MAX (default 1) with a hardened
+    # upright prompt; store only if the classifier confidently reports 'upright',
+    # else fail the provider result -> caller falls back to the verified cutout /
+    # needs_review. FAIL-SAFE: any classifier error/timeout/low-confidence never
+    # passes through. Never persist a sideways catalogue.
+    if (
+        _orientation_gate_enabled()
+        and _orientation_vision_check_enabled()
+        and provider_result.success
+        and provider_result.image_bytes
+        and _orientation_relevant_category(category, meta)
+    ):
+        _bb_sideways, _bb_aspect = _apparel_looks_sideways(
+            provider_result.image_bytes, category, meta
+        )  # telemetry only
+        _conf_min = _orientation_confidence_min()
+        _oc = _classify_orientation(provider_result.image_bytes, category, meta)
+        logger.info(
+            "ahvi.capture.catalog.orientation_check_%s item_id=%s category=%s "
+            "confidence=%.2f evidence=%s bbox_aspect=%s",
+            _oc.get("orientation", "uncertain"), meta.get("item_id"), category,
+            float(_oc.get("confidence") or 0.0), _oc.get("evidence", ""), _bb_aspect,
+        )
+        _upright = (
+            _oc.get("orientation") == "upright"
+            and float(_oc.get("confidence") or 0.0) >= _conf_min
+        )
+        if not _upright:
+            _resolved = False
+            # Auto-rotate (flag-gated CATALOG_ORIENTATION_AUTOROTATE): the image
+            # is a good catalogue that is merely rotated. Try 90/180/270, RE-
+            # CLASSIFY each, accept the first that is confidently upright. Cheaper
+            # than regeneration (no image-gen call) and self-correcting -- a wrong
+            # angle simply fails re-classification and is discarded. Never rotates
+            # on geometry alone.
+            if _orientation_autorotate_enabled() and _oc.get("orientation") in {
+                "sideways_left", "sideways_right", "upside_down",
+            }:
+                for _ang in (90, 180, 270):
+                    _cand = _rotate_png(provider_result.image_bytes, _ang)
+                    if not _cand:
+                        continue
+                    _oc_r = _classify_orientation(_cand, category, meta)
+                    logger.info(
+                        "ahvi.capture.catalog.orientation_check_%s item_id=%s stage=autorotate angle=%d confidence=%.2f",
+                        _oc_r.get("orientation", "uncertain"), meta.get("item_id"),
+                        _ang, float(_oc_r.get("confidence") or 0.0),
+                    )
+                    if (
+                        _oc_r.get("orientation") == "upright"
+                        and float(_oc_r.get("confidence") or 0.0) >= _conf_min
+                    ):
+                        # Store the VALIDATED rotated image directly. Do NOT pass
+                        # it through _transparent_catalog_canvas -- that helper has
+                        # its own orientation heuristic that re-rotates the image
+                        # and undoes the fix. The provider output was already
+                        # centred on a square transparent canvas before this gate,
+                        # so a 90/180/270 rotate stays centred.
+                        provider_result = CatalogProviderResult(
+                            True, image_bytes=_cand, provider=provider_result.provider
+                        )
+                        _resolved = True
+                        logger.info(
+                            "ahvi.capture.catalog.orientation_autorotate_ok item_id=%s angle=%d",
+                            meta.get("item_id"), _ang,
+                        )
+                        break
+            _attempt = 0
+            while _attempt < _orientation_regen_max() and not _resolved:
+                _attempt += 1
+                logger.info(
+                    "ahvi.capture.catalog.orientation_regen_started item_id=%s attempt=%d",
+                    meta.get("item_id"), _attempt,
+                )
+                _regen = provider_obj.generate(
+                    cutout_bytes=deterministic_bytes,
+                    prompt=catalog_prompt + ORIENTATION_HARDENING_SUFFIX,
+                    item_metadata={**meta, "category": category},
+                    timeout=timeout,
+                )
+                if not (_regen.success and _regen.image_bytes):
+                    continue
+                _regen_tb, _rr = _provider_output_to_transparent(
+                    _regen.image_bytes, category, meta.get("item_id")
+                )
+                if not _regen_tb:
+                    continue
+                _oc2 = _classify_orientation(_regen_tb, category, meta)
+                logger.info(
+                    "ahvi.capture.catalog.orientation_check_%s item_id=%s stage=regen confidence=%.2f",
+                    _oc2.get("orientation", "uncertain"), meta.get("item_id"),
+                    float(_oc2.get("confidence") or 0.0),
+                )
+                if (
+                    _oc2.get("orientation") == "upright"
+                    and float(_oc2.get("confidence") or 0.0) >= _conf_min
+                ):
+                    provider_result = CatalogProviderResult(
+                        True, image_bytes=_regen_tb, provider=provider_result.provider
+                    )
+                    _resolved = True
+                    logger.info(
+                        "ahvi.capture.catalog.orientation_regen_ok item_id=%s",
+                        meta.get("item_id"),
+                    )
+            if not _resolved:
+                logger.warning(
+                    "ahvi.capture.catalog.orientation_regen_rejected item_id=%s reason=not_confidently_upright",
+                    meta.get("item_id"),
+                )
+                provider_result = CatalogProviderResult(
+                    False,
+                    reason="orientation_not_upright",
+                    provider=provider_result.provider or provider_obj.name,
+                )
 
     if provider_result.success and provider_result.image_bytes:
         if provider_result.provider == "nanobanana":
