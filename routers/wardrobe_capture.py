@@ -4015,6 +4015,17 @@ def save_selected(
                     item.get("item_id"),
                     item.get("masked_url"),
                 )
+            elif item.get("_save_image_source") == "privacy_catalog_only_skip_upload":
+                # Privacy-only deliberately skips uploading the person-bearing
+                # RMBG cutout (never stored). KEEP masked_image_base64 in memory
+                # so the catalog generator builds its face-free PNG from the
+                # CLEAN cutout, not the raw image. Popping it (as the failure
+                # branch below did) forced catalog gen onto raw_b64, which fails
+                # the quality gate (QUALITY_READY_THRESHOLD) and drops the item.
+                logger.info(
+                    "ahvi.capture.save_selected.privacy_cutout_retained item_id=%s",
+                    item.get("item_id"),
+                )
             else:
                 reason = str(item.get("upload_error") or "masked_upload_failed")[:160]
                 item.pop("masked_image_base64", None)
