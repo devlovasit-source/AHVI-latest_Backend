@@ -19,7 +19,7 @@ def _fake_payload(*a, **k):
     return {"success": True, "type": "cards", "cards": [dict(card)],
             "style_boards": [dict(card)],
             "data": {"outfits": [dict(card)], "rendered_boards": [dict(card)]},
-            "meta": {"occasion": "office"}}
+            "meta": {"occasion": "office", "mode": "style_flow_service_adapter_v1"}}
 
 
 def _client(monkeypatch):

@@ -1008,16 +1008,15 @@ class AhviOrchestrator:
             }
             return out
 
-        # If the user mentioned a clothing-relevant occasion (date night,
-        # office, party, vacation, brunch, etc.) we treat the request as an
-        # outfit query even when the intent classifier didn't tag it as one.
-        # Without this, "I have a date tonight — what should I wear?" falls
-        # through to the generic fallback and the chat returns no cards.
-        if (
-            intent not in {"daily_outfit", "occasion_outfit", "explore_styles"}
-            and occasion
-        ):
-            intent = "occasion_outfit"
+        # P0: the previous "any occasion keyword forces occasion_outfit"
+        # override was removed. It overrode the classifier post-hoc and caused
+        # information / advice / calendar requests that mention a common word
+        # (office, work, date, travel) to render a Style board. When the
+        # classifier says something is not an outfit request, we trust it.
+        # The explicit "I have a date tonight — what should I wear?" case is
+        # still covered by the classifier's own `_fallback_intent` rules
+        # (`style_priority_phrases` in brain/intent_engine.py) so the
+        # legitimate outfit ask still reaches this branch.
 
         if intent in {"daily_outfit", "occasion_outfit", "explore_styles"}:
             wardrobe_ctx = ctx.get("wardrobe")
