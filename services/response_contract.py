@@ -61,6 +61,7 @@ _LEGACY_TO_RESPONSE_MODE = {
     # explicit visual style modes
     "visual_inspiration": "visual_inspiration",
     "wardrobe_style": "wardrobe_recommendation",
+    "style_flow_service_adapter_v1": "wardrobe_recommendation",
     "style_this": "style_this",
     "build_outfit": "build_outfit",
     # text-primary style modes
@@ -139,6 +140,7 @@ def _enforce_invariants(envelope: Dict[str, Any], response_mode: str) -> None:
         _strip_keys(envelope, _BOARD_FIELDS_TOPLEVEL)
         _strip_keys(data, _BOARD_FIELDS_DATA)
         envelope["cards"] = []
+        envelope["style_boards"] = []
         # `blocks` may contain visual_board dicts — drop those specifically.
         blocks = envelope.get("blocks")
         if isinstance(blocks, list):
@@ -221,10 +223,12 @@ if __name__ == "__main__":
     assert r["response_mode"] == "text_only"
     assert r["request_id"] == "req_1"
     assert r["cards"] == []
+    assert r["style_boards"] == []
     assert "visual_directions" not in r
     assert resolve_response_mode({"intent": "style_advice"}) == "text_only"
     assert resolve_response_mode({"intent": "visual_inspiration"}) == "visual_inspiration"
     assert resolve_response_mode({"mode": "wardrobe_style"}) == "wardrobe_recommendation"
+    assert resolve_response_mode({"meta": {"mode": "style_flow_service_adapter_v1"}}) == "wardrobe_recommendation"
     assert resolve_response_mode({"response_mode": "calendar_navigation"}) == "calendar_navigation"
     assert resolve_response_mode({}) == "text_only"
     r = stamp_response(

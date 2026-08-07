@@ -77,10 +77,11 @@ def test_stamp_text_only_strips_visual_topfields():
         request_id="req_1",
     )
     for banned in (
-        "visual_directions", "style_boards", "visual_board",
+        "visual_directions", "visual_board",
         "visual_inspiration_board",
     ):
         assert banned not in r, f"{banned} should be stripped in text_only"
+    assert r["style_boards"] == []
     assert r["cards"] == []
     assert r["response_mode"] == "text_only"
     assert r["request_id"] == "req_1"
