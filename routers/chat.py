@@ -34,6 +34,7 @@ from services.response_contract import (
     stamp_response,
 )
 from services.pre_classifier import classify_message as _pre_classify_message
+from services.semantic_intent_resolver import resolve_semantic_intent
 from services.style_flow_service import (
     STYLE_ACTION_CHIPS,
     build_style_flow_response,
@@ -4517,7 +4518,7 @@ def _preclassified_calendar_navigation_response() -> Dict[str, Any]:
     }
 
 
-def _preclassified_text_reply(message: str, pre: Dict[str, str]) -> Dict[str, Any]:
+def _preclassified_text_reply(message: str, pre: Dict[str, Any]) -> Dict[str, Any]:
     """P0: information/advice → text-only bubble. Frontend renders text_only."""
     return {
         "success": True,
@@ -4534,8 +4535,26 @@ def _preclassified_text_reply(message: str, pre: Dict[str, str]) -> Dict[str, An
     }
 
 
+def _preclassified_clarification_reply(pre: Dict[str, Any]) -> Dict[str, Any]:
+    missing = pre.get("missing_information") or []
+    missing_text = " ".join(str(item).lower() for item in missing)
+    if "occasion" in missing_text or "activity" in missing_text:
+        message = "What are you dressing for?"
+    elif "date" in missing_text or "time" in missing_text:
+        message = "What day or time are you planning for?"
+    else:
+        message = "Could you tell me a little more about what you mean?"
+    response = _preclassified_text_reply(message, pre)
+    response["type"] = "clarification"
+    response["data"] = {
+        "intent": "clarification",
+        "missing_information": list(missing),
+    }
+    return response
+
+
 async def _handle_preclassified(
-    pre: Dict[str, str],
+    pre: Dict[str, Any],
     request: "ModuleChatRequest",
     http_request: "Request",
 ) -> Optional[Dict[str, Any]]:
@@ -4621,13 +4640,16 @@ async def _handle_preclassified(
                 )
         return _preclassified_text_reply(message_text, pre)
 
+    if mode == "clarification":
+        return _preclassified_clarification_reply(pre)
+
     return None
 
 
 def _stamp_module_chat_response(
     envelope: Dict[str, Any],
     request: "ModuleChatRequest",
-    pre: Optional[Dict[str, str]],
+    pre: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
     """P0: final gate. Resolve response_mode, echo request_id, enforce invariants."""
     if not isinstance(envelope, dict):
@@ -4649,14 +4671,48 @@ def _stamp_module_chat_response(
 @router.post("/module-chat")
 @router.post("/chat/module-chat")
 async def module_chat(request: ModuleChatRequest, http_request: Request):
-    # P0: pre-classifier seam. Handles the three exact prompt classes the
-    # existing 22-in-line-classifier stack was mishandling:
+    # P0: deterministic classifier first; contextual Style follow-ups may use
+    # the bounded semantic seam. Handles the exact prompt classes the existing
+    # 22-in-line-classifier stack was mishandling:
     #   - bare "calendar"          → calendar_navigation
     #   - "what is …" / "explain" → text_only (style information)
     #   - "style tips" / "how to" → text_only (style advice)
     #   - "show me … inspiration" → visual_inspiration (forced on)
     # Everything else falls through to the existing routing.
-    _pre = _pre_classify_message(str(request.message or "").strip())
+    _message = str(request.message or "").strip()
+    _deterministic = _pre_classify_message(_message)
+    _pre = resolve_semantic_intent(
+        current_message=_message,
+        recent_history=request.history,
+        module_hint=request.domain or request.module or "style",
+        conversation_context={
+            **(request.context_data or {}),
+            **(request.context or {}),
+        },
+        deterministic=_deterministic,
+        request_id=request.request_id,
+    )
+    if _pre is not None:
+        logger.info(
+            "AHVI_SEMANTIC_DECISION surface=module_chat request_id=%s "
+            "decision_source=%s domain=%s intent=%s response_mode=%s "
+            "confidence=%s clarification=%s",
+            request.request_id or "",
+            _pre.get("decision_source") or "legacy_special_flow",
+            _pre.get("domain") or "",
+            _pre.get("intent") or "",
+            _pre.get("response_mode") or "",
+            _pre.get("confidence", ""),
+            bool(_pre.get("requires_clarification")),
+        )
+    else:
+        logger.info(
+            "AHVI_SEMANTIC_DECISION surface=module_chat request_id=%s "
+            "decision_source=legacy_special_flow domain=%s intent= "
+            "response_mode= clarification=false",
+            request.request_id or "",
+            str(request.domain or request.module or "").strip().lower(),
+        )
     if _pre is not None:
         _pre_result = await _handle_preclassified(_pre, request, http_request)
         if _pre_result is not None:
