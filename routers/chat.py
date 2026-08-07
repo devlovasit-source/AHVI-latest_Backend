@@ -27,6 +27,13 @@ from brain.tone.tone_engine import tone_engine
 from brain.outfit_pipeline import save_feedback
 from services.appwrite_proxy import AppwriteProxy
 from services.llm_service import chat_completion
+# P0 canonical response contract + pre-classifier seam.
+from services.response_contract import (
+    ALLOWED_RESPONSE_MODES,
+    resolve_response_mode,
+    stamp_response,
+)
+from services.pre_classifier import classify_message as _pre_classify_message
 from services.style_flow_service import (
     STYLE_ACTION_CHIPS,
     build_style_flow_response,
@@ -3352,6 +3359,8 @@ class TextChatRequest(BaseModel):
     userID: str | None = None
     module_context: str | None = None
     include_base64: bool = False
+    # P0: client-generated correlation id. See ModuleChatRequest.
+    request_id: str | None = Field(default=None, max_length=96)
     wardrobe: Any = None
     style_action: str | None = None
     show_closest_option: bool = False
@@ -3489,6 +3498,9 @@ class ModuleChatRequest(BaseModel):
     history: List[Dict[str, str]] = Field(default_factory=list, max_length=20)
     module: str | None = Field(default=None, min_length=2, max_length=32)
     domain: str | None = Field(default=None, min_length=2, max_length=32)
+    # P0: client-generated correlation id. Optional for backward compat with
+    # older APK builds; server generates a trace_id regardless.
+    request_id: str | None = Field(default=None, max_length=96)
     context_data: Dict[str, Any] = Field(default_factory=dict)
     context: Dict[str, Any] = Field(default_factory=dict)
     user_profile: Dict[str, Any] = Field(default_factory=dict)
@@ -4483,9 +4495,178 @@ def _module_llm_response(
     }
 
 
+def _preclassified_calendar_navigation_response() -> Dict[str, Any]:
+    """P0: bare 'calendar' / 'open calendar' return navigation, never a Style board."""
+    message = "Opening Calendar."
+    open_module = {"label": "Open calendar", "route": "calendar", "module": "calendar"}
+    return {
+        "success": True,
+        "type": "navigation",
+        "domain": "calendar",
+        "module": "calendar",
+        "intent": "navigate",
+        "message": message,
+        "message_text": message,
+        "response": message,
+        "cards": [],
+        "chips": ["Open calendar", "Add event", "Plan my day"],
+        "quick_actions": ["Open calendar", "Add event", "Plan my day"],
+        "cta": open_module,
+        "open_module": open_module,
+        "data": {"module": "calendar", "intent": "navigate"},
+    }
+
+
+def _preclassified_text_reply(message: str, pre: Dict[str, str]) -> Dict[str, Any]:
+    """P0: information/advice → text-only bubble. Frontend renders text_only."""
+    return {
+        "success": True,
+        "type": "text",
+        "domain": pre.get("domain") or "style",
+        "module": "style",
+        "intent": pre.get("intent") or "advice",
+        "message": message,
+        "message_text": message,
+        "response": message,
+        "cards": [],
+        "chips": [],
+        "data": {"intent": pre.get("intent") or "advice"},
+    }
+
+
+async def _handle_preclassified(
+    pre: Dict[str, str],
+    request: "ModuleChatRequest",
+    http_request: "Request",
+) -> Optional[Dict[str, Any]]:
+    """
+    Handle the 4 pre-classified prompt shapes. Returns None to let the normal
+    routing run (never happens for known pre classifications, but keeps the
+    call site defensive).
+    """
+    mode = pre.get("response_mode") or ""
+    if mode == "calendar_navigation":
+        return _preclassified_calendar_navigation_response()
+
+    if mode == "visual_inspiration":
+        # Force the existing visual-inspiration reasoning path irrespective of
+        # the STYLE_DEFAULT_VISUAL_INSPIRATION env flag. Explicit inspiration
+        # requests must always work.
+        module = _normalize_module_name(request.domain or request.module or "style")
+        profile = dict(request.user_profile or {})
+        user_id = _state_user_id(http_request)
+        if user_id:
+            profile["user_id"] = user_id
+        merged_context = {**(request.context_data or {}), **(request.context or {})}
+        wardrobe = (
+            merged_context.get("wardrobe")
+            or merged_context.get("outfits")
+            or merged_context.get("items")
+        )
+        reasoning = style_reasoning_engine.reason(
+            query=str(request.message or "").strip(),
+            intent={"intent": VISUAL_INSPIRATION, "confidence": 0.95},
+            user_profile=profile,
+            context={
+                **merged_context,
+                "module_context": module or "style",
+                "user_id": user_id,
+                "occasion": _ahvi_style_occasion(str(request.message or "")),
+                "wardrobe": wardrobe if isinstance(wardrobe, list) else [],
+                "style_action": VISUAL_INSPIRATION,
+            },
+        )
+        return _style_reasoning_chat_response(
+            reasoning,
+            str(request.message or ""),
+            module or "style",
+            wardrobe=wardrobe if isinstance(wardrobe, list) else [],
+        )
+
+    if mode == "text_only":
+        # Information / advice: use the module LLM with a text-only prompt.
+        # No wardrobe pipeline, no board generation, no visual reveal.
+        merged_context = {**(request.context_data or {}), **(request.context or {})}
+        profile = dict(request.user_profile or {})
+        user_id = _state_user_id(http_request)
+        if user_id:
+            profile["user_id"] = user_id
+        try:
+            llm_reply = _module_llm_response(
+                module="style",
+                user_message=str(request.message or ""),
+                history=request.history,
+                context_data=merged_context,
+                user_profile=profile,
+            )
+            message_text = str(
+                (llm_reply or {}).get("message_text")
+                or (llm_reply or {}).get("response")
+                or ""
+            ).strip()
+        except Exception:
+            message_text = ""
+        if not message_text:
+            # Deterministic fallback so information / advice never returns empty.
+            if pre.get("intent") == "information":
+                message_text = (
+                    "That's a style concept I can walk you through — tell me "
+                    "which part you'd like explained (colour, silhouette, or context)."
+                )
+            else:
+                message_text = (
+                    "A few quick style tips: anchor the outfit with one colour, "
+                    "keep two textures, and let one piece be the hero. "
+                    "Ask me for tips on a specific occasion for something sharper."
+                )
+        return _preclassified_text_reply(message_text, pre)
+
+    return None
+
+
+def _stamp_module_chat_response(
+    envelope: Dict[str, Any],
+    request: "ModuleChatRequest",
+    pre: Optional[Dict[str, str]],
+) -> Dict[str, Any]:
+    """P0: final gate. Resolve response_mode, echo request_id, enforce invariants."""
+    if not isinstance(envelope, dict):
+        envelope = {"success": False, "type": "error", "message": "Empty response"}
+    if pre is not None and pre.get("response_mode") in ALLOWED_RESPONSE_MODES:
+        response_mode = pre["response_mode"]
+    else:
+        response_mode = resolve_response_mode(envelope)
+    return stamp_response(
+        envelope,
+        response_mode=response_mode,
+        request_id=request.request_id,
+        domain=(pre or {}).get("domain"),
+        intent=(pre or {}).get("intent"),
+        action=(pre or {}).get("action"),
+    )
+
+
 @router.post("/module-chat")
 @router.post("/chat/module-chat")
 async def module_chat(request: ModuleChatRequest, http_request: Request):
+    # P0: pre-classifier seam. Handles the three exact prompt classes the
+    # existing 22-in-line-classifier stack was mishandling:
+    #   - bare "calendar"          → calendar_navigation
+    #   - "what is …" / "explain" → text_only (style information)
+    #   - "style tips" / "how to" → text_only (style advice)
+    #   - "show me … inspiration" → visual_inspiration (forced on)
+    # Everything else falls through to the existing routing.
+    _pre = _pre_classify_message(str(request.message or "").strip())
+    if _pre is not None:
+        _pre_result = await _handle_preclassified(_pre, request, http_request)
+        if _pre_result is not None:
+            return _stamp_module_chat_response(_pre_result, request, _pre)
+
+    _envelope = await _module_chat_impl(request, http_request)
+    return _stamp_module_chat_response(_envelope, request, None)
+
+
+async def _module_chat_impl(request: ModuleChatRequest, http_request: Request):
     module = _normalize_module_name(request.domain or request.module or "")
     profile = dict(request.user_profile or {})
     user_id = _state_user_id(http_request)
@@ -4724,6 +4905,21 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
 
 @router.post("/text")
 def text_chat(request: TextChatRequest, http_request: Request):
+    # P0: envelope stamping wrapper. Runs the existing text_chat impl and
+    # stamps response_mode + echoes request_id on the way out. No behavioural
+    # change beyond adding the canonical fields.
+    _envelope = _text_chat_impl(request, http_request)
+    if not isinstance(_envelope, dict):
+        return _envelope
+    _mode = resolve_response_mode(_envelope)
+    return stamp_response(
+        _envelope,
+        response_mode=_mode,
+        request_id=request.request_id,
+    )
+
+
+def _text_chat_impl(request: TextChatRequest, http_request: Request):
 
     # -------------------------
     # INPUT VALIDATION
