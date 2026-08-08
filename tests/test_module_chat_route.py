@@ -851,6 +851,46 @@ def test_style_module_chat_routes_chip_to_style_flow(monkeypatch):
     assert body["style_boards"]
 
 
+def test_conversational_outfit_phrases_stay_on_module_chat_style_path(monkeypatch):
+    def fake_style_payload(*, user_id, query_text, request_wardrobe, user_profile):
+        return {
+            "success": True,
+            "type": "cards",
+            "message": "Style look ready.",
+            "cards": [{"id": "look-1", "items": []}],
+            "style_boards": [{"id": "look-1", "items": []}],
+            "chips": [],
+            "board_ids": "look-1",
+            "data": {"outfits": [{"id": "look-1"}], "rendered_boards": []},
+            "meta": {"mode": "style_flow_service_adapter_v1"},
+        }
+
+    monkeypatch.setattr(chat, "_demo_style_board_payload", fake_style_payload)
+    client = _text_chat_client_with_user()
+    prompts = [
+        "build me an outfit",
+        "build an outfit for tomorrow",
+        "put together an outfit for dinner",
+        "build an outfit around this shirt",
+    ]
+
+    for prompt in prompts:
+        response = client.post(
+            "/api/module-chat",
+            json={
+                "module": "style",
+                "message": prompt,
+                "history": [],
+                "context_data": {"anchor_item_id": "shirt-1"},
+                "user_profile": {},
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert "Try-On is coming soon" not in str(body)
+        assert body["message_text"]
+
+
 def test_style_module_chat_routes_office_meeting_to_board(monkeypatch):
     captured = {}
 

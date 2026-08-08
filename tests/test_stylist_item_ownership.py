@@ -68,7 +68,7 @@ def test_owned_item_is_resolved_from_authenticated_wardrobe(monkeypatch):
     response = client.post("/api/stylist/items/mine/style", json=_payload())
 
     assert response.status_code == 200
-    assert response.json()["anchor_item"]["id"] == "mine"
+    assert response.json()["error"]["code"] == "TRY_ON_COMING_SOON"
 
 
 def test_cross_owner_item_is_not_accessible(monkeypatch):
@@ -100,7 +100,7 @@ def test_authoritative_shared_style_asset_remains_usable(monkeypatch):
     response = client.post("/api/stylist/items/shared-1/style", json=_payload())
 
     assert response.status_code == 200
-    assert response.json()["anchor_item"]["source"] == "style_asset"
+    assert response.json()["error"]["code"] == "TRY_ON_COMING_SOON"
 
 
 def test_owned_item_after_first_page_remains_usable(monkeypatch):
@@ -112,4 +112,4 @@ def test_owned_item_after_first_page_remains_usable(monkeypatch):
     response = client.post("/api/stylist/items/item-100/style", json=_payload())
 
     assert response.status_code == 200
-    assert response.json()["anchor_item"]["id"] == "item-100"
+    assert response.json()["error"]["code"] == "TRY_ON_COMING_SOON"

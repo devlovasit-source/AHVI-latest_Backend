@@ -182,6 +182,7 @@ _DRESS_FOOTWEAR_SUGGESTIONS = [
 class ItemStyleRequest(BaseModel):
     user_id: str
     mode: str = "build_outfit"  # "build_outfit" | "style_this"
+    scenario: Optional[str] = None
     anchor_item_id: Optional[str] = None
     occasion: Optional[str] = None
     wardrobe_only: bool = False
@@ -483,6 +484,25 @@ def _style_this_failure(
         "style_directions": [],
         "error": {"code": code, "message": message},
         "message": message,
+    }
+
+
+def _legacy_build_outfit_cta_failure() -> Dict[str, Any]:
+    """Stop obsolete item CTA calls without touching conversational styling."""
+    message = "Try-On is coming soon."
+    return {
+        "success": False,
+        "mode": "build_outfit",
+        "intent": "try_on_coming_soon",
+        "action": "try_on_coming_soon",
+        "response_mode": "text_only",
+        "message": message,
+        "message_text": message,
+        "style_directions": [],
+        "error": {
+            "code": "TRY_ON_COMING_SOON",
+            "message": message,
+        },
     }
 
 
@@ -1007,6 +1027,11 @@ def style_wardrobe_item(
         )
 
     mode = _txt(request.mode).lower()
+    scenario = _txt(request.scenario).lower()
+    if http_request is not None and (
+        mode == "build_outfit" or scenario == "build_outfit"
+    ):
+        return _legacy_build_outfit_cta_failure()
     if mode not in {"build_outfit", "style_this"}:
         mode = "build_outfit"
     wardrobe = _resolve_wardrobe(request)
