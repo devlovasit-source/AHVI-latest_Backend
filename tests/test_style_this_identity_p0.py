@@ -1,0 +1,263 @@
+from __future__ import annotations
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+import pytest
+
+from routers import stylist
+from services import style_board_shuffle_service as shuffle_service
+from services.style_board_state_store import InMemoryBoardStateStore
+
+
+def _item(item_id: str, name: str, category: str, *, source: str = "wardrobe"):
+    return {
+        "id": item_id,
+        "item_id": item_id,
+        "name": name,
+        "category": category,
+        "source": source,
+        "image_url": f"https://images.test/{item_id}.png",
+        "normalized_url": f"https://images.test/{item_id}-processed.png",
+    }
+
+
+def _wardrobe():
+    return [
+        _item("shirt-1", "White Shirt", "Tops"),
+        _item("jacket-1", "Navy Jacket", "Outerwear"),
+        _item("bottom-1", "Grey Trousers", "Bottoms"),
+        _item("dress-1", "Black Dress", "Dresses"),
+        _item("shoe-1", "White Sneakers", "Footwear"),
+        _item("belt-1", "Tan Belt", "Accessories"),
+        _item("bag-1", "Black Bag", "Accessories"),
+    ]
+
+
+@pytest.fixture(autouse=True)
+def _isolated_board_store(monkeypatch):
+    shuffle_service.set_state_store(InMemoryBoardStateStore())
+    monkeypatch.setattr(
+        stylist,
+        "resolve_location_weather_context",
+        lambda **kwargs: {
+            "profile": kwargs.get("profile") or {},
+            "weather": {"status": "unavailable"},
+            "location": {},
+            "context_usage": {},
+        },
+    )
+    monkeypatch.setattr(
+        stylist,
+        "resolve_style_archetypes",
+        lambda *args, **kwargs: [
+            {
+                "archetype_id": f"identity-{index}",
+                "direction_title": f"Identity {index}",
+                "palette": [],
+                "avoid": [],
+                "formality": "casual",
+                "reasoning_intent": "preserve the selected item",
+                "anchor_item_id": "attacker-item",
+            }
+            for index in range(3)
+        ],
+    )
+    yield
+    shuffle_service.set_state_store(None)
+
+
+@pytest.mark.parametrize(
+    ("anchor_id", "expected_role", "expected_board_role"),
+    [
+        ("belt-1", "accessory", "belt"),
+        ("shirt-1", "top", None),
+        ("jacket-1", "outerwear", None),
+        ("bottom-1", "bottom", None),
+        ("dress-1", "dress", None),
+        ("shoe-1", "footwear", None),
+        ("bag-1", "accessory", "bag"),
+    ],
+)
+def test_style_this_item_matrix_preserves_exact_canonical_anchor(
+    anchor_id, expected_role, expected_board_role
+):
+    wardrobe = _wardrobe()
+    anchor = next(item for item in wardrobe if item["id"] == anchor_id)
+    result = stylist.style_wardrobe_item(
+        anchor_id,
+        stylist.ItemStyleRequest(
+            user_id="owner-1",
+            mode="style_this",
+            anchor_item_id=anchor_id,
+            anchor_item=anchor,
+            wardrobe=wardrobe,
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["anchor_item_id"] == anchor_id
+    assert result["anchor_item"]["item_id"] == anchor_id
+    for direction in result["style_directions"]:
+        assert direction["anchor_item_id"] == anchor_id
+        assert direction["originating_item_id"] == anchor_id
+        items = direction["board_items"]
+        matches = [item for item in items if item["item_id"] == anchor_id]
+        assert len(matches) == 1
+        board_anchor = matches[0]
+        assert board_anchor["item_id"] == anchor_id
+        assert board_anchor["role"] == expected_role
+        assert board_anchor["locked"] is True
+        assert board_anchor["safe_image_url"] == anchor["normalized_url"]
+        if expected_board_role:
+            assert board_anchor["board_role"] == expected_board_role
+        state = shuffle_service.get_board_state(direction["board_id"])
+        assert state["anchor_item_id"] == anchor_id
+        assert [item["item_id"] for item in state["items"]].count(anchor_id) == 1
+
+
+def _http_client(monkeypatch, wardrobe):
+    class Proxy:
+        def list_documents(self, resource, **kwargs):
+            if resource == "outfits":
+                user_id = kwargs.get("user_id")
+                return [
+                    item for item in wardrobe
+                    if item.get("userId", "owner-1") == user_id
+                ]
+            return []
+
+    monkeypatch.setattr(stylist, "AppwriteProxy", Proxy)
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def auth(request, call_next):
+        request.state.user = {"user_id": "owner-1"}
+        return await call_next(request)
+
+    app.include_router(stylist.router, prefix="/api/stylist")
+    return TestClient(app)
+
+
+def test_client_metadata_mismatch_cannot_replace_authoritative_anchor(monkeypatch):
+    wardrobe = [_item("item-a", "Authoritative Shirt", "Tops")]
+    client = _http_client(monkeypatch, wardrobe)
+    response = client.post(
+        "/api/stylist/items/item-a/style",
+        json={
+            "user_id": "owner-1",
+            "mode": "style_this",
+            "anchor_item_id": "item-a",
+            "anchor_item": {"id": "item-b", "name": "Forged Jacket", "category": "Outerwear"},
+            "wardrobe": [{"id": "item-b", "name": "Forged Jacket"}],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["anchor_item_id"] == "item-a"
+    assert body["anchor_item"]["item_id"] == "item-a"
+    assert all(
+        item["item_id"] == "item-a"
+        for direction in body["style_directions"]
+        for item in direction["items"]
+        if item["item_id"] == "item-a"
+    )
+
+
+def test_llm_or_archetype_anchor_substitution_is_ignored():
+    wardrobe = _wardrobe()
+    result = stylist.style_wardrobe_item(
+        "shirt-1",
+        stylist.ItemStyleRequest(
+            user_id="owner-1",
+            mode="style_this",
+            anchor_item_id="shirt-1",
+            anchor_item=next(item for item in wardrobe if item["id"] == "shirt-1"),
+            wardrobe=wardrobe,
+        ),
+    )
+
+    assert result["success"] is True
+    assert all(
+        direction["anchor_item_id"] == "shirt-1"
+        and [item["item_id"] for item in direction["items"]].count("shirt-1") == 1
+        for direction in result["style_directions"]
+    )
+
+
+def test_missing_authoritative_anchor_fails_without_generic_generation(monkeypatch):
+    client = _http_client(monkeypatch, [_item("other", "Other Shirt", "Tops")])
+    response = client.post(
+        "/api/stylist/items/missing/style",
+        json={"user_id": "owner-1", "mode": "style_this", "anchor_item_id": "missing"},
+    )
+
+    assert response.status_code == 404
+    assert "style_directions" not in response.json()
+
+
+def test_cross_user_anchor_is_rejected(monkeypatch):
+    theirs = _item("private-item", "Private Shirt", "Tops")
+    theirs["userId"] = "other-user"
+    client = _http_client(monkeypatch, [theirs])
+    response = client.post(
+        "/api/stylist/items/private-item/style",
+        json={"user_id": "owner-1", "mode": "style_this", "anchor_item_id": "private-item"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_duplicate_anchor_direction_is_not_registered():
+    wardrobe = _wardrobe()
+    anchor = next(item for item in wardrobe if item["id"] == "shirt-1")
+    direction = {
+        "title": "Broken",
+        "items": [anchor, dict(anchor), _item("shoe-1", "White Sneakers", "Footwear")],
+    }
+    registered = stylist._register_style_this_direction(
+        direction,
+        anchor=stylist._resolve_style_this_anchor(
+            stylist.ItemStyleRequest(user_id="owner-1", anchor_item=anchor),
+            "shirt-1",
+            wardrobe,
+        ),
+        wardrobe=wardrobe,
+        user_id="owner-1",
+        occasion=None,
+    )
+
+    assert registered["shuffle_state_error"]["code"] == "DUPLICATE_ITEM_ID"
+    assert shuffle_service.get_board_state(registered["board_id"]) is None
+
+
+def test_shuffle_reconstructs_style_this_anchor_from_durable_state():
+    wardrobe = _wardrobe()
+    anchor = next(item for item in wardrobe if item["id"] == "shirt-1")
+    result = stylist.style_wardrobe_item(
+        "shirt-1",
+        stylist.ItemStyleRequest(
+            user_id="owner-1",
+            mode="style_this",
+            anchor_item_id="shirt-1",
+            anchor_item=anchor,
+            wardrobe=wardrobe,
+        ),
+    )
+    direction = result["style_directions"][0]
+    supporting = [item for item in direction["items"] if item["item_id"] != "shirt-1"]
+    shuffled = shuffle_service.shuffle_board(
+        board_id=direction["board_id"],
+        revision=1,
+        locked_items=[supporting[0]],
+        shuffle_slots=[item["slot"] for item in supporting[1:]],
+        exclude_item_ids=[item["item_id"] for item in supporting],
+        source_policy="inherit",
+        wardrobe=wardrobe,
+        user_id="owner-1",
+    )
+
+    assert shuffled["success"] is True
+    assert shuffled["anchor_item_id"] == "shirt-1"
+    assert [item["item_id"] for item in shuffled["board_items"]].count("shirt-1") == 1
+    assert shuffled["revision"] == 2

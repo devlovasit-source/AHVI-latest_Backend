@@ -21,6 +21,7 @@ from services.style_item_contract import (
     canonical_item_role,
     canonical_item_source,
 )
+from services.style_this_anchor import canonical_style_this_anchor
 from services.stylist_knowledge_service import resolve_style_archetypes
 
 router = APIRouter()
@@ -181,6 +182,7 @@ _DRESS_FOOTWEAR_SUGGESTIONS = [
 class ItemStyleRequest(BaseModel):
     user_id: str
     mode: str = "build_outfit"  # "build_outfit" | "style_this"
+    anchor_item_id: Optional[str] = None
     occasion: Optional[str] = None
     wardrobe_only: bool = False
     anchor_item: Dict[str, Any] = Field(default_factory=dict)
@@ -314,6 +316,32 @@ def _resolve_anchor(
     return {"item_id": _txt(item_id)}
 
 
+def _resolve_style_this_anchor(
+    request: ItemStyleRequest,
+    item_id: str,
+    wardrobe: List[Dict[str, Any]],
+    *,
+    allow_legacy_metadata: bool = False,
+) -> Dict[str, Any]:
+    """Resolve Style This identity from the authoritative item ID only."""
+    requested_id = _txt(request.anchor_item_id or item_id)
+    if requested_id != _txt(item_id):
+        return {}
+    authoritative = next(
+        (dict(item) for item in wardrobe if _item_id_of(item) == requested_id),
+        None,
+    )
+    if authoritative is None:
+        return {}
+    if allow_legacy_metadata:
+        authoritative.setdefault("source", "wardrobe")
+    return canonical_style_this_anchor(
+        authoritative,
+        expected_item_id=requested_id,
+        allow_missing_image=allow_legacy_metadata,
+    ) or {}
+
+
 def _list_all_documents(
     proxy: AppwriteProxy, resource: str, *, user_id: str | None = None
 ) -> List[Dict[str, Any]]:
@@ -442,6 +470,19 @@ def _style_fallback(
         "anchor_item": anchor,
         "message": _FRIENDLY_FAIL,
         "outfit": {"title": "Your Look", "items": anchor_items, "missing_items": missing, "reason": _FRIENDLY_FAIL},
+    }
+
+
+def _style_this_failure(
+    anchor: Dict[str, Any], code: str, message: str
+) -> Dict[str, Any]:
+    return {
+        "success": False,
+        "mode": "style_this",
+        "anchor_item": anchor,
+        "style_directions": [],
+        "error": {"code": code, "message": message},
+        "message": message,
     }
 
 
@@ -662,11 +703,12 @@ def _lite_build_outfit(
     variant: int = 0,
     weather: Optional[Dict[str, Any]] = None,
     strategy: Optional[Dict[str, Any]] = None,
+    identity_role: Optional[str] = None,
 ) -> Dict[str, Any]:
     is_dress = _anchor_is_dress(anchor) or _lite_role(anchor) == "dress"
-    anchor_role = "dress" if is_dress else _lite_role(anchor)
+    anchor_role = identity_role or ("dress" if is_dress else _lite_role(anchor))
     groups = _lite_group(wardrobe, _item_id_of(anchor))
-    items = [_lite_item(anchor, "hero")]
+    items = [_lite_item(anchor, identity_role or "hero")]
     missing: List[Dict[str, Any]] = []
     for slot in _lite_needed_slots(anchor_role):
         pick = _lite_pick(
@@ -718,6 +760,7 @@ def _lite_directions(
         look = _lite_build_outfit(
             anchor, wardrobe, None, title=title,
             variant=idx, weather=weather, strategy=strategy,
+            identity_role=canonical_item_role(anchor),
         )
         directions.append({
             "title": title,
@@ -747,6 +790,12 @@ def _register_style_this_direction(
     occasion: Optional[str],
 ) -> Dict[str, Any]:
     board_id = str(uuid4())
+    canonical_anchor = canonical_style_this_anchor(
+        anchor,
+        expected_item_id=canonical_item_id(anchor),
+        allow_missing_image=True,
+    ) or dict(anchor)
+    anchor = canonical_anchor
     anchor_id = canonical_item_id(anchor)
     wardrobe_by_id = {
         canonical_item_id(item): dict(item)
@@ -768,7 +817,11 @@ def _register_style_this_direction(
             continue
         item_id = canonical_item_id(item)
         source_item = wardrobe_by_id.get(item_id, {})
-        current = {**source_item, **item}
+        current = {**item, **source_item}
+        if item_id == anchor_id:
+            current = {**current, **anchor}
+        if isinstance(item.get("position"), dict):
+            current["position"] = dict(item["position"])
         current_id = canonical_item_id(current)
         if not current_id:
             error = error or _style_this_registration_error(
@@ -801,10 +854,17 @@ def _register_style_this_direction(
             )
 
         current["item_id"] = current_id
+        current["id"] = current_id
         current["role"] = role
         current["slot"] = role
         current["source"] = source
         current["locked"] = current_id == anchor_id
+        if current_id == anchor_id:
+            current["anchor_item_id"] = anchor_id
+            current["anchor"] = True
+            current["safe_image_url"] = anchor.get("safe_image_url")
+            current["source_kind"] = anchor.get("source_kind")
+            current["expected_transparent"] = anchor.get("expected_transparent")
         if board_role:
             current["board_role"] = board_role
         image_url = canonical_image_url(current)
@@ -821,6 +881,11 @@ def _register_style_this_direction(
         error = _style_this_registration_error(
             "INVALID_ANCHOR_ITEM",
             "The selected anchor is missing from this Style This direction.",
+        )
+    elif anchor_matches[0].get("role") != anchor.get("role"):
+        error = _style_this_registration_error(
+            "ANCHOR_ROLE_MISMATCH",
+            "The selected anchor role changed while building this Style This direction.",
         )
 
     sources = {item.get("source") for item in canonical_items}
@@ -848,6 +913,7 @@ def _register_style_this_direction(
             board_id=board_id,
             revision=1,
             scenario="style_this",
+            anchor_item_id=anchor_id,
             source_policy=source_policy,
             allow_wardrobe_fallback=source_policy == "mixed",
             occasion=occasion,
@@ -866,6 +932,8 @@ def _register_style_this_direction(
     direction["scenario"] = "style_this"
     direction["interaction_mode"] = "style_this"
     direction["source_policy"] = source_policy or None
+    direction["anchor_item_id"] = anchor_id or None
+    direction["originating_item_id"] = anchor_id or None
     direction["board_items"] = canonical_items
     direction["items"] = canonical_items
     direction["shuffle_available"] = bool(registration.get("ok"))
@@ -900,6 +968,12 @@ def style_wardrobe_item(
     """
     if http_request is not None:
         user_id = enforce_owner(http_request, request.user_id)
+        requested_anchor_id = _txt(request.anchor_item_id or item_id)
+        if requested_anchor_id != _txt(item_id):
+            raise HTTPException(
+                status_code=400,
+                detail="anchor_item_id must match the selected item path.",
+            )
         proxy = AppwriteProxy()
         try:
             wardrobe = _list_all_documents(proxy, "outfits", user_id=user_id)
@@ -936,7 +1010,22 @@ def style_wardrobe_item(
     if mode not in {"build_outfit", "style_this"}:
         mode = "build_outfit"
     wardrobe = _resolve_wardrobe(request)
-    anchor = _resolve_anchor(request, item_id, wardrobe)
+    anchor = (
+        _resolve_style_this_anchor(
+            request,
+            item_id,
+            wardrobe,
+            allow_legacy_metadata=http_request is None,
+        )
+        if mode == "style_this"
+        else _resolve_anchor(request, item_id, wardrobe)
+    )
+    if mode == "style_this" and not anchor:
+        return _style_this_failure(
+            {},
+            "STYLE_THIS_ANCHOR_UNAVAILABLE",
+            "The selected wardrobe item could not be verified. Refresh your wardrobe and try again.",
+        )
     resolved = resolve_location_weather_context(
         user_id=request.user_id,
         request_data={**request.model_dump(exclude_none=True), **request.context},
@@ -977,7 +1066,14 @@ def style_wardrobe_item(
                 "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d",
                 item_id, len(directions), len(wardrobe),
             )
-            return {"success": True, "mode": mode, "anchor_item": anchor, "style_directions": directions, "context_usage": resolved["context_usage"]}
+            return {
+                "success": True,
+                "mode": mode,
+                "anchor_item": anchor,
+                "anchor_item_id": canonical_item_id(anchor),
+                "style_directions": directions,
+                "context_usage": resolved["context_usage"],
+            }
 
         outfit = _lite_build_outfit(
             anchor,
@@ -992,6 +1088,13 @@ def style_wardrobe_item(
         return {"success": True, "mode": mode, "anchor_item": anchor, "outfit": outfit, "context_usage": resolved["context_usage"]}
     except Exception as exc:  # noqa: BLE001 - CTA must never dead-end the UI
         logger.exception("stylist.item_style failed item_id=%s mode=%s err=%s", item_id, mode, str(exc))
+        if mode == "style_this":
+            fallback = _style_fallback(mode, anchor, strategies=strategies)
+            fallback["error"] = {
+                "code": "STYLE_THIS_GENERATION_FAILED",
+                "message": "AHVI could not build a verified Style This board. Please try again.",
+            }
+            return fallback
         fallback = _style_fallback(mode, anchor, strategies=strategies)
         fallback["context_usage"] = resolved["context_usage"]
         return fallback

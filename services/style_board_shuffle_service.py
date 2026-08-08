@@ -138,6 +138,7 @@ def _payload_to_state(record: Dict[str, Any]) -> Dict[str, Any]:
         "user_id": str(record.get("user_id") or ""),
         "previous": None,
         "items": [dict(i) for i in (payload.get("items") or []) if isinstance(i, dict)],
+        "anchor_item_id": str(payload.get("anchor_item_id") or ""),
         "scenario": str(payload.get("scenario") or ""),
         "source_policy": str(payload.get("source_policy") or ""),
         "allow_wardrobe_fallback": bool(payload.get("allow_wardrobe_fallback")),
@@ -178,9 +179,10 @@ def _build_payload(
     style_direction: Any,
     style_strategy: Any,
     items: Optional[List[Dict[str, Any]]],
+    anchor_item_id: Optional[str] = None,
     previous_revision: Optional[int] = None,
 ) -> Dict[str, Any]:
-    return {
+    payload = {
         "scenario": str(scenario or "").strip().lower(),
         "source_policy": source_policy,
         "allow_wardrobe_fallback": bool(allow_wardrobe_fallback),
@@ -190,6 +192,9 @@ def _build_payload(
         "items": [dict(i) for i in (items or []) if isinstance(i, dict)],
         "previous_revision": previous_revision,
     }
+    if str(anchor_item_id or "").strip():
+        payload["anchor_item_id"] = str(anchor_item_id).strip()
+    return payload
 
 
 def _payload_contract_equivalent(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
@@ -207,6 +212,7 @@ def register_board(
     style_direction: Optional[str] = None,
     style_strategy: Optional[Dict[str, Any]] = None,
     items: Optional[List[Dict[str, Any]]] = None,
+    anchor_item_id: Optional[str] = None,
     user_id: str = "",
 ) -> Dict[str, Any]:
     """Durably persist a board's creation-time contract (revision 1).
@@ -236,6 +242,7 @@ def register_board(
         style_direction=style_direction,
         style_strategy=style_strategy,
         items=items,
+        anchor_item_id=anchor_item_id if str(scenario or "").strip().lower() == "style_this" else None,
         previous_revision=None,
     )
     store = _get_store()
@@ -356,6 +363,45 @@ def shuffle_board(
         if isinstance(stored_payload.get("style_strategy"), dict)
         else None
     )
+    if stored_scenario == "style_this":
+        stored_items = [
+            dict(item) for item in stored_payload.get("items") or []
+            if isinstance(item, dict)
+        ]
+        stored_anchor_id = str(stored_payload.get("anchor_item_id") or "").strip()
+        if not stored_anchor_id:
+            locked_stored = [
+                item for item in stored_items if item.get("locked")
+            ]
+            if len(locked_stored) == 1:
+                stored_anchor_id = canonical_item_id(locked_stored[0])
+        anchor_matches = [
+            item for item in stored_items
+            if canonical_item_id(item) == stored_anchor_id
+        ]
+        if not stored_anchor_id or len(anchor_matches) != 1:
+            return _error(
+                "INVALID_STYLE_THIS_ANCHOR",
+                "This Style This board has no single authoritative anchor.",
+            )
+        stored_by_id = {
+            canonical_item_id(item): item
+            for item in stored_items
+            if canonical_item_id(item)
+        }
+        requested_locked_ids = {
+            canonical_item_id(item) for item in locked_items
+            if canonical_item_id(item)
+        }
+        requested_locked_ids.add(stored_anchor_id)
+        locked_items = [
+            dict(stored_by_id[item_id])
+            for item_id in requested_locked_ids
+            if item_id in stored_by_id
+        ]
+        for item in locked_items:
+            item["locked"] = True
+        stored_payload["anchor_item_id"] = stored_anchor_id
 
     # --- Board policy resolution (NEVER inferred from locked-item sources) --
     # Precedence: explicit dict (internal) > explicit canonical string >
@@ -473,6 +519,16 @@ def shuffle_board(
             missing_ids=exc.missing_ids,
             stage=exc.stage,
         )
+    if stored_scenario == "style_this":
+        anchor_matches = [
+            item for item in out_items
+            if canonical_item_id(item) == stored_payload.get("anchor_item_id")
+        ]
+        if len(anchor_matches) != 1:
+            return _error(
+                "FIXED_ITEM_LOST",
+                "The Style This anchor was not preserved; your board was not changed.",
+            )
 
     # --- Source-policy validation on the FINAL serialized items -------------
     # Fixed items keep their exact original source (a wardrobe anchor inside a
@@ -510,6 +566,10 @@ def shuffle_board(
         style_direction=stored_style_direction,
         style_strategy=stored_style_strategy,
         items=out_items,
+        anchor_item_id=(
+            stored_payload.get("anchor_item_id")
+            if stored_scenario == "style_this" else None
+        ),
         previous_revision=previous_revision,
     )
     try:
@@ -562,6 +622,7 @@ def shuffle_board(
         "allow_wardrobe_fallback": allow_wardrobe_fallback,
         "occasion": result.get("occasion"),
         "style_strategy": stored_style_strategy,
+        "anchor_item_id": stored_payload.get("anchor_item_id") if stored_scenario == "style_this" else None,
         "source": result.get("source"),
         "changed_slots": result.get("changed_slots", []),
         "missing_items": result.get("missing_items", []),
