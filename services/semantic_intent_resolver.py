@@ -49,6 +49,7 @@ _CONTEXT_KEYS = {
     "activity_type",
     "venue",
     "date_context",
+    "daypart",
     "date",
     "date_text",
     "time_period",
@@ -62,14 +63,15 @@ _RESOLVED_CONTEXT_KEYS = {
     "activity_type",
     "venue",
     "date_context",
+    "daypart",
     "date",
     "date_text",
     "time_period",
     "positive_constraints",
     "negative_constraints",
 }
-_REFERENT_KEYS = {"kind", "ordinal", "text"}
-_REFERENT_KEYS |= {"resolved_to", "confidence"}
+_REFERENT_KEYS = {"kind", "ordinal", "text", "resolved_to", "confidence", "type", "label", "temporal"}
+_REFERENT_TEMPORAL_KEYS = {"relative_date", "daypart"}
 _CONSTRAINT_KEYS = {"required", "avoid"}
 _TOP_LEVEL_KEYS = {
     "domain",
@@ -220,6 +222,7 @@ def _prompt(
             "activity": None,
             "activity_type": None,
             "venue": None,
+            "daypart": None,
             "positive_constraints": [],
             "negative_constraints": [],
         },
@@ -329,6 +332,21 @@ def validate_semantic_decision(raw: Any) -> Optional[Dict[str, Any]]:
                 ):
                     return None
                 normalized_referent[key] = float(value)
+            elif key == "temporal":
+                if not isinstance(value, Mapping) or set(value) - _REFERENT_TEMPORAL_KEYS:
+                    return None
+                temporal = {}
+                for temporal_key, temporal_value in value.items():
+                    text = _bounded_string(temporal_value)
+                    if text is None:
+                        return None
+                    temporal[temporal_key] = text
+                normalized_referent[key] = temporal
+            elif key == "type":
+                text = _bounded_string(value)
+                if text is None or text.lower() not in {"activity", "occasion", "context"}:
+                    return None
+                normalized_referent[key] = text.lower()
             else:
                 text = _bounded_string(value)
                 if text is None:

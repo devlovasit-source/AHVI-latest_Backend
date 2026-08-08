@@ -23,6 +23,8 @@ ACTIVITY_TYPES = {
     "field_sport",
 }
 
+_REFERENT_TYPES = {"activity", "occasion", "context"}
+
 _ACTIVITY_ALIASES = {
     "badminton": ("badminton", "court_sport"),
     "tennis": ("tennis", "court_sport"),
@@ -68,6 +70,18 @@ _DATE_PATTERNS = (
     ("today", r"\btoday\b"),
     ("saturday", r"\bsaturday\b"),
     ("sunday", r"\bsunday\b"),
+    ("monday", r"\bmonday\b"),
+    ("tuesday", r"\btuesday\b"),
+    ("wednesday", r"\bwednesday\b"),
+    ("thursday", r"\bthursday\b"),
+    ("friday", r"\bfriday\b"),
+)
+
+_DAYPART_PATTERNS = (
+    ("morning", r"\b(?:this\s+)?morning\b"),
+    ("afternoon", r"\b(?:this\s+)?afternoon\b"),
+    ("evening", r"\b(?:this\s+)?evening\b"),
+    ("night", r"\b(?:tonight|night)\b"),
 )
 
 
@@ -126,6 +140,13 @@ def _date_from_text(text: str) -> str | None:
     return explicit.group(0) if explicit else None
 
 
+def _daypart_from_text(text: str) -> str | None:
+    for value, pattern in _DAYPART_PATTERNS:
+        if re.search(pattern, text):
+            return value
+    return None
+
+
 def _constraints_from_text(text: str) -> tuple[list[str], list[str]]:
     positive: list[str] = []
     negative: list[str] = []
@@ -143,6 +164,7 @@ def _constraints_from_text(text: str) -> tuple[list[str], list[str]]:
 @dataclass
 class StyleConversationContext:
     date_context: str | None = None
+    daypart: str | None = None
     occasion: str | None = None
     activity: str | None = None
     activity_type: str | None = None
@@ -156,6 +178,7 @@ class StyleConversationContext:
     def to_dict(self) -> dict[str, Any]:
         return {
             "date_context": self.date_context,
+            "daypart": self.daypart,
             "occasion": self.occasion,
             "activity": self.activity,
             "activity_type": self.activity_type,
@@ -170,7 +193,7 @@ class StyleConversationContext:
     def overlay(self, other: "StyleConversationContext", *, fill_only: bool = False) -> "StyleConversationContext":
         result = StyleConversationContext(**self.to_dict())
         scalar_fields = (
-            "date_context", "occasion", "activity", "activity_type", "venue",
+            "date_context", "daypart", "occasion", "activity", "activity_type", "venue",
             "referent", "previous_intent", "previous_response_mode",
         )
         for field_name in scalar_fields:
@@ -202,14 +225,39 @@ class StyleConversationContext:
             text = _clean(referent.get("text"), 40)
             resolved_to = _clean(referent.get("resolved_to"), 100)
             confidence = referent.get("confidence")
-            if text and resolved_to:
-                safe_referent = {"text": text, "resolved_to": resolved_to}
-                if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
-                    safe_referent["confidence"] = max(0.0, min(1.0, float(confidence)))
+            label = _clean(referent.get("label"), 100)
+            referent_type = _clean(referent.get("type"), 24).lower()
+            temporal = referent.get("temporal")
+            safe_referent = {}
+            if text:
+                safe_referent["text"] = text
+            if resolved_to:
+                safe_referent["resolved_to"] = resolved_to
+            if label:
+                safe_referent["label"] = label
+            if referent_type in _REFERENT_TYPES:
+                safe_referent["type"] = referent_type
+            if isinstance(temporal, Mapping):
+                safe_temporal = {
+                    key: _clean(temporal.get(key), 60)
+                    for key in ("relative_date", "daypart")
+                    if _clean(temporal.get(key), 60)
+                }
+                if safe_temporal:
+                    safe_referent["temporal"] = safe_temporal
+            if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
+                safe_referent["confidence"] = max(0.0, min(1.0, float(confidence)))
+            if "kind" in referent:
+                safe_referent["kind"] = _clean(referent.get("kind"), 24)
+            if isinstance(referent.get("ordinal"), int) and not isinstance(referent.get("ordinal"), bool):
+                safe_referent["ordinal"] = referent["ordinal"]
+            if not safe_referent:
+                safe_referent = None
         style_constraints = value.get("style_constraints") or value.get("positive_constraints") or value.get("required") or []
         negative_constraints = value.get("negative_constraints") or value.get("avoid") or []
         return cls(
             date_context=_clean(date) or None,
+            daypart=_clean(value.get("daypart")) or None,
             occasion=_clean(value.get("occasion")) or None,
             activity=activity,
             activity_type=raw_type,
@@ -239,6 +287,7 @@ def extract_current_turn_context(message: str) -> StyleConversationContext:
     positive, negative = _constraints_from_text(text)
     return StyleConversationContext(
         date_context=_date_from_text(text),
+        daypart=_daypart_from_text(text),
         occasion=_occasion_from_text(text),
         activity=activity,
         activity_type=activity_type,
@@ -291,7 +340,7 @@ def _supported_semantic_context(
     )
     candidate = StyleConversationContext.from_mapping(semantic)
     allowed = StyleConversationContext()
-    for field_name in ("date_context", "occasion", "activity", "venue"):
+    for field_name in ("date_context", "daypart", "occasion", "activity", "venue"):
         value = getattr(candidate, field_name)
         if field_name == "occasion" and value in {"casual", "formal_event"} and (
             f"more {value.split('_', 1)[0]}" in evidence
@@ -317,19 +366,51 @@ def _resolve_referent(
 ) -> dict[str, Any] | None:
     if isinstance(semantic_referent, Mapping):
         text = _clean(semantic_referent.get("text"), 40)
-        resolved_to = _clean(semantic_referent.get("resolved_to"), 100)
-        if text and resolved_to:
-            return StyleConversationContext.from_mapping({"referent": semantic_referent}).referent
+        if text:
+            semantic_context = StyleConversationContext.from_mapping({"referent": semantic_referent}).referent
+            if semantic_context:
+                semantic_context = _generic_referent(context, text, semantic_context)
+                return semantic_context
     lowered = str(message or "").lower()
     token = next((value for value in ("this", "that", "it") if re.search(rf"\b{value}\b", lowered)), "")
     if not token:
         return context.referent
+    return _generic_referent(context, token)
+
+
+def _generic_referent(
+    context: StyleConversationContext,
+    token: str,
+    existing: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     subject = context.activity or context.occasion
     if not subject:
+        if existing and existing.get("resolved_to"):
+            return dict(existing)
         return {"text": token, "resolved_to": "unresolved", "confidence": 0.0}
-    if context.activity and context.date_context:
-        subject = f"{context.activity} game {context.date_context.replace('_', ' ')}"
-    return {"text": token, "resolved_to": subject, "confidence": 0.97}
+    label = str(subject).replace("_", " ").strip()
+    temporal: dict[str, str] = {}
+    if context.date_context:
+        temporal["relative_date"] = context.date_context.replace("_", " ")
+    if context.daypart:
+        temporal["daypart"] = context.daypart
+    resolved_to = " ".join(
+        part for part in (label, temporal.get("relative_date"), temporal.get("daypart")) if part
+    )
+    referent = {
+        "text": token,
+        "type": "activity" if context.activity else "occasion",
+        "label": label,
+        "temporal": temporal,
+        "resolved_to": resolved_to,
+        "confidence": 0.97,
+    }
+    if existing:
+        if isinstance(existing.get("confidence"), (int, float)):
+            referent["confidence"] = existing["confidence"]
+        if existing.get("type") in _REFERENT_TYPES:
+            referent["type"] = existing["type"]
+    return referent
 
 
 def resolve_style_conversation_context(
@@ -365,7 +446,7 @@ def resolve_style_conversation_context(
     if needs_style_context and not resolved.activity and not resolved.occasion:
         missing = ["occasion_or_activity"]
     context_used: list[str] = []
-    for field_name in ("date_context", "occasion", "activity", "activity_type", "venue"):
+    for field_name in ("date_context", "daypart", "occasion", "activity", "activity_type", "venue"):
         if getattr(current, field_name):
             context_used.append(f"current_turn.{field_name}")
         elif getattr(carried, field_name) or getattr(history_context, field_name):

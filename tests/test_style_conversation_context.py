@@ -39,11 +39,11 @@ def test_three_turn_context_preserves_tomorrow_and_badminton():
     assert context.date_context == "tomorrow"
     assert context.activity == "badminton"
     assert context.activity_type == "court_sport"
-    assert context.referent == {
-        "text": "this",
-        "resolved_to": "badminton game tomorrow",
-        "confidence": 0.97,
-    }
+    assert context.referent["text"] == "this"
+    assert context.referent["type"] == "activity"
+    assert context.referent["label"] == "badminton"
+    assert context.referent["temporal"] == {"relative_date": "tomorrow"}
+    assert context.referent["resolved_to"] == "badminton tomorrow"
     assert diagnostics["requires_clarification"] is False
     assert context.occasion is None
 
