@@ -27,6 +27,9 @@ _SEMANTIC_INTENTS = {
     "recommendation",
     "navigate",
     "clarification",
+    "modify_current_look",
+    "generate_alternative",
+    "explain_current_look",
 }
 _SEMANTIC_ACTIONS = {
     "provide_style_advice",
@@ -35,6 +38,9 @@ _SEMANTIC_ACTIONS = {
     "recommend_wardrobe",
     "open_calendar",
     "request_clarification",
+    "modify_current_look",
+    "generate_alternative",
+    "explain_current_look",
 }
 _SEMANTIC_RESPONSE_MODES = {
     "text_only",
@@ -73,6 +79,29 @@ _RESOLVED_CONTEXT_KEYS = {
 _REFERENT_KEYS = {"kind", "ordinal", "text", "resolved_to", "confidence", "type", "label", "temporal"}
 _REFERENT_TEMPORAL_KEYS = {"relative_date", "daypart"}
 _CONSTRAINT_KEYS = {"required", "avoid"}
+_OPERATION_TYPES = {"modify", "generate_alternative", "explain_current_look"}
+_OPERATION_KEYS = {
+    "type",
+    "replace_roles",
+    "preserve_roles",
+    "remove_roles",
+    "constraints",
+    "style_adjustments",
+    "alternative_scope",
+    "explanation_target",
+}
+_OPERATION_ROLES = {
+    "top", "bottom", "dress", "outerwear", "footwear", "accessory", "bag"
+}
+_CONSTRAINT_DIMENSIONS = {
+    "color", "material", "garment_trait", "footwear_type", "fit", "style", "occasion"
+}
+_CONSTRAINT_OPERATORS = {"avoid", "require"}
+_ADJUSTMENT_KEYS = {"formality", "polish", "energy", "fit", "palette"}
+_ADJUSTMENT_VALUES = {
+    "lower", "raise", "neutral", "casual", "formal", "polished", "sporty",
+    "relaxed", "playful", "colorful", "monochrome", "tailored",
+}
 _TOP_LEVEL_KEYS = {
     "domain",
     "intent",
@@ -85,6 +114,7 @@ _TOP_LEVEL_KEYS = {
     "referent",
     "reason_codes",
     "missing_information",
+    "operation",
 }
 _CONTEXTUAL_LANGUAGE = (
     "something like",
@@ -99,6 +129,25 @@ _CONTEXTUAL_LANGUAGE = (
     "this one",
     "that one",
     "later",
+    "change",
+    "replace",
+    "swap",
+    "switch",
+    "keep",
+    "hold onto",
+    "on my feet",
+    "outer layer",
+    "lower half",
+    "avoid",
+    "without",
+    "more casual",
+    "more relaxed",
+    "more formal",
+    "sportier",
+    "alternative",
+    "completely different",
+    "why this",
+    "why these",
 )
 _FORBIDDEN_TOKENS = re.compile(
     r"\b(?:execute|tool|command|deploy|delete|write|api[_ -]?key|"
@@ -196,23 +245,52 @@ def _safe_history(history: Iterable[Mapping[str, Any]] | None) -> List[Dict[str,
     return result
 
 
+def _safe_board_context(value: Any) -> Dict[str, Any]:
+    """Expose bounded board facts without exposing authoritative item IDs."""
+    if not isinstance(value, Mapping):
+        return {}
+    items = value.get("items") if isinstance(value.get("items"), list) else []
+    safe_items = []
+    for index, item in enumerate(items[:8], start=1):
+        if not isinstance(item, Mapping):
+            continue
+        role = _bounded_string(item.get("role"), max_length=32)
+        name = _bounded_string(item.get("name"), max_length=80)
+        if not role:
+            continue
+        safe_items.append({
+            "ordinal": index,
+            "role": role.lower(),
+            "name": name or role.lower(),
+            "protected": bool(item.get("protected")),
+        })
+    return {
+        "has_current_board": bool(value.get("has_current_board")),
+        "interaction_mode": _bounded_string(value.get("interaction_mode"), max_length=32) or "",
+        "scenario": _bounded_string(value.get("scenario"), max_length=32) or "",
+        "items": safe_items,
+    }
+
+
 def _prompt(
     *,
     message: str,
     history: Iterable[Mapping[str, Any]] | None,
     module_hint: str,
     conversation_context: Mapping[str, Any] | None,
+    board_context: Mapping[str, Any] | None,
 ) -> str:
     payload = {
         "current_message": str(message or "").strip()[:800],
         "recent_history": _safe_history(history),
         "module_hint": module_hint,
         "known_context": _normalize_context(conversation_context),
+        "current_board": _safe_board_context(board_context),
     }
     schema = {
         "domain": "style|calendar|planner",
-        "intent": "advice|information|inspiration|recommendation|navigate|clarification",
-        "action": "provide_style_advice|explain_style_concept|provide_visual_inspiration|recommend_wardrobe|open_calendar|request_clarification",
+        "intent": "advice|information|inspiration|recommendation|navigate|clarification|modify_current_look|generate_alternative|explain_current_look",
+        "action": "provide_style_advice|explain_style_concept|provide_visual_inspiration|recommend_wardrobe|open_calendar|request_clarification|modify_current_look|generate_alternative|explain_current_look",
         "response_mode": "text_only|visual_inspiration|wardrobe_recommendation|calendar_navigation|clarification",
         "confidence": 0.0,
         "requires_clarification": False,
@@ -230,11 +308,24 @@ def _prompt(
         "referent": None,
         "reason_codes": [],
         "missing_information": [],
+        "operation": {
+            "type": "modify|generate_alternative|explain_current_look",
+            "replace_roles": [],
+            "preserve_roles": [],
+            "remove_roles": [],
+            "constraints": [],
+            "style_adjustments": {},
+            "alternative_scope": "default|broad|null",
+            "explanation_target": None,
+        },
     }
     return (
         "You are AHVI's semantic intent resolver. Return only JSON matching the "
         "schema. Interpret meaning, referents, occasion, activity, date context, "
-        "and positive or negative Style constraints. Do not answer the user, "
+        "and positive or negative Style constraints. For a current-board request, "
+        "return one bounded operation object: type modify, generate_alternative, "
+        "or explain_current_look. Use roles and semantic constraints only; never "
+        "return item IDs, lock IDs, anchor IDs, or selected IDs. Do not answer the user, "
         "generate an outfit, execute actions, invent wardrobe ownership or "
         "Calendar facts, change item or lock IDs, or return tools/commands. "
         "When context is insufficient, request clarification rather than "
@@ -313,6 +404,96 @@ def validate_semantic_decision(raw: Any) -> Optional[Dict[str, Any]]:
             return None
         normalized_constraints[key] = values
 
+    operation_raw = raw.get("operation")
+    normalized_operation = None
+    if intent in {"modify_current_look", "generate_alternative", "explain_current_look"}:
+        if not isinstance(operation_raw, Mapping) or set(operation_raw) - _OPERATION_KEYS:
+            return None
+        operation_type = str(operation_raw.get("type") or "").strip().lower()
+        expected_type = {
+            "modify_current_look": "modify",
+            "generate_alternative": "generate_alternative",
+            "explain_current_look": "explain_current_look",
+        }[intent]
+        if operation_type != expected_type or operation_type not in _OPERATION_TYPES:
+            return None
+
+        def _roles(key: str) -> Optional[List[str]]:
+            values = operation_raw.get(key, [])
+            if not isinstance(values, list) or len(values) > _MAX_LIST_ITEMS:
+                return None
+            result = []
+            for value in values:
+                role = _bounded_string(value, max_length=32)
+                if role is None or role.lower() not in _OPERATION_ROLES:
+                    return None
+                result.append(role.lower())
+            return list(dict.fromkeys(result))
+
+        replace_roles = _roles("replace_roles")
+        preserve_roles = _roles("preserve_roles")
+        remove_roles = _roles("remove_roles")
+        if replace_roles is None or preserve_roles is None or remove_roles is None:
+            return None
+
+        raw_operation_constraints = operation_raw.get("constraints", [])
+        if not isinstance(raw_operation_constraints, list) or len(raw_operation_constraints) > _MAX_LIST_ITEMS:
+            return None
+        operation_constraints = []
+        for constraint in raw_operation_constraints:
+            if not isinstance(constraint, Mapping) or set(constraint) - {"dimension", "operator", "value"}:
+                return None
+            dimension = _bounded_string(constraint.get("dimension"), max_length=32)
+            operator = _bounded_string(constraint.get("operator"), max_length=16)
+            value = _bounded_string(constraint.get("value"), max_length=80)
+            if (
+                dimension is None or dimension.lower() not in _CONSTRAINT_DIMENSIONS
+                or operator is None or operator.lower() not in _CONSTRAINT_OPERATORS
+                or value is None
+            ):
+                return None
+            operation_constraints.append({
+                "dimension": dimension.lower(),
+                "operator": operator.lower(),
+                "value": value.lower(),
+            })
+
+        raw_adjustments = operation_raw.get("style_adjustments") or {}
+        if not isinstance(raw_adjustments, Mapping) or set(raw_adjustments) - _ADJUSTMENT_KEYS:
+            return None
+        style_adjustments = {}
+        for key, value in raw_adjustments.items():
+            normalized_key = str(key).strip().lower()
+            normalized_value = _bounded_string(value, max_length=32)
+            if normalized_value is None or normalized_value.lower() not in _ADJUSTMENT_VALUES:
+                return None
+            style_adjustments[normalized_key] = normalized_value.lower()
+
+        alternative_scope = operation_raw.get("alternative_scope")
+        if alternative_scope is not None:
+            alternative_scope = _bounded_string(alternative_scope, max_length=16)
+            if alternative_scope is None or alternative_scope.lower() not in {"default", "broad"}:
+                return None
+            alternative_scope = alternative_scope.lower()
+        explanation_target = operation_raw.get("explanation_target")
+        if explanation_target is not None:
+            explanation_target = _bounded_string(explanation_target, max_length=48)
+            if explanation_target is None:
+                return None
+
+        normalized_operation = {
+            "type": operation_type,
+            "replace_roles": replace_roles,
+            "preserve_roles": preserve_roles,
+            "remove_roles": remove_roles,
+            "constraints": operation_constraints,
+            "style_adjustments": style_adjustments,
+            "alternative_scope": alternative_scope,
+            "explanation_target": explanation_target,
+        }
+    elif operation_raw is not None:
+        return None
+
     referent = raw.get("referent")
     normalized_referent = None
     if referent is not None:
@@ -374,10 +555,16 @@ def validate_semantic_decision(raw: Any) -> Optional[Dict[str, Any]]:
     ):
         return None
     if mode == "wardrobe_recommendation" and (
-        domain != "style" or action != "recommend_wardrobe"
+        domain != "style"
+        or action not in {"recommend_wardrobe", "modify_current_look", "generate_alternative"}
     ):
         return None
     if mode == "text_only" and domain != "style":
+        return None
+
+    if intent in {"modify_current_look", "generate_alternative"} and mode != "wardrobe_recommendation":
+        return None
+    if intent == "explain_current_look" and mode != "text_only":
         return None
 
     return {
@@ -392,6 +579,7 @@ def validate_semantic_decision(raw: Any) -> Optional[Dict[str, Any]]:
         "referent": normalized_referent,
         "reason_codes": reason_codes,
         "missing_information": missing_information,
+        "operation": normalized_operation,
     }
 
 
@@ -417,6 +605,7 @@ def resolve_semantic_intent(
     recent_history: Iterable[Mapping[str, Any]] | None = None,
     module_hint: str = "style",
     conversation_context: Mapping[str, Any] | None = None,
+    board_context: Mapping[str, Any] | None = None,
     deterministic: Optional[Mapping[str, Any]] = None,
     request_id: str | None = None,
 ) -> Optional[Dict[str, Any]]:
@@ -449,6 +638,7 @@ def resolve_semantic_intent(
                 history=recent_history,
                 module_hint=module,
                 conversation_context=conversation_context,
+                board_context=board_context,
             ),
             options={"temperature": 0.0, "max_output_tokens": 500},
             signals={"context_mode": "semantic_intent"},

@@ -49,6 +49,10 @@ from services.style_flow_service import (
     _build_composition_brief,
 )
 from services.module_chat_service import handle_module_chat
+from services.style_board_mutation_service import (
+    board_context_for_semantics,
+    handle_board_operation,
+)
 from services.style_reasoning_engine import VISUAL_INSPIRATION, style_reasoning_engine
 from services.beta_style_bridge import (
     decorate_style_response as decorate_beta_style_response,
@@ -3383,6 +3387,7 @@ class TextChatRequest(BaseModel):
     previous_prompt: str | None = Field(default=None, max_length=600)
     resolved_prompt: str | None = Field(default=None, max_length=600)
     current_look_id: str | None = Field(default=None, max_length=80)
+    board_operation: str | None = Field(default=None, max_length=48)
     context: Dict[str, Any] = Field(default_factory=dict)
     style_context: Dict[str, Any] = Field(default_factory=dict)
     # Compact request-carried board context for beta follow-ups. Optional and
@@ -3440,6 +3445,9 @@ def _beta_style_response(
             action=action,
             default_cta=default_cta or _is_generate_style_board_request(query),
         )
+    if has_board_response:
+        # Board responses must survive the fail-closed /api/text envelope stamp.
+        response["response_mode"] = "wardrobe_recommendation"
     image_base64 = ""
     data = response.get("data") if isinstance(response.get("data"), dict) else {}
     rendered = data.get("rendered_boards") if isinstance(data.get("rendered_boards"), list) else []
@@ -3508,6 +3516,10 @@ class ModuleChatRequest(BaseModel):
     request_id: str | None = Field(default=None, max_length=96)
     context_data: Dict[str, Any] = Field(default_factory=dict)
     context: Dict[str, Any] = Field(default_factory=dict)
+    style_state: Dict[str, Any] = Field(default_factory=dict)
+    current_memory: Dict[str, Any] = Field(default_factory=dict)
+    current_look_id: str | None = Field(default=None, max_length=80)
+    board_operation: str | None = Field(default=None, max_length=48)
     user_profile: Dict[str, Any] = Field(default_factory=dict)
     weather: Any = None
     weather_context: Any = None
@@ -4589,9 +4601,10 @@ def _contextualize_semantic_decision(
     if decision is None:
         return None
     result = dict(decision)
+    semantic_context = result.get("resolved_context") if isinstance(result.get("resolved_context"), dict) else {}
     result["explicit_context"] = diagnostics.get("current_turn_context") or {}
     result["carried_context"] = diagnostics.get("carried_context") or {}
-    result["resolved_context"] = context
+    result["resolved_context"] = {**semantic_context, **context}
     result["context_used"] = diagnostics.get("context_used") or []
     result["requires_clarification"] = bool(diagnostics.get("requires_clarification")) or bool(
         result.get("requires_clarification")
@@ -4798,6 +4811,16 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
     # Everything else falls through to the existing routing.
     _message = str(request.message or "").strip()
     _deterministic = _pre_classify_message(_message)
+    _board_payload = {
+        "message": _message,
+        "context": request.context,
+        "context_data": request.context_data,
+        "style_state": request.style_state,
+        "current_memory": request.current_memory,
+        "current_look_id": request.current_look_id,
+        "request_id": request.request_id,
+    }
+    _board_context = board_context_for_semantics(_board_payload)
     _conversation, _conversation_diagnostics = _style_conversation_resolution(request)
     _pre = resolve_semantic_intent(
         current_message=_message,
@@ -4809,7 +4832,8 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
             "conversation_context": _conversation.to_dict(),
             "resolved_context": _conversation.to_dict(),
         },
-        deterministic=_deterministic,
+        deterministic=None if _board_context.get("has_current_board") else _deterministic,
+        board_context=_board_context,
         request_id=request.request_id,
     )
     if _pre is not None:
@@ -4844,6 +4868,13 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
             context=_conversation.to_dict(),
             diagnostics=_conversation_diagnostics,
         )
+    _board_mutation = handle_board_operation(
+        _board_payload,
+        semantic_decision=_pre,
+        user_id=_state_user_id(http_request),
+    ) if _pre is not None else None
+    if _board_mutation is not None:
+        return _stamp_module_chat_response(_board_mutation, request, None)
     if _pre is not None:
         logger.info(
             "AHVI_SEMANTIC_DECISION surface=module_chat request_id=%s "
@@ -5173,6 +5204,44 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
 
     if _is_ask_questions_action(user_input):
         return _style_two_questions_response(user_input)
+
+    # Legacy /api/text converges on the same semantic resolver and structured
+    # executor. It does not maintain a second text-based mutation parser.
+    _text_board_payload = {
+        "message": user_input,
+        "context": request.context,
+        "style_context": request.style_context,
+        "style_state": request.style_state,
+        "current_memory": request.current_memory,
+        "current_look_id": request.current_look_id,
+        "wardrobe": request.wardrobe,
+        "request_id": request.request_id,
+        "revision": request.style_state.get("revision") if isinstance(request.style_state, dict) else None,
+    }
+    _text_board_context = board_context_for_semantics(_text_board_payload)
+    _text_semantic = resolve_semantic_intent(
+        current_message=user_input,
+        recent_history=_build_history(request.messages[:-1]) if len(request.messages) > 1 else [],
+        module_hint=request.module_context or "style",
+        conversation_context={
+            **(request.context or {}),
+            **(request.style_context or {}),
+            "current_memory": request.current_memory,
+        },
+        deterministic=(
+            None if _text_board_context.get("has_current_board")
+            else _pre_classify_message(user_input)
+        ),
+        board_context=_text_board_context,
+        request_id=request.request_id,
+    )
+    _board_mutation = handle_board_operation(
+        _text_board_payload,
+        semantic_decision=_text_semantic,
+        user_id=_state_user_id(http_request) or str(request.user_id or request.userID or "").strip(),
+    ) if _text_semantic is not None else None
+    if _board_mutation is not None:
+        return _board_mutation
 
     # ──────────────────────────────────────────────────────────────────
     # CHIP / BUTTON / RETRY CONTEXT RESOLUTION
