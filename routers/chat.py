@@ -35,6 +35,10 @@ from services.response_contract import (
 )
 from services.pre_classifier import classify_message as _pre_classify_message
 from services.semantic_intent_resolver import resolve_semantic_intent
+from services.style_conversation_context import (
+    StyleConversationContext,
+    resolve_style_conversation_context,
+)
 from services.style_flow_service import (
     STYLE_ACTION_CHIPS,
     build_style_flow_response,
@@ -4553,6 +4557,79 @@ def _preclassified_clarification_reply(pre: Dict[str, Any]) -> Dict[str, Any]:
     return response
 
 
+def _style_conversation_resolution(
+    request: "ModuleChatRequest",
+    *,
+    semantic: Optional[Dict[str, Any]] = None,
+) -> tuple[StyleConversationContext, Dict[str, Any]]:
+    carried = {
+        **(request.context_data or {}),
+        **(request.context or {}),
+    }
+    return resolve_style_conversation_context(
+        current_message=str(request.message or "").strip(),
+        recent_history=request.history,
+        carried_context=carried,
+        semantic_context=(semantic or {}).get("resolved_context") if semantic else None,
+        semantic_referent=(semantic or {}).get("referent") if semantic else None,
+    )
+
+
+def _style_conversation_enabled(request: "ModuleChatRequest") -> bool:
+    module = str(request.domain or request.module or "style").strip().lower()
+    return module in {"", "style", "daily_wear", "wardrobe"}
+
+
+def _contextualize_semantic_decision(
+    decision: Optional[Dict[str, Any]],
+    *,
+    context: Dict[str, Any],
+    diagnostics: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    if decision is None:
+        return None
+    result = dict(decision)
+    result["explicit_context"] = diagnostics.get("current_turn_context") or {}
+    result["carried_context"] = diagnostics.get("carried_context") or {}
+    result["resolved_context"] = context
+    result["context_used"] = diagnostics.get("context_used") or []
+    result["requires_clarification"] = bool(diagnostics.get("requires_clarification")) or bool(
+        result.get("requires_clarification")
+    )
+    result["missing_information"] = list(
+        dict.fromkeys(
+            [
+                *(result.get("missing_information") or []),
+                *(diagnostics.get("missing_information") or []),
+            ]
+        )
+    )
+    if result["requires_clarification"]:
+        result["response_mode"] = "clarification"
+        result["intent"] = "clarification"
+        result["action"] = "request_clarification"
+    result["_conversation_diagnostics"] = diagnostics
+    return result
+
+
+def _conversation_clarification(diagnostics: Dict[str, Any]) -> Dict[str, Any]:
+    return _contextualize_semantic_decision(
+        {
+            "domain": "style",
+            "intent": "clarification",
+            "action": "request_clarification",
+            "response_mode": "clarification",
+            "confidence": 1.0,
+            "requires_clarification": True,
+            "decision_source": "deterministic_context_guard",
+            "missing_information": diagnostics.get("missing_information") or ["more_context"],
+            "reason_codes": ["style_context_required"],
+        },
+        context=diagnostics.get("resolved_context") or {},
+        diagnostics=diagnostics,
+    ) or {}
+
+
 async def _handle_preclassified(
     pre: Dict[str, Any],
     request: "ModuleChatRequest",
@@ -4577,6 +4654,9 @@ async def _handle_preclassified(
         if user_id:
             profile["user_id"] = user_id
         merged_context = {**(request.context_data or {}), **(request.context or {})}
+        conversation_context = pre.get("resolved_context") if isinstance(pre.get("resolved_context"), dict) else {}
+        merged_context["conversation_context"] = conversation_context
+        merged_context["resolved_context"] = conversation_context
         wardrobe = (
             merged_context.get("wardrobe")
             or merged_context.get("outfits")
@@ -4590,7 +4670,10 @@ async def _handle_preclassified(
                 **merged_context,
                 "module_context": module or "style",
                 "user_id": user_id,
-                "occasion": _ahvi_style_occasion(str(request.message or "")),
+                "occasion": conversation_context.get("occasion") or conversation_context.get("activity") or "",
+                "date_context": conversation_context.get("date_context"),
+                "activity": conversation_context.get("activity"),
+                "activity_type": conversation_context.get("activity_type"),
                 "wardrobe": wardrobe if isinstance(wardrobe, list) else [],
                 "style_action": VISUAL_INSPIRATION,
             },
@@ -4658,12 +4741,45 @@ def _stamp_module_chat_response(
         response_mode = pre["response_mode"]
     else:
         response_mode = resolve_response_mode(envelope)
+    conversation_diagnostics = (pre or {}).get("_conversation_diagnostics") if isinstance(pre, dict) else None
+    if conversation_diagnostics is None:
+        conversation_diagnostics = envelope.pop("_conversation_diagnostics", None)
+    if isinstance(conversation_diagnostics, dict):
+        resolved = conversation_diagnostics.get("resolved_context") or (pre or {}).get("resolved_context") or {}
+        envelope["explicit_context"] = conversation_diagnostics.get("current_turn_context") or {}
+        envelope["carried_context"] = conversation_diagnostics.get("carried_context") or {}
+        envelope["resolved_context"] = resolved
+        envelope["context_used"] = conversation_diagnostics.get("context_used") or []
+        envelope["requires_clarification"] = bool((pre or {}).get("requires_clarification"))
+        meta = envelope.get("meta") if isinstance(envelope.get("meta"), dict) else {}
+        envelope["meta"] = {
+            **meta,
+            "decision_source": (pre or {}).get("decision_source") or "context_merge",
+            "explicit_context": envelope["explicit_context"],
+            "carried_context": envelope["carried_context"],
+            "resolved_context": resolved,
+            "context_used": envelope["context_used"],
+            "requires_clarification": envelope["requires_clarification"],
+        }
+        envelope["diagnostics"] = {
+            "request_id": request.request_id or "",
+            "decision_source": (pre or {}).get("decision_source") or "context_merge",
+            "explicit_context": envelope["explicit_context"],
+            "carried_context": envelope["carried_context"],
+            "resolved_context": resolved,
+            "intent": (pre or {}).get("intent") or envelope.get("intent") or "",
+            "response_mode": (pre or {}).get("response_mode") or "",
+            "requires_clarification": envelope["requires_clarification"],
+        }
+    canonical_intent = (pre or {}).get("intent")
+    if (pre or {}).get("response_mode") == "visual_inspiration":
+        canonical_intent = "visual_inspiration"
     return stamp_response(
         envelope,
         response_mode=response_mode,
         request_id=request.request_id,
         domain=(pre or {}).get("domain"),
-        intent=(pre or {}).get("intent"),
+        intent=canonical_intent,
         action=(pre or {}).get("action"),
     )
 
@@ -4681,6 +4797,7 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
     # Everything else falls through to the existing routing.
     _message = str(request.message or "").strip()
     _deterministic = _pre_classify_message(_message)
+    _conversation, _conversation_diagnostics = _style_conversation_resolution(request)
     _pre = resolve_semantic_intent(
         current_message=_message,
         recent_history=request.history,
@@ -4688,10 +4805,44 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
         conversation_context={
             **(request.context_data or {}),
             **(request.context or {}),
+            "conversation_context": _conversation.to_dict(),
+            "resolved_context": _conversation.to_dict(),
         },
         deterministic=_deterministic,
         request_id=request.request_id,
     )
+    if _pre is not None:
+        _semantic_context, _semantic_diagnostics = _style_conversation_resolution(
+            request, semantic=_pre
+        )
+        _conversation = _semantic_context
+        _conversation_diagnostics = _semantic_diagnostics
+        _pre = _contextualize_semantic_decision(
+            _pre,
+            context=_conversation.to_dict(),
+            diagnostics=_conversation_diagnostics,
+        )
+    elif (
+        _conversation_diagnostics.get("requires_clarification")
+        and _style_conversation_enabled(request)
+    ):
+        _pre = _conversation_clarification(_conversation_diagnostics)
+    if (
+        _pre is not None
+        and _pre.get("response_mode") == "visual_inspiration"
+        and _conversation_diagnostics.get("requires_clarification")
+        and _style_conversation_enabled(request)
+    ):
+        _pre = _contextualize_semantic_decision(
+            {
+                **_pre,
+                "response_mode": "clarification",
+                "intent": "clarification",
+                "action": "request_clarification",
+            },
+            context=_conversation.to_dict(),
+            diagnostics=_conversation_diagnostics,
+        )
     if _pre is not None:
         logger.info(
             "AHVI_SEMANTIC_DECISION surface=module_chat request_id=%s "
@@ -4719,6 +4870,8 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
             return _stamp_module_chat_response(_pre_result, request, _pre)
 
     _envelope = await _module_chat_impl(request, http_request)
+    if isinstance(_envelope, dict):
+        _envelope["_conversation_diagnostics"] = _conversation_diagnostics
     return _stamp_module_chat_response(_envelope, request, None)
 
 
@@ -4730,6 +4883,10 @@ async def _module_chat_impl(request: ModuleChatRequest, http_request: Request):
         profile["user_id"] = user_id
     user_message = str(request.message or "").strip()
     merged_context = {**(request.context_data or {}), **(request.context or {})}
+    conversation, conversation_diagnostics = _style_conversation_resolution(request)
+    merged_context["conversation_context"] = conversation.to_dict()
+    merged_context["resolved_context"] = conversation.to_dict()
+    merged_context["_conversation_diagnostics"] = conversation_diagnostics
     resolved_context = resolve_location_weather_context(
         user_id=user_id,
         request_data=request.model_dump(exclude_none=True),
@@ -4879,8 +5036,13 @@ async def _module_chat_impl(request: ModuleChatRequest, http_request: Request):
 
     if module in {"style", "wardrobe", "daily_wear"} and (
         _is_explicit_style_request(user_message, module)
-        or _needs_style_clarification(user_message, _ahvi_style_occasion(user_message))
-        or _ahvi_style_occasion(user_message) != "today"
+        or _needs_style_clarification(
+            user_message,
+            str(conversation.occasion or conversation.activity or _ahvi_style_occasion(user_message)),
+        )
+        or conversation.occasion
+        or conversation.activity
+        or conversation.date_context
     ):
         wardrobe = (
             merged_context.get("wardrobe")
@@ -4909,7 +5071,7 @@ async def _module_chat_impl(request: ModuleChatRequest, http_request: Request):
             _style_default_visual_inspiration_enabled(),
             selected_mode,
             module_intent,
-            _ahvi_style_occasion(user_message),
+            conversation.occasion or conversation.activity or "",
             wardrobe_override,
         )
         if visual_first:
@@ -4921,7 +5083,11 @@ async def _module_chat_impl(request: ModuleChatRequest, http_request: Request):
                     **merged_context,
                     "module_context": module,
                     "user_id": user_id,
-                    "occasion": _ahvi_style_occasion(user_message),
+                    "occasion": conversation.occasion or conversation.activity or "",
+                    "date_context": conversation.date_context,
+                    "activity": conversation.activity,
+                    "activity_type": conversation.activity_type,
+                    "resolved_context": conversation.to_dict(),
                     "wardrobe": wardrobe if isinstance(wardrobe, list) else [],
                     "style_action": VISUAL_INSPIRATION,
                 },

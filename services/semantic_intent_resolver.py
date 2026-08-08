@@ -15,6 +15,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional
 from services.ai_gateway import extract_json
 from services.ai_gateway import generate_text as _generate_text
 from services.response_contract import ALLOWED_RESPONSE_MODES
+from services.style_conversation_context import ACTIVITY_TYPES, normalize_activity
 
 logger = logging.getLogger("ahvi.semantic_intent")
 
@@ -45,6 +46,9 @@ _SEMANTIC_RESPONSE_MODES = {
 _CONTEXT_KEYS = {
     "occasion",
     "activity",
+    "activity_type",
+    "venue",
+    "date_context",
     "date",
     "date_text",
     "time_period",
@@ -55,6 +59,9 @@ _CONTEXT_KEYS = {
 _RESOLVED_CONTEXT_KEYS = {
     "occasion",
     "activity",
+    "activity_type",
+    "venue",
+    "date_context",
     "date",
     "date_text",
     "time_period",
@@ -62,6 +69,7 @@ _RESOLVED_CONTEXT_KEYS = {
     "negative_constraints",
 }
 _REFERENT_KEYS = {"kind", "ordinal", "text"}
+_REFERENT_KEYS |= {"resolved_to", "confidence"}
 _CONSTRAINT_KEYS = {"required", "avoid"}
 _TOP_LEVEL_KEYS = {
     "domain",
@@ -124,9 +132,14 @@ def _bounded_string_list(value: Any) -> Optional[List[str]]:
 def _normalize_context(value: Any) -> Dict[str, Any]:
     if not isinstance(value, Mapping):
         return {}
+    sources = [value]
+    for nested_key in ("conversation_context", "resolved_context", "style_conversation_context"):
+        nested = value.get(nested_key)
+        if isinstance(nested, Mapping):
+            sources.append(nested)
     result: Dict[str, Any] = {}
     for key in _CONTEXT_KEYS:
-        item = value.get(key)
+        item = next((source.get(key) for source in sources if source.get(key) is not None), None)
         safe_item = _safe_context_value(item)
         if safe_item is not None:
             result[key] = safe_item
@@ -201,7 +214,15 @@ def _prompt(
         "response_mode": "text_only|visual_inspiration|wardrobe_recommendation|calendar_navigation|clarification",
         "confidence": 0.0,
         "requires_clarification": False,
-        "resolved_context": {},
+        "resolved_context": {
+            "date_context": None,
+            "occasion": None,
+            "activity": None,
+            "activity_type": None,
+            "venue": None,
+            "positive_constraints": [],
+            "negative_constraints": [],
+        },
         "constraints": {"required": [], "avoid": []},
         "referent": None,
         "reason_codes": [],
@@ -259,11 +280,20 @@ def validate_semantic_decision(raw: Any) -> Optional[Dict[str, Any]]:
         return None
     normalized_context: Dict[str, Any] = {}
     for key, value in resolved_context.items():
+        if value is None:
+            continue
         if key in {"positive_constraints", "negative_constraints"}:
             values = _bounded_string_list(value)
             if values is None:
                 return None
             normalized_context[key] = values
+        elif key == "activity_type":
+            _activity, activity_type = normalize_activity(
+                resolved_context.get("activity"), value
+            )
+            if not activity_type or activity_type not in ACTIVITY_TYPES:
+                return None
+            normalized_context[key] = activity_type
         else:
             text = _bounded_string(value)
             if text is None:
@@ -291,6 +321,14 @@ def validate_semantic_decision(raw: Any) -> Optional[Dict[str, Any]]:
                 if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 20:
                     return None
                 normalized_referent[key] = value
+            elif key == "confidence":
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not 0.0 <= float(value) <= 1.0
+                ):
+                    return None
+                normalized_referent[key] = float(value)
             else:
                 text = _bounded_string(value)
                 if text is None:

@@ -25,6 +25,7 @@ from services.stylist_knowledge_service import (
     classify_style_mode,
 )
 from services.style_asset_contract import enrich_style_asset_rows
+from services.style_conversation_context import activity_compatibility_issues
 
 GENERAL = "general"
 VISUAL_INSPIRATION = "visual_inspiration"
@@ -51,6 +52,89 @@ _GEMINI_MODES = {
     STYLE_PAIRING,
     *_ADVICE_MODES,
 }
+
+_COURT_SPORT_FALLBACKS: List[Dict[str, Any]] = [
+    {
+        "title": "Court Performance",
+        "archetype": "Court Performance",
+        "hero_piece": "Technical Performance Tee",
+        "items": ["Technical Performance Tee", "Performance Shorts", "Court Shoes"],
+        "pieces": ["Technical Performance Tee", "Performance Shorts", "Court Shoes"],
+        "palette": ["navy", "white", "electric blue"],
+        "description": "A breathable performance tee and court-ready base keep the badminton look light and mobile.",
+        "why_it_works": "Technical fabric and supportive court shoes keep the direction focused on movement.",
+        "styling_tip": "Keep layers light and secure for quick changes of direction.",
+    },
+    {
+        "title": "Sport Polo Edit",
+        "archetype": "Sport Polo Edit",
+        "hero_piece": "Breathable Sport Polo",
+        "items": ["Breathable Sport Polo", "Movement Trousers", "Supportive Athletic Footwear"],
+        "pieces": ["Breathable Sport Polo", "Movement Trousers", "Supportive Athletic Footwear"],
+        "palette": ["black", "stone", "green"],
+        "description": "A sport polo with movement-friendly trousers keeps the court direction polished and mobile.",
+        "why_it_works": "The breathable top and athletic footwear support play while keeping the silhouette clean.",
+        "styling_tip": "Choose stretch fabric and leave room through the shoulders.",
+    },
+    {
+        "title": "Warm-Up Layer",
+        "archetype": "Warm-Up Layer",
+        "hero_piece": "Lightweight Track Jacket",
+        "items": ["Lightweight Track Jacket", "Performance Tee", "Court Shoes"],
+        "pieces": ["Lightweight Track Jacket", "Performance Tee", "Court Shoes"],
+        "palette": ["charcoal", "white", "red"],
+        "description": "A lightweight warm-up layer adds practical flexibility before and after the game.",
+        "why_it_works": "The layer is easy to remove while the performance base stays ready for movement.",
+        "styling_tip": "Keep the warm-up layer unstructured and easy to pack.",
+    },
+]
+
+
+def validate_activity_compatibility(
+    directions: List[Dict[str, Any]], activity_type: str | None
+) -> List[Dict[str, Any]]:
+    """Keep generated directions compatible with a resolved activity family."""
+    if activity_type != "court_sport":
+        return directions
+    compatible = []
+    for index, direction in enumerate(directions or []):
+        if not isinstance(direction, dict) or activity_compatibility_issues(direction, activity_type):
+            continue
+        normalized = dict(direction)
+        athletic_terms = (
+            "court", "sport", "performance", "warm-up", "warm up", "athletic", "movement"
+        )
+        archetype_blob = " ".join(
+            str(normalized.get(key) or "")
+            for key in ("archetype", "direction_name")
+        ).lower()
+        title_blob = str(normalized.get("title") or "").lower()
+        if not any(
+            term in archetype_blob
+            for term in athletic_terms
+        ):
+            replacement = _COURT_SPORT_FALLBACKS[len(compatible) % len(_COURT_SPORT_FALLBACKS)]
+            normalized["archetype"] = replacement["archetype"]
+            normalized["direction_name"] = replacement["title"]
+        if not any(term in title_blob for term in athletic_terms):
+            replacement = _COURT_SPORT_FALLBACKS[len(compatible) % len(_COURT_SPORT_FALLBACKS)]
+            normalized["title"] = replacement["title"]
+            normalized["direction_name"] = replacement["title"]
+        compatible.append(normalized)
+    if len(compatible) >= 3:
+        return compatible[:3]
+    for fallback in _COURT_SPORT_FALLBACKS:
+        if len(compatible) >= 3:
+            break
+        if not activity_compatibility_issues(fallback, activity_type):
+            compatible.append(dict(fallback))
+    logger.info(
+        "AHVI_ACTIVITY_COMPATIBILITY_GUARD activity_type=%s input=%d output=%d",
+        activity_type,
+        len(directions or []),
+        len(compatible),
+    )
+    return compatible[:3]
 
 
 def _norm(value: Any) -> str:
@@ -8782,6 +8866,9 @@ def _build_response(
     context: dict,
 ) -> Dict[str, Any]:
     payload = ai_payload if isinstance(ai_payload, dict) else {}
+    resolved_activity = str((context or {}).get("activity") or "").strip() or None
+    resolved_activity_type = str((context or {}).get("activity_type") or "").strip() or None
+    resolved_context_occasion = str((context or {}).get("occasion") or "").strip() or None
     final_mode = mode if mode in _GEMINI_MODES else _coerce_ai_mode(payload.get("mode"), mode)
     selected_archetypes = payload.get("_selected_archetypes") if isinstance(payload.get("_selected_archetypes"), list) else []
     persona_context = payload.get("_persona_context") if isinstance(payload.get("_persona_context"), dict) else {}
@@ -8807,6 +8894,7 @@ def _build_response(
             str(value).strip()
             for value in (
                 (context or {}).get("occasion"),
+                (context or {}).get("activity"),
                 payload.get("occasion"),
                 occasion,
                 category,
@@ -8936,6 +9024,9 @@ def _build_response(
     # STYLE_SHARED_BRAIN is enabled. Same list-of-dicts shape in/out.
     if canonical_ctx is not None:
         visual_directions = _apply_style_guard(visual_directions, canonical_ctx)
+    visual_directions = validate_activity_compatibility(
+        visual_directions, resolved_activity_type
+    )
     try:
         final_confidence = max(0.0, min(1.0, float(payload.get("confidence", confidence))))
     except Exception:
@@ -8990,11 +9081,20 @@ def _build_response(
     _wardrobe_for_polish = context.get("wardrobe") or context.get("wardrobe_items")
     visual_directions = _apply_editorial_polish(
         visual_directions,
-        occasion=payload.get("occasion") or occasion or category or "",
+        occasion=resolved_context_occasion or resolved_activity or payload.get("occasion") or occasion or category or "",
         wardrobe_items=_wardrobe_for_polish,
         context_text=query,
     )
-    final_occasion_text = _asset_text(payload.get("occasion") or occasion or category or "")
+    visual_directions = validate_activity_compatibility(
+        visual_directions, resolved_activity_type
+    )
+    if final_mode == VISUAL_INSPIRATION and resolved_activity_type == "court_sport":
+        visual_inspiration_board = _build_visual_inspiration_board(
+            payload, visual_directions, goal, impression, missing_piece, query
+        )
+    final_occasion_text = _asset_text(
+        resolved_context_occasion or resolved_activity or payload.get("occasion") or occasion or category or ""
+    )
     visual_directions = _music_event_visible_guard(
         visual_directions,
         occasion=final_occasion_text,
@@ -9026,7 +9126,18 @@ def _build_response(
 
     response = {
         "mode": final_mode,
-        "occasion": str(payload.get("occasion") or occasion or "").strip() or None,
+        "occasion": str(
+            resolved_context_occasion or resolved_activity or payload.get("occasion") or occasion or ""
+        ).strip() or None,
+        "date_context": (context or {}).get("date_context"),
+        "activity": resolved_activity,
+        "activity_type": resolved_activity_type,
+        "resolved_context": (context or {}).get("resolved_context") or {
+            "date_context": (context or {}).get("date_context"),
+            "occasion": resolved_context_occasion,
+            "activity": resolved_activity,
+            "activity_type": resolved_activity_type,
+        },
         "tone": tone,
         "formality": formality,
         "should_use_wardrobe": False,
@@ -9069,6 +9180,9 @@ def _build_response(
             "confidence": final_confidence,
             "asset_gender": asset_gender,
             "target_gender": asset_gender,
+            "date_context": (context or {}).get("date_context"),
+            "activity": resolved_activity,
+            "activity_type": resolved_activity_type,
             "anchor_item": pairing_anchor or None,
             "selected_archetypes": [str(a.get("name") or "").strip() for a in selected_archetypes if isinstance(a, dict)],
             "archetype_reasoning": str(payload.get("archetype_reasoning") or "").strip(),
@@ -9098,7 +9212,21 @@ def reason(
     safe_profile = user_profile if isinstance(user_profile, dict) else {}
     safe_context = context if isinstance(context, dict) else {}
     mode = _coerce_mode(safe_query, intent, safe_context)
-    category, tone, formality, occasion = _occasion_category(safe_query)
+    context_activity = str(safe_context.get("activity") or "").strip()
+    context_activity_type = str(safe_context.get("activity_type") or "").strip()
+    context_occasion = str(safe_context.get("occasion") or "").strip()
+    if context_activity_type == "court_sport":
+        category, tone, formality, occasion = (
+            "court_sport", "focused", "active", context_activity or "court sport"
+        )
+    elif context_activity_type:
+        category, tone, formality, occasion = (
+            context_activity_type, "active", "casual", context_activity or context_activity_type
+        )
+    elif context_occasion:
+        category, tone, formality, occasion = _occasion_category(context_occasion)
+    else:
+        category, tone, formality, occasion = _occasion_category(safe_query)
     confidence = _confidence(intent, 0.9 if mode != GENERAL else 0.55)
     if mode == STYLE_PAIRING:
         logger.info("AHVI_STYLE_PAIRING_ROUTE query=%r", safe_query[:120])
@@ -9110,7 +9238,11 @@ def reason(
     if mode == WARDROBE_STYLE:
         return {
             "mode": WARDROBE_STYLE,
-            "occasion": occasion,
+            "occasion": context_occasion or context_activity or occasion,
+            "date_context": safe_context.get("date_context"),
+            "activity": context_activity or None,
+            "activity_type": context_activity_type or None,
+            "resolved_context": safe_context.get("resolved_context") or {},
             "tone": tone,
             "formality": formality,
             "should_use_wardrobe": True,

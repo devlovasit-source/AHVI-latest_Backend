@@ -45,6 +45,9 @@ _CALENDAR_NAV_PHRASES = frozenset({
 # Explicit inspiration triggers. The user is asking to *see* looks or
 # ideas, not for wardrobe recommendations.
 _INSPIRATION_PATTERNS = (
+    "show inspiration",
+    "show another direction",
+    "another direction",
     "show me * inspiration",
     "show * inspiration",
     "outfit inspiration",
