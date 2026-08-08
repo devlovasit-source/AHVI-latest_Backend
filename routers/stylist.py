@@ -334,8 +334,11 @@ def _resolve_style_this_anchor(
     )
     if authoritative is None:
         return {}
-    if allow_legacy_metadata:
-        authoritative.setdefault("source", "wardrobe")
+    # This row came from the authenticated user's authoritative wardrobe
+    # collection. Legacy rows may omit provenance, so derive that missing
+    # field here without accepting client-supplied source metadata.
+    if not _txt(authoritative.get("source")):
+        authoritative["source"] = "wardrobe"
     return canonical_style_this_anchor(
         authoritative,
         expected_item_id=requested_id,

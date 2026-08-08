@@ -164,6 +164,94 @@ def test_client_metadata_mismatch_cannot_replace_authoritative_anchor(monkeypatc
     )
 
 
+@pytest.mark.parametrize(
+    ("anchor_id", "expected_role"),
+    [
+        ("shirt-1", "top"),
+        ("bottom-1", "bottom"),
+        ("shoe-1", "footwear"),
+    ],
+)
+def test_http_style_this_normalizes_missing_server_wardrobe_source(
+    monkeypatch, anchor_id, expected_role
+):
+    wardrobe = _wardrobe()
+    for item in wardrobe:
+        item.pop("source", None)
+    client = _http_client(monkeypatch, wardrobe)
+
+    response = client.post(
+        f"/api/stylist/items/{anchor_id}/style",
+        json={
+            "user_id": "owner-1",
+            "mode": "style_this",
+            "anchor_item_id": anchor_id,
+            "anchor_item": {
+                "id": "client-forged",
+                "source": "wardrobe",
+                "category": "Outerwear",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["anchor_item_id"] == anchor_id
+    assert body["anchor_item"]["item_id"] == anchor_id
+    assert body["anchor_item"]["source"] == "wardrobe"
+    for direction in body["style_directions"]:
+        assert direction["anchor_item_id"] == anchor_id
+        assert direction["originating_item_id"] == anchor_id
+        board_anchor = next(
+            item for item in direction["board_items"] if item["item_id"] == anchor_id
+        )
+        assert board_anchor["item_id"] == anchor_id
+        assert board_anchor["role"] == expected_role
+        assert board_anchor["locked"] is True
+
+
+def test_missing_source_wrong_owner_cannot_become_wardrobe_anchor(monkeypatch):
+    theirs = _item("private-item", "Private Shirt", "Tops")
+    theirs.pop("source", None)
+    theirs["userId"] = "other-user"
+    client = _http_client(monkeypatch, [theirs])
+
+    response = client.post(
+        "/api/stylist/items/private-item/style",
+        json={
+            "user_id": "owner-1",
+            "mode": "style_this",
+            "anchor_item_id": "private-item",
+            "anchor_item": {"id": "private-item", "source": "wardrobe"},
+        },
+    )
+
+    assert response.status_code == 404
+
+
+def test_missing_item_cannot_become_wardrobe_anchor_from_client_source(monkeypatch):
+    client = _http_client(monkeypatch, [])
+
+    response = client.post(
+        "/api/stylist/items/missing/style",
+        json={
+            "user_id": "owner-1",
+            "mode": "style_this",
+            "anchor_item_id": "missing",
+            "source": "wardrobe",
+            "anchor_item": {
+                "id": "missing",
+                "source": "wardrobe",
+                "normalized_url": "https://images.test/forged.png",
+                "category": "Tops",
+            },
+        },
+    )
+
+    assert response.status_code == 404
+
+
 def test_llm_or_archetype_anchor_substitution_is_ignored():
     wardrobe = _wardrobe()
     result = stylist.style_wardrobe_item(
