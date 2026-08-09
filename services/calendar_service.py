@@ -426,6 +426,43 @@ def list_upcoming_calendar_events(user_id: str, *, limit: int = 100) -> List[Dic
     return list_calendar_events(user_id, start_time=start, limit=limit)
 
 
+def _is_outfit_plan(event: Dict[str, Any]) -> bool:
+    metadata = _metadata_from_string(event.get("metadata"))
+    kind = _safe_str(metadata.get("plan_kind")).lower()
+    if kind == "outfit":
+        return True
+    if kind == "non_outfit":
+        return False
+    event_type = _safe_str(event.get("type") or event.get("event_type")).lower()
+    return event_type == "plan" or bool(_safe_str(metadata.get("outfit")))
+
+
+def calendar_plan_counts(
+    events: List[Dict[str, Any]], *, now: Optional[datetime] = None
+) -> Dict[str, int]:
+    """Return canonical total, today, and upcoming outfit-plan counts."""
+    current = _as_utc(now or datetime.now(_CALENDAR_TZ))
+    local = current.astimezone(_CALENDAR_TZ)
+    today_start = datetime(local.year, local.month, local.day, tzinfo=_CALENDAR_TZ)
+    today_end = today_start + timedelta(days=1)
+    total = today = upcoming = 0
+    for event in events or []:
+        if not _is_outfit_plan(event):
+            continue
+        total += 1
+        start = _as_utc(_parse_iso(event.get("start_time")))
+        if start is not None:
+            if today_start <= start < today_end:
+                today += 1
+            if start >= current:
+                upcoming += 1
+    return {
+        "total_outfit_plan_count": total,
+        "today_outfit_plan_count": today,
+        "upcoming_outfit_plan_count": upcoming,
+    }
+
+
 def update_calendar_event(user_id: str, event_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     existing = get_calendar_event(user_id, event_id)
     data = _build_document(user_id, {**existing, **(payload or {})}, existing=existing)

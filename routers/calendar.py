@@ -11,6 +11,7 @@ from middleware.auth_middleware import get_current_user
 from models.calendar_models import CalendarEventInput, CalendarRuntimeResult
 from brain.engines.calendar_runtime import run_calendar_runtime
 from services.calendar_service import (
+    calendar_plan_counts,
     calendar_event_to_runtime_input,
     create_calendar_event,
     enrich_event_with_intelligence,
@@ -152,7 +153,12 @@ def list_events(
 ):
     try:
         events = list_calendar_events(_user_id(user), start_time=start_time, end_time=end_time, limit=limit)
-        return {"success": True, "events": events, "count": len(events)}
+        return {
+            "success": True,
+            "events": events,
+            "count": len(events),
+            **calendar_plan_counts(events),
+        }
     except Exception:
         print("❌ /calendar/events list error:\n", traceback.format_exc())
         raise HTTPException(status_code=500, detail="Calendar events list failed")
