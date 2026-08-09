@@ -72,6 +72,7 @@ from services.stylist_knowledge_service import (
     STYLE_MODES,
     WARDROBE_STYLE,
     classify_style_mode,
+    is_style_pairing_request,
     is_wardrobe_style_request,
 )
 
@@ -2189,6 +2190,23 @@ def _is_generate_style_board_request(text: Any) -> bool:
     """Any prompt that must produce a complete Style board: the default CTA or an
     alternative-look regeneration."""
     return _is_complete_outfit_cta(text) or _is_alternative_look_request(text)
+
+
+def _is_latency_safe_outfit_generation_request(text: Any) -> bool:
+    """Allow the semantic bypass only for an explicit board-generation request."""
+    if is_style_pairing_request(text):
+        return False
+    if _is_generate_style_board_request(text):
+        return True
+
+    normalized = re.sub(r"\s+", " ", str(text or "").strip().lower())
+    if re.search(
+        r"\b(?:build|create|make|generate|put together)\b.{0,48}\b(?:an?|the)?\s*(?:outfit|look)\b",
+        normalized,
+    ):
+        return True
+
+    return _is_use_wardrobe_action(prompt=text)
 
 
 def _pool_gender_ok(item: Dict[str, Any], gender: str) -> bool:
@@ -4829,9 +4847,7 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
     _style_fast_path = (
         not _board_context.get("has_current_board")
         and not _uses_carried_context
-        and _is_explicit_style_request(
-            _message, request.domain or request.module or "style"
-        )
+        and _is_latency_safe_outfit_generation_request(_message)
     )
     _pre = None if _style_fast_path else resolve_semantic_intent(
         current_message=_message,
@@ -4849,7 +4865,7 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
     )
     if _style_fast_path:
         logger.info(
-            "AHVI_STYLE_SEMANTIC_FAST_PATH request_id=%s reason=explicit_style_request",
+            "AHVI_STYLE_SEMANTIC_FAST_PATH request_id=%s reason=explicit_outfit_generation",
             request.request_id or "",
         )
     if _pre is not None:

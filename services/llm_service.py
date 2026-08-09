@@ -385,6 +385,7 @@ def generate_text(
                     signals=signals,
                     temperature=float((options or {}).get("temperature", 0.35)),
                     max_output_tokens=retry_tokens,
+                    timeout_seconds=timeout_seconds,
                 )
                 if retry_text:
                     return _guard_truncation(retry_text, usecase=usecase)
