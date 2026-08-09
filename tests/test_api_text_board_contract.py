@@ -8,7 +8,9 @@ every alias now carries the contract. Only the LLM boundary is mocked.
 """
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
+from brain import outfit_pipeline
 from routers import chat
 
 
@@ -18,6 +20,15 @@ def _it(name, role):
 
 
 _WARDROBE = [_it("shirt", "top"), _it("trousers", "bottom"), _it("loafers", "footwear")]
+
+
+@pytest.fixture(autouse=True)
+def _isolated_outfit_memory(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        outfit_pipeline,
+        "_MEMORY_FILE",
+        str(tmp_path / "outfit_memory.json"),
+    )
 
 
 def _adapter_shaped(*a, **k):
