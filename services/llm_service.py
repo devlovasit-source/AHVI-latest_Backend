@@ -135,16 +135,14 @@ session.mount("https://", HTTPAdapter(max_retries=retries))
 # GEMINI CLIENT
 # =========================
 
-_gemini_client = None
+_gemini_clients: Dict[int, Any] = {}
 
 
 def _gemini_enabled() -> bool:
     return AI_PROVIDER in {"gemini", "vertex", "vertexai", "google"}
 
 
-def _get_gemini_client():
-    global _gemini_client
-
+def _get_gemini_client(timeout_seconds: Optional[int] = None):
     if not _gemini_enabled():
         return None
 
@@ -152,18 +150,25 @@ def _get_gemini_client():
         logger.warning("Gemini requested but google-genai is not installed")
         return None
 
-    if _gemini_client is not None:
-        return _gemini_client
+    timeout = max(1, int(timeout_seconds or GEMINI_TIMEOUT_SECONDS))
+    if timeout in _gemini_clients:
+        return _gemini_clients[timeout]
 
     try:
         # Production path: Cloud Run service account + Vertex AI IAM
-        _gemini_client = genai.Client(
+        client = genai.Client(
             vertexai=True,
             project=GOOGLE_CLOUD_PROJECT,
             location=GOOGLE_CLOUD_LOCATION,
-            http_options=types.HttpOptions(api_version="v1"),
+            # google-genai expects milliseconds. The public generate_text
+            # timeout was previously ignored for Gemini, allowing requests to
+            # run well past the caller's latency budget.
+            http_options=types.HttpOptions(
+                api_version="v1", timeout=timeout * 1000
+            ),
         )
-        return _gemini_client
+        _gemini_clients[timeout] = client
+        return client
     except Exception as exc:
         logger.warning("Gemini client init failed: %s", exc)
         return None
@@ -193,8 +198,9 @@ def _call_gemini_text(
     temperature: float = 0.35,
     max_output_tokens: int = 700,
     system_instruction: Optional[str] = None,
+    timeout_seconds: Optional[int] = None,
 ) -> Optional[str]:
-    client = _get_gemini_client()
+    client = _get_gemini_client(timeout_seconds)
     if client is None:
         return None
 
@@ -361,6 +367,7 @@ def generate_text(
             signals=signals,
             temperature=float((options or {}).get("temperature", 0.35)),
             max_output_tokens=requested_tokens,
+            timeout_seconds=timeout_seconds,
         )
         if gemini_text:
             logger.info("llm.generate_text provider=gemini model=%s usecase=%s", GEMINI_MODEL, usecase)

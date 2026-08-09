@@ -8089,6 +8089,7 @@ def _gemini_reasoning(
         options={"temperature": 0.45, "max_output_tokens": 1600},
         user_profile=user_profile,
         signals={"context_mode": "style_reasoning", "style_mode": mode},
+        timeout_seconds=12,
         usecase="style_reasoning",
     )
     logger.info("AHVI_STYLE_GEMINI_RAW_LEN usecase=style_reasoning len=%d", len(str(raw or "")))

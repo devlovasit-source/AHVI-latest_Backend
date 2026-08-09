@@ -4822,7 +4822,18 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
     }
     _board_context = board_context_for_semantics(_board_payload)
     _conversation, _conversation_diagnostics = _style_conversation_resolution(request)
-    _pre = resolve_semantic_intent(
+    _uses_carried_context = any(
+        str(source).startswith("conversation.")
+        for source in (_conversation_diagnostics.get("context_used") or [])
+    )
+    _style_fast_path = (
+        not _board_context.get("has_current_board")
+        and not _uses_carried_context
+        and _is_explicit_style_request(
+            _message, request.domain or request.module or "style"
+        )
+    )
+    _pre = None if _style_fast_path else resolve_semantic_intent(
         current_message=_message,
         recent_history=request.history,
         module_hint=request.domain or request.module or "style",
@@ -4836,6 +4847,11 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
         board_context=_board_context,
         request_id=request.request_id,
     )
+    if _style_fast_path:
+        logger.info(
+            "AHVI_STYLE_SEMANTIC_FAST_PATH request_id=%s reason=explicit_style_request",
+            request.request_id or "",
+        )
     if _pre is not None:
         _semantic_context, _semantic_diagnostics = _style_conversation_resolution(
             request, semantic=_pre

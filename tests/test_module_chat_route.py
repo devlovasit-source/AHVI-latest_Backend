@@ -891,6 +891,90 @@ def test_conversational_outfit_phrases_stay_on_module_chat_style_path(monkeypatc
         assert body["message_text"]
 
 
+def test_explicit_outfit_request_skips_semantic_provider_without_carried_context(monkeypatch):
+    semantic_calls = []
+
+    def fail_semantic_provider(**kwargs):
+        semantic_calls.append(kwargs)
+        raise AssertionError("explicit one-turn outfit request must not call semantic provider")
+
+    monkeypatch.setattr(chat, "resolve_semantic_intent", fail_semantic_provider)
+    monkeypatch.setattr(
+        chat,
+        "_demo_style_board_payload",
+        lambda **kwargs: {
+            "success": True,
+            "type": "cards",
+            "message": "Style look ready.",
+            "cards": [{"id": "look-1", "items": []}],
+            "style_boards": [{"id": "look-1", "items": []}],
+            "chips": [],
+            "board_ids": "look-1",
+            "data": {"outfits": [{"id": "look-1"}], "rendered_boards": []},
+            "meta": {"mode": "style_flow_service_adapter_v1"},
+        },
+    )
+    client = _text_chat_client_with_user()
+    prompt = "office outfit using my wardrobe"
+    response = client.post(
+        "/api/module-chat",
+        json={
+            "module": "style",
+            "message": prompt,
+            "history": [{"role": "user", "content": prompt}],
+            "context_data": {},
+            "user_profile": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["cards"]
+    assert semantic_calls == []
+
+
+def test_explicit_outfit_followup_keeps_semantic_provider_for_carried_context(monkeypatch):
+    semantic_calls = []
+
+    def semantic_provider(**kwargs):
+        semantic_calls.append(kwargs)
+        return None
+
+    monkeypatch.setattr(chat, "resolve_semantic_intent", semantic_provider)
+    monkeypatch.setattr(
+        chat,
+        "_demo_style_board_payload",
+        lambda **kwargs: {
+            "success": True,
+            "type": "cards",
+            "message": "Style look ready.",
+            "cards": [{"id": "look-1", "items": []}],
+            "style_boards": [{"id": "look-1", "items": []}],
+            "chips": [],
+            "board_ids": "look-1",
+            "data": {"outfits": [{"id": "look-1"}], "rendered_boards": []},
+            "meta": {"mode": "style_flow_service_adapter_v1"},
+        },
+    )
+    client = _text_chat_client_with_user()
+    response = client.post(
+        "/api/module-chat",
+        json={
+            "module": "style",
+            "message": "build an outfit for dinner",
+            "history": [
+                {"role": "user", "content": "I have a client meeting tomorrow"},
+                {"role": "assistant", "content": "What setting is it in?"},
+                {"role": "user", "content": "build an outfit for dinner"},
+            ],
+            "context_data": {},
+            "user_profile": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(semantic_calls) == 1
+
+
 def test_style_module_chat_routes_office_meeting_to_board(monkeypatch):
     captured = {}
 
