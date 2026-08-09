@@ -978,6 +978,9 @@ def test_explicit_outfit_followup_keeps_semantic_provider_for_carried_context(mo
 def test_style_module_chat_routes_office_meeting_to_board(monkeypatch):
     captured = {}
 
+    def fail_semantic_provider(**kwargs):
+        raise AssertionError("direct office prompts must not call semantic provider")
+
     def fake_style_payload(*, user_id, query_text, request_wardrobe, user_profile):
         captured["query"] = query_text
         return {
@@ -993,6 +996,7 @@ def test_style_module_chat_routes_office_meeting_to_board(monkeypatch):
         }
 
     monkeypatch.setattr(chat, "_demo_style_board_payload", fake_style_payload)
+    monkeypatch.setattr(chat, "resolve_semantic_intent", fail_semantic_provider)
     app = FastAPI()
     app.include_router(chat.router, prefix="/api")
     client = TestClient(app)

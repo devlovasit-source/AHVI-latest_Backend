@@ -2199,7 +2199,15 @@ def _is_latency_safe_outfit_generation_request(text: Any) -> bool:
     if _is_generate_style_board_request(text):
         return True
 
+    # Short, direct occasion prompts already route to the deterministic Style
+    # board path below. Do not spend the semantic-provider budget deciding a
+    # route that is already unambiguous (for example, "Office meeting").
+    if _is_general_chat_request(str(text or ""), "style"):
+        return False
     normalized = re.sub(r"\s+", " ", str(text or "").strip().lower())
+    if len(normalized.split()) <= 4 and _ahvi_style_occasion(normalized):
+        return True
+
     if re.search(
         r"\b(?:build|create|make|generate|put together)\b.{0,48}\b(?:an?|the)?\s*(?:outfit|look)\b",
         normalized,
@@ -4845,7 +4853,8 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
         for source in (_conversation_diagnostics.get("context_used") or [])
     )
     _style_fast_path = (
-        not _board_context.get("has_current_board")
+        _deterministic is None
+        and not _board_context.get("has_current_board")
         and not _uses_carried_context
         and _is_latency_safe_outfit_generation_request(_message)
     )
