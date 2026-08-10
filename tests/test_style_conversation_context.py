@@ -92,6 +92,55 @@ def test_required_context_matrix_retains_occasion_activity_and_constraints():
     assert override_context.activity == "badminton"
 
 
+def test_client_meeting_followup_preserves_tomorrow():
+    context, _ = resolve_style_conversation_context(
+        current_message="show visual inspiration for this",
+        recent_history=[{"role": "user", "content": "I have a client meeting tomorrow"}],
+    )
+
+    assert context.date_context == "tomorrow"
+    assert context.occasion == "client_meeting"
+    assert context.activity is None
+
+
+def test_dinner_tonight_followup_preserves_time_and_casual_constraint():
+    context, _ = resolve_style_conversation_context(
+        current_message="show something more casual",
+        recent_history=[{"role": "user", "content": "I'm going for dinner tonight"}],
+    )
+
+    assert context.date_context == "tonight"
+    assert context.occasion == "dinner"
+    assert context.style_constraints == ["more casual"]
+
+
+def test_badminton_no_black_followup_preserves_activity_and_constraint():
+    context, _ = resolve_style_conversation_context(
+        current_message="show visual inspiration",
+        recent_history=[
+            {"role": "user", "content": "I have a badminton game tomorrow"},
+            {"role": "user", "content": "no black"},
+        ],
+    )
+
+    assert context.date_context == "tomorrow"
+    assert context.activity == "badminton"
+    assert context.activity_type == "court_sport"
+    assert context.negative_constraints == ["black"]
+
+
+def test_explicit_occasion_correction_replaces_previous_activity():
+    context, _ = resolve_style_conversation_context(
+        current_message="actually make that a client meeting",
+        recent_history=[{"role": "user", "content": "I have a badminton game tomorrow"}],
+    )
+
+    assert context.date_context == "tomorrow"
+    assert context.occasion == "client_meeting"
+    assert context.activity is None
+    assert context.activity_type is None
+
+
 def test_missing_activity_or_occasion_requires_clarification():
     context, diagnostics = resolve_style_conversation_context(
         current_message="show visual inspiration for this",

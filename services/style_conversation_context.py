@@ -54,6 +54,7 @@ _OCCASION_ALIASES = (
     ("wedding", "wedding"),
     ("party", "party"),
     ("brunch", "brunch"),
+    ("dinner", "dinner"),
     ("travel", "travel"),
     ("date", "date"),
     ("casual", "casual"),
@@ -138,6 +139,11 @@ def _date_from_text(text: str) -> str | None:
         text,
     )
     return explicit.group(0) if explicit else None
+
+
+def _is_explicit_context_correction(message: str) -> bool:
+    text = " ".join(str(message or "").lower().split())
+    return bool(re.search(r"\b(?:actually|instead|change|make that)\b", text))
 
 
 def _daypart_from_text(text: str) -> str | None:
@@ -388,7 +394,8 @@ def _generic_referent(
         if existing and existing.get("resolved_to"):
             return dict(existing)
         return {"text": token, "resolved_to": "unresolved", "confidence": 0.0}
-    label = str(subject).replace("_", " ").strip()
+    existing_label = _clean(existing.get("label"), 100) if existing else ""
+    label = existing_label or str(subject).replace("_", " ").strip()
     temporal: dict[str, str] = {}
     if context.date_context:
         temporal["relative_date"] = context.date_context.replace("_", " ")
@@ -436,6 +443,14 @@ def resolve_style_conversation_context(
         fill_only=True,
     )
     resolved = resolved.overlay(current)
+    if _is_explicit_context_correction(current_message):
+        # An explicit replacement must not retain the superseded context
+        # dimension from an earlier turn.
+        if current.occasion and not current.activity:
+            resolved.activity = None
+            resolved.activity_type = None
+        elif current.activity and not current.occasion:
+            resolved.occasion = None
     resolved.referent = _resolve_referent(current_message, resolved, semantic_referent)
 
     missing = []
