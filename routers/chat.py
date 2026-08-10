@@ -146,9 +146,13 @@ def _log_style_trace(endpoint: str, request: Any, envelope: Dict[str, Any]) -> N
         or request_context.get("session_id")
         or "none"
     )
+    style_state = getattr(request, "style_state", None)
+    if not isinstance(style_state, dict):
+        style_state = {}
     logger.info(
         "AHVI_STYLE_TRACE request_id=%s endpoint=%s module=%s "
-        "conversation_id=%s history_count=%s intent=%s action=%s "
+        "conversation_id=%s history_count=%s board_id=%s board_revision=%s "
+        "intent=%s action=%s "
         "response_mode=%s requires_clarification=%s has_board=%s "
         "resolved_date=%s resolved_activity=%s activity_type=%s occasion=%s "
         "referent_type=%s context_used=%s fallback=%s revision=%s",
@@ -157,6 +161,8 @@ def _log_style_trace(endpoint: str, request: Any, envelope: Dict[str, Any]) -> N
         _style_trace_value(module),
         _style_trace_value(conversation_id),
         len(history),
+        _style_trace_value(style_state.get("board_id")),
+        _style_trace_value(style_state.get("revision")),
         _style_trace_value(envelope.get("intent") or meta.get("intent")),
         _style_trace_value(envelope.get("action") or meta.get("action")),
         _style_trace_value(envelope.get("response_mode")),

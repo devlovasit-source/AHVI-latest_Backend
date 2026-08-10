@@ -286,7 +286,8 @@ def _candidate_score(
     constraints: List[Mapping[str, Any]],
 ) -> Optional[int]:
     blob = " ".join(_text(item.get(key)).lower() for key in (
-        "name", "label", "category", "sub_category", "color", "style", "tags", "style_direction", "material", "fit",
+        "name", "label", "category", "sub_category", "color", "colour", "footwear_type",
+        "style", "tags", "style_direction", "material", "fit",
     ))
     if any(value in blob for value in _constraint_exclusions(constraints)):
         return None
@@ -294,6 +295,13 @@ def _candidate_score(
     for constraint in constraints:
         if _text(constraint.get("operator")).lower() == "require":
             value = _text(constraint.get("value")).lower()
+            if (
+                _text(constraint.get("dimension")).lower()
+                in {"color", "footwear_type"}
+                and value
+                and value not in blob
+            ):
+                return None
             if value and value in blob:
                 score += 4
     adjustment_values = {

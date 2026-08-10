@@ -46,6 +46,7 @@ def _decision(
     alternative_scope="default",
     requires_clarification=False,
     resolved_context=None,
+    referent=None,
 ):
     intent = {
         "modify": "modify_current_look",
@@ -61,7 +62,7 @@ def _decision(
         "requires_clarification": requires_clarification,
         "resolved_context": resolved_context or {},
         "constraints": {"required": [], "avoid": []},
-        "referent": None,
+        "referent": referent,
         "reason_codes": [],
         "missing_information": [],
         "operation": {
@@ -334,3 +335,198 @@ def test_module_chat_and_text_use_the_same_structured_semantic_executor(monkeypa
     )
     assert text_response.status_code == 200
     assert text_response.json()["board_operation"] == "modify_current_look"
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "replace the shoes with white sneakers",
+        "change the shoes to white sneakers",
+        "swap the shoes for white sneakers",
+        "give me white sneakers instead",
+        "keep everything but change the shoes to white sneakers",
+    ],
+)
+def test_natural_language_white_sneaker_phrases_mutate_only_footwear(monkeypatch, phrase):
+    before = _payload(
+        items=[
+            _item("top-1", "White shirt", "top"),
+            _item("outer-1", "Navy jacket", "outerwear", locked=True),
+            _item("bottom-1", "Blue jeans", "bottom"),
+            _item("shoe-1", "Brown loafers", "footwear"),
+        ],
+        candidates=[
+            _item(
+                "shoe-white-2",
+                "White sneakers",
+                "footwear",
+                color="white",
+                footwear_type="sneaker",
+            )
+        ]
+    )
+    decision = _decision(
+        replace_roles=["footwear"],
+        constraints=[
+            {"dimension": "color", "operator": "require", "value": "white"},
+            {"dimension": "footwear_type", "operator": "require", "value": "sneaker"},
+        ],
+    )
+    monkeypatch.setattr(
+        "services.semantic_intent_resolver._generate_text",
+        lambda *args, **kwargs: json.dumps(decision),
+    )
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def _user(request, call_next):
+        request.state.user = {"user_id": "user-1"}
+        return await call_next(request)
+
+    from routers import chat
+
+    app.include_router(chat.router, prefix="/api")
+    response = TestClient(app).post(
+        "/api/text",
+        json={
+            "messages": [{"role": "user", "content": phrase}],
+            "style_state": before["style_state"],
+            "wardrobe": before["wardrobe"],
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["board_operation"] == "modify_current_look"
+    assert body["revision"] == 2
+    assert body["data"]["changed_item_ids"] == ["shoe-white-2"]
+    output = {item["item_id"]: item for item in body["cards"][0]["items"]}
+    assert {"top-1", "outer-1", "bottom-1"} <= set(output)
+    assert "shoe-1" not in output
+    replacement = output["shoe-white-2"]
+    assert replacement["role"] == "footwear"
+    assert "white" in replacement["name"].lower()
+    assert "sneaker" in replacement["name"].lower()
+
+
+def test_colour_and_type_constraints_select_the_requested_footwear():
+    black = _run(
+        _payload(candidates=[_item("shoe-black-2", "Black sneakers", "footwear", color="black")]),
+        _decision(
+            replace_roles=["footwear"],
+            constraints=[
+                {"dimension": "color", "operator": "require", "value": "black"},
+                {"dimension": "footwear_type", "operator": "require", "value": "sneaker"},
+            ],
+        ),
+    )
+    assert black["cards"][0]["items"][-1]["name"] == "Black sneakers"
+
+    shuffle_service.set_state_store(InMemoryBoardStateStore())
+    sneaker = _run(
+        _payload(
+            items=[
+                _item("top-1", "White shirt", "top"),
+                _item("outer-1", "Navy jacket", "outerwear"),
+                _item("bottom-1", "Blue jeans", "bottom"),
+                _item("shoe-1", "Brown loafers", "footwear"),
+            ],
+            state_extra={"locked_item_ids": []},
+            candidates=[_item("shoe-sneaker-2", "White sneakers", "footwear")],
+        ),
+        _decision(
+            replace_roles=["footwear"],
+            constraints=[{"dimension": "footwear_type", "operator": "require", "value": "sneaker"}],
+        ),
+    )
+    ids = {item["item_id"] for item in sneaker["cards"][0]["items"]}
+    assert "shoe-sneaker-2" in ids and "shoe-1" not in ids
+
+
+def test_no_black_constraint_and_other_role_mutation_preserve_unrelated_items():
+    footwear = _run(
+        _payload(
+            candidates=[
+                _item("shoe-black-2", "Black sneakers", "footwear", color="black"),
+                _item("shoe-white-2", "White sneakers", "footwear", color="white"),
+            ]
+        ),
+        _decision(
+            replace_roles=["footwear"],
+            constraints=[
+                {"dimension": "color", "operator": "require", "value": "white"},
+                {"dimension": "style", "operator": "avoid", "value": "black"},
+            ],
+        ),
+    )
+    assert footwear["data"]["changed_item_ids"] == ["shoe-white-2"]
+
+    shuffle_service.set_state_store(InMemoryBoardStateStore())
+    blazer = _run(
+        _payload(
+            items=[
+                _item("top-1", "White shirt", "top"),
+                _item("outer-1", "Grey jacket", "outerwear"),
+                _item("bottom-1", "Blue jeans", "bottom"),
+                _item("shoe-1", "Brown loafers", "footwear"),
+            ],
+            state_extra={"locked_item_ids": []},
+            candidates=[_item("outer-2", "Navy blazer", "outerwear", color="navy")],
+        ),
+        _decision(
+            replace_roles=["outerwear"],
+            constraints=[{"dimension": "color", "operator": "require", "value": "navy"}],
+        ),
+    )
+    blazer_ids = {item["item_id"] for item in blazer["cards"][0]["items"]}
+    assert {"top-1", "bottom-1", "shoe-1", "outer-2"} <= blazer_ids
+    assert "outer-1" not in blazer_ids
+
+
+def test_colour_and_type_requirements_do_not_silently_fallback():
+    result = _run(
+        _payload(
+            candidates=[
+                _item("shoe-black-2", "Black sneakers", "footwear", color="black"),
+                _item("shoe-white-2", "White loafers", "footwear", color="white"),
+            ]
+        ),
+        _decision(
+            replace_roles=["footwear"],
+            constraints=[
+                {"dimension": "color", "operator": "require", "value": "white"},
+                {"dimension": "footwear_type", "operator": "require", "value": "sneaker"},
+            ],
+        ),
+    )
+    assert result["success"] is False
+    assert result["error"]["code"] == "NO_VALID_REPLACEMENT"
+
+
+def test_follow_up_mutates_the_new_revision_not_the_historical_board():
+    first = _run(
+        _payload(candidates=[_item("shoe-white-2", "White sneakers", "footwear")]),
+        _decision(replace_roles=["footwear"]),
+    )
+    follow_up_decision = _decision(
+        replace_roles=["footwear"],
+        constraints=[{"dimension": "style", "operator": "require", "value": "minimal"}],
+        referent={
+            "type": "context",
+            "text": "them",
+            "resolved_to": "footwear",
+            "confidence": 0.9,
+        },
+    )
+    assert validate_semantic_decision(follow_up_decision)["referent"]["resolved_to"] == "footwear"
+    second = _run(
+        {
+            "style_state": first["style_state"],
+            "wardrobe": [_item("shoe-minimal-3", "Minimal white sneakers", "footwear")],
+        },
+        follow_up_decision,
+    )
+    assert first["revision"] == 2
+    assert second["revision"] == 3
+    assert second["lineage"]["parent_revision"] == 2
+    assert second["data"]["changed_item_ids"] == ["shoe-minimal-3"]

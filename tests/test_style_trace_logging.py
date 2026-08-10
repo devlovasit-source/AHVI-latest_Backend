@@ -13,6 +13,11 @@ def test_style_trace_is_bounded_and_does_not_mutate_or_log_sensitive_payload(cap
             "conversation_id": "conversation-1",
             "auth_token": "must-not-log",
         },
+        style_state={
+            "board_id": "board-1",
+            "revision": 4,
+            "board_items": [{"item_id": "shoe-1", "image_url": "secret"}],
+        },
     )
     envelope = {
         "intent": "information",
@@ -37,6 +42,8 @@ def test_style_trace_is_bounded_and_does_not_mutate_or_log_sensitive_payload(cap
     assert "request_id=style-trace-1" in trace
     assert "endpoint=/api/module-chat" in trace
     assert "history_count=1" in trace
+    assert "board_id=board-1" in trace
+    assert "board_revision=4" in trace
     assert "response_mode=text_only" in trace
     assert "resolved_date=today" in trace
     assert "must-not-log" not in trace
