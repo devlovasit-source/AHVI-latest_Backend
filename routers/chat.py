@@ -49,6 +49,7 @@ from services.style_flow_service import (
     _build_composition_brief,
 )
 from services.module_chat_service import handle_module_chat
+from services.request_context import get_request_id
 from services.style_board_mutation_service import (
     board_context_for_semantics,
     handle_board_operation,
@@ -88,6 +89,98 @@ from services.location_weather_context import resolve_location_weather_context
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.routers.chat")
+
+
+def _style_trace_value(value: Any) -> str:
+    text = "none" if value is None else str(value).strip()
+    if not text:
+        return "none"
+    safe = re.sub(r"[^a-zA-Z0-9_./:-]+", "_", text)
+    return safe[:48] or "none"
+
+
+def _log_style_trace(endpoint: str, request: Any, envelope: Dict[str, Any]) -> None:
+    module = str(
+        getattr(request, "domain", None)
+        or getattr(request, "module", None)
+        or getattr(request, "module_context", None)
+        or ""
+    ).strip().lower()
+    request_context = {}
+    for field in ("context_data", "context", "style_context"):
+        value = getattr(request, field, None)
+        if isinstance(value, dict):
+            request_context.update(value)
+    is_style = module in {"style", "wardrobe", "daily_wear"} or bool(
+        getattr(request, "style_action", None)
+        or getattr(request, "style_context", None)
+    )
+    if not is_style:
+        return
+
+    data = envelope.get("data") if isinstance(envelope.get("data"), dict) else {}
+    meta = envelope.get("meta") if isinstance(envelope.get("meta"), dict) else {}
+    resolved = envelope.get("resolved_context")
+    if not isinstance(resolved, dict):
+        resolved = data.get("resolved_context") if isinstance(data.get("resolved_context"), dict) else {}
+    referent = resolved.get("referent") if isinstance(resolved.get("referent"), dict) else {}
+    history = getattr(request, "history", None)
+    if not isinstance(history, list):
+        messages = getattr(request, "messages", None)
+        history = messages[:-1] if isinstance(messages, list) else []
+    context_used = envelope.get("context_used") or meta.get("context_used") or []
+    if isinstance(context_used, list):
+        context_used = ",".join(_style_trace_value(item) for item in context_used[:8]) or "none"
+    else:
+        context_used = _style_trace_value(context_used)
+    fallback = (
+        envelope.get("fallback_reason")
+        or data.get("fallback_reason")
+        or meta.get("fallback_reason")
+        or meta.get("fallback_used")
+        or "none"
+    )
+    conversation_id = (
+        getattr(request, "session_id", None)
+        or request_context.get("conversation_id")
+        or request_context.get("session_id")
+        or "none"
+    )
+    logger.info(
+        "AHVI_STYLE_TRACE request_id=%s endpoint=%s module=%s "
+        "conversation_id=%s history_count=%s intent=%s action=%s "
+        "response_mode=%s requires_clarification=%s has_board=%s "
+        "resolved_date=%s resolved_activity=%s activity_type=%s occasion=%s "
+        "referent_type=%s context_used=%s fallback=%s revision=%s",
+        _style_trace_value(getattr(request, "request_id", None) or get_request_id()),
+        _style_trace_value(endpoint),
+        _style_trace_value(module),
+        _style_trace_value(conversation_id),
+        len(history),
+        _style_trace_value(envelope.get("intent") or meta.get("intent")),
+        _style_trace_value(envelope.get("action") or meta.get("action")),
+        _style_trace_value(envelope.get("response_mode")),
+        bool(envelope.get("requires_clarification")),
+        bool(
+            envelope.get("style_boards")
+            or envelope.get("visual_directions")
+            or data.get("rendered_boards")
+            or data.get("outfits")
+        ),
+        _style_trace_value(resolved.get("date_context")),
+        _style_trace_value(resolved.get("activity")),
+        _style_trace_value(resolved.get("activity_type")),
+        _style_trace_value(resolved.get("occasion")),
+        _style_trace_value(referent.get("type")),
+        context_used,
+        _style_trace_value(fallback),
+        _style_trace_value(
+            os.getenv("K_REVISION")
+            or os.getenv("GIT_SHA")
+            or os.getenv("APP_REVISION")
+            or os.getenv("APP_RELEASE")
+        ),
+    )
 
 _CHAT_CACHE_MAX_ITEMS = max(64, int(os.getenv("CHAT_CACHE_MAX_ITEMS", "512")))
 _CHAT_CACHE_TTL_SECONDS = max(15, int(os.getenv("CHAT_CACHE_TTL_SECONDS", "60")))
@@ -4814,7 +4907,7 @@ def _stamp_module_chat_response(
     canonical_intent = (pre or {}).get("intent")
     if (pre or {}).get("response_mode") == "visual_inspiration":
         canonical_intent = "visual_inspiration"
-    return stamp_response(
+    stamped = stamp_response(
         envelope,
         response_mode=response_mode,
         request_id=request.request_id,
@@ -4822,6 +4915,8 @@ def _stamp_module_chat_response(
         intent=canonical_intent,
         action=(pre or {}).get("action"),
     )
+    _log_style_trace("/api/module-chat", request, stamped)
+    return stamped
 
 
 @router.post("/module-chat")
@@ -5208,11 +5303,13 @@ def text_chat(request: TextChatRequest, http_request: Request):
     if not isinstance(_envelope, dict):
         return _envelope
     _mode = resolve_response_mode(_envelope)
-    return stamp_response(
+    stamped = stamp_response(
         _envelope,
         response_mode=_mode,
         request_id=request.request_id,
     )
+    _log_style_trace("/api/text", request, stamped)
+    return stamped
 
 
 def _text_chat_impl(request: TextChatRequest, http_request: Request):
