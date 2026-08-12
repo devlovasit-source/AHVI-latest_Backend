@@ -232,6 +232,76 @@ def _safe_list(value: Any) -> List[Any]:
     return list(value) if isinstance(value, list) else []
 
 
+_NON_COLOR_TERMS = (
+    "moisturizer", "moisturiser", "serum", "sunscreen", "lipstick",
+    "foundation", "mascara", "cleanser", "eye cream", "vitamin c", "spf",
+    "makeup", "skincare", "product", "recommendation",
+)
+
+
+def normalize_explicit_colors(value: Any, *, limit: int = 10) -> List[str]:
+    """Normalize values from an explicitly identified color field only.
+
+    This deliberately does not traverse profile data. Callers choose the
+    accepted field locations; generic recommendation arrays never reach here.
+    """
+    values = value if isinstance(value, list) else []
+    out: List[str] = []
+    seen = set()
+    for raw in values:
+        color = re.sub(r"\s+", " ", str(raw or "")).strip().lower()
+        if not color or len(color) > 40:
+            continue
+        if any(term in color for term in _NON_COLOR_TERMS):
+            continue
+        if color not in seen:
+            seen.add(color)
+            out.append(color)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _merge_explicit_colors(*values: Any, limit: int = 10) -> List[str]:
+    merged: List[str] = []
+    for value in values:
+        for color in normalize_explicit_colors(value, limit=limit):
+            if color not in merged:
+                merged.append(color)
+            if len(merged) >= limit:
+                return merged
+    return merged
+
+
+def _compact_preferences(value: Any) -> Dict[str, Any]:
+    prefs = _safe_dict(value)
+    compact = {
+        "archetypes": [str(x) for x in _safe_list(prefs.get("archetypes"))[:5]],
+        "colors": normalize_explicit_colors(prefs.get("colors"), limit=6),
+        "avoided_colors": normalize_explicit_colors(
+            prefs.get("avoided_colors"), limit=6
+        ),
+        "silhouettes": [str(x) for x in _safe_list(prefs.get("silhouettes"))[:5]],
+        "style_keywords": [str(x) for x in _safe_list(prefs.get("style_keywords"))[:6]],
+        "avoid_keywords": [str(x) for x in _safe_list(prefs.get("avoid_keywords"))[:6]],
+        "formality": str(prefs.get("formality") or "").strip(),
+    }
+    return {key: item for key, item in compact.items() if item}
+
+
+def _compact_event_context(value: Any) -> Dict[str, Any]:
+    event = _safe_dict(value)
+    allowed = (
+        "title", "name", "occasion", "event_type", "date", "start_time",
+        "end_time", "daypart", "location", "venue",
+    )
+    return {
+        key: event[key]
+        for key in allowed
+        if isinstance(event.get(key), (str, int, float, bool)) and event.get(key) != ""
+    }
+
+
 def _category_of(item: Dict[str, Any]) -> str:
     raw = _norm(item.get("category") or item.get("type") or item.get("name"))
     for key in _CATEGORY_KEYS:
@@ -526,12 +596,22 @@ def compact_style_dna(style_dna: Any, preferences: Any) -> Dict[str, Any]:
 
     color = _safe_dict(dna.get("color_dna"))
     sil = _safe_dict(dna.get("silhouette_dna"))
+    preferred_colors = _merge_explicit_colors(
+        color.get("core_colors"),
+        color.get("power_colors"),
+        dna.get("preferred_colors"),
+        prefs.get("colors"),
+        limit=6,
+    )
+    avoided_colors = _merge_explicit_colors(
+        color.get("avoided_colors"), prefs.get("avoided_colors"), limit=6
+    )
 
     contract = {
         "style_archetypes": _top_archetypes(dna.get("style_archetypes"))
         or [str(x) for x in _safe_list(prefs.get("archetypes"))][:3],
-        "preferred_colors": [str(x) for x in (color.get("core_colors") or color.get("power_colors") or prefs.get("colors") or [])][:6],
-        "avoided_colors": [str(x) for x in (color.get("avoided_colors") or prefs.get("avoided_colors") or [])][:6],
+        "preferred_colors": preferred_colors,
+        "avoided_colors": avoided_colors,
         "preferred_silhouettes": [str(x) for x in (sil.get("preferred_fits") or sil.get("preferred_shapes") or prefs.get("silhouettes") or [])][:5],
         "preferred_formality": str(
             dna.get("preferred_formality")
@@ -853,12 +933,45 @@ def compact_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
     recently_worn_names = [
         _id_to_name[i] for i in _recent_ids if _id_to_name.get(i)
     ][:5]
+    underworn_names = [
+        _id_to_name[str(i)]
+        for i in (ctx.get("underworn_ids") or [])
+        if _id_to_name.get(str(i))
+    ][:5]
+    saved_item_names = [
+        _id_to_name[str(i)]
+        for i in (ctx.get("saved_item_ids") or [])
+        if _id_to_name.get(str(i))
+    ][:5]
+    favorite_colors = normalize_explicit_colors(
+        ctx.get("favorite_colors"), limit=5
+    )
     memory_slice = None
-    if recently_worn_names or ctx.get("favorite_colors"):
+    if any(
+        (
+            recently_worn_names,
+            underworn_names,
+            saved_item_names,
+            favorite_colors,
+            ctx.get("favorite_categories"),
+            ctx.get("saved_board_patterns"),
+        )
+    ):
         memory_slice = {
             "recently_worn": recently_worn_names,
-            "favorite_colors": (ctx.get("favorite_colors") or [])[:5],
+            "underworn": underworn_names,
+            "saved_items": saved_item_names,
+            "underworn_count": len(ctx.get("underworn_ids") or []),
+            "saved_item_count": len(ctx.get("saved_item_ids") or []),
+            "favorite_colors": favorite_colors,
+            "favorite_categories": [
+                str(x) for x in (ctx.get("favorite_categories") or [])[:5]
+            ],
+            "saved_board_patterns": [
+                str(x) for x in (ctx.get("saved_board_patterns") or [])[:5]
+            ],
         }
+        memory_slice = {key: value for key, value in memory_slice.items() if value}
         logger.info(
             "AHVI_STYLE_MEMORY_CONTEXT_USED recent_named=%d fav_colors=%d",
             len(recently_worn_names), len(ctx.get("favorite_colors") or []),
@@ -881,13 +994,17 @@ def compact_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(ctx.get("weather_context"), dict)
             and ctx.get("weather_context", {}).get(k) is not None
         },
-        "preferences": ctx.get("preferences", {}),
+        "preferences": _compact_preferences(ctx.get("preferences")),
         "style_dna": style_dna_compact or None,
         "style_dna_archetypes": style_dna_compact.get("style_archetypes"),
         "last_style_mode": _safe_dict(ctx.get("last_style_context")).get("last_style_mode"),
         "base_occasion": _safe_dict(ctx.get("last_style_context")).get("base_occasion"),
         "sub_occasions": ctx.get("sub_occasions") or [],
+        "dominant_occasion": _safe_dict(ctx.get("multi_event")).get(
+            "dominant_occasion"
+        ),
         "style_strategy": ctx.get("style_strategy"),
         "time_sequence": ctx.get("time_sequence") or [],
+        "event_context": _compact_event_context(ctx.get("event_context")),
         "memory": memory_slice,
     }

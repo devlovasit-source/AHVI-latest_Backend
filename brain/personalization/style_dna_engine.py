@@ -5,6 +5,7 @@ from threading import Lock
 from typing import Any, Dict, List
 
 from services.appwrite_proxy import AppwriteProxy
+from services.style_context_service import normalize_explicit_colors
 
 
 class StyleDNAEngine:
@@ -129,10 +130,10 @@ class StyleDNAEngine:
         # 🔥 MERGE ALL SIGNALS
         # =========================
         preferred_colors = self._merge_unique(
-            profile.get("preferred_colors", []),
-            previous_dna.get("preferred_colors", []),
-            _top(liked_colors, 6),
-            memory_signals.get("liked_colors", []),  # 🔥 NEW
+            normalize_explicit_colors(profile.get("preferred_colors", [])),
+            normalize_explicit_colors(previous_dna.get("preferred_colors", [])),
+            normalize_explicit_colors(_top(liked_colors, 6)),
+            normalize_explicit_colors(memory_signals.get("liked_colors", [])),
         )
 
         preferred_styles = self._merge_unique(

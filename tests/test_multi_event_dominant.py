@@ -9,7 +9,11 @@ from __future__ import annotations
 
 import pytest
 
-from services.style_context_service import detect_multi_event
+from services.style_context_service import (
+    build_style_context,
+    compact_context_for_prompt,
+    detect_multi_event,
+)
 
 
 @pytest.mark.parametrize(
@@ -41,3 +45,16 @@ def test_chronology_preserved_in_time_sequence():
 def test_single_event_still_none():
     assert detect_multi_event("gym workout today") is None
     assert detect_multi_event("client meeting tomorrow") is None
+
+
+def test_compact_context_preserves_dominant_strategy_and_chronology():
+    compact = compact_context_for_prompt(
+        build_style_context(query="gym at 6pm then brunch at 10pm")
+    )
+
+    assert compact["dominant_occasion"] == "brunch"
+    assert compact["style_strategy"] == "transition_outfit"
+    assert compact["time_sequence"] == [
+        {"event": "workout", "time": "18:00"},
+        {"event": "brunch", "time": "22:00"},
+    ]
