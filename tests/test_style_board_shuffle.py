@@ -4,6 +4,7 @@ import copy
 
 import pytest
 
+from routers import style_boards
 from services import style_board_shuffle_service as sbs
 from services.style_board_state_store import InMemoryBoardStateStore
 
@@ -38,6 +39,41 @@ def _wardrobe():
         _w("shoe-2", "Black Heels", "Footwear"),
         _w("watch-1", "Leather Watch", "Accessories"),
     ]
+
+
+def test_router_resolves_sanitized_inline_wardrobe():
+    request = style_boards.BoardShuffleRequest(
+        user_id="u-test",
+        wardrobe=[
+            _w("shirt-misc", "Blue Linen Shirt", "misc"),
+            _w("charger", "USB Phone Charger", "accessory"),
+        ],
+    )
+
+    wardrobe, trusted = style_boards._resolve_wardrobe(request)
+
+    assert [item["id"] for item in wardrobe] == ["shirt-misc"]
+    assert trusted is False
+
+
+def test_router_resolves_sanitized_appwrite_wardrobe(monkeypatch):
+    class FakeProxy:
+        def list_documents(self, resource, *, user_id):
+            assert resource == "outfits"
+            assert user_id == "bound-user"
+            return [
+                _w("sneaker-unknown", "White Leather Sneakers", "unknown", source=""),
+                _w("charger", "USB Phone Charger", "misc", source=""),
+            ]
+
+    monkeypatch.setattr(style_boards, "AppwriteProxy", FakeProxy)
+    request = style_boards.BoardShuffleRequest(user_id="body-user")
+
+    wardrobe, trusted = style_boards._resolve_wardrobe(request, "bound-user")
+
+    assert [item["id"] for item in wardrobe] == ["sneaker-unknown"]
+    assert wardrobe[0]["source"] == "wardrobe"
+    assert trusted is True
 
 
 _POS = {"x": 0.123, "y": 0.456, "width": 0.31, "height": 0.29, "z": 3, "rotation": -5}

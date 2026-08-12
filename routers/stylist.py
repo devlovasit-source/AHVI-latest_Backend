@@ -23,6 +23,7 @@ from services.style_item_contract import (
 )
 from services.style_this_anchor import canonical_style_this_anchor
 from services.stylist_knowledge_service import resolve_style_archetypes
+from services.wardrobe_sanitizer import sanitize_fashion_wardrobe_items
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.stylist")
@@ -99,6 +100,9 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
             wardrobe = appwrite.list_documents("outfits", user_id=request.user_id)
         except Exception:
             wardrobe = []
+    wardrobe = sanitize_fashion_wardrobe_items(
+        wardrobe, source="stylist.pipeline"
+    )
 
     style_dna = style_dna_engine.build(
         {
@@ -296,10 +300,14 @@ def _inject_anchor(items: List[Dict[str, Any]], anchor: Dict[str, Any]) -> List[
 
 def _resolve_wardrobe(request: ItemStyleRequest) -> List[Dict[str, Any]]:
     if isinstance(request.wardrobe, list):
-        return [i for i in request.wardrobe if isinstance(i, dict)]
+        return sanitize_fashion_wardrobe_items(
+            request.wardrobe, source="stylist.request"
+        )
     try:
         rows = AppwriteProxy().list_documents("outfits", user_id=request.user_id) or []
-        return [i for i in rows if isinstance(i, dict)]
+        return sanitize_fashion_wardrobe_items(
+            rows, source="stylist.appwrite"
+        )
     except Exception:
         return []
 

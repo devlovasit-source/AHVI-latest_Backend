@@ -25,6 +25,122 @@ def _req(wardrobe, mode="build_outfit", anchor=None, occasion=None):
     )
 
 
+def test_resolve_wardrobe_sanitizes_request_rows():
+    request = _req(
+        [
+            _DRESS,
+            _it("shirt-1", "Blue Linen Shirt", "misc"),
+            _it("charger-1", "USB Phone Charger", "Accessories"),
+        ]
+    )
+
+    resolved = stylist._resolve_wardrobe(request)
+
+    assert [item["id"] for item in resolved] == ["dress-1", "shirt-1"]
+
+
+def test_resolve_wardrobe_sanitizes_appwrite_rows(monkeypatch):
+    class FakeProxy:
+        def list_documents(self, resource, *, user_id):
+            assert resource == "outfits"
+            assert user_id == "u1"
+            return [
+                _it("sneaker-1", "White Leather Sneakers", "unknown"),
+                _it("charger-1", "USB Phone Charger", "misc"),
+            ]
+
+    monkeypatch.setattr(stylist, "AppwriteProxy", FakeProxy)
+    request = _req(None)
+
+    resolved = stylist._resolve_wardrobe(request)
+
+    assert [item["id"] for item in resolved] == ["sneaker-1"]
+
+
+def test_outfit_pipeline_sanitizes_request_wardrobe_before_style_processing(
+    monkeypatch,
+):
+    seen = {}
+
+    monkeypatch.setattr(stylist, "AppwriteProxy", lambda: object())
+    monkeypatch.setattr(
+        stylist,
+        "resolve_location_weather_context",
+        lambda **_kwargs: {
+            "location": {},
+            "weather": {},
+            "profile": {},
+            "context_usage": {},
+        },
+    )
+    monkeypatch.setattr(
+        stylist.style_dna_engine,
+        "build",
+        lambda payload: seen.setdefault("style_dna", payload["wardrobe"]) or {},
+    )
+
+    def fake_style_flow(**kwargs):
+        seen["style_flow"] = kwargs["wardrobe"]
+        return {"meta": {}}
+
+    monkeypatch.setattr(stylist, "build_style_flow_response", fake_style_flow)
+    request = stylist.OutfitPipelineRequest(
+        user_id="u1",
+        wardrobe=[
+            _it("shirt-1", "Blue Linen Shirt", "misc"),
+            _it("charger-1", "USB Phone Charger", "accessory"),
+        ],
+    )
+
+    stylist.run_outfit_pipeline(request)
+
+    assert [item["id"] for item in seen["style_dna"]] == ["shirt-1"]
+    assert seen["style_flow"] is seen["style_dna"]
+
+
+def test_outfit_pipeline_sanitizes_appwrite_wardrobe_before_style_processing(
+    monkeypatch,
+):
+    seen = {}
+
+    class FakeProxy:
+        def list_documents(self, resource, *, user_id):
+            assert resource == "outfits"
+            assert user_id == "u1"
+            return [
+                _it("sneaker-1", "White Leather Sneakers", "unknown"),
+                _it("charger-1", "USB Phone Charger", "misc"),
+            ]
+
+    monkeypatch.setattr(stylist, "AppwriteProxy", FakeProxy)
+    monkeypatch.setattr(
+        stylist,
+        "resolve_location_weather_context",
+        lambda **_kwargs: {
+            "location": {},
+            "weather": {},
+            "profile": {},
+            "context_usage": {},
+        },
+    )
+    monkeypatch.setattr(
+        stylist.style_dna_engine,
+        "build",
+        lambda payload: seen.setdefault("style_dna", payload["wardrobe"]) or {},
+    )
+
+    def fake_style_flow(**kwargs):
+        seen["style_flow"] = kwargs["wardrobe"]
+        return {"meta": {}}
+
+    monkeypatch.setattr(stylist, "build_style_flow_response", fake_style_flow)
+
+    stylist.run_outfit_pipeline(stylist.OutfitPipelineRequest(user_id="u1"))
+
+    assert [item["id"] for item in seen["style_dna"]] == ["sneaker-1"]
+    assert seen["style_flow"] is seen["style_dna"]
+
+
 def test_build_outfit_uses_owned_items_with_anchor():
     wardrobe = [_DRESS, _it("sneak-1", "White Sneakers", "Footwear"), _it("watch-1", "Gold Watch", "Accessories")]
     result = stylist.style_wardrobe_item("dress-1", _req(wardrobe, mode="build_outfit"))

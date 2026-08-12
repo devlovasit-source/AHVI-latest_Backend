@@ -30,10 +30,21 @@ from services import style_reasoning_engine as engine
         {"name": "Wireless Earbuds", "category": "electronics"},
         {"name": "Headphones", "category": ""},
         {"name": "Face Moisturizer", "category": "skincare"},
+        {"name": "Makeup Brush", "category": "accessory"},
+        {"name": "Ruby Lipstick", "category": "misc"},
+        {"name": "Liquid Foundation", "category": "unknown"},
+        {"name": "Black Mascara", "category": "makeup"},
+        {"name": "Waterproof Eyeliner", "category": "beauty"},
+        {"name": "Red Nail Polish", "category": "personal care"},
+        {"name": "Hair Dryer", "category": "misc"},
+        {"name": "Hair Straightener", "category": "unknown"},
         {"name": "Razor", "category": "grooming"},
         {"name": "Wide Tooth Comb", "category": ""},
         {"name": "Toothbrush", "category": ""},
         {"name": "Water Bottle", "category": "misc"},
+        {"name": "Coffee Cup", "category": "household"},
+        {"name": "Drinking Glass", "category": "unknown"},
+        {"name": "Dinner Plate", "category": "utensils"},
         {"name": "Neck Pillow", "category": "travel_accessory"},
         {"name": "Eye Mask", "category": ""},
         {"name": "Notebook", "category": "stationery"},
@@ -59,16 +70,26 @@ def test_non_fashion_items_rejected(item):
         {"name": "Blue Kurta", "category": "ethnicwear"},
         {"name": "Laptop Bag", "category": "bag"},
         {"name": "Open Toe Heels", "category": ""},  # "pen" must not match
-        {"name": "Silk Scarf", "category": "misc"},  # name signal rescues junk category? no — misc blocked
-    ][:-1],  # drop the last case; misc category is a hard block by design
+        {"name": "Silk Scarf", "category": "misc"},
+        {"name": "Blue Linen Shirt", "category": "misc"},
+        {"name": "White Leather Sneakers", "category": "unknown"},
+    ],
 )
 def test_fashion_items_accepted(item):
     assert is_fashion_item(item) is True
 
 
-def test_misc_category_blocks_even_fashion_sounding_name():
-    # Category "misc" is untrustworthy; hard block by design.
-    assert is_fashion_item({"name": "Silk Scarf", "category": "misc"}) is False
+def test_blocked_category_cannot_be_rescued_by_fashion_name():
+    assert is_fashion_item(
+        {"name": "Blue Linen Shirt", "category": "electronics"}
+    ) is False
+
+
+def test_misc_charger_and_accessory_charger_are_rejected():
+    assert is_fashion_item({"name": "USB Phone Charger", "category": "misc"}) is False
+    assert is_fashion_item(
+        {"name": "USB Phone Charger", "category": "accessory"}
+    ) is False
 
 
 def test_sanitize_filters_and_keeps_order():

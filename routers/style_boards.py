@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from services.appwrite_proxy import AppwriteProxy
 from services.auth_helpers import enforce_owner
 from services import style_board_shuffle_service
+from services.wardrobe_sanitizer import sanitize_fashion_wardrobe_items
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.style_boards")
@@ -69,12 +70,16 @@ def _resolve_wardrobe(
     uid = user_id if user_id is not None else request.user_id
     rows: List[Dict[str, Any]]
     if isinstance(request.wardrobe, list):
-        rows = [dict(i) for i in request.wardrobe if isinstance(i, dict)]
+        rows = sanitize_fashion_wardrobe_items(
+            request.wardrobe, source="style_boards.request"
+        )
         return rows, False
     else:
         try:
             docs = AppwriteProxy().list_documents("outfits", user_id=uid) or []
-            rows = [i for i in docs if isinstance(i, dict)]
+            rows = sanitize_fashion_wardrobe_items(
+                docs, source="style_boards.appwrite"
+            )
         except Exception:
             rows = []
     return [i if i.get("source") else {**i, "source": "wardrobe"} for i in rows], True

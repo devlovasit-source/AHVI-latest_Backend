@@ -19,6 +19,8 @@ from typing import Any, Dict, List
 logger = logging.getLogger(__name__)
 
 # Categories that immediately mark an item as non-fashion regardless of name.
+# Weak metadata such as "misc", "unknown", or an empty category is not a hard
+# block: a clear garment token in the item data may still establish fashion.
 BLOCKED_CATEGORIES: frozenset[str] = frozenset(
     {
         "electronics",
@@ -26,12 +28,24 @@ BLOCKED_CATEGORIES: frozenset[str] = frozenset(
         "gadget",
         "gadgets",
         "charger",
-        "misc",
-        "unknown",
         "travel_accessory",
         "travel-accessory",
         "grooming",
         "skincare",
+        "cosmetic",
+        "cosmetics",
+        "makeup",
+        "beauty",
+        "personal care",
+        "personal_care",
+        "personal-care",
+        "household",
+        "utensil",
+        "utensils",
+        "bottle",
+        "bottles",
+        "brush",
+        "brushes",
         "toiletries",
         "stationery",
         "medicine",
@@ -78,7 +92,19 @@ BLOCKED_NAME_TOKENS: tuple[str, ...] = (
     "shampoo",
     "conditioner",
     "lotion",
+    "makeup brush",
+    "lipstick",
+    "foundation",
+    "mascara",
+    "eyeliner",
+    "nail polish",
+    "hair dryer",
+    "hairdryer",
+    "straightener",
     "bottle",
+    "cup",
+    "glass",
+    "plate",
     "tumbler",
     "flask",
     "neck pillow",
@@ -107,7 +133,9 @@ BLOCKED_NAME_TOKENS: tuple[str, ...] = (
 # Short tokens that only count as a match when they equal a whole word —
 # substring matching would false-positive ("cap" in "escape", "comb" in
 # "combat boots").
-_EXACT_WORD_TOKENS: frozenset[str] = frozenset({"comb", "pen", "mask"})
+_EXACT_WORD_TOKENS: frozenset[str] = frozenset(
+    {"comb", "pen", "mask", "cup", "glass", "plate"}
+)
 
 # Positive fashion signals. An item whose blob hits one of these survives
 # even when its category field is junk ("misc", empty, etc.).
