@@ -130,6 +130,7 @@ def test_registration_preserves_mixed_source_policy():
                 "source": "style_asset",
                 "image_url": "https://images.test/asset-bottom-1.png",
             },
+            wardrobe[4],
         ],
     }
 
@@ -178,7 +179,14 @@ def test_missing_anchor_is_not_registered(monkeypatch):
         stylist,
         "_lite_directions",
         lambda *args, **kwargs: [
-            {"title": "Broken", "items": [{"item_id": "shoe-1", "category": "Footwear"}]}
+            {
+                "title": "Broken",
+                "items": [
+                    {"item_id": "top-x", "category": "Tops"},
+                    {"item_id": "bottom-x", "category": "Bottoms"},
+                    {"item_id": "shoe-1", "category": "Footwear"},
+                ],
+            }
         ],
     )
 
@@ -187,6 +195,66 @@ def test_missing_anchor_is_not_registered(monkeypatch):
     assert direction["shuffle_available"] is False
     assert direction["shuffle_state_error"]["code"] == "INVALID_ANCHOR_ITEM"
     assert shuffle_service.get_board_state(direction["board_id"]) is None
+
+
+def test_incomplete_style_this_creates_no_revision_one(monkeypatch):
+    wardrobe = [_wardrobe()[0]]
+    request = stylist.ItemStyleRequest(
+        user_id="owner-1",
+        mode="style_this",
+        anchor_item=wardrobe[0],
+        wardrobe=wardrobe,
+    )
+    register_calls = []
+    monkeypatch.setattr(
+        stylist,
+        "register_board",
+        lambda **kwargs: register_calls.append(kwargs) or {"ok": True},
+    )
+
+    result = stylist.style_wardrobe_item("top-1", request)
+
+    assert result["success"] is False
+    assert register_calls == []
+    assert all(
+        not direction.get("shuffle_available")
+        for direction in result["style_directions"]
+    )
+
+
+def test_registration_helper_cannot_persist_incomplete_direction():
+    wardrobe = _wardrobe()
+    registered = stylist._register_style_this_direction(
+        {"title": "Incomplete", "items": [wardrobe[0]]},
+        anchor=wardrobe[0],
+        wardrobe=wardrobe,
+        user_id="owner-1",
+        occasion=None,
+    )
+
+    assert registered["shuffle_available"] is False
+    assert registered["shuffle_state_error"]["code"] == "BOARD_REGISTRATION_INVALID"
+    assert shuffle_service.get_board_state(registered["board_id"]) is None
+
+
+def test_dress_and_footwear_style_this_remains_complete_and_persisted():
+    wardrobe = [
+        _item("dress-1", "Midnight Dress", "Dresses"),
+        _item("shoe-1", "Black Heels", "Footwear"),
+    ]
+    request = stylist.ItemStyleRequest(
+        user_id="owner-1",
+        mode="style_this",
+        anchor_item=wardrobe[0],
+        wardrobe=wardrobe,
+    )
+
+    result = stylist.style_wardrobe_item("dress-1", request)
+
+    assert result["success"] is True
+    for direction in result["style_directions"]:
+        assert direction["shuffle_available"] is True
+        assert shuffle_service.get_board_state(direction["board_id"])["revision"] == 1
 
 
 def test_style_this_board_shuffles_revision_one_to_two_via_route():

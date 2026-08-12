@@ -169,6 +169,28 @@ def test_style_this_returns_three_directions():
         assert any(i["item_id"] == "dress-1" for i in d["items"])
 
 
+def test_incomplete_style_this_is_not_registered_or_shuffleable(monkeypatch):
+    shirt = _it("shirt-1", "Blue Shirt", "Tops")
+    register_calls = []
+    monkeypatch.setattr(
+        stylist,
+        "register_board",
+        lambda **kwargs: register_calls.append(kwargs) or {"ok": True},
+    )
+
+    result = stylist.style_wardrobe_item(
+        "shirt-1",
+        _req([shirt], mode="style_this", anchor=shirt),
+    )
+
+    assert result["success"] is False
+    assert register_calls == []
+    assert all(
+        not direction.get("shuffle_available")
+        for direction in result["style_directions"]
+    )
+
+
 def test_dress_drops_mens_leather_shoes_and_suggests_missing():
     wardrobe = [_DRESS, _it("leather-1", "Brown Leather Shoes", "Footwear")]
     result = stylist.style_wardrobe_item("dress-1", _req(wardrobe, mode="build_outfit"))

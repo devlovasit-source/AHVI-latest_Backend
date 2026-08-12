@@ -341,7 +341,7 @@ def test_shuffle_reconstructs_style_this_anchor_from_durable_state():
         shuffle_slots=[item["slot"] for item in supporting[1:]],
         exclude_item_ids=[item["item_id"] for item in supporting],
         source_policy="inherit",
-        wardrobe=wardrobe,
+        wardrobe=wardrobe + [_item("shoe-2", "Black Loafers", "Footwear")],
         user_id="owner-1",
     )
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
+from brain.engines.outfit_quality_guard import is_complete_board
 from services.constrained_outfit_builder import ConstrainedOutfitBuilder
 from services.style_board_state_store import (
     AppwriteBoardStateStore,
@@ -551,6 +552,12 @@ def shuffle_board(
                 violating_item_id=canonical_item_id(item),
                 violating_source=item_source,
             )
+
+    if not is_complete_board(out_items):
+        return _error(
+            "INSUFFICIENT_WARDROBE",
+            "The available pieces could not produce a complete outfit; your board was not changed.",
+        )
 
     # --- Atomic commit: create the immutable revision N+1 document ----------
     # Creating the deterministic (board_id, N+1) document IS the claim; a

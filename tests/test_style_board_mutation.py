@@ -226,7 +226,9 @@ def test_ambiguous_structured_operation_clarifies_without_mutation():
 
 def test_authoritative_durable_lock_survives_client_lock_omission():
     authoritative_items = [
+        _item("top-1", "White shirt", "top"),
         _item("jacket-123", "Navy jacket", "outerwear", locked=True),
+        _item("bottom-1", "Blue jeans", "bottom"),
         _item("shoe-1", "Sneakers", "footwear"),
     ]
     store = shuffle_service._get_store()
@@ -247,7 +249,12 @@ def test_authoritative_durable_lock_survives_client_lock_omission():
         "board_id": "board-1",
         "revision": 1,
         "source_mode": "wardrobe",
-        "board_items": [_item("jacket-123", "Navy jacket", "outerwear"), _item("shoe-1", "Sneakers", "footwear")],
+        "board_items": [
+            _item("top-1", "White shirt", "top"),
+            _item("jacket-123", "Navy jacket", "outerwear"),
+            _item("bottom-1", "Blue jeans", "bottom"),
+            _item("shoe-1", "Sneakers", "footwear"),
+        ],
     }
     result = _run(
         {"style_state": client_state, "wardrobe": [_item("jacket-2", "Grey coat", "outerwear"), _item("shoe-2", "Loafers", "footwear")]},
@@ -256,6 +263,83 @@ def test_authoritative_durable_lock_survives_client_lock_omission():
 
     assert result["success"] is True
     assert "jacket-123" in {item["item_id"] for item in result["cards"][0]["items"]}
+
+
+def test_incomplete_carried_board_is_not_initialized():
+    items = [
+        _item("top-1", "White shirt", "top"),
+        _item("shoe-1", "White sneakers", "footwear"),
+    ]
+
+    result = _run(
+        _payload(
+            items=items,
+            candidates=[_item("top-2", "Black tee", "top")],
+            state_extra={"locked_item_ids": []},
+        ),
+        _decision(replace_roles=["top"]),
+    )
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "INCOMPLETE_BOARD"
+    assert shuffle_service.get_board_state("board-1") is None
+
+
+def test_incomplete_mutation_result_does_not_create_next_revision():
+    incomplete = [
+        _item("top-1", "White shirt", "top"),
+        _item("shoe-1", "White sneakers", "footwear"),
+    ]
+    store = shuffle_service._get_store()
+    store.create_revision(
+        user_id="user-1",
+        board_id="board-1",
+        revision=1,
+        payload={
+            "scenario": "conversational_style",
+            "interaction_mode": "conversational",
+            "source_policy": "wardrobe",
+            "items": incomplete,
+        },
+    )
+
+    result = _run(
+        {
+            "style_state": {
+                "board_id": "board-1",
+                "revision": 1,
+                "board_items": incomplete,
+            },
+            "wardrobe": [_item("top-2", "Black tee", "top")],
+        },
+        _decision(replace_roles=["top"]),
+    )
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "INCOMPLETE_BOARD"
+    assert store.get_latest("board-1")["revision"] == 1
+    assert store.get_revision("board-1", 2) is None
+
+
+def test_dress_and_footwear_carried_board_can_mutate_with_revision_semantics():
+    items = [
+        _item("dress-1", "Midnight Dress", "dress"),
+        _item("shoe-1", "Black Heels", "footwear"),
+    ]
+
+    result = _run(
+        _payload(
+            items=items,
+            candidates=[_item("shoe-2", "Silver Heels", "footwear")],
+            state_extra={"locked_item_ids": []},
+        ),
+        _decision(replace_roles=["footwear"]),
+    )
+
+    assert result["success"] is True
+    assert result["board_ids"] == "board-1"
+    assert result["revision"] == 2
+    assert result["lineage"]["parent_revision"] == 1
 
 
 @pytest.mark.parametrize("mode", ["style_this", "build_outfit"])

@@ -90,6 +90,16 @@ def _locked_top():
     }
 
 
+def _locked_bottom():
+    return {
+        "item_id": "bottom-1",
+        "slot": "bottom",
+        "role": "bottom",
+        "source": "wardrobe",
+        "image_url": "https://img/bottom-1.png",
+    }
+
+
 def _register(board_id="b-1", revision=1, source_policy="wardrobe", user_id="u-test"):
     # Boards must exist in durable state before shuffling — unknown boards
     # are no longer self-registered (BOARD_STATE_NOT_FOUND by design).
@@ -182,7 +192,7 @@ def test_locked_payload_fields_remain_exact():
 
 
 def test_only_shuffle_slots_change():
-    result = _shuffle(slots=["footwear"])
+    result = _shuffle(locked=[_locked_top(), _locked_bottom()], slots=["footwear"])
     assert result["success"] is True
     changed_roles = {
         i["role"] for i in result["board_items"] if not i["locked"]
@@ -193,6 +203,7 @@ def test_only_shuffle_slots_change():
 def test_replaced_slot_inherits_previous_placement():
     prev_pos = {"x": 0.9, "y": 0.8, "width": 0.2, "height": 0.2, "z": 2, "rotation": 5}
     result = _shuffle(
+        locked=[_locked_top(), _locked_bottom()],
         slots=["footwear"],
         context={"board_items": [{"slot": "footwear", "position": prev_pos}]},
     )
@@ -202,7 +213,11 @@ def test_replaced_slot_inherits_previous_placement():
 
 
 def test_excluded_item_not_reused():
-    result = _shuffle(slots=["footwear"], exclude_item_ids=["shoe-1"])
+    result = _shuffle(
+        locked=[_locked_top(), _locked_bottom()],
+        slots=["footwear"],
+        exclude_item_ids=["shoe-1"],
+    )
     assert result["success"] is True
     ids = {i["item_id"] for i in result["board_items"]}
     assert "shoe-1" not in ids
@@ -236,6 +251,37 @@ def test_failure_preserves_registry_state():
     after = sbs.get_board_state("b-1")
     assert after["revision"] == before["revision"]
     assert after["items"] == before["items"]
+
+
+def test_incomplete_shuffle_does_not_create_next_revision():
+    result = _shuffle(
+        slots=["bottom", "footwear"],
+        wardrobe=[_w("bottom-2", "Grey Trousers", "Bottoms")],
+    )
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "INSUFFICIENT_WARDROBE"
+    state = sbs.get_board_state("b-1")
+    assert state["revision"] == 1
+    assert sbs._get_store().get_revision("b-1", 2) is None
+
+
+def test_dress_and_footwear_shuffle_is_complete():
+    dress = _w("dress-1", "Midnight Dress", "Dresses")
+    dress.update({"item_id": "dress-1", "role": "dress", "slot": "dress"})
+    _register()
+
+    result = _shuffle(
+        register=False,
+        locked=[dress],
+        slots=["footwear"],
+        wardrobe=[_w("shoe-2", "Black Heels", "Footwear")],
+    )
+
+    assert result["success"] is True
+    assert result["revision"] == 2
+    assert result["locked_items_preserved"] is True
+    assert result["source_policy"] == "wardrobe"
 
 
 def test_one_level_undo_snapshot_exists():

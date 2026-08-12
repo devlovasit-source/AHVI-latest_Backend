@@ -7,6 +7,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from brain.engines.outfit_quality_guard import is_complete_board
 from brain.personalization.style_dna_engine import style_dna_engine
 from services import ai_gateway
 from services.appwrite_proxy import AppwriteProxy
@@ -918,6 +919,11 @@ def _register_style_this_direction(
             "ANCHOR_ROLE_MISMATCH",
             "The selected anchor role changed while building this Style This direction.",
         )
+    if not is_complete_board(canonical_items):
+        error = error or _style_this_registration_error(
+            "BOARD_REGISTRATION_INVALID",
+            "A complete Style This board could not be built from the available pieces.",
+        )
 
     sources = {item.get("source") for item in canonical_items}
     if sources == {"wardrobe"}:
@@ -1088,6 +1094,16 @@ def style_wardrobe_item(
             directions = _lite_directions(
                 anchor, wardrobe, resolved["weather"], strategies=strategies
             )
+            directions = [
+                direction
+                for direction in directions
+                if is_complete_board(direction.get("items"))
+            ]
+            if not directions:
+                fallback = _style_fallback(mode, anchor, strategies=strategies)
+                fallback["anchor_item_id"] = canonical_item_id(anchor)
+                fallback["context_usage"] = resolved["context_usage"]
+                return fallback
             directions = [
                 _register_style_this_direction(
                     direction,

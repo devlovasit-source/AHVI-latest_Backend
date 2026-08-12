@@ -11,6 +11,7 @@ from copy import deepcopy
 import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
+from brain.engines.outfit_quality_guard import is_complete_board
 from services.canonical_style_board import stable_hash
 from services.style_item_contract import (
     canonical_item_id,
@@ -489,6 +490,11 @@ def _authoritative_state(
     protected, invalid = _protected_ids(client_state, initial_items)
     if invalid:
         return None, store, _error("INVALID_PROTECTED_ITEM_ID", "A protected item is not present on this look.", item_ids=invalid)
+    if not is_complete_board(initial_items):
+        return None, store, _error(
+            "INCOMPLETE_BOARD",
+            "This look is incomplete and cannot be opened for mutation.",
+        )
     initial_payload = {
         "scenario": initial_scenario or "conversational_style",
         "interaction_mode": initial_mode or "conversational",
@@ -862,6 +868,11 @@ def handle_board_operation(
         return _error("PROTECTED_ITEM_LOST", "A protected item could not be preserved; the look was not changed.")
     if len({canonical_item_id(item) for item in out_items}) != len(out_items):
         return _error("DUPLICATE_ITEM_IDS", "The proposed look contains duplicate items; the look was not changed.")
+    if not is_complete_board(out_items):
+        return _error(
+            "INCOMPLETE_BOARD",
+            "The proposed change would leave this look incomplete; the look was not changed.",
+        )
 
     new_revision = current_revision + 1
     mutation_id = stable_hash({
