@@ -8,7 +8,9 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
+from brain.engines.outfit_quality_guard import is_complete_board
 from services.category_taxonomy import infer_style_attributes
+from services.style_item_contract import canonical_item_role
 from services.wardrobe_suitability import outfit_contains_private_wear
 
 try:
@@ -469,73 +471,27 @@ def _ahvi_slot_counts(items: list[dict]) -> dict:
     counts = {
         "top": 0,
         "bottom": 0,
+        "dress": 0,
         "footwear": 0,
         "accessory": 0,
         "outerwear": 0,
         "total": 0,
     }
     for item in items or []:
-        blob = _ahvi_item_blob(item)
         counts["total"] += 1
-        if any(
-            w in blob
-            for w in [
-                "shirt",
-                "t-shirt",
-                "tee",
-                "top",
-                "polo",
-                "kurta",
-                "blouse",
-                "sweater",
-                "hoodie",
-            ]
-        ):
-            counts["top"] += 1
-        elif any(w in blob for w in ["pant", "trouser", "jean", "shorts", "skirt", "bottom"]):
-            counts["bottom"] += 1
-        elif any(
-            w in blob
-            for w in [
-                "shoe",
-                "sneaker",
-                "loafer",
-                "boot",
-                "sandal",
-                "slide",
-                "footwear",
-                "slipper",
-            ]
-        ):
-            counts["footwear"] += 1
-        elif any(w in blob for w in ["blazer", "jacket", "coat", "overshirt"]):
-            counts["outerwear"] += 1
-        elif any(
-            w in blob
-            for w in [
-                "watch",
-                "belt",
-                "bag",
-                "jewelry",
-                "jewellery",
-                "ring",
-                "bracelet",
-                "cap",
-                "eyewear",
-                "sunglasses",
-                "chain",
-            ]
-        ):
-            counts["accessory"] += 1
+        role = canonical_item_role(item)
+        if role in counts:
+            counts[role] += 1
     return counts
 
 
 def _ahvi_has_core_slots(slot_counts: dict) -> bool:
-    return (
-        int(slot_counts.get("top", 0) or 0) > 0
-        and int(slot_counts.get("bottom", 0) or 0) > 0
-        and int(slot_counts.get("footwear", 0) or 0) > 0
-    )
+    items = [
+        {"role": role}
+        for role in ("top", "bottom", "dress", "footwear")
+        if int(slot_counts.get(role, 0) or 0) > 0
+    ]
+    return is_complete_board(items)
 
 
 # --- Office/client-meeting board sanitization ------------------------------
@@ -664,15 +620,7 @@ def _has_minimum_board_slots(card: dict) -> bool:
     items = card.get("items")
     if not isinstance(items, list):
         return False
-    counts = _ahvi_slot_counts([i for i in items if isinstance(i, dict)])
-    top_or_outer = int(counts.get("top", 0) or 0) + int(
-        counts.get("outerwear", 0) or 0
-    )
-    return (
-        top_or_outer > 0
-        and int(counts.get("bottom", 0) or 0) > 0
-        and int(counts.get("footwear", 0) or 0) > 0
-    )
+    return is_complete_board([i for i in items if isinstance(i, dict)])
 
 
 def _ahvi_missing_core_slots_response(slot_counts: dict) -> dict:

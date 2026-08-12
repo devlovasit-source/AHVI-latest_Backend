@@ -48,6 +48,24 @@ CAP = {
     "image_url": "https://cdn.example/cap.jpg",
 }
 
+DRESS = {
+    "asset_id": "dress-1",
+    "name": "Black Midi Dress",
+    "category": "dress",
+    "role": "dress",
+    "board_image_url": "https://cdn.example/dress.png",
+    "image_url": "https://cdn.example/dress.jpg",
+}
+
+OUTERWEAR = {
+    "asset_id": "outer-1",
+    "name": "Navy Blazer",
+    "category": "outerwear",
+    "role": "outerwear",
+    "board_image_url": "https://cdn.example/outer.png",
+    "image_url": "https://cdn.example/outer.jpg",
+}
+
 
 def test_repairs_missing_top_and_footwear(monkeypatch):
     assets = [TOP, BOTTOM, FOOTWEAR, BAG]
@@ -115,6 +133,70 @@ def test_accessories_cannot_displace_core_slots():
     assert roles.count("footwear") == 1
     assert roles.count("accessory") <= 1
     assert engine._board_items_viable(repaired)
+
+
+def test_visual_viability_uses_canonical_complete_outfit_rules():
+    assert engine._board_items_viable([TOP, BOTTOM, FOOTWEAR]) is True
+    assert engine._board_items_viable([DRESS, FOOTWEAR]) is True
+    assert engine._board_items_viable([TOP, FOOTWEAR, OUTERWEAR]) is False
+    assert engine._board_items_viable([OUTERWEAR, BOTTOM, FOOTWEAR]) is False
+    assert engine._board_items_viable([BOTTOM, FOOTWEAR, BAG]) is False
+    assert engine._board_items_viable([OUTERWEAR, BAG, CAP]) is False
+
+
+def test_wardrobe_only_incomplete_visual_direction_is_not_emitted(monkeypatch):
+    monkeypatch.setattr(engine, "_style_asset_rows", lambda: [])
+    direction = {
+        "title": "Wardrobe Partial",
+        "hero_piece": "Navy Oxford Shirt",
+        "owned_items": [dict(TOP), dict(FOOTWEAR), dict(OUTERWEAR)],
+    }
+
+    result = engine._enrich_visual_directions_with_assets(
+        [direction],
+        occasion="daily",
+        wardrobe_intent=True,
+    )
+
+    assert result == []
+
+
+def test_post_occasion_repair_does_not_emit_incomplete_board(monkeypatch):
+    monkeypatch.setenv("STYLE_SHARED_BRAIN", "true")
+    direction = {
+        "title": "Office Look",
+        "hero_piece": "White Shirt",
+        "items": ["White Shirt", "Gym Shorts", "Black Loafers"],
+        "board_items": [
+            dict(TOP),
+            {**dict(BOTTOM), "name": "Gym Shorts"},
+            dict(FOOTWEAR),
+        ],
+    }
+
+    result = engine._apply_style_guard(
+        [direction],
+        {"canonical_occasion": "office", "gender": "male", "_query": ""},
+    )
+
+    assert result == []
+
+
+def test_rejected_incomplete_direction_is_not_resurrected(monkeypatch):
+    monkeypatch.setenv("STYLE_SHARED_BRAIN", "true")
+    direction = {
+        "title": "Beach Party Boardroom",
+        "hero_piece": "Gym Shorts",
+        "items": ["Gym Shorts", "Flip Flops"],
+        "board_items": [dict(BOTTOM), dict(FOOTWEAR), dict(BAG)],
+    }
+
+    result = engine._apply_style_guard(
+        [direction],
+        {"canonical_occasion": "office", "gender": "male", "_query": ""},
+    )
+
+    assert result == []
 
 
 def test_visible_copy_uses_actual_selected_hero():

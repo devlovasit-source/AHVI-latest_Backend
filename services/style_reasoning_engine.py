@@ -4326,11 +4326,9 @@ def _build_board_items(
 
 
 def _board_items_viable(items: List[Dict[str, Any]]) -> bool:
-    roles = {i.get("role") for i in items}
-    classic = {"top", "bottom", "footwear"}.issubset(roles)
-    dress = {"dress", "footwear"}.issubset(roles)
-    known = sum(1 for i in items if i.get("role") in _BOARD_ALLOWED_ROLES)
-    return classic or dress or known >= 3
+    from brain.engines.outfit_quality_guard import is_complete_board
+
+    return is_complete_board(items)
 
 
 # ── Visual board sanitizer ──────────────────────────────────────────────────
@@ -5352,21 +5350,22 @@ def _enrich_visual_directions_with_assets(
                 )
 
         viable = _board_items_viable(board_items)
-        if wardrobe_intent and not viable:
-            out["board_status"] = "insufficient_wardrobe_items"
-            out["fallback_reason"] = (
-                "Need top, bottom and footwear from wardrobe to build this board."
+        if not viable and (wardrobe_intent or board_items):
+            logger.warning(
+                "AHVI_VISUAL_DIRECTION_REJECTED title=%r reason=incomplete_core source=%s",
+                _asset_text(out.get("title") or out.get("direction_name")),
+                "wardrobe" if wardrobe_intent else "asset",
             )
+            continue
+        has_catalog_fallback = any(
+            item.get("board_status") == "catalog_fallback"
+            for item in board_items
+            if item.get("source") == "asset"
+        )
+        if has_catalog_fallback:
+            out["board_status"] = "catalog_fallback"
         else:
-            has_catalog_fallback = any(
-                item.get("board_status") == "catalog_fallback"
-                for item in board_items
-                if item.get("source") == "asset"
-            )
-            if has_catalog_fallback:
-                out["board_status"] = "catalog_fallback"
-            else:
-                out["board_status"] = "viable" if viable else "partial"
+            out["board_status"] = "viable" if viable else "partial"
         out["board_items"] = board_items
         out["boardItems"] = board_items
         enriched.append(out)
@@ -7191,6 +7190,13 @@ def _repair_direction_for_occasion(
         out["complete_the_look"] = [
             i for i in complete if not _hit(i.get("name") if isinstance(i, dict) else i)
         ]
+    board_items = out.get("board_items")
+    if isinstance(board_items, list):
+        out["board_items"] = [
+            item for item in board_items
+            if not _hit(item.get("name") if isinstance(item, dict) else item)
+        ]
+        out["boardItems"] = out["board_items"]
 
     if _hit(out.get("hero_piece")):
         items = _safe_list(out.get("items") or out.get("pieces"), limit=6)
@@ -7388,6 +7394,13 @@ def _apply_style_guard(
                 gender,
                 before - after,
             )
+        board_items = d.get("board_items")
+        if board_items and not _board_items_viable(board_items):
+            logger.info(
+                "visual_guard.reject reason=incomplete_core title=%r",
+                d.get("title"),
+            )
+            continue
         out.append(d)
         stats["kept"] += 1
 
@@ -7398,8 +7411,7 @@ def _apply_style_guard(
         len(out),
         stats,
     )
-    # Never blank the screen: if every direction was rejected, keep the originals.
-    return out or directions
+    return out
 
 
 def _recognized_archetype_names() -> set[str]:

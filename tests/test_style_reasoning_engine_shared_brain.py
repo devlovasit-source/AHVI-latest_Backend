@@ -231,9 +231,9 @@ def test_guard_skips_color_check_when_no_color(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# 9. Guard never returns empty directions.
+# 9. Guard does not resurrect rejected directions.
 # --------------------------------------------------------------------------
-def test_guard_never_returns_empty(monkeypatch):
+def test_guard_does_not_restore_rejected_directions(monkeypatch):
     _on(monkeypatch)
     # Office occasion with only an unrepairable casual board (metadata conflict
     # via title text the repair can't strip) -> falls back to originals.
@@ -246,8 +246,7 @@ def test_guard_never_returns_empty(monkeypatch):
         }
     ]
     out = e._apply_style_guard(directions, _ctx(occasion="office", gender="male"))
-    assert out  # never blank
-    assert isinstance(out, list) and len(out) >= 1
+    assert out == []
 
 
 def test_guard_passthrough_on_empty_input(monkeypatch):

@@ -114,7 +114,7 @@ def test_is_office_occasion_matches_aliases():
         assert not sfs._is_office_occasion(occ)
 
 
-def test_has_minimum_board_slots_requires_top_or_outer_plus_bottom_and_footwear():
+def test_has_minimum_board_slots_uses_canonical_complete_outfit_rules():
     assert sfs._has_minimum_board_slots(
         {
             "items": [
@@ -124,12 +124,28 @@ def test_has_minimum_board_slots_requires_top_or_outer_plus_bottom_and_footwear(
             ]
         }
     )
-    assert sfs._has_minimum_board_slots(
+    assert not sfs._has_minimum_board_slots(
         {
             "items": [
                 _item("Blazer", subcategory="blazer"),
                 _item("Pants", subcategory="trouser"),
                 _item("Loafer", subcategory="loafer"),
+            ]
+        }
+    )
+    assert sfs._has_minimum_board_slots(
+        {
+            "items": [
+                _item("Midi Dress", subcategory="dress"),
+                _item("Heels", subcategory="footwear"),
+            ]
+        }
+    )
+    assert sfs._has_minimum_board_slots(
+        {
+            "items": [
+                _item("Tailored Jumpsuit", subcategory="jumpsuit"),
+                _item("Heels", subcategory="footwear"),
             ]
         }
     )
@@ -141,3 +157,39 @@ def test_has_minimum_board_slots_requires_top_or_outer_plus_bottom_and_footwear(
             ]
         }
     )
+
+
+def test_slot_counts_and_core_check_support_one_piece_without_outerwear_substitution():
+    complete = sfs._ahvi_slot_counts(
+        [
+            _item("Tailored Jumpsuit", category="jumpsuit"),
+            _item("Black Heels", category="footwear"),
+        ]
+    )
+    outerwear_only = sfs._ahvi_slot_counts(
+        [
+            _item("Navy Blazer", category="outerwear"),
+            _item("Grey Trouser", category="bottom"),
+            _item("Black Loafers", category="footwear"),
+        ]
+    )
+
+    assert complete["dress"] == 1
+    assert sfs._ahvi_has_core_slots(complete) is True
+    assert sfs._ahvi_has_core_slots(outerwear_only) is False
+
+
+def test_office_sanitization_that_removes_core_item_fails_completeness():
+    card = {
+        "items": [
+            _item("Pool Shirt", category="top"),
+            _item("Grey Trouser", category="bottom"),
+            _item("Black Loafers", category="footwear"),
+            _item("Navy Blazer", category="outerwear"),
+        ]
+    }
+
+    sanitized, removed = sfs._sanitize_office_board(card, "office")
+
+    assert removed == ["Pool Shirt"]
+    assert sfs._has_minimum_board_slots(sanitized) is False

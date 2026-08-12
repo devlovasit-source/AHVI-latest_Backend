@@ -288,13 +288,15 @@ def test_policy_false_preserves_legacy_fallback_accessories(monkeypatch):
 def test_wardrobe_intent_bypasses_visual_compatibility(monkeypatch):
     top = _asset("top", "Crisp Oxford Shirt", "top")
     cargo = _asset("cargo", "Cargo Pants", "bottom")
-    monkeypatch.setattr(engine, "_style_asset_rows", lambda: [top, cargo])
+    footwear = _asset("shoe", "Minimal Sneakers", "footwear")
+    monkeypatch.setattr(engine, "_style_asset_rows", lambda: [top, cargo, footwear])
     result = engine._enrich_visual_directions_with_assets(
         [{
             **FORMAL,
             "image_url": top["image_url"],
             "asset_id": "top",
-            "complete_the_look": [cargo],
+            "owned_items": [top, cargo, footwear],
+            "complete_the_look": [cargo, footwear],
         }],
         occasion="today",
         wardrobe_intent=True,
