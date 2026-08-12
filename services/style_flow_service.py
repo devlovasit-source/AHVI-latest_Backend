@@ -2949,6 +2949,93 @@ def _item_name(card: Dict[str, Any], role: str, fallback: str) -> str:
     return _safe_text(item.get("name") or item.get("label") or item.get("title") or fallback)
 
 
+_PUBLIC_OCCASION_REASONS = {
+    "traditional silhouette fits temple etiquette",
+    "modest coverage suits temple context",
+    "easy-off footwear suits temple etiquette",
+    "premium footwear improves date/evening polish",
+    "clean footwear keeps the date look wearable",
+    "footwear matches office polish",
+    "relaxed footwear fits beach/resort context",
+    "shirt, denim and boots create a strong date-night silhouette",
+    "shirt and polished footwear improve smart-casual balance",
+}
+
+
+def _provenance_explanation(card: Dict[str, Any]) -> str:
+    """Return one public-safe reason that demonstrably affected ranking."""
+    sources = [
+        _dict(card.get("_style_explanation_provenance")),
+        _dict(card.get("unified_style")),
+        _dict(card.get("score_meta")),
+    ]
+    reasons: List[str] = []
+    editorial_reasons: List[str] = []
+    breakdown: Dict[str, Any] = {}
+    weather: Dict[str, Any] = {}
+    for source in sources:
+        if not source:
+            continue
+        if not reasons and isinstance(source.get("reasons"), list):
+            reasons = [_safe_text(reason).lower() for reason in source["reasons"]]
+        if not breakdown:
+            breakdown = _dict(source.get("breakdown"))
+        if not weather:
+            weather = _dict(source.get("weather_compatibility"))
+        if not editorial_reasons and isinstance(source.get("editorial_reasons"), list):
+            editorial_reasons = [
+                _safe_text(reason).lower() for reason in source["editorial_reasons"]
+            ]
+
+    # Occasion/safety reasons have priority over every personalization signal.
+    for reason in editorial_reasons:
+        if reason in _PUBLIC_OCCASION_REASONS:
+            return reason[:1].upper() + reason[1:] + "."
+    if any(reason.startswith("occasion_fit:") for reason in reasons) or float(
+        breakdown.get("occasion_compatibility") or 0.0
+    ) > 0:
+        return "This combination was selected for its strong fit with the occasion."
+
+    # Weather is surfaced only when the weather component positively contributed.
+    weather_delta = float(breakdown.get("weather_compatibility") or 0.0)
+    weather_score = float(weather.get("score") or 0.5)
+    weather_key = _safe_text(weather.get("weather")).lower()
+    if weather_delta > 0 and weather_score > 0.5 and weather_key in {
+        "rain", "winter", "summer"
+    }:
+        label = {
+            "rain": "rainy conditions",
+            "winter": "cold conditions",
+            "summer": "warm conditions",
+        }[weather_key]
+        return f"This combination was favored because it is better suited to {label}."
+
+    if float(breakdown.get("style_dna") or 0.0) > 0 and "matches your style" in reasons:
+        return "This combination matches your established Style DNA preferences."
+
+    memory_reasons = (
+        (
+            "recent_repeat_penalty",
+            "recently worn — offering a fresher option",
+            "This choice accounts for pieces worn recently to keep the rotation fresh.",
+        ),
+        (
+            "underworn_boost",
+            "brings an under-worn piece back into rotation",
+            "This choice brings an under-worn piece back into rotation.",
+        ),
+        (
+            "saved_board_affinity",
+            "echoes a look you saved",
+            "This choice echoes a look you saved.",
+        ),
+    )
+    for key, trusted_reason, public_reason in memory_reasons:
+        if float(breakdown.get(key) or 0.0) != 0 and trusted_reason in reasons:
+            return public_reason
+    return ""
+
+
 def _explanation_for(card: Dict[str, Any], query: str, index: int) -> Dict[str, str]:
     mode = _EXPLANATION_MODES[index % len(_EXPLANATION_MODES)]
     top = _item_name(card, "top", _item_name(card, "dress", "the hero piece"))
@@ -3050,9 +3137,10 @@ def _explanation_for(card: Dict[str, Any], query: str, index: int) -> Dict[str, 
         "If this moves into evening, keep the collar open and skip extra accessories.",
         "Do not add a cap here unless the brief is explicitly weekend or street.",
     ]
+    provenance = _provenance_explanation(card)
     return {
         "explanation_mode": mode,
-        "why_it_works": copy[mode],
+        "why_it_works": provenance or copy[mode],
         "styling_tip": tips[index % len(tips)],
     }
 
@@ -3595,6 +3683,7 @@ def finalize_style_cards(
         title = _safe_text(card.get("_target_title")) or _title_for(card, query, idx, board_role)
         profile = _diversity_profile(card, query)
         explanation = _explanation_for(card, query, idx)
+        card.pop("_style_explanation_provenance", None)
         layout = _layout_metadata(card, board_role)
         composition = _composition_metadata(card)
         controlled_archetype = _controlled_style_archetype_for_card(card, query)
@@ -4238,6 +4327,24 @@ def finalize_style_response_payload(
     # collapse otherwise valid 5-6 board sets. Prefer cards because they carry
     # display metadata; fall back to outfits only when cards are absent.
     source_candidates = list(raw_cards or []) if raw_cards else list(raw_outfits or [])
+    outfit_provenance: Dict[str, Dict[str, Any]] = {}
+    for outfit in raw_outfits:
+        if not isinstance(outfit, dict):
+            continue
+        metadata = _dict(outfit.get("style_metadata"))
+        sig = _safe_text(
+            outfit.get("pipeline_style_signature")
+            or outfit.get("_style_signature")
+            or metadata.get("pipeline_style_signature")
+            or card_signature(outfit)
+        )
+        scorer = _dict(outfit.get("unified_style") or outfit.get("score_meta"))
+        if sig and scorer:
+            scorer = dict(scorer)
+            scorer["editorial_reasons"] = list(
+                outfit.get("_editorial_rank_reasons") or []
+            )[:3]
+            outfit_provenance[sig] = scorer
     candidates: List[Dict[str, Any]] = []
     seen_candidate_sigs: set[str] = set()
     for candidate in source_candidates:
@@ -4256,6 +4363,9 @@ def finalize_style_response_payload(
             continue
         if sig:
             seen_candidate_sigs.add(sig)
+        candidate = dict(candidate)
+        if sig and sig in outfit_provenance:
+            candidate["_style_explanation_provenance"] = outfit_provenance[sig]
         candidates.append(candidate)
     logger.info(
         "style_flow.candidate_merge raw_cards=%s raw_outfits=%s merged_unique=%s",
