@@ -103,6 +103,25 @@ def test_missing_cutout_marks_catalog_fallback():
     assert all(item["board_status"] == "catalog_fallback" for item in items)
 
 
+def test_bare_board_url_falls_back_without_cutout_metadata():
+    direction = {
+        "hero_piece": "Soft Oxford Shirt",
+        "image_url": "https://cdn/catalog-shirt.jpg",
+        "board_image_url": "https://cdn/unknown-shirt.png",
+        "complete_the_look": [
+            {"name": "Relaxed Chinos", "image_url": "https://cdn/catalog-chino.jpg"},
+            {"name": "Clean Sneakers", "image_url": "https://cdn/catalog-sneakers.jpg"},
+        ],
+    }
+
+    items = _build_board_items(direction, wardrobe_intent=False)
+
+    assert items[0]["image_url"] == "https://cdn/catalog-shirt.jpg"
+    assert "board_image_url" not in items[0]
+    assert items[0]["board_status"] == "catalog_fallback"
+    assert items[0]["image_source"] == "image_url"
+
+
 def test_visual_enrichment_prefers_cutout_ready_assets(monkeypatch):
     import services.style_reasoning_engine as engine
 

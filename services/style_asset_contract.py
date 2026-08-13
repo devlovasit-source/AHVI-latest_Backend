@@ -26,6 +26,124 @@ def _first_text(row: Mapping[str, Any], *keys: str) -> str:
     return ""
 
 
+_RAW_IMAGE_FIELDS = (
+    "image_url",
+    "imageUrl",
+    "raw_url",
+    "rawUrl",
+    "url",
+    "asset_url",
+    "assetUrl",
+    "asset_path",
+    "assetPath",
+    "original_image_url",
+    "originalImageUrl",
+    "preview_url",
+    "previewUrl",
+    "original_upload_url",
+    "originalUploadUrl",
+    "upload_url",
+    "uploadUrl",
+)
+
+def _raw_image_aliases(row: Mapping[str, Any]) -> set[str]:
+    return {
+        value
+        for field in _RAW_IMAGE_FIELDS
+        if (value := _text(row.get(field)))
+    }
+
+
+def _is_style_asset_row(row: Mapping[str, Any]) -> bool:
+    return (
+        _first_text(row, "source").lower() == "style_asset"
+        or any(
+            _text(row.get(key))
+            for key in (
+                "cutout_url",
+                "cutoutUrl",
+                "board_image_url",
+                "boardImageUrl",
+                "catalog_image_url",
+                "catalogImageUrl",
+                "cutout_status",
+                "cutoutStatus",
+            )
+        )
+    )
+
+
+def _cutout_status_ready(row: Mapping[str, Any]) -> bool:
+    return _first_text(row, "cutout_status", "cutoutStatus").lower() == "ready"
+
+
+def resolve_style_asset_image(row: Mapping[str, Any]) -> Dict[str, Any]:
+    """Select an image according to the persisted wardrobe/style-assets fields."""
+    raw_aliases = _raw_image_aliases(row)
+    style_asset = _is_style_asset_row(row)
+    catalog_url = _first_text(row, "catalog_image_url", "catalogImageUrl")
+
+    candidates: List[tuple[str, str, bool]] = []
+    if style_asset:
+        cutout_url = _first_text(row, "cutout_url", "cutoutUrl")
+        if cutout_url and cutout_url not in raw_aliases and _cutout_status_ready(row):
+            candidates.append(("cutout_url", cutout_url, True))
+
+        board_url = _first_text(row, "board_image_url", "boardImageUrl")
+        if board_url and board_url not in raw_aliases and _cutout_status_ready(row):
+            candidates.append(("board_image_url", board_url, True))
+
+        candidates.extend(
+            [
+                    ("normalized_url", _first_text(row, "normalized_url", "normalizedUrl"), False),
+                    ("catalog_image_url", catalog_url, False),
+                ("image_url", _first_text(row, "image_url", "imageUrl"), False),
+            ]
+        )
+    else:
+        masked_url = _first_text(row, "masked_url", "maskedUrl")
+        if masked_url and masked_url not in raw_aliases:
+            candidates.append(("masked_url", masked_url, True))
+        candidates.extend(
+            [
+                ("normalized_url", _first_text(row, "normalized_url", "normalizedUrl"), False),
+                ("image_url", _first_text(row, "image_url", "imageUrl"), False),
+            ]
+        )
+
+    selected_field = ""
+    selected_url = ""
+    expected_transparent = False
+    for field, value, transparent in candidates:
+        if value:
+            selected_field = field
+            selected_url = value
+            expected_transparent = transparent
+            break
+
+    prefix = "style_asset" if style_asset else "wardrobe"
+    if expected_transparent:
+        source_kind = f"{prefix}_cutout"
+    elif selected_field == "normalized_url":
+        source_kind = f"{prefix}_processed"
+    elif selected_field == "catalog_image_url":
+        source_kind = "catalog_fallback"
+    elif selected_field == "image_url":
+        source_kind = f"{prefix}_original"
+    else:
+        source_kind = ""
+
+    return {
+        "selected_field": selected_field,
+        "selected_url": selected_url,
+        "source_kind": source_kind,
+        "expected_transparent": expected_transparent,
+        "requires_frame": bool(selected_url) and not expected_transparent,
+        "board_image_url": selected_url if expected_transparent else "",
+        "catalog_image_url": catalog_url,
+    }
+
+
 def _stable_asset_id(row: Mapping[str, Any]) -> str:
     return _first_text(
         row,
@@ -46,6 +164,8 @@ def _url_values(row: Mapping[str, Any]) -> List[str]:
         "boardImageUrl",
         "cutout_url",
         "cutoutUrl",
+        "masked_url",
+        "maskedUrl",
         "catalog_image_url",
         "catalogImageUrl",
         "normalized_url",
@@ -149,32 +269,18 @@ def adapt_style_asset(row: Mapping[str, Any]) -> Dict[str, Any]:
     if original_url:
         asset["image_url"] = original_url
 
-    # Freeze explicit image provenance for clients that understand it.
-    if board_url:
-        asset["selected_field"] = "board_image_url"
-        asset["source_kind"] = "style_asset_cutout"
-        asset["expected_transparent"] = True
-        asset["requires_frame"] = False
-    elif cutout_url:
-        asset["selected_field"] = "cutout_url"
-        asset["source_kind"] = "style_asset_cutout"
-        asset["expected_transparent"] = True
-        asset["requires_frame"] = False
-    elif normalized_url:
-        asset["selected_field"] = "normalized_url"
-        asset["source_kind"] = "style_asset_processed"
-        asset["expected_transparent"] = False
-        asset["requires_frame"] = True
-    elif catalog_url:
-        asset["selected_field"] = "catalog_image_url"
-        asset["source_kind"] = "catalog_fallback"
-        asset["expected_transparent"] = False
-        asset["requires_frame"] = True
-    elif original_url:
-        asset["selected_field"] = "image_url"
-        asset["source_kind"] = "style_asset_original"
-        asset["expected_transparent"] = False
-        asset["requires_frame"] = True
+    resolved = resolve_style_asset_image(asset)
+    if resolved["expected_transparent"]:
+        asset["board_image_url"] = resolved["selected_url"]
+    else:
+        # A bare board URL is a candidate, not proof of a transparent image.
+        asset.pop("board_image_url", None)
+        asset.pop("boardImageUrl", None)
+    if resolved["selected_field"]:
+        asset["selected_field"] = resolved["selected_field"]
+        asset["source_kind"] = resolved["source_kind"]
+        asset["expected_transparent"] = resolved["expected_transparent"]
+        asset["requires_frame"] = resolved["requires_frame"]
 
     return {
         key: value

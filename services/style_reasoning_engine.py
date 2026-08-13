@@ -24,7 +24,7 @@ from services.stylist_knowledge_service import (
     WARDROBE_STYLE,
     classify_style_mode,
 )
-from services.style_asset_contract import enrich_style_asset_rows
+from services.style_asset_contract import enrich_style_asset_rows, resolve_style_asset_image
 from services.style_conversation_context import activity_compatibility_issues
 
 GENERAL = "general"
@@ -4121,19 +4121,15 @@ _BOARD_ALLOWED_ROLES = {"top", "bottom", "footwear", "dress", "outerwear", "acce
 def _asset_has_board_cutout(item: Any) -> bool:
     if not isinstance(item, dict):
         return False
-    return bool(
-        _asset_text(item.get("board_image_url") or item.get("boardImageUrl"))
-        and _asset_text(item.get("cutout_status") or item.get("cutoutStatus")).lower() == "ready"
-    )
+    resolved = resolve_style_asset_image(item)
+    return bool(resolved.get("expected_transparent") and resolved.get("selected_url"))
 
 
-def _board_image_resolution(item: Any) -> Dict[str, str]:
+def _board_image_resolution(item: Any) -> Dict[str, Any]:
     """Resolve the image used by the 85 board without losing catalog provenance.
 
-    Runtime priority for style assets:
-    board_image_url -> transparent_image_url -> cutout_url -> rmbg_url ->
-    image_url -> catalog_image_url. Wardrobe-specific normalized/masked URLs are
-    kept before raw image_url for backward compatibility.
+    Runtime priority is validated cutout/masked/transparent, then processed or
+    normalized, then catalog/raw fallback. A bare board URL is not trusted.
     """
     if not isinstance(item, dict):
         return {
@@ -4144,44 +4140,16 @@ def _board_image_resolution(item: Any) -> Dict[str, str]:
             "used": "catalog_fallback",
         }
 
-    board_url = _asset_text(item.get("board_image_url") or item.get("boardImageUrl"))
-    transparent_url = _asset_text(
-        item.get("transparent_image_url")
-        or item.get("transparentImageUrl")
-        or item.get("transparent_url")
-        or item.get("transparentUrl")
-    )
-    cutout_url = _asset_text(item.get("cutout_url") or item.get("cutoutUrl"))
-    rmbg_url = _asset_text(item.get("rmbg_url") or item.get("rmbgUrl"))
-    normalized_url = _asset_text(item.get("normalized_url") or item.get("normalizedUrl"))
-    masked_url = _asset_text(item.get("masked_url") or item.get("maskedUrl"))
+    resolved = resolve_style_asset_image(item)
+    selected = str(resolved.get("selected_url") or "")
+    selected_field = str(resolved.get("selected_field") or "")
+    board_url = str(resolved.get("board_image_url") or "")
+    catalog_url = str(resolved.get("catalog_image_url") or "")
     raw_url = _asset_text(item.get("image_url") or item.get("imageUrl"))
-    catalog_url = _asset_text(item.get("catalog_image_url") or item.get("catalogImageUrl"))
-
-    ordered = (
-        ("board_image_url", board_url),
-        ("transparent_image_url", transparent_url),
-        ("cutout_url", cutout_url),
-        ("rmbg_url", rmbg_url),
-        ("normalized_url", normalized_url),
-        ("masked_url", masked_url),
-        ("image_url", raw_url),
-        ("catalog_image_url", catalog_url),
+    status = "cutout_ready" if resolved.get("expected_transparent") else (
+        "catalog_fallback" if selected else "missing_image"
     )
-    used = ""
-    selected = ""
-    for key, value in ordered:
-        if value:
-            used = key
-            selected = value
-            break
-
-    if board_url:
-        status = "cutout_ready"
-        used_label = "board_image_url"
-    else:
-        status = "catalog_fallback" if selected else "missing_image"
-        used_label = "catalog_fallback" if selected else "missing"
+    used_label = selected_field or ("catalog_fallback" if selected else "missing")
 
     return {
         "image_url": selected,
@@ -4189,7 +4157,10 @@ def _board_image_resolution(item: Any) -> Dict[str, str]:
         "catalog_image_url": catalog_url or raw_url,
         "board_status": status,
         "used": used_label,
-        "source_field": used,
+        "source_field": selected_field,
+        "source_kind": str(resolved.get("source_kind") or ""),
+        "expected_transparent": bool(resolved.get("expected_transparent")),
+        "requires_frame": bool(resolved.get("requires_frame")),
     }
 
 
@@ -4205,6 +4176,9 @@ def _apply_board_image_fields(target: Dict[str, Any], asset: Dict[str, Any]) -> 
     if resolved.get("board_image_url"):
         target["board_image_url"] = resolved["board_image_url"]
         target["boardImageUrl"] = resolved["board_image_url"]
+    else:
+        target.pop("board_image_url", None)
+        target.pop("boardImageUrl", None)
     if resolved.get("catalog_image_url"):
         target["catalog_image_url"] = resolved["catalog_image_url"]
         target["catalogImageUrl"] = resolved["catalog_image_url"]
@@ -4213,6 +4187,9 @@ def _apply_board_image_fields(target: Dict[str, Any], asset: Dict[str, Any]) -> 
     if _asset_text(asset.get("board_r2_key") or asset.get("boardR2Key")):
         target["board_r2_key"] = _asset_text(asset.get("board_r2_key") or asset.get("boardR2Key"))
     target["board_image_status"] = resolved.get("board_status") or "catalog_fallback"
+    for key in ("selected_field", "source_kind", "expected_transparent", "requires_frame"):
+        if key in resolved and resolved[key] not in (None, ""):
+            target[key] = resolved[key]
     return target
 
 
