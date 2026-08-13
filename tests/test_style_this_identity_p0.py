@@ -154,14 +154,10 @@ def test_client_metadata_mismatch_cannot_replace_authoritative_anchor(monkeypatc
 
     assert response.status_code == 200
     body = response.json()
-    assert body["anchor_item_id"] == "item-a"
+    assert body["success"] is False
+    assert body["error"]["code"] == "INSUFFICIENT_WARDROBE"
     assert body["anchor_item"]["item_id"] == "item-a"
-    assert all(
-        item["item_id"] == "item-a"
-        for direction in body["style_directions"]
-        for item in direction["items"]
-        if item["item_id"] == "item-a"
-    )
+    assert body["style_directions"] == []
 
 
 @pytest.mark.parametrize(

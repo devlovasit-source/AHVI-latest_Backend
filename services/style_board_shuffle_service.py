@@ -403,6 +403,19 @@ def shuffle_board(
         for item in locked_items:
             item["locked"] = True
         stored_payload["anchor_item_id"] = stored_anchor_id
+        if stored_policy := canonical_board_policy(stored_payload.get("source_policy")):
+            if stored_policy != "wardrobe":
+                return _error(
+                    "SOURCE_POLICY_VIOLATION",
+                    "Style This revisions require wardrobe-only board state.",
+                    source_policy=stored_policy,
+                )
+        if any(canonical_item_source(item) != "wardrobe" for item in stored_items):
+            return _error(
+                "SOURCE_POLICY_VIOLATION",
+                "Style This revisions cannot contain style assets.",
+                source_policy="wardrobe",
+            )
 
     # --- Board policy resolution (NEVER inferred from locked-item sources) --
     # Precedence: explicit dict (internal) > explicit canonical string >
@@ -435,6 +448,15 @@ def shuffle_board(
                 "This board has no styling-source policy on record - regenerate the board to continue.",
             )
         allowed_sources = _POLICY_COMPLETION_SOURCES[resolved_policy]
+    if stored_scenario == "style_this":
+        if resolved_policy != "wardrobe":
+            return _error(
+                "SOURCE_POLICY_VIOLATION",
+                "Style This revisions require wardrobe-only completion.",
+                source_policy=resolved_policy,
+            )
+        resolved_policy = "wardrobe"
+        allowed_sources = ("wardrobe",)
     allow_wardrobe_fallback = resolved_policy == "mixed"
 
     # --- Style-asset candidate pool (same provider as initial generation) ---

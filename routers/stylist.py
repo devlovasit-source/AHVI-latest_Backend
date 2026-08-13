@@ -926,14 +926,12 @@ def _register_style_this_direction(
         )
 
     sources = {item.get("source") for item in canonical_items}
-    if sources == {"wardrobe"}:
-        source_policy = "wardrobe"
-    elif sources == {"style_asset"}:
-        source_policy = "style_asset"
-    elif sources and sources <= {"wardrobe", "style_asset"}:
-        source_policy = "mixed"
-    else:
-        source_policy = ""
+    source_policy = "wardrobe" if sources == {"wardrobe"} else ""
+    if sources and sources != {"wardrobe"}:
+        error = error or _style_this_registration_error(
+            "INSUFFICIENT_WARDROBE",
+            "Style This can only be completed from wardrobe pieces.",
+        )
 
     registration: Dict[str, Any]
     if error or not source_policy:
@@ -952,7 +950,7 @@ def _register_style_this_direction(
             scenario="style_this",
             anchor_item_id=anchor_id,
             source_policy=source_policy,
-            allow_wardrobe_fallback=source_policy == "mixed",
+            allow_wardrobe_fallback=False,
             occasion=occasion,
             style_direction=str(direction.get("title") or ""),
             style_strategy=(
@@ -1021,18 +1019,6 @@ def style_wardrobe_item(
             None,
         )
         if anchor is None:
-            try:
-                shared_assets = _list_all_documents(proxy, "style_assets")
-            except Exception:
-                shared_assets = []
-            anchor = next(
-                (item for item in shared_assets if _item_id_of(item) == _txt(item_id)),
-                None,
-            )
-            if anchor is not None:
-                anchor["source"] = "style_asset"
-                wardrobe.append(anchor)
-        if anchor is None:
             raise HTTPException(status_code=404, detail="Wardrobe item not found")
         anchor.setdefault("source", "wardrobe")
         request = request.model_copy(
@@ -1052,6 +1038,12 @@ def style_wardrobe_item(
     if mode not in {"build_outfit", "style_this"}:
         mode = "build_outfit"
     wardrobe = _resolve_wardrobe(request)
+    if mode == "style_this":
+        wardrobe = [
+            item
+            for item in wardrobe
+            if canonical_item_source(item) in {"", "unknown", "wardrobe"}
+        ]
     anchor = (
         _resolve_style_this_anchor(
             request,
@@ -1100,10 +1092,11 @@ def style_wardrobe_item(
                 if is_complete_board(direction.get("items"))
             ]
             if not directions:
-                fallback = _style_fallback(mode, anchor, strategies=strategies)
-                fallback["anchor_item_id"] = canonical_item_id(anchor)
-                fallback["context_usage"] = resolved["context_usage"]
-                return fallback
+                return _style_this_failure(
+                    anchor,
+                    "INSUFFICIENT_WARDROBE",
+                    "The available wardrobe cannot form a complete Style This look.",
+                )
             directions = [
                 _register_style_this_direction(
                     direction,
@@ -1114,6 +1107,21 @@ def style_wardrobe_item(
                 )
                 for direction in directions
             ]
+            registration_error = next(
+                (
+                    direction.get("shuffle_state_error")
+                    for direction in directions
+                    if (direction.get("shuffle_state_error") or {}).get("code")
+                    in {"INSUFFICIENT_WARDROBE", "SOURCE_POLICY_VIOLATION"}
+                ),
+                None,
+            )
+            if registration_error:
+                return _style_this_failure(
+                    anchor,
+                    registration_error["code"],
+                    registration_error["message"],
+                )
             logger.info(
                 "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d",
                 item_id, len(directions), len(wardrobe),

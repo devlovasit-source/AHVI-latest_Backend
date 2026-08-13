@@ -117,7 +117,7 @@ def test_direction_titles_and_reasons_are_archetype_and_item_specific():
         assert direction["title"] in note
 
 
-def test_registration_preserves_mixed_source_policy():
+def test_registration_rejects_mixed_source_policy():
     wardrobe = _wardrobe()
     direction = {
         "title": "Mixed Direction",
@@ -142,12 +142,10 @@ def test_registration_preserves_mixed_source_policy():
         occasion=None,
     )
 
-    assert registered["source_policy"] == "mixed"
-    assert registered["shuffle_available"] is True
-    assert registered["can_shuffle"] is True
-    state = shuffle_service.get_board_state(registered["board_id"])
-    assert state["source_policy"] == "mixed"
-    assert state["allow_wardrobe_fallback"] is True
+    assert registered["source_policy"] is None
+    assert registered["shuffle_available"] is False
+    assert registered["shuffle_state_error"]["code"] == "INSUFFICIENT_WARDROBE"
+    assert shuffle_service.get_board_state(registered["board_id"]) is None
 
 
 class _OutageStore:

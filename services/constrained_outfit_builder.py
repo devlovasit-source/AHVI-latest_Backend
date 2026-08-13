@@ -36,6 +36,7 @@ from services.professional_safety import (
     is_professional_occasion,
     normalize_professional_occasion,
 )
+from brain.engines.outfit_quality_guard import is_complete_board
 
 logger = logging.getLogger("ahvi.constrained_outfit_builder")
 
@@ -62,7 +63,7 @@ ERROR_CODES = frozenset({
 
 _SCENARIO_DEFAULT_SOURCES = {
     "build_outfit": ("wardrobe",),
-    "style_this": ("style_asset",),
+    "style_this": ("wardrobe",),
 }
 
 # Footwear that should never lead a dress look (mirrors routers.stylist).
@@ -408,6 +409,13 @@ class ConstrainedOutfitBuilder:
                 "A locked item was lost during final assembly; nothing was changed.",
                 fixed_item_ids=exc.missing_ids,
                 stage=exc.stage,
+            )
+
+        if scenario == "style_this" and not is_complete_board(outfit_items):
+            return _failure(
+                "INSUFFICIENT_WARDROBE",
+                "There are not enough wardrobe pieces to build a complete Style This look.",
+                fixed_item_ids=sorted(fixed_ids),
             )
 
         return {

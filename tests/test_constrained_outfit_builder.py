@@ -199,11 +199,31 @@ def test_fixed_item_with_unknown_source_is_rejected():
     assert result["error"]["code"] == "UNKNOWN_ITEM_SOURCE"
 
 
-def test_style_this_without_asset_pool_is_typed_failure():
+def test_style_this_without_wardrobe_completion_is_typed_failure():
     top = _w("top-1", "White Shirt", "Tops")
     result = _gen([top], wardrobe=[top], scenario="style_this")
     assert result["success"] is False
-    assert result["error"]["code"] == "STYLE_ASSET_POOL_EMPTY"
+    assert result["error"]["code"] == "INSUFFICIENT_WARDROBE"
+
+
+def test_style_assets_cannot_repair_incomplete_style_this_wardrobe():
+    top = _w("top-1", "White Shirt", "Tops")
+    asset_bottom = _w(
+        "asset-bottom-1", "Pleated Trousers", "Bottoms", source="style_asset"
+    )
+    asset_shoe = _w(
+        "asset-shoe-1", "White Sneakers", "Footwear", source="style_asset"
+    )
+
+    result = builder.generate(
+        scenario="style_this",
+        fixed_items=[top],
+        wardrobe=[top],
+        style_assets=[asset_bottom, asset_shoe],
+    )
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "INSUFFICIENT_WARDROBE"
 
 
 def test_conflicting_fixed_dress_and_top_are_rejected():
