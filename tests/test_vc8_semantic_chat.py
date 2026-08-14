@@ -3,6 +3,7 @@ import asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from brain.intent_engine import STYLE_PAIRING, detect_intent
 from routers import chat
 from services.pre_classifier import classify_message
 
@@ -111,6 +112,59 @@ def test_vc8_exact_twelve_prompt_classification():
             assert decision is None, prompt
 
 
+def test_contraction_variants_are_supportive_text_only():
+    prompts = (
+        "don't know what to do today",
+        "don’t know what to do today",
+        "dont know what to do today",
+        "I'm not sure what to do",
+        "I’m not sure what to do",
+        "Im not sure what to do",
+    )
+
+    for prompt in prompts:
+        decision = classify_message(prompt)
+        assert decision is not None, prompt
+        assert decision["intent"] == "supportive_conversation", prompt
+        assert decision["response_mode"] == "text_only", prompt
+
+
+def test_general_help_uses_exact_full_message_boundary():
+    for prompt in ("Can you help me?", "Could you help me?"):
+        decision = classify_message(prompt)
+        assert decision is not None, prompt
+        assert decision["intent"] == "help_identity", prompt
+        assert decision["response_mode"] == "text_only", prompt
+
+    assert classify_message("Can you help me pick an outfit?") is None
+
+
+def test_style_indecision_clarifies_without_stealing_explicit_generation():
+    for prompt in (
+        "I'm confused about what to wear",
+        "I'm not sure what to wear",
+        "I don't know what to wear",
+    ):
+        decision = classify_message(prompt)
+        assert decision is not None, prompt
+        assert decision["intent"] == "clarification", prompt
+        assert decision["response_mode"] == "clarification", prompt
+
+    assert classify_message("Build me an outfit because I'm confused what to wear") is None
+    assert classify_message("Style me for dinner, I'm not sure what to wear") is None
+
+
+def test_pairing_precedes_broad_generation_classification():
+    pairing = classify_message("What should I wear with this shirt?")
+    assert pairing is not None
+    assert pairing["intent"] == "advice"
+    assert pairing["response_mode"] == "text_only"
+
+    assert classify_message("What should I wear today?") is None
+    assert classify_message("Build a complete outfit around this shirt") is None
+    assert detect_intent("What should I wear with this shirt?")["intent"] == STYLE_PAIRING
+
+
 def test_vc8_exact_twelve_module_chat_contract(monkeypatch):
     client = _client(monkeypatch)
 
@@ -127,6 +181,42 @@ def test_vc8_exact_twelve_module_chat_contract(monkeypatch):
             assert body["cards"] == [], prompt
         else:
             assert body["style_boards"], prompt
+
+
+def test_commit_one_module_chat_boundaries(monkeypatch):
+    client = _client(monkeypatch)
+    cases = (
+        ("hi", "text_only", False),
+        ("don't know what to do today", "text_only", False),
+        ("don’t know what to do today", "text_only", False),
+        ("dont know what to do today", "text_only", False),
+        ("I'm not sure what to do", "text_only", False),
+        ("I’m not sure what to do", "text_only", False),
+        ("Im not sure what to do", "text_only", False),
+        ("I'm little emotionally lost today", "text_only", False),
+        ("I'm not sure what to do with my blue shirt", "text_only", False),
+        ("What colors suit my skin tone?", "text_only", False),
+        ("Can you help me?", "text_only", False),
+        ("I'm confused about what to wear", "clarification", False),
+        ("I'm confused", "text_only", False),
+        ("What should I wear with this shirt?", "clarification", False),
+        ("Can you help me pick an outfit?", "wardrobe_recommendation", True),
+        ("What should I wear today?", "wardrobe_recommendation", True),
+        ("Build a complete outfit around this shirt", "wardrobe_recommendation", True),
+        ("Build me an outfit that suits my skin tone", "wardrobe_recommendation", True),
+        ("Build me an outfit for dinner tomorrow", "wardrobe_recommendation", True),
+        ("Style me using colors that suit me", "wardrobe_recommendation", True),
+    )
+
+    for prompt, expected_mode, expects_board in cases:
+        response = client.post(
+            "/api/module-chat",
+            json={"domain": "style", "message": prompt, "request_id": "commit-one"},
+        )
+        body = response.json()
+        assert response.status_code == 200, prompt
+        assert body["response_mode"] == expected_mode, (prompt, body)
+        assert bool(body.get("style_boards")) is expects_board, (prompt, body)
 
 
 def test_color_advice_uses_persisted_profile_provenance(monkeypatch):

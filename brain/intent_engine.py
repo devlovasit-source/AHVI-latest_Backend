@@ -666,9 +666,6 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
     elif "night" in t:
         slots["time"] = "night"
 
-    if _has_any("what should i wear", "what to wear", "what do i wear"):
-        return {"intent": STYLE_ADVICE, "slots": slots, "confidence": 0.86}
-
     if _has_any(
         "what to pair with",
         "what pairs with",
@@ -690,6 +687,9 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
         "wear with",
     ):
         return {"intent": STYLE_PAIRING, "slots": slots, "confidence": 0.9}
+
+    if _has_any("what should i wear", "what to wear", "what do i wear"):
+        return {"intent": STYLE_ADVICE, "slots": slots, "confidence": 0.86}
 
     if any(
         x in t

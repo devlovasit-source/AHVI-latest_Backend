@@ -26,6 +26,7 @@ _NON_ALNUM_RE = re.compile(r"[^a-z0-9 ]+")
 
 def _normalize(text: str) -> str:
     t = str(text or "").lower().strip()
+    t = t.replace("'", "").replace("’", "")
     t = _NON_ALNUM_RE.sub(" ", t)
     return _WHITESPACE_RE.sub(" ", t).strip()
 
@@ -147,7 +148,7 @@ _COLOR_PATTERNS = (
 _GREETING_PHRASES = frozenset({"hi", "hello", "hey", "good morning", "good evening"})
 _IDENTITY_PHRASES = frozenset({
     "who are you", "what are you", "what is ahvi", "tell me about yourself",
-    "what can you do", "help",
+    "what can you do", "help", "can you help me", "could you help me",
 })
 _SMALL_TALK_PHRASES = frozenset({
     "how are you", "how are you doing", "thanks", "thank you",
@@ -161,8 +162,13 @@ _SUPPORTIVE_PATTERNS = (
     "i am feeling lost",
     "not sure what to do",
     "dont know what to do",
-    "don't know what to do",
 )
+
+_STYLE_INDECISION_PHRASES = frozenset({
+    "im confused about what to wear",
+    "im not sure what to wear",
+    "i dont know what to wear",
+})
 
 
 def _has_explicit_outfit_generation(hay: str) -> bool:
@@ -272,6 +278,28 @@ def classify_message(text: str) -> Optional[Dict[str, str]]:
                 "response_mode": "visual_inspiration",
             }
 
+    # Clothing-specific indecision needs Style clarification, not emotional
+    # support or automatic outfit generation. Full-message equality preserves
+    # explicit generation requests that contain the same language.
+    if hay in _STYLE_INDECISION_PHRASES:
+        return {
+            "domain": "style",
+            "intent": "clarification",
+            "action": "request_clarification",
+            "response_mode": "clarification",
+            "missing_information": ["occasion_or_activity"],
+        }
+
+    # Specific garment pairing must win over broad prefixes such as
+    # "what should i wear".
+    if any(pattern in hay for pattern in _PAIRING_PATTERNS):
+        return {
+            "domain": "style",
+            "intent": "advice",
+            "action": "provide_style_advice",
+            "response_mode": "text_only",
+        }
+
     # Explicit generation wins over informational color language. The full
     # prompt remains available to the Style pipeline as the current-turn
     # color constraint.
@@ -308,14 +336,6 @@ def classify_message(text: str) -> Optional[Dict[str, str]]:
                 "action": "provide_style_advice",
                 "response_mode": "text_only",
             }
-
-    if any(pattern in hay for pattern in _PAIRING_PATTERNS):
-        return {
-            "domain": "style",
-            "intent": "advice",
-            "action": "provide_style_advice",
-            "response_mode": "text_only",
-        }
 
     return None
 
