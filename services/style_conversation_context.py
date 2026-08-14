@@ -23,7 +23,33 @@ ACTIVITY_TYPES = {
     "field_sport",
 }
 
-_REFERENT_TYPES = {"activity", "occasion", "context"}
+_REFERENT_TYPES = {"activity", "occasion", "context", "garment"}
+
+_GARMENT_NOUNS = (
+    "t-shirt", "shirt", "tee", "blouse", "top", "sweater", "hoodie",
+    "cardigan", "blazer", "jacket", "coat", "dress", "trousers", "pants",
+    "jeans", "skirt", "shorts", "sneakers", "shoes", "loafers", "boots",
+    "heels", "sandals", "flats", "saree", "kurta", "jumpsuit", "tie",
+    "belt", "bag",
+)
+_GARMENT_MODIFIERS = (
+    "blue", "black", "white", "red", "green", "navy", "cream", "beige",
+    "grey", "gray", "brown", "tan", "pink", "purple", "yellow", "orange",
+    "denim", "linen", "silk", "leather", "button-down", "button down",
+    "oversized", "tailored", "casual", "formal", "striped", "plain", "light",
+    "dark",
+)
+_GARMENT_NOUN_PATTERN = "|".join(re.escape(value) for value in _GARMENT_NOUNS)
+_GARMENT_PATTERN = re.compile(
+    rf"\b(?P<phrase>(?:(?:{'|'.join(re.escape(value) for value in _GARMENT_MODIFIERS)})\s+)*"
+    rf"(?:{_GARMENT_NOUN_PATTERN}))\b",
+    re.IGNORECASE,
+)
+_GARMENT_TARGET_PATTERN = re.compile(
+    rf"\b(?:with|for|on|from|about)\s+(?:the|this|that|my|your)\s+"
+    rf"(?P<noun>{_GARMENT_NOUN_PATTERN})\b",
+    re.IGNORECASE,
+)
 
 _ACTIVITY_ALIASES = {
     "badminton": ("badminton", "court_sport"),
@@ -118,6 +144,8 @@ def _activity_from_text(text: str) -> tuple[str | None, str | None]:
 
 def _occasion_from_text(text: str) -> str | None:
     for alias, value in _OCCASION_ALIASES:
+        if alias == "work" and re.search(r"\bwork\s+with\b", text):
+            continue
         if alias == "casual" and "more casual" in text:
             continue
         if alias == "formal" and "more formal" in text:
@@ -153,6 +181,20 @@ def _daypart_from_text(text: str) -> str | None:
     return None
 
 
+def _extract_garment_mentions(text: str) -> list[str]:
+    mentions: list[str] = []
+    for match in _GARMENT_PATTERN.finditer(text):
+        phrase = " ".join(match.group("phrase").lower().replace("-", " ").split())
+        if phrase and phrase not in mentions:
+            mentions.append(phrase)
+    return mentions[-MAX_CONTEXT_LIST:]
+
+
+def _garment_noun(value: str) -> str | None:
+    match = re.search(rf"\b({_GARMENT_NOUN_PATTERN})\b", value, re.IGNORECASE)
+    return match.group(1).lower() if match else None
+
+
 def _constraints_from_text(text: str) -> tuple[list[str], list[str]]:
     positive: list[str] = []
     negative: list[str] = []
@@ -177,6 +219,7 @@ class StyleConversationContext:
     venue: str | None = None
     style_constraints: list[str] = field(default_factory=list)
     negative_constraints: list[str] = field(default_factory=list)
+    garment_references: list[str] = field(default_factory=list)
     referent: dict[str, Any] | None = None
     previous_intent: str | None = None
     previous_response_mode: str | None = None
@@ -191,6 +234,7 @@ class StyleConversationContext:
             "venue": self.venue,
             "style_constraints": list(self.style_constraints[:MAX_CONTEXT_LIST]),
             "negative_constraints": list(self.negative_constraints[:MAX_CONTEXT_LIST]),
+            "garment_references": list(self.garment_references[:MAX_CONTEXT_LIST]),
             "referent": dict(self.referent) if isinstance(self.referent, dict) else None,
             "previous_intent": self.previous_intent,
             "previous_response_mode": self.previous_response_mode,
@@ -213,6 +257,10 @@ class StyleConversationContext:
         if other.negative_constraints:
             result.negative_constraints = _merge_lists(
                 result.negative_constraints, other.negative_constraints, replace=not fill_only
+            )
+        if other.garment_references:
+            result.garment_references = _merge_lists(
+                result.garment_references, other.garment_references, replace=False
             )
         return result
 
@@ -261,6 +309,12 @@ class StyleConversationContext:
                 safe_referent = None
         style_constraints = value.get("style_constraints") or value.get("positive_constraints") or value.get("required") or []
         negative_constraints = value.get("negative_constraints") or value.get("avoid") or []
+        garment_references = (
+            value.get("garment_references")
+            or value.get("garments")
+            or value.get("garment_referents")
+            or []
+        )
         return cls(
             date_context=_clean(date) or None,
             daypart=_clean(value.get("daypart")) or None,
@@ -270,6 +324,7 @@ class StyleConversationContext:
             venue=_clean(value.get("venue")) or None,
             style_constraints=_bounded_list(style_constraints),
             negative_constraints=_bounded_list(negative_constraints),
+            garment_references=_bounded_list(garment_references),
             referent=safe_referent,
             previous_intent=_clean(value.get("previous_intent")) or None,
             previous_response_mode=_clean(value.get("previous_response_mode")) or None,
@@ -299,6 +354,7 @@ def extract_current_turn_context(message: str) -> StyleConversationContext:
         activity_type=activity_type,
         style_constraints=positive,
         negative_constraints=negative,
+        garment_references=_extract_garment_mentions(text),
     )
 
 
@@ -370,6 +426,41 @@ def _resolve_referent(
     context: StyleConversationContext,
     semantic_referent: Any = None,
 ) -> dict[str, Any] | None:
+    lowered = str(message or "").lower()
+    garment_mentions = context.garment_references
+    current_garment_mentions = _extract_garment_mentions(lowered)
+    prior_garment_mentions = [
+        mention
+        for mention in reversed(garment_mentions)
+        if mention not in current_garment_mentions
+    ]
+    target_match = _GARMENT_TARGET_PATTERN.search(lowered)
+    target_noun = target_match.group("noun").lower() if target_match else None
+    has_garment_pronoun = bool(
+        re.search(r"\b(?:it|this|that)\b", lowered)
+    )
+    if garment_mentions and (target_noun or has_garment_pronoun or _extract_garment_mentions(lowered)):
+        selected = None
+        if target_noun:
+            selected = next(
+                (
+                    mention
+                    for mention in prior_garment_mentions
+                    if _garment_noun(mention) == target_noun
+                ),
+                None,
+            )
+        if selected is None and has_garment_pronoun:
+            selected = prior_garment_mentions[0] if prior_garment_mentions else None
+        selected = selected or garment_mentions[-1]
+        return {
+            "text": selected,
+            "type": "garment",
+            "label": selected,
+            "resolved_to": selected,
+            "confidence": 0.97,
+        }
+
     if isinstance(semantic_referent, Mapping):
         text = _clean(semantic_referent.get("text"), 40)
         if text:
@@ -377,7 +468,6 @@ def _resolve_referent(
             if semantic_context:
                 semantic_context = _generic_referent(context, text, semantic_context)
                 return semantic_context
-    lowered = str(message or "").lower()
     token = next((value for value in ("this", "that", "it") if re.search(rf"\b{value}\b", lowered)), "")
     if not token:
         return context.referent
@@ -389,6 +479,16 @@ def _generic_referent(
     token: str,
     existing: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if existing and existing.get("type") == "garment":
+        label = _clean(existing.get("label") or existing.get("text"), 100)
+        if label:
+            return {
+                "text": token,
+                "type": "garment",
+                "label": label,
+                "resolved_to": label,
+                "confidence": float(existing.get("confidence") or 0.97),
+            }
     subject = context.activity or context.occasion
     if not subject:
         if existing and existing.get("resolved_to"):

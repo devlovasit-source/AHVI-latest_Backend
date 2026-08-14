@@ -817,7 +817,7 @@ def test_skincare_module_chat_replaces_truncated_spf_answer(monkeypatch):
 def test_style_module_chat_routes_chip_to_style_flow(monkeypatch):
     captured = {}
 
-    def fake_style_payload(*, user_id, query_text, request_wardrobe, user_profile):
+    def fake_style_payload(*, user_id, query_text, request_wardrobe, user_profile, **kwargs):
         captured["query"] = query_text
         return {
             "success": True,
@@ -852,7 +852,7 @@ def test_style_module_chat_routes_chip_to_style_flow(monkeypatch):
 
 
 def test_conversational_outfit_phrases_stay_on_module_chat_style_path(monkeypatch):
-    def fake_style_payload(*, user_id, query_text, request_wardrobe, user_profile):
+    def fake_style_payload(*, user_id, query_text, request_wardrobe, user_profile, **kwargs):
         return {
             "success": True,
             "type": "cards",
@@ -981,7 +981,7 @@ def test_style_module_chat_routes_office_meeting_to_board(monkeypatch):
     def fail_semantic_provider(**kwargs):
         raise AssertionError("direct office prompts must not call semantic provider")
 
-    def fake_style_payload(*, user_id, query_text, request_wardrobe, user_profile):
+    def fake_style_payload(*, user_id, query_text, request_wardrobe, user_profile, **kwargs):
         captured["query"] = query_text
         return {
             "success": True,
@@ -1034,7 +1034,7 @@ def test_style_module_chat_routes_beach_wear_without_empty_llm(monkeypatch):
     def fail_llm(*args, **kwargs):
         raise AssertionError("style prompts should not hit module LLM")
 
-    def fake_style_payload(*, user_id, query_text, request_wardrobe, user_profile):
+    def fake_style_payload(*, user_id, query_text, request_wardrobe, user_profile, **kwargs):
         assert query_text == "beach wear"
         return {
             "success": False,

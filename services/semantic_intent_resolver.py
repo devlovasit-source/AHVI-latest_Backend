@@ -72,6 +72,7 @@ _CONTEXT_KEYS = {
     "style_context",
     "last_style_context",
     "current_memory",
+    "garment_references",
 }
 _RESOLVED_CONTEXT_KEYS = {
     "occasion",
@@ -315,7 +316,7 @@ def _prompt(
             "negative_constraints": [],
         },
         "constraints": {"required": [], "avoid": []},
-        "referent": None,
+        "referent": "null or {type: activity|occasion|context|garment, text, label, resolved_to, confidence}",
         "reason_codes": [],
         "missing_information": [],
         "operation": {
@@ -332,7 +333,9 @@ def _prompt(
     return (
         "You are AHVI's semantic intent resolver. Return only JSON matching the "
         "schema. Interpret meaning, referents, occasion, activity, date context, "
-        "and positive or negative Style constraints. For a current-board request, "
+        "and positive or negative Style constraints. Resolve textual garment "
+        "referents such as 'this shirt' without inventing wardrobe IDs. For a "
+        "current-board request, "
         "return one bounded operation object: type modify, generate_alternative, "
         "or explain_current_look. Use roles and semantic constraints only; never "
         "return item IDs, lock IDs, anchor IDs, or selected IDs. Do not answer the user, "
@@ -535,7 +538,7 @@ def validate_semantic_decision(raw: Any) -> Optional[Dict[str, Any]]:
                 normalized_referent[key] = temporal
             elif key == "type":
                 text = _bounded_string(value)
-                if text is None or text.lower() not in {"activity", "occasion", "context"}:
+                if text is None or text.lower() not in {"activity", "occasion", "context", "garment"}:
                     return None
                 normalized_referent[key] = text.lower()
             else:

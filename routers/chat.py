@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Mapping, Optional
 from collections import OrderedDict
 import asyncio
 import os
@@ -2302,8 +2302,13 @@ def _is_latency_safe_outfit_generation_request(text: Any) -> bool:
     if _is_general_chat_request(str(text or ""), "style"):
         return False
     normalized = re.sub(r"\s+", " ", str(text or "").strip().lower())
-    if len(normalized.split()) <= 4 and _ahvi_style_occasion(normalized):
-        return True
+    if len(normalized.split()) <= 4:
+        occasion = _ahvi_style_occasion(normalized)
+        # _ahvi_style_occasion defaults to "today" for unknown language. That
+        # fallback must not turn contextual phrases such as "something for
+        # later" into an independently authorized board request.
+        if occasion != "today" or re.search(r"\b(?:today|daily|everyday)\b", normalized):
+            return True
 
     if re.search(
         r"\b(?:build|create|make|generate|put together)\b.{0,48}\b(?:an?|the)?\s*(?:outfit|look)\b",
@@ -2324,6 +2329,25 @@ def _has_positive_style_board_intent(text: Any, module: str = "style") -> bool:
         or _is_generate_style_board_request(query)
         or _is_use_wardrobe_action(prompt=query)
     )
+
+
+def _blocks_new_style_board(decision: Optional[Mapping[str, Any]]) -> bool:
+    """Return whether the current semantic decision is text-only."""
+    if not isinstance(decision, Mapping):
+        return False
+    response_mode = str(decision.get("response_mode") or "").strip().lower()
+    intent = str(decision.get("intent") or "").strip().lower()
+    return response_mode in {"text_only", "clarification", "calendar_navigation"} or intent in {
+        "greeting",
+        "small_talk",
+        "help_identity",
+        "supportive_conversation",
+        "advice",
+        "color_advice",
+        "information",
+        "clarification",
+        "navigate",
+    }
 
 
 def _pool_gender_ok(item: Dict[str, Any], gender: str) -> bool:
@@ -2883,6 +2907,7 @@ def _demo_style_board_payload(
     request_wardrobe,
     user_profile=None,
     resolved_occasion: str = "",
+    resolved_context: Optional[Mapping[str, Any]] = None,
     style_action: str = "",
     show_closest_option: bool = False,
     allow_closest_option: bool = False,
@@ -2907,7 +2932,13 @@ def _demo_style_board_payload(
         if _ahvi_item_allowed_for_user_profile(item, profile, query_text)
     ]
 
-    occasion = str(resolved_occasion or "").strip() or _ahvi_style_occasion(query_text)
+    carried_context = dict(resolved_context or {})
+    occasion = str(
+        resolved_occasion
+        or carried_context.get("occasion")
+        or carried_context.get("activity")
+        or ""
+    ).strip() or _ahvi_style_occasion(query_text)
     logger.info("style.intent.detected user_id=%s occasion=%s prompt=%r", user_id, occasion, query_text)
     if any(token in str(query_text or "").lower() for token in ("meeting", "client", "presentation", "interview")):
         logger.info("style.sub_intent.detected user_id=%s sub_intent=office_meeting prompt=%r", user_id, query_text)
@@ -2923,6 +2954,12 @@ def _demo_style_board_payload(
                 "occasion": occasion,
                 "query": query_text,
                 "user_profile": profile,
+                "resolved_context": carried_context,
+                **{
+                    key: carried_context[key]
+                    for key in ("date_context", "daypart", "activity", "activity_type", "venue")
+                    if carried_context.get(key) is not None
+                },
                 "style_gender": _ahvi_profile_style_gender(profile),
                 # AHVI Style Orchestrator agent inputs (best-effort pass-through).
                 "chips": locals().get("chips") or [],
@@ -4921,6 +4958,10 @@ async def _handle_preclassified(
         # Information / advice: use the module LLM with a text-only prompt.
         # No wardrobe pipeline, no board generation, no visual reveal.
         merged_context = {**(request.context_data or {}), **(request.context or {})}
+        conversation_context = pre.get("resolved_context")
+        if isinstance(conversation_context, dict):
+            merged_context["conversation_context"] = conversation_context
+            merged_context["resolved_context"] = conversation_context
         user_id = _state_user_id(http_request)
         request_profile = dict(request.user_profile or {})
         profile = request_profile
@@ -5093,7 +5134,9 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
             "conversation_context": _conversation.to_dict(),
             "resolved_context": _conversation.to_dict(),
         },
-        deterministic=None if _board_context.get("has_current_board") else _deterministic,
+        # A current board may provide mutation context, but it must not erase
+        # a deterministic text-only classification for the new turn.
+        deterministic=_deterministic,
         board_context=_board_context,
         request_id=request.request_id,
     )
@@ -5179,9 +5222,12 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
     # board construction authority. Mutation decisions have already returned
     # through handle_board_operation above; new boards require current-turn
     # positive Style intent.
-    _board_authorized = _has_positive_style_board_intent(
-        _message,
-        _normalize_module_name(request.domain or request.module or "style"),
+    _board_authorized = (
+        not _blocks_new_style_board(_pre)
+        and _has_positive_style_board_intent(
+            _message,
+            _normalize_module_name(request.domain or request.module or "style"),
+        )
     )
     _envelope = await _module_chat_impl(
         request,
@@ -5432,11 +5478,32 @@ async def _module_chat_impl(
                 module,
                 wardrobe=wardrobe if isinstance(wardrobe, list) else [],
             )
+        board_context = conversation.to_dict()
+        board_context_present = bool(
+            conversation.date_context
+            or conversation.daypart
+            or conversation.activity
+            or conversation.activity_type
+            or (
+                conversation.occasion
+                and conversation.occasion != _ahvi_style_occasion(user_message)
+            )
+            or any(
+                str(source).startswith("conversation.")
+                for source in (conversation_diagnostics.get("context_used") or [])
+            )
+        )
+        board_payload_kwargs = (
+            {"resolved_context": board_context}
+            if board_context_present
+            else {}
+        )
         style_payload = _demo_style_board_payload(
             user_id=user_id or str(profile.get("user_id") or profile.get("$id") or ""),
             query_text=user_message,
             request_wardrobe=wardrobe,
             user_profile=profile,
+            **board_payload_kwargs,
         )
         # /api/module-chat must stamp the durable board contract too — it does
         # not converge on _beta_style_response like /api/text, so without this
@@ -5522,22 +5589,45 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
         "revision": request.style_state.get("revision") if isinstance(request.style_state, dict) else None,
     }
     _text_board_context = board_context_for_semantics(_text_board_payload)
+    _text_history = _build_history(request.messages[:-1]) if len(request.messages) > 1 else []
+    _text_carried_context = {
+        **(request.context or {}),
+        **(request.style_context or {}),
+        "current_memory": request.current_memory,
+    }
+    _text_conversation, _text_conversation_diagnostics = resolve_style_conversation_context(
+        current_message=user_input,
+        recent_history=_text_history,
+        carried_context=_text_carried_context,
+    )
     _text_semantic = resolve_semantic_intent(
         current_message=user_input,
-        recent_history=_build_history(request.messages[:-1]) if len(request.messages) > 1 else [],
+        recent_history=_text_history,
         module_hint=request.module_context or "style",
         conversation_context={
-            **(request.context or {}),
-            **(request.style_context or {}),
-            "current_memory": request.current_memory,
+            **_text_carried_context,
+            "conversation_context": _text_conversation.to_dict(),
+            "resolved_context": _text_conversation.to_dict(),
         },
-        deterministic=(
-            None if _text_board_context.get("has_current_board")
-            else _pre_classify_message(user_input)
-        ),
+        # Existing board state may inform mutation semantics, but it must not
+        # suppress a deterministic text-only classification for this turn.
+        deterministic=_pre_classify_message(user_input),
         board_context=_text_board_context,
         request_id=request.request_id,
     )
+    if _text_semantic is not None:
+        _text_conversation, _text_conversation_diagnostics = resolve_style_conversation_context(
+            current_message=user_input,
+            recent_history=_text_history,
+            carried_context=_text_carried_context,
+            semantic_context=_text_semantic.get("resolved_context"),
+            semantic_referent=_text_semantic.get("referent"),
+        )
+        _text_semantic = _contextualize_semantic_decision(
+            _text_semantic,
+            context=_text_conversation.to_dict(),
+            diagnostics=_text_conversation_diagnostics,
+        )
     _board_mutation = handle_board_operation(
         _text_board_payload,
         semantic_decision=_text_semantic,
@@ -5545,6 +5635,27 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
     ) if _text_semantic is not None else None
     if _board_mutation is not None:
         return _board_mutation
+
+    _text_board_veto = _blocks_new_style_board(_text_semantic)
+    _text_beta_state = normalize_style_state(request.style_state)
+    _text_beta_instructions = interpret_style_followup(user_input, _text_beta_state)
+    _text_beta_owns_board_flow = bool(_text_beta_state.get("board_items")) and str(
+        _text_beta_instructions.get("action") or ""
+    ).strip().lower() in {
+        "ask_clarification",
+        "explain_current_board",
+        "critique_current_board",
+        "identify_wardrobe_gap",
+        "refine_current_board",
+        "switch_source_mode",
+    }
+    if (
+        _text_board_veto
+        and isinstance(_text_semantic, Mapping)
+        and str(_text_semantic.get("response_mode") or "").strip().lower() == "clarification"
+        and not _text_beta_owns_board_flow
+    ):
+        return _preclassified_clarification_reply(_text_semantic)
 
     # ──────────────────────────────────────────────────────────────────
     # CHIP / BUTTON / RETRY CONTEXT RESOLUTION
@@ -5937,8 +6048,8 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
 
     # Beta Intelligence Bridge. This is request-carried and persistence-free;
     # it does not add another intent/model invocation.
-    beta_state = normalize_style_state(request.style_state)
-    beta_instructions = interpret_style_followup(user_input, beta_state)
+    beta_state = _text_beta_state
+    beta_instructions = _text_beta_instructions
     beta_dispatch = beta_style_engine_dispatch(beta_instructions)
     if beta_state.get("board_items"):
         logger.info(
@@ -6364,7 +6475,10 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
             _CHAT_CACHE.set(cache_key, response)
         return response
 
-    if _is_use_wardrobe_action(action=request.action or request.style_action, prompt=english_input):
+    if (
+        not _text_board_veto
+        and _is_use_wardrobe_action(action=request.action or request.style_action, prompt=english_input)
+    ):
         forced_prompt = _wardrobe_action_prompt(english_input)
         forced_occasion = _ahvi_style_occasion(forced_prompt)
         logger.info(
@@ -6387,6 +6501,7 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
             forced_prompt,
             request.wardrobe,
             effective_user_profile,
+            resolved_context=_text_conversation.to_dict(),
             style_action="use_wardrobe",
             show_closest_option=False,
             allow_closest_option=False,
@@ -6497,11 +6612,16 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
     )
     style_mode = str(reasoning.get("mode") or style_mode or "").strip().lower()
 
+    if _text_board_veto and style_mode == WARDROBE_STYLE:
+        reasoning["should_generate_board"] = False
+        reasoning["should_use_wardrobe"] = False
+        style_mode = STYLE_ADVICE
+
     # Default "complete outfit" CTA is a GENERATION request, not advice. Force
     # the wardrobe board path (so it flows through the universal completeness
     # gate) instead of the advice / visual-directions route that truncated and
     # fell back to unvalidated cards.
-    if _is_generate_style_board_request(english_input):
+    if _is_generate_style_board_request(english_input) and not _text_board_veto:
         if isinstance(reasoning, dict):
             reasoning["should_generate_board"] = True
             reasoning["should_use_wardrobe"] = True
@@ -6666,7 +6786,9 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
             or _ahvi_style_occasion(english_input)
         )
         resolved_occasion = (
-            beta_instructions.get("occasion")
+            _text_conversation.occasion
+            or _text_conversation.activity
+            or beta_instructions.get("occasion")
             or beta_state.get("occasion")
             or interpreted_occasion
         )
@@ -6692,7 +6814,7 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
                 user_id, english_input, interpreted_occasion,
             )
             return _style_clarification_response(english_input, style_interpretation)
-        if visual_context or interpreted_occasion:
+        if (visual_context or interpreted_occasion) and not _text_board_veto:
             logger.info(
                 "style.fast_board_route user_id=%s prompt=%r interpreted_occasion=%s",
                 user_id,
@@ -6705,6 +6827,7 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
                 request.wardrobe,
                 effective_user_profile,
                 resolved_occasion=resolved_occasion,
+                resolved_context=_text_conversation.to_dict(),
                 style_action=style_action,
                 show_closest_option=closest_requested,
                 allow_closest_option=closest_requested,
@@ -7012,18 +7135,26 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
         data_payload = {"outfits": [], "rendered_boards": []}
         result["board_ids"] = ""
     else:
+        if _text_board_veto:
+            # Text-only and clarification decisions are authoritative for this
+            # turn, even if the legacy orchestrator returned a visual payload.
+            cards_payload = []
+            data_payload = {"outfits": [], "rendered_boards": []}
+            result["board_ids"] = ""
+            result["style_boards"] = []
         has_visual_board = bool(
             isinstance(cards_payload, list) and cards_payload
         ) or bool(
             isinstance(data_payload, dict)
             and (data_payload.get("rendered_boards") or data_payload.get("outfits"))
         )
-        if visual_context and not has_visual_board:
+        if visual_context and not has_visual_board and not _text_board_veto:
             style_payload = _demo_style_board_payload(
                 user_id,
                 english_input,
                 request.wardrobe,
                 effective_user_profile,
+                resolved_context=_text_conversation.to_dict(),
                 style_action=style_action,
                 show_closest_option=closest_requested,
                 allow_closest_option=closest_requested,
@@ -7117,7 +7248,14 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
             query=english_input,
             context={
                 "query": english_input,
-                "occasion": _ahvi_style_occasion(english_input),
+                "occasion": _text_conversation.occasion
+                or _text_conversation.activity
+                or _ahvi_style_occasion(english_input),
+                "date_context": _text_conversation.date_context,
+                "daypart": _text_conversation.daypart,
+                "activity": _text_conversation.activity,
+                "activity_type": _text_conversation.activity_type,
+                "resolved_context": _text_conversation.to_dict(),
                 "user_profile": effective_user_profile,
                 "weather": weather_data.get("condition"),
                 "time_of_day": weather_data.get("time_of_day"),
