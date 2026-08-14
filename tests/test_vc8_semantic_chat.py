@@ -219,6 +219,52 @@ def test_commit_one_module_chat_boundaries(monkeypatch):
         assert bool(body.get("style_boards")) is expects_board, (prompt, body)
 
 
+def test_small_talk_returns_natural_social_answer(monkeypatch):
+    client = _client(monkeypatch)
+    response = client.post(
+        "/api/module-chat",
+        json={"domain": "style", "message": "how are you doing?"},
+    )
+    body = response.json()
+    text = body["message_text"].lower()
+
+    assert response.status_code == 200
+    assert body["intent"] == "small_talk"
+    assert body["response_mode"] == "text_only"
+    assert body["style_boards"] == []
+    assert "doing well" in text
+    assert not any(word in text for word in ("styling", "planning", "preparing"))
+
+
+def test_style_tips_fall_back_when_provider_only_asks_setup_questions(monkeypatch):
+    client = _client(monkeypatch)
+    monkeypatch.setattr(
+        chat,
+        "_module_llm_response",
+        lambda **kwargs: {
+            "message_text": (
+                "I can help with style tips. What occasion are you dressing for? "
+                "What is your style goal?"
+            ),
+        },
+    )
+
+    response = client.post(
+        "/api/module-chat",
+        json={"domain": "style", "message": "Give me style tips"},
+    )
+    body = response.json()
+    text = body["message_text"].lower()
+
+    assert response.status_code == 200
+    assert body["intent"] == "advice"
+    assert body["response_mode"] == "text_only"
+    assert body["style_boards"] == []
+    assert "anchor the outfit" in text
+    question_index = text.find("?")
+    assert question_index < 0 or text.find("anchor the outfit") < question_index
+
+
 def test_color_advice_uses_persisted_profile_provenance(monkeypatch):
     client = _client(monkeypatch, persisted_profile={"skin_tone": "warm"})
 

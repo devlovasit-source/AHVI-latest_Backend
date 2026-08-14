@@ -1057,9 +1057,7 @@ def _ahvi_help_identity_response(text: str, module_context: str = ""):
 
 
 def _ahvi_small_talk_response(module_context: str = ""):
-    message = (
-        "Ready to help. Are we styling an outfit, planning your day, or preparing for something upcoming?"
-    )
+    message = "I'm doing well. Ready whenever you are. How are you doing?"
     return {
         "success": True,
         "message": message,
@@ -3671,6 +3669,13 @@ class ModuleChatRequest(BaseModel):
 
 
 _MODULE_CHAT_PROMPTS: Dict[str, str] = {
+    "style": (
+        "You are AHVI's Style advice assistant. For text-only Style advice, "
+        "give two to four concise, actionable tips immediately. Do not begin "
+        "with setup questions. You may ask at most one optional follow-up "
+        "question after the advice. Use provided wardrobe or profile facts only "
+        "when present, and do not invent missing facts or create a Style board."
+    ),
     "medi": (
         "You are AHVI's medicine tracking assistant. Use only the user's "
         "medication inventory and reminder data. Do not give diagnosis or unsafe "
@@ -3745,6 +3750,26 @@ def _looks_incomplete_module_answer(answer: Any) -> bool:
         "i need a bit more detail about",
     )
     return any(tail.endswith(ending) for ending in incomplete_endings)
+
+
+def _looks_unusable_style_advice(answer: Any) -> bool:
+    text = str(answer or "").strip().lower()
+    if not text or _looks_incomplete_module_answer(text):
+        return True
+    actionable_cues = (
+        "try ", "pair ", "choose ", "keep ", "wear ", "add ", "use ",
+        "balance ", "anchor ", "focus on ", "make sure ", "ensure ",
+    )
+    first_action = min(
+        (text.find(cue) for cue in actionable_cues if cue in text),
+        default=-1,
+    )
+    first_question = text.find("?")
+    return (
+        first_action < 0
+        or text.count("?") > 1
+        or (first_question >= 0 and first_question < first_action)
+    )
 
 
 def _module_fallback_answer(module_key: str, user_message: str) -> str:
@@ -4925,6 +4950,8 @@ async def _handle_preclassified(
                 or ""
             ).strip()
         except Exception:
+            message_text = ""
+        if pre.get("intent") == "advice" and _looks_unusable_style_advice(message_text):
             message_text = ""
         if not message_text:
             # Deterministic fallback so information / advice never returns empty.
