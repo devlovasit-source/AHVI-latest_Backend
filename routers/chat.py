@@ -3643,7 +3643,7 @@ class DailyCardsRequest(BaseModel):
 
 class ModuleChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
-    history: List[Dict[str, str]] = Field(default_factory=list, max_length=20)
+    history: List[Dict[str, str]] = Field(default_factory=list)
     module: str | None = Field(default=None, min_length=2, max_length=32)
     domain: str | None = Field(default=None, min_length=2, max_length=32)
     # P0: client-generated correlation id. Optional for backward compat with
@@ -3666,6 +3666,13 @@ class ModuleChatRequest(BaseModel):
     lat: float | None = None
     lon: float | None = None
     lng: float | None = None
+
+    @field_validator("history", mode="before")
+    @classmethod
+    def bound_history(cls, value: Any) -> Any:
+        if isinstance(value, list) and len(value) > 20:
+            return value[-20:]
+        return value
 
 
 _MODULE_CHAT_PROMPTS: Dict[str, str] = {
