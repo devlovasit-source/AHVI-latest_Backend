@@ -727,6 +727,118 @@ def test_calendar_module_chat_creates_meeting_event(monkeypatch):
     assert "16:00:00+05:30" in created["payload"]["start_time"]
 
 
+def test_calendar_context_routes_event_shaped_meal_words_to_calendar(monkeypatch):
+    created = []
+
+    monkeypatch.setattr("services.calendar_service.find_existing_event", lambda *args, **kwargs: None)
+
+    def fake_create(user_id, payload):
+        event = {"id": f"event-{len(created) + 1}", "user_id": user_id, **payload}
+        created.append(event)
+        return event
+
+    monkeypatch.setattr("services.calendar_service.create_calendar_event", fake_create)
+    client = _text_chat_client_with_user()
+
+    prompts = [
+        "Dentist 18:00",
+        "Dinner 20:00",
+        "Lunch with Ravi 13:30",
+        "Breakfast meeting tomorrow at 9",
+        "Gym 07:00",
+        "Dinner with Meghna Friday 8pm",
+    ]
+    for prompt in prompts:
+        response = client.post(
+            "/api/chat/module-chat",
+            json={
+                "domain": "calendar",
+                "module": "calendar",
+                "message": f"Occasion: Event\n\n{prompt}",
+                "history": [],
+                "context_data": {},
+                "user_profile": {},
+            },
+        )
+        body = response.json()
+        assert response.status_code == 200
+        assert body["intent"] == "calendar_event_created"
+        assert body["domain"] == "calendar"
+
+    assert len(created) == len(prompts)
+
+
+def test_calendar_consecutive_dentist_and_dinner_create_two_events(monkeypatch):
+    created = []
+
+    def fail_diet_handler(**kwargs):
+        raise AssertionError("Calendar event turns must not invoke the Diet board handler")
+
+    monkeypatch.setattr("services.calendar_service.find_existing_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(chat, "_build_visual_board_envelope", fail_diet_handler)
+
+    def fake_create(user_id, payload):
+        event = {"id": f"event-{len(created) + 1}", "user_id": user_id, **payload}
+        created.append(event)
+        return event
+
+    monkeypatch.setattr("services.calendar_service.create_calendar_event", fake_create)
+    client = _text_chat_client_with_user()
+
+    history = []
+    responses = []
+    for prompt in ("Dentist 18:00", "Dinner 20:00"):
+        decorated = f"Occasion: Event\n\n{prompt}"
+        response = client.post(
+            "/api/chat/module-chat",
+            json={
+                "domain": "calendar",
+                "module": "calendar",
+                "message": decorated,
+                "history": history,
+                "context_data": {},
+                "user_profile": {},
+            },
+        )
+        body = response.json()
+        responses.append(body)
+        history.extend(
+            [
+                {"role": "user", "content": prompt},
+                {"role": "assistant", "content": body["message_text"]},
+            ]
+        )
+
+    assert [body["intent"] for body in responses] == [
+        "calendar_event_created",
+        "calendar_event_created",
+    ]
+    assert created[0]["title"].startswith("Dentist")
+    assert created[1]["title"] == "Dinner"
+
+
+def test_explicit_diet_prompts_and_outside_calendar_dinner_stay_non_calendar(monkeypatch):
+    created = []
+    monkeypatch.setattr(
+        "services.calendar_service.create_calendar_event",
+        lambda user_id, payload: created.append(payload),
+    )
+
+    diet_prompts = [
+        "What should I eat for dinner?",
+        "Plan a high-protein dinner",
+        "How many calories should dinner have?",
+        "Give me dinner meal ideas",
+    ]
+    for prompt in diet_prompts:
+        assert chat._detect_visual_board_type(prompt, "calendar") == "diet_plan"
+        assert chat._looks_like_event_create(prompt) is False
+
+    assert chat._looks_like_event_create("Dinner") is False
+    assert chat._detect_visual_board_type("Dinner", "chat") == "diet_plan"
+    assert created == []
+
+
 def test_plan_my_day_uses_calendar_plan_and_meal_data(monkeypatch):
     from services import module_chat_service
 

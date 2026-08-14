@@ -48,7 +48,7 @@ from services.style_flow_service import (
     interpret_occasion,
     _build_composition_brief,
 )
-from services.module_chat_service import handle_module_chat
+from services.module_chat_service import _looks_like_event_create, handle_module_chat
 from services.request_context import get_request_id
 from services.style_board_mutation_service import (
     board_context_for_semantics,
@@ -5310,6 +5310,20 @@ async def _module_chat_impl(
             {
                 "domain": _qa_module,
                 "module": _qa_module,
+                "message": user_message,
+                "context": merged_context,
+                "user_profile": profile,
+            },
+            user_id=user_id,
+        )
+
+    # An explicit Calendar surface plus event-shaped text must reach the
+    # existing Calendar handler before generic meal keywords are considered.
+    if module == "calendar" and user_id and _looks_like_event_create(user_message):
+        return await handle_module_chat(
+            {
+                "domain": "calendar",
+                "module": "calendar",
                 "message": user_message,
                 "context": merged_context,
                 "user_profile": profile,

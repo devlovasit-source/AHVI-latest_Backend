@@ -121,8 +121,10 @@ def _has_event_date(text: str) -> bool:
 
 def _has_event_time(text: str) -> bool:
     t = str(text or "").lower()
-    return bool(re.search(r"\b(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b", t)) or any(
-        tok in t for tok in (" morning", " afternoon", " evening", " night")
+    return (
+        bool(re.search(r"\b(?:at\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b", t))
+        or bool(re.search(r"\b(?:[01]?\d|2[0-3]):[0-5]\d\b", t))
+        or any(tok in t for tok in (" morning", " afternoon", " evening", " night"))
     )
 
 
@@ -170,6 +172,18 @@ def _assemble_event_text(message: str, context: Dict[str, Any]) -> str:
 def _looks_like_event_create(message: str) -> bool:
     text = _strip_occasion_prefix(message).lower().strip()
     if not text or text in {"add event", "view events", "open events", "open calendar"}:
+        return False
+    if any(
+        phrase in text
+        for phrase in (
+            "what should i eat",
+            "meal plan",
+            "high-protein",
+            "high protein",
+            "how many calories",
+            "meal ideas",
+        )
+    ):
         return False
     has_date = _has_event_date(text)
     has_time = _has_event_time(text)

@@ -220,7 +220,8 @@ def _extract_event_time(raw: str) -> tuple[int, int, bool]:
     patterns = [
         r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b",
         r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b",
-        r"\bat\s+(\d{1,2})(?::(\d{2}))\b",
+        r"\bat\s+(\d{1,2})(?::(\d{2}))?\b",
+        r"\b([01]?\d|2[0-3]):([0-5]\d)\b",
     ]
     for pattern in patterns:
         match = re.search(pattern, lower)
