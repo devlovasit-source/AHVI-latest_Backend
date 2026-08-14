@@ -1,11 +1,12 @@
 """
-P0 pre-classifier: the smallest deterministic seam that separates the three
-prompt classes the module-chat endpoint was mishandling.
+Deterministic seam for prompt classes that must never create a Style board.
 
 - Style information ("what is …", "explain …")           → text_only
 - Style advice     ("style tips", "how do I dress …")    → text_only
 - Explicit inspiration ("show … inspiration/ideas")      → visual_inspiration
 - Calendar navigation (bare "calendar", "open calendar") → calendar_navigation
+- Conversation (greeting, identity, small talk, support)                 → text_only
+- Color advice                                                        → text_only
 
 Everything else returns ``None`` and the existing routing runs. The seam
 lives here rather than inside ``routers/chat.py`` so the endpoint keeps
@@ -94,6 +95,93 @@ _ADVICE_PATTERNS = (
     "how to improve my style",
 )
 
+# These are advice requests, not requests to generate a complete board. Keep
+# them ahead of the legacy outfit heuristics in module-chat.
+_PAIRING_PATTERNS = (
+    "how can i style ",
+    "how do i style ",
+    "how should i style ",
+    "what to do with ",
+    "what goes with ",
+    "what pairs with ",
+    "what should i wear with ",
+)
+
+_OUTFIT_GENERATION_PATTERNS = (
+    "what should i wear",
+    "what do i wear",
+    "what can i wear",
+    "what to wear",
+    "outfit",
+    "style me",
+    "style this",
+    "build a look",
+    "build an outfit",
+    "create a look",
+    "create an outfit",
+    "make a look",
+    "make an outfit",
+    "dress me",
+    "wear for ",
+    "dress for ",
+)
+
+_GARMENT_TERMS = (
+    "shirt", "t shirt", "tee", "jeans", "trousers", "pants", "skirt",
+    "dress", "blazer", "jacket", "coat", "shoes", "sneakers", "loafers",
+    "top", "hoodie", "sweater", "saree", "kurta",
+)
+
+_COLOR_PATTERNS = (
+    "what suits my skin tone",
+    "what color suits my skin tone",
+    "what colour suits my skin tone",
+    "what colors suit my skin tone",
+    "what colours suit my skin tone",
+    "colors suit me",
+    "colours suit me",
+    "skin tone",
+    "undertone",
+)
+
+_GREETING_PHRASES = frozenset({"hi", "hello", "hey", "good morning", "good evening"})
+_IDENTITY_PHRASES = frozenset({
+    "who are you", "what are you", "what is ahvi", "tell me about yourself",
+    "what can you do", "help",
+})
+_SMALL_TALK_PHRASES = frozenset({
+    "how are you", "how are you doing", "thanks", "thank you",
+})
+_SUPPORTIVE_PATTERNS = (
+    "im emotionally lost",
+    "im little emotionally lost",
+    "i am emotionally lost",
+    "i am little emotionally lost",
+    "im feeling lost",
+    "i am feeling lost",
+    "not sure what to do",
+    "dont know what to do",
+    "don't know what to do",
+)
+
+
+def _has_explicit_outfit_generation(hay: str) -> bool:
+    if any(pattern in hay for pattern in _OUTFIT_GENERATION_PATTERNS):
+        return True
+    return bool(re.search(r"\b(?:build|create|make|generate|put together)\b.{0,48}\b(?:outfit|look)\b", hay))
+
+
+def _has_explicit_style_request(hay: str) -> bool:
+    """Detect a current-turn Style/garment ask before emotional fallbacks."""
+    if _has_explicit_outfit_generation(hay):
+        return True
+    has_garment = any(term in hay for term in _GARMENT_TERMS)
+    has_style_cue = any(
+        cue in hay
+        for cue in ("what", "how", "style", "wear", "pair", "with", "do")
+    )
+    return has_garment and has_style_cue
+
 
 def _matches_wildcard(needle: str, hay: str) -> bool:
     if "*" not in needle:
@@ -133,6 +221,37 @@ def classify_message(text: str) -> Optional[Dict[str, str]]:
     if not hay:
         return None
 
+    # Conversation is checked before any style vocabulary. These messages
+    # must remain text-only even when the Style module is active.
+    if hay in _GREETING_PHRASES:
+        return {
+            "domain": "style",
+            "intent": "greeting",
+            "action": "respond_greeting",
+            "response_mode": "text_only",
+        }
+    if hay in _IDENTITY_PHRASES:
+        return {
+            "domain": "style",
+            "intent": "help_identity",
+            "action": "respond_identity",
+            "response_mode": "text_only",
+        }
+    if hay in _SMALL_TALK_PHRASES:
+        return {
+            "domain": "style",
+            "intent": "small_talk",
+            "action": "respond_small_talk",
+            "response_mode": "text_only",
+        }
+    if any(pattern in hay for pattern in _SUPPORTIVE_PATTERNS) and not _has_explicit_style_request(hay):
+        return {
+            "domain": "style",
+            "intent": "supportive_conversation",
+            "action": "respond_supportively",
+            "response_mode": "text_only",
+        }
+
     # 1. Calendar navigation — full-message equality, not substring.
     if hay in _CALENDAR_NAV_PHRASES and not _looks_like_calendar_creation(hay):
         return {
@@ -153,6 +272,23 @@ def classify_message(text: str) -> Optional[Dict[str, str]]:
                 "response_mode": "visual_inspiration",
             }
 
+    # Explicit generation wins over informational color language. The full
+    # prompt remains available to the Style pipeline as the current-turn
+    # color constraint.
+    if _has_explicit_outfit_generation(hay):
+        return None
+
+    # Color / skin-tone questions are informational advice, never outfit
+    # generation. This also catches corrections such as "I meant what color
+    # suits my skin tone".
+    if any(pattern in hay for pattern in _COLOR_PATTERNS):
+        return {
+            "domain": "style",
+            "intent": "color_advice",
+            "action": "provide_color_advice",
+            "response_mode": "text_only",
+        }
+
     # 3. Style information — question shape wins even inside style chat.
     for prefix in _INFORMATION_PATTERNS:
         if hay.startswith(prefix):
@@ -172,6 +308,14 @@ def classify_message(text: str) -> Optional[Dict[str, str]]:
                 "action": "provide_style_advice",
                 "response_mode": "text_only",
             }
+
+    if any(pattern in hay for pattern in _PAIRING_PATTERNS):
+        return {
+            "domain": "style",
+            "intent": "advice",
+            "action": "provide_style_advice",
+            "response_mode": "text_only",
+        }
 
     return None
 

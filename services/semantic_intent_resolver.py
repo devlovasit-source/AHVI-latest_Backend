@@ -21,7 +21,12 @@ logger = logging.getLogger("ahvi.semantic_intent")
 
 _SEMANTIC_DOMAINS = {"style", "calendar", "planner"}
 _SEMANTIC_INTENTS = {
+    "greeting",
+    "small_talk",
+    "help_identity",
+    "supportive_conversation",
     "advice",
+    "color_advice",
     "information",
     "inspiration",
     "recommendation",
@@ -32,7 +37,12 @@ _SEMANTIC_INTENTS = {
     "explain_current_look",
 }
 _SEMANTIC_ACTIONS = {
+    "respond_greeting",
+    "respond_small_talk",
+    "respond_identity",
+    "respond_supportively",
     "provide_style_advice",
+    "provide_color_advice",
     "explain_style_concept",
     "provide_visual_inspiration",
     "recommend_wardrobe",
@@ -289,8 +299,8 @@ def _prompt(
     }
     schema = {
         "domain": "style|calendar|planner",
-        "intent": "advice|information|inspiration|recommendation|navigate|clarification|modify_current_look|generate_alternative|explain_current_look",
-        "action": "provide_style_advice|explain_style_concept|provide_visual_inspiration|recommend_wardrobe|open_calendar|request_clarification|modify_current_look|generate_alternative|explain_current_look",
+        "intent": "greeting|small_talk|help_identity|supportive_conversation|advice|color_advice|information|inspiration|recommendation|navigate|clarification|modify_current_look|generate_alternative|explain_current_look",
+        "action": "respond_greeting|respond_small_talk|respond_identity|respond_supportively|provide_style_advice|provide_color_advice|explain_style_concept|provide_visual_inspiration|recommend_wardrobe|open_calendar|request_clarification|modify_current_look|generate_alternative|explain_current_look",
         "response_mode": "text_only|visual_inspiration|wardrobe_recommendation|calendar_navigation|clarification",
         "confidence": 0.0,
         "requires_clarification": False,

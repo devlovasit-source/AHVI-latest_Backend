@@ -2316,6 +2316,18 @@ def _is_latency_safe_outfit_generation_request(text: Any) -> bool:
     return _is_use_wardrobe_action(prompt=text)
 
 
+def _has_positive_style_board_intent(text: Any, module: str = "style") -> bool:
+    """Allow board construction only after an explicit positive style ask."""
+    query = str(text or "").strip()
+    if not query:
+        return False
+    return bool(
+        _is_explicit_style_request(query, module)
+        or _is_generate_style_board_request(query)
+        or _is_use_wardrobe_action(prompt=query)
+    )
+
+
 def _pool_gender_ok(item: Dict[str, Any], gender: str) -> bool:
     """Keep opposite-gender assets out of a gendered final board (repair pool),
     unless gender is unknown. Reuses simple token signals; never the full asset
@@ -4659,9 +4671,19 @@ def _preclassified_calendar_navigation_response() -> Dict[str, Any]:
     }
 
 
-def _preclassified_text_reply(message: str, pre: Dict[str, Any]) -> Dict[str, Any]:
+def _preclassified_text_reply(
+    message: str,
+    pre: Dict[str, Any],
+    *,
+    context_provenance: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """P0: information/advice → text-only bubble. Frontend renders text_only."""
-    return {
+    data = {"intent": pre.get("intent") or "advice"}
+    meta: Dict[str, Any] = {"mode": pre.get("intent") or "advice"}
+    if context_provenance is not None:
+        data["context_provenance"] = context_provenance
+        meta["context_provenance"] = context_provenance
+    response = {
         "success": True,
         "type": "text",
         "domain": pre.get("domain") or "style",
@@ -4672,8 +4694,47 @@ def _preclassified_text_reply(message: str, pre: Dict[str, Any]) -> Dict[str, An
         "response": message,
         "cards": [],
         "chips": [],
-        "data": {"intent": pre.get("intent") or "advice"},
+        "data": data,
+        "meta": meta,
     }
+    if context_provenance is not None:
+        response["context_provenance"] = context_provenance
+    return response
+
+
+def _profile_has_color_context(profile: Any) -> bool:
+    if not isinstance(profile, dict):
+        return False
+    keys = {
+        "skin_tone", "skinTone", "undertone", "skin_undertone", "skinUndertone",
+        "color_palette", "colour_palette", "colorPalette", "colourPalette",
+    }
+    if any(str(profile.get(key) or "").strip() for key in keys):
+        return True
+    for nested_key in ("preferences", "style_preferences", "stylePreferences", "profile"):
+        nested = profile.get(nested_key)
+        if _profile_has_color_context(nested):
+            return True
+    return False
+
+
+def _color_context_provenance(
+    request_profile: Any,
+    effective_profile: Any,
+) -> Dict[str, Any]:
+    if _profile_has_color_context(request_profile):
+        return {"source": "request_profile", "available": True}
+    if _profile_has_color_context(effective_profile):
+        return {"source": "persisted_profile", "available": True}
+    return {"source": "none", "available": False}
+
+
+def _preclassified_supportive_reply(pre: Dict[str, Any]) -> Dict[str, Any]:
+    message = (
+        "That sounds heavy. You do not have to solve everything at once. "
+        "Start with one small next step, and tell me what feels most difficult right now."
+    )
+    return _preclassified_text_reply(message, pre)
 
 
 def _preclassified_clarification_reply(pre: Dict[str, Any]) -> Dict[str, Any]:
@@ -4774,7 +4835,7 @@ async def _handle_preclassified(
     http_request: "Request",
 ) -> Optional[Dict[str, Any]]:
     """
-    Handle the 4 pre-classified prompt shapes. Returns None to let the normal
+    Handle deterministic prompt shapes. Returns None to let the normal
     routing run (never happens for known pre classifications, but keeps the
     call site defensive).
     """
@@ -4828,10 +4889,28 @@ async def _handle_preclassified(
         # Information / advice: use the module LLM with a text-only prompt.
         # No wardrobe pipeline, no board generation, no visual reveal.
         merged_context = {**(request.context_data or {}), **(request.context or {})}
-        profile = dict(request.user_profile or {})
         user_id = _state_user_id(http_request)
+        request_profile = dict(request.user_profile or {})
+        profile = request_profile
+        if str(pre.get("intent") or "").strip().lower() == "color_advice":
+            profile = _ahvi_resolve_effective_user_profile(user_id, request_profile)
         if user_id:
             profile["user_id"] = user_id
+
+        intent = str(pre.get("intent") or "").strip().lower()
+        if intent == "greeting":
+            return _ahvi_greeting_response("style")
+        if intent == "help_identity":
+            return _ahvi_help_identity_response(str(request.message or ""), "style")
+        if intent == "small_talk":
+            return _ahvi_small_talk_response("style")
+        if intent == "supportive_conversation":
+            return _preclassified_supportive_reply(pre)
+
+        context_provenance = None
+        if intent == "color_advice":
+            context_provenance = _color_context_provenance(request_profile, profile)
+            merged_context["context_provenance"] = context_provenance
         try:
             llm_reply = _module_llm_response(
                 module="style",
@@ -4854,13 +4933,23 @@ async def _handle_preclassified(
                     "That's a style concept I can walk you through — tell me "
                     "which part you'd like explained (colour, silhouette, or context)."
                 )
+            elif pre.get("intent") == "color_advice":
+                message_text = (
+                    "For skin-tone color advice, start with shades that echo your undertone, "
+                    "then compare warm, cool, and softened neutrals near your face. "
+                    "I can narrow this down if you share your undertone or a color you already like."
+                )
             else:
                 message_text = (
                     "A few quick style tips: anchor the outfit with one colour, "
                     "keep two textures, and let one piece be the hero. "
                     "Ask me for tips on a specific occasion for something sharper."
                 )
-        return _preclassified_text_reply(message_text, pre)
+        return _preclassified_text_reply(
+            message_text,
+            pre,
+            context_provenance=context_provenance,
+        )
 
     if mode == "clarification":
         return _preclassified_clarification_reply(pre)
@@ -4929,11 +5018,12 @@ def _stamp_module_chat_response(
 @router.post("/chat/module-chat")
 async def module_chat(request: ModuleChatRequest, http_request: Request):
     # P0: deterministic classifier first; contextual Style follow-ups may use
-    # the bounded semantic seam. Handles the exact prompt classes the existing
-    # 22-in-line-classifier stack was mishandling:
+    # the bounded semantic seam. Handles prompt classes that must not enter
+    # board construction:
     #   - bare "calendar"          → calendar_navigation
     #   - "what is …" / "explain" → text_only (style information)
     #   - "style tips" / "how to" → text_only (style advice)
+    #   - greetings, identity, support, and color advice → text_only
     #   - "show me … inspiration" → visual_inspiration (forced on)
     # Everything else falls through to the existing routing.
     _message = str(request.message or "").strip()
@@ -4992,6 +5082,10 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
     elif (
         _conversation_diagnostics.get("requires_clarification")
         and _style_conversation_enabled(request)
+        and not _has_positive_style_board_intent(
+            _message,
+            _normalize_module_name(request.domain or request.module or "style"),
+        )
     ):
         _pre = _conversation_clarification(_conversation_diagnostics)
     if (
@@ -4999,6 +5093,10 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
         and _pre.get("response_mode") == "visual_inspiration"
         and _conversation_diagnostics.get("requires_clarification")
         and _style_conversation_enabled(request)
+        and not _has_positive_style_board_intent(
+            _message,
+            _normalize_module_name(request.domain or request.module or "style"),
+        )
     ):
         _pre = _contextualize_semantic_decision(
             {
@@ -5043,19 +5141,38 @@ async def module_chat(request: ModuleChatRequest, http_request: Request):
         if _pre_result is not None:
             return _stamp_module_chat_response(_pre_result, request, _pre)
 
-    _envelope = await _module_chat_impl(request, http_request)
+    # Semantic classification can explain or recommend, but it cannot grant
+    # board construction authority. Mutation decisions have already returned
+    # through handle_board_operation above; new boards require current-turn
+    # positive Style intent.
+    _board_authorized = _has_positive_style_board_intent(
+        _message,
+        _normalize_module_name(request.domain or request.module or "style"),
+    )
+    _envelope = await _module_chat_impl(
+        request,
+        http_request,
+        board_authorized=_board_authorized,
+    )
     if isinstance(_envelope, dict):
         _envelope["_conversation_diagnostics"] = _conversation_diagnostics
     return _stamp_module_chat_response(_envelope, request, None)
 
 
-async def _module_chat_impl(request: ModuleChatRequest, http_request: Request):
+async def _module_chat_impl(
+    request: ModuleChatRequest,
+    http_request: Request,
+    *,
+    board_authorized: Optional[bool] = None,
+):
     module = _normalize_module_name(request.domain or request.module or "")
     profile = dict(request.user_profile or {})
     user_id = _state_user_id(http_request)
     if user_id:
         profile["user_id"] = user_id
     user_message = str(request.message or "").strip()
+    if board_authorized is None:
+        board_authorized = _has_positive_style_board_intent(user_message, module)
     merged_context = {**(request.context_data or {}), **(request.context or {})}
     conversation, conversation_diagnostics = _style_conversation_resolution(request)
     merged_context["conversation_context"] = conversation.to_dict()
@@ -5218,6 +5335,14 @@ async def _module_chat_impl(request: ModuleChatRequest, http_request: Request):
         or conversation.activity
         or conversation.date_context
     ):
+        if not board_authorized:
+            return _module_llm_response(
+                module="style",
+                user_message=user_message,
+                history=request.history,
+                context_data=merged_context,
+                user_profile=profile,
+            )
         wardrobe = (
             merged_context.get("wardrobe")
             or merged_context.get("outfits")
