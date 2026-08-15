@@ -5319,7 +5319,14 @@ async def _module_chat_impl(
 
     # An explicit Calendar surface plus event-shaped text must reach the
     # existing Calendar handler before generic meal keywords are considered.
-    if module == "calendar" and user_id and _looks_like_event_create(user_message):
+    # "planner" is the same surface — _normalize_domain aliases it to
+    # "calendar" downstream, but that alias only applies once execution
+    # reaches handle_module_chat. Prep & Plan (Home -> Plan Week) sends
+    # module="planner", so without this it fell through to
+    # _detect_visual_board_type first, whose bare "dinner"/"lunch"/
+    # "breakfast" keyword match beat the date+time-aware event check below
+    # (e.g. "Dinner 20:00" -> diet_plan instead of a calendar event).
+    if module in {"calendar", "planner"} and user_id and _looks_like_event_create(user_message):
         return await handle_module_chat(
             {
                 "domain": "calendar",

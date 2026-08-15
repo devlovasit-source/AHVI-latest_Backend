@@ -817,6 +817,62 @@ def test_calendar_consecutive_dentist_and_dinner_create_two_events(monkeypatch):
     assert created[1]["title"] == "Dinner"
 
 
+def test_calendar_planner_module_consecutive_dentist_and_dinner_create_two_events(monkeypatch):
+    """Build 2012 regression: Home -> Plan Week -> Prep sends
+    domain/module="planner", not "calendar" — _normalize_domain aliases
+    planner -> calendar, but only once execution reaches
+    handle_module_chat. The Calendar-priority guard in routers.chat must
+    also recognize "planner" directly, or "Dinner 20:00" falls through to
+    _detect_visual_board_type's bare "dinner" keyword match first and gets
+    misrouted to the Diet board instead of creating a calendar event.
+    """
+    created = []
+
+    def fail_diet_handler(**kwargs):
+        raise AssertionError("Calendar event turns must not invoke the Diet board handler")
+
+    monkeypatch.setattr("services.calendar_service.find_existing_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(chat, "_build_visual_board_envelope", fail_diet_handler)
+
+    def fake_create(user_id, payload):
+        event = {"id": f"event-{len(created) + 1}", "user_id": user_id, **payload}
+        created.append(event)
+        return event
+
+    monkeypatch.setattr("services.calendar_service.create_calendar_event", fake_create)
+    client = _text_chat_client_with_user()
+
+    history = []
+    responses = []
+    for prompt in ("Dentist 18:00", "Dinner 20:00"):
+        response = client.post(
+            "/api/chat/module-chat",
+            json={
+                "domain": "planner",
+                "module": "planner",
+                "message": prompt,
+                "history": history,
+                "context_data": {},
+                "user_profile": {},
+            },
+        )
+        body = response.json()
+        responses.append(body)
+        history.extend(
+            [
+                {"role": "user", "content": prompt},
+                {"role": "assistant", "content": body["message_text"]},
+            ]
+        )
+
+    assert [body["intent"] for body in responses] == [
+        "calendar_event_created",
+        "calendar_event_created",
+    ]
+    assert created[0]["title"].startswith("Dentist")
+    assert created[1]["title"] == "Dinner"
+
+
 def test_explicit_diet_prompts_and_outside_calendar_dinner_stay_non_calendar(monkeypatch):
     created = []
     monkeypatch.setattr(
