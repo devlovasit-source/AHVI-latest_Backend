@@ -390,6 +390,35 @@ def _normalize_occasion_value(value: Any, query: Any = "") -> str:
     return explicit if explicit in _CANONICAL_OCCASIONS else ""
 
 
+def resolve_occasion_with_continuity(
+    query: str,
+    ctx: Dict[str, Any],
+    occasion_interpretation: Dict[str, Any],
+) -> str:
+    """Preserve a carried-forward occasion across a semantically dependent
+    follow-up ("similar looks with available items", "show another") instead
+    of silently downgrading it to generic daily wear.
+
+    detect_occasion's own fallback is the literal string "daily" when a
+    message carries no occasion signal of its own (see
+    brain.engines.occasion_interpreter.detect_occasion). That is exactly the
+    signal used here: if THIS message detected nothing (or only "daily") and
+    ctx carries a real prior occasion, keep the prior one. An explicit new
+    occasion in the message (e.g. "actually make it for office") still
+    detects as non-daily and overrides normally. A fresh conversation with no
+    prior occasion in ctx never invents one.
+    """
+    detected = occasion_interpretation.get("occasion") or _dict(
+        occasion_interpretation.get("board_generation_notes")
+    ).get("occasion_kind")
+    prior = str(ctx.get("occasion") or "").strip().lower()
+    if (not detected or str(detected).strip().lower() == "daily") and prior and prior != "daily":
+        source = ctx.get("occasion")
+    else:
+        source = detected or ctx.get("occasion")
+    return _normalize_occasion_value(source, query)
+
+
 def apply_occasion_card_language(cards: List[Dict[str, Any]], occasion: str) -> List[Dict[str, Any]]:
     normalized = _normalize_occasion_value(occasion)
     lang = _OCCASION_CARD_LANGUAGE.get(normalized)
@@ -4922,12 +4951,7 @@ def build_style_flow_response(
 
     occasion_interpretation = interpret_occasion(query, ctx)
     ctx["occasion_interpretation"] = occasion_interpretation
-    normalized_occasion = _normalize_occasion_value(
-        occasion_interpretation.get("occasion")
-        or _dict(occasion_interpretation.get("board_generation_notes")).get("occasion_kind")
-        or ctx.get("occasion"),
-        query,
-    )
+    normalized_occasion = resolve_occasion_with_continuity(query, ctx, occasion_interpretation)
     if normalized_occasion:
         ctx["occasion"] = normalized_occasion
     logger.info(
