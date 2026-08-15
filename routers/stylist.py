@@ -701,6 +701,8 @@ def _lite_needed_slots(anchor_role: str) -> List[str]:
         return ["top", "footwear", "accessory"]
     if anchor_role == "footwear":
         return ["top", "bottom", "accessory"]
+    if anchor_role == "outerwear":
+        return ["top", "bottom", "footwear"]
     return ["dress", "footwear"]  # accessory anchor -> hero garment + shoes
 
 

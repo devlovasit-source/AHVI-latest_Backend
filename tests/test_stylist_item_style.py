@@ -287,3 +287,36 @@ def test_style_this_failure_returns_three_fallback_directions(monkeypatch):
     assert result["success"] is False
     assert len(result["style_directions"]) == 3
     assert result["message"] == stylist._FRIENDLY_FAIL
+
+
+def test_lite_needed_slots_outerwear_requires_top_and_bottom():
+    # P0 regression: an outerwear anchor (blazer/jacket) used to fall through
+    # to the accessory-anchor default (["dress", "footwear"]), so it never
+    # asked for a top/bottom pairing and Style This could never complete
+    # even with a full wardrobe.
+    assert stylist._lite_needed_slots("outerwear") == ["top", "bottom", "footwear"]
+
+
+def test_style_this_outerwear_anchor_completes_with_full_wardrobe():
+    blazer = _it("blazer-1", "Grey Blazer", "Blazer")
+    wardrobe = [
+        blazer,
+        _it("shirt-1", "White Shirt", "Tops"),
+        _it("jeans-1", "Blue Jeans", "Bottoms"),
+        _it("loafer-1", "Black Loafers", "Footwear"),
+    ]
+    result = stylist.style_wardrobe_item(
+        "blazer-1", _req(wardrobe, mode="style_this", anchor=blazer)
+    )
+
+    assert result["success"] is True
+    dirs = result["style_directions"]
+    assert len(dirs) == 3
+    for d in dirs:
+        roles = {i["role"] for i in d["board_items"]}
+        assert {"outerwear", "top", "bottom", "footwear"} <= roles
+        assert d["anchor_item_id"] == "blazer-1"
+        assert d["board_id"] and not d["board_id"].startswith("outfit_card_")
+        assert d["revision"] >= 1
+        assert d["source_policy"] == "wardrobe"
+    assert result["anchor_item_id"] == "blazer-1"

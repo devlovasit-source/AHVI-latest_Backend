@@ -352,3 +352,55 @@ def test_other_user_is_denied_and_unknown_board_is_not_found():
 
     assert denied["error"]["code"] == "BOARD_FORBIDDEN"
     assert unknown["error"]["code"] == "BOARD_STATE_NOT_FOUND"
+
+
+def _wardrobe_outerwear():
+    return [
+        _item("blazer-1", "Grey Blazer", "Blazer"),
+        _item("top-1", "White Shirt", "Tops"),
+        _item("top-2", "Navy Polo", "Tops"),
+        _item("bottom-1", "Blue Jeans", "Bottoms"),
+        _item("bottom-2", "Grey Trousers", "Bottoms"),
+        _item("shoe-1", "Black Loafers", "Footwear"),
+        _item("shoe-2", "White Sneakers", "Footwear"),
+    ]
+
+
+def test_outerwear_anchor_shuffle_keeps_anchor_and_advances_revision():
+    # P0 regression companion: once an outerwear-anchored board can be built
+    # at all (see test_style_this_outerwear_anchor_completes_with_full_wardrobe
+    # in test_stylist_item_style.py), Shuffle must still honor the same
+    # anchor-locked contract as every other role.
+    wardrobe = _wardrobe_outerwear()
+    request = stylist.ItemStyleRequest(
+        user_id="owner-1",
+        mode="style_this",
+        anchor_item=wardrobe[0],
+        wardrobe=wardrobe,
+        weather={"status": "unavailable"},
+    )
+    result = stylist.style_wardrobe_item("blazer-1", request)
+    assert result["success"] is True
+    direction = result["style_directions"][0]
+    anchor_before = next(item for item in direction["items"] if item["locked"])
+    assert anchor_before["item_id"] == "blazer-1"
+
+    unlocked_before = [item for item in direction["items"] if not item["locked"]]
+    shuffled = shuffle_service.shuffle_board(
+        board_id=direction["board_id"],
+        revision=1,
+        locked_items=[anchor_before],
+        shuffle_slots=[item["slot"] for item in unlocked_before],
+        exclude_item_ids=[item["item_id"] for item in unlocked_before],
+        source_policy="inherit",
+        wardrobe=wardrobe,
+        user_id="owner-1",
+    )
+
+    assert shuffled["success"] is True, shuffled
+    assert shuffled["previous_revision"] == 1
+    assert shuffled["revision"] == 2
+    anchor_after = next(
+        item for item in shuffled["board_items"] if item["locked"]
+    )
+    assert anchor_after["item_id"] == "blazer-1"
