@@ -389,6 +389,66 @@ def test_unsafe_raw_candidate_is_rejected():
     assert result["error"]["code"] == "NO_VALID_REPLACEMENT"
 
 
+def _bad_aliased_item(item_id, name, role):
+    """P0-2 fixture: masked_url fabricated as a copy of the raw upload
+    (routers/data.py save-time healing when RMBG never ran) -- must never be
+    selected as a board-safe candidate."""
+    return _item(
+        item_id, name, role,
+        image_url="",
+        masked_url="https://raw/person.png",
+        raw_url="https://raw/person.png",
+    )
+
+
+def test_required_role_falls_back_to_safe_alternate_when_top_candidate_is_a_fabricated_alias():
+    result = _run(
+        _payload(
+            candidates=[
+                _bad_aliased_item("shoe-bad", "Ghost loafer", "footwear"),
+                _item("shoe-2", "Brown loafers", "footwear"),
+            ]
+        ),
+        _decision(replace_roles=["footwear"]),
+    )
+    assert result["success"] is True
+    assert result["data"]["changed_item_ids"] == ["shoe-2"]
+    ids = {item["item_id"] for item in result["cards"][0]["items"]}
+    assert "shoe-bad" not in ids
+    assert "shoe-2" in ids
+
+
+def test_required_role_with_only_a_fabricated_alias_candidate_yields_no_valid_replacement():
+    result = _run(
+        _payload(candidates=[_bad_aliased_item("shoe-bad", "Ghost loafer", "footwear")]),
+        _decision(replace_roles=["footwear"]),
+    )
+    assert result["success"] is False
+    assert result["error"]["code"] == "NO_VALID_REPLACEMENT"
+
+
+def test_optional_accessory_without_board_safe_image_is_omitted_not_invalidating():
+    items = [
+        _item("top-1", "White shirt", "top"),
+        _item("bottom-1", "Blue jeans", "bottom"),
+        _item("shoe-1", "White sneakers", "footwear"),
+        _item("acc-1", "Old necklace", "accessory"),
+    ]
+    result = _run(
+        _payload(
+            items=items,
+            candidates=[_bad_aliased_item("acc-bad", "Ghost necklace", "accessory")],
+            state_extra={"locked_item_ids": []},
+        ),
+        _decision(replace_roles=["accessory"]),
+    )
+    assert result["success"] is True
+    ids = {item["item_id"] for item in result["cards"][0]["items"]}
+    assert "acc-bad" not in ids
+    assert "acc-1" not in ids
+    assert {"top-1", "bottom-1", "shoe-1"} <= ids
+
+
 def test_module_chat_and_text_use_the_same_structured_semantic_executor(monkeypatch):
     semantic = _decision(replace_roles=["footwear"])
     monkeypatch.setattr(

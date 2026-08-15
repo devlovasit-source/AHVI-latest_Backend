@@ -14,6 +14,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 from brain.engines.outfit_quality_guard import is_complete_board
 from services.canonical_style_board import stable_hash
 from services.style_item_contract import (
+    aliases_raw_upload,
     canonical_item_id,
     canonical_item_role,
     canonical_item_source,
@@ -30,6 +31,11 @@ from services.style_board_state_store import (
 BOARD_OPERATIONS = frozenset(
     {"modify_current_look", "generate_alternative", "explain_current_look"}
 )
+
+# Mirrors brain.engines.outfit_quality_guard.missing_required_slots: a board
+# is only invalid without one of these. Accessory/bag/outerwear are optional
+# finishing pieces -- losing one over a bad image must not invalidate the look.
+_REQUIRED_BOARD_ROLES = frozenset({"top", "bottom", "footwear", "dress"})
 
 def _text(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
@@ -218,6 +224,9 @@ def _source_allowed(item: Mapping[str, Any], policy: str) -> bool:
     return source != "unknown"
 
 
+_ALIAS_SENSITIVE_MERGE_KEYS = frozenset({"normalized_url", "masked_url"})
+
+
 def _candidate_with_safe_provenance(item: Mapping[str, Any], policy: str) -> Optional[Dict[str, Any]]:
     """Normalize a replacement through the existing Style image contract."""
     source = canonical_item_source(dict(item))
@@ -230,8 +239,22 @@ def _candidate_with_safe_provenance(item: Mapping[str, Any], policy: str) -> Opt
         "normalized_url", "normalizedUrl", "masked_url", "maskedUrl",
         "catalog_image_url", "catalogImageUrl", "image_url", "imageUrl",
     )
+
+    def _usable_safe_value(key: str) -> bool:
+        value = _text(candidate.get(key))
+        if not value:
+            return False
+        # A masked/normalized field identical to this item's own raw upload
+        # is a fabricated cutout (backend echoed image_url when RMBG never
+        # ran) -- it must not count as proof the item has a real image.
+        if key.lower() in ("normalized_url", "maskedurl", "masked_url", "normalizedurl") and aliases_raw_upload(
+            value, candidate
+        ):
+            return False
+        return True
+
     if any(_text(candidate.get(key)) for key in raw_markers) and not any(
-        _text(candidate.get(key)) for key in safe_keys if key not in raw_markers
+        _usable_safe_value(key) for key in safe_keys if key not in raw_markers
     ):
         return None
     if candidate.get("owned") is False or (
@@ -253,8 +276,16 @@ def _candidate_with_safe_provenance(item: Mapping[str, Any], policy: str) -> Opt
             "board_image_url", "cutout_url", "catalog_image_url", "normalized_url",
             "masked_url", "source_kind", "expected_transparent", "requires_frame",
             "position",
-        } and value not in (None, "")
+        }
+        and value not in (None, "")
+        and not (
+            key in _ALIAS_SENSITIVE_MERGE_KEYS
+            and isinstance(value, str)
+            and aliases_raw_upload(value, candidate)
+        )
     })
+    if not normalized.get("image_url") and not normalized.get("board_image_url"):
+        return None
     return normalized
 
 
@@ -846,12 +877,19 @@ def handle_board_operation(
             seed=f"{board_id}|{current_revision}|{operation}|{old_id}",
         )
         if replacement is None:
-            return _error(
-                "NO_VALID_REPLACEMENT",
-                f"I could not find a valid replacement for the {role} without breaking the current look.",
-                role=role,
-                preserved_item_ids=sorted(preserve_ids),
-            )
+            if role in _REQUIRED_BOARD_ROLES:
+                return _error(
+                    "NO_VALID_REPLACEMENT",
+                    f"I could not find a valid replacement for the {role} without breaking the current look.",
+                    role=role,
+                    preserved_item_ids=sorted(preserve_ids),
+                )
+            # Optional slot (accessory/bag/outerwear-not-required): omit it
+            # rather than invalidate the whole look over a piece that has no
+            # board-safe image.
+            out_items = [item for item in out_items if canonical_item_id(item) != old_id]
+            used_ids.discard(old_id)
+            continue
         replacement["role"] = target.get("role") or canonical_item_role(target)
         replacement["slot"] = target.get("slot") or replacement["role"]
         if isinstance(target.get("position"), Mapping) and not isinstance(replacement.get("position"), Mapping):

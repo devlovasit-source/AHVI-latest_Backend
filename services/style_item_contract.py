@@ -296,14 +296,52 @@ _IMAGE_KEYS = (
     "image_url", "imageUrl", "url", "image",
 )
 
+# Mirrors style_asset_contract._RAW_IMAGE_FIELDS. A masked_url/normalized_url
+# identical to one of these is a fabricated cutout -- the backend echoed the
+# raw/original upload into the cutout field (RMBG never actually ran) -- and
+# must never be treated as a real, board-safe garment image.
+_RAW_IMAGE_KEYS = (
+    "image_url", "imageUrl", "raw_url", "rawUrl", "url",
+    "original_image_url", "originalImageUrl", "preview_url", "previewUrl",
+    "raw_image_url", "rawImageUrl", "original_upload_url", "originalUploadUrl",
+    "upload_url", "uploadUrl",
+)
+_ALIAS_SENSITIVE_IMAGE_KEYS = frozenset(
+    {"normalized_url", "normalizedUrl", "masked_url", "maskedUrl"}
+)
+
+
+def _raw_image_values(item: Dict[str, Any]) -> set:
+    return {
+        value
+        for key in _RAW_IMAGE_KEYS
+        if isinstance(item.get(key), str) and (value := item[key].strip())
+    }
+
+
+def aliases_raw_upload(url: str, item: Any) -> bool:
+    """True when `url` is identical to one of `item`'s own raw/original image
+    fields -- i.e. a fabricated cutout rather than a real board-safe image."""
+    if not url or not isinstance(item, dict):
+        return False
+    return url.strip() in _raw_image_values(item)
+
 
 def canonical_image_url(item: Any) -> str:
     if not isinstance(item, dict):
         return ""
+    raw_values: Optional[set] = None
     for key in _IMAGE_KEYS:
         value = item.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+        if not (isinstance(value, str) and value.strip()):
+            continue
+        value = value.strip()
+        if key in _ALIAS_SENSITIVE_IMAGE_KEYS:
+            if raw_values is None:
+                raw_values = _raw_image_values(item)
+            if value in raw_values:
+                continue  # fabricated alias of the raw upload -- not board-safe
+        return value
     return ""
 
 
@@ -341,8 +379,18 @@ def normalize_style_item(item: Any) -> Dict[str, Any]:
         "x", "y", "width", "height", "scale", "z", "rotation",
     ):
         value = src.get(key)
-        if value not in (None, ""):
-            normalized[key] = value
+        if value in (None, ""):
+            continue
+        # A masked/normalized field identical to this item's own raw upload
+        # is a fabricated cutout -- never forward it as a usable board field,
+        # even though it's excluded from the image_url selection above.
+        if (
+            key in ("masked_url", "normalized_url")
+            and isinstance(value, str)
+            and aliases_raw_upload(value, src)
+        ):
+            continue
+        normalized[key] = value
     return normalized
 
 

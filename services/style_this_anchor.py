@@ -6,6 +6,7 @@ from typing import Any, Dict, Mapping, Optional
 
 from services.style_asset_contract import adapt_style_asset
 from services.style_item_contract import (
+    aliases_raw_upload,
     canonical_accessory_type,
     canonical_item_id,
     canonical_item_role,
@@ -68,10 +69,18 @@ def canonical_style_this_anchor(
     safe_image_url = ""
     for field in _SAFE_IMAGE_FIELDS:
         value = _text(source_item.get(field))
-        if value:
-            safe_field = field
-            safe_image_url = value
-            break
+        if not value:
+            continue
+        # A masked/normalized field identical to this item's own raw upload
+        # is a fabricated cutout (RMBG never ran) -- never let it count as
+        # the anchor's safe image; fall through to the next field / failure.
+        if field.lower() in ("masked_url", "maskedurl", "normalized_url", "normalizedurl") and aliases_raw_upload(
+            value, source_item
+        ):
+            continue
+        safe_field = field
+        safe_image_url = value
+        break
     if not safe_image_url:
         # A row containing only an upload/raw marker is not board-safe.
         if any(_text(source_item.get(field)) for field in _RAW_IMAGE_FIELDS):

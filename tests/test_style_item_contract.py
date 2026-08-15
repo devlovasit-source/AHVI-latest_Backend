@@ -4,6 +4,7 @@ import pytest
 
 from services.style_item_contract import (
     FixedItemLostError,
+    aliases_raw_upload,
     assert_fixed_items_preserved,
     canonical_accessory_type,
     canonical_image_url,
@@ -112,6 +113,41 @@ def test_image_url_fallback_chain_and_survival():
     assert canonical_image_url({"url": "https://a/u.png"}) == "https://a/u.png"
     norm = normalize_style_item({"id": "x1", "name": "Top", "masked_url": "https://a/m.png"})
     assert norm["image_url"] == "https://a/m.png"
+
+
+# ---------------------------------------------------------- board-safe alias
+
+def test_masked_url_equal_to_image_url_is_not_board_safe():
+    """P0-2: backend save-time healing (routers/data.py) fabricates
+    masked_url = image_url when RMBG never completed. That alias must never
+    be labeled as a real cutout -- canonical_image_url falls through to the
+    honest raw image_url rather than presenting the alias as a masked field,
+    and normalize_style_item never forwards the aliased masked_url."""
+    item = {"image_url": "https://a/raw.png", "masked_url": "https://a/raw.png"}
+    assert aliases_raw_upload("https://a/raw.png", item) is True
+    assert canonical_image_url(item) == "https://a/raw.png"
+
+    norm = normalize_style_item({"id": "x2", "name": "Necklace", **item})
+    assert norm["image_url"] == "https://a/raw.png"
+    assert "masked_url" not in norm
+
+
+def test_masked_url_genuinely_different_is_board_safe():
+    item = {"image_url": "https://a/raw.png", "masked_url": "https://a/cutout.png"}
+    assert aliases_raw_upload("https://a/cutout.png", item) is False
+    assert canonical_image_url(item) == "https://a/cutout.png"
+
+    norm = normalize_style_item({"id": "x3", "name": "Necklace", **item})
+    assert norm["masked_url"] == "https://a/cutout.png"
+
+
+def test_normalized_url_survives_when_it_is_not_a_raw_alias():
+    item = {
+        "image_url": "https://a/raw.png",
+        "masked_url": "https://a/raw.png",
+        "normalized_url": "https://a/catalog.png",
+    }
+    assert canonical_image_url(item) == "https://a/catalog.png"
 
 
 # ---------------------------------------------------------------- normalize
