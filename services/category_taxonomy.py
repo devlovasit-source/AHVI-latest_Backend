@@ -12,6 +12,7 @@ deduplicate the underlying keyword tables so they cannot drift apart again.
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Dict, Iterable, List, Tuple
 
@@ -177,6 +178,14 @@ CANONICAL_CATEGORY_KEYWORDS: List[Tuple[str, str, List[str]]] = [
 ]
 
 CANONICAL_CATEGORIES: set[str] = {row[0] for row in CANONICAL_CATEGORY_KEYWORDS}
+
+# Reuse the existing Traditional/ethnicwear keyword bucket above as the sole
+# signal for the Festive/Wedding occasion boost in infer_style_attributes —
+# no separate ethnicwear keyword table.
+_TRADITIONAL_KEYWORDS: List[str] = next(
+    (keywords for cat, _default_sub, keywords in CANONICAL_CATEGORY_KEYWORDS if cat == "Traditional"),
+    [],
+)
 
 
 _TSHIRT_EXCLUSION_RE = re.compile(
@@ -528,6 +537,7 @@ def infer_style_attributes(item: dict) -> Dict[str, object]:
         "travel": 0.5,
         "casual": 0.6,
         "wedding": 0.3,
+        "festive": 0.3,
     }
     if formality >= 4:
         occasion_fitness.update({"office": 0.85, "date": 0.75, "wedding": 0.75})
@@ -539,6 +549,18 @@ def infer_style_attributes(item: dict) -> Dict[str, object]:
         occasion_fitness.update({"office": 0.1, "date": 0.2, "wedding": 0.1})
     if any(x in text for x in ("loafer", "oxford", "derby", "formal", "leather sneaker", "minimal sneaker")):
         occasion_fitness.update({"office": max(occasion_fitness["office"], 0.85), "date": max(occasion_fitness["date"], 0.75)})
+    # Festive/Wedding fitness is only ever boosted off the existing
+    # Traditional/ethnicwear category signal (CANONICAL_CATEGORY_KEYWORDS) —
+    # never off a standalone keyword guess, so an ordinary generic garment
+    # (a plain shirt, jeans, sneakers) never gets tagged Festive/Wedding.
+    is_ethnic = category == "traditional" or any(k in text for k in _TRADITIONAL_KEYWORDS)
+    if is_ethnic:
+        occasion_fitness.update(
+            {
+                "wedding": max(occasion_fitness["wedding"], 0.75),
+                "festive": max(occasion_fitness["festive"], 0.75),
+            }
+        )
 
     return {
         "formality": formality,
@@ -547,6 +569,53 @@ def infer_style_attributes(item: dict) -> Dict[str, object]:
         "silhouette_family": silhouette_family,
         "occasion_fitness": occasion_fitness,
     }
+
+
+def occasions_backfill_enabled() -> bool:
+    """Single on/off switch (WARDROBE_DERIVE_OCCASIONS) shared by every
+    caller that backfills empty `occasions` from occasion_fitness — one
+    operator flag controls the preview and the persisted document alike."""
+    return str(os.getenv("WARDROBE_DERIVE_OCCASIONS", "true")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def derive_occasions_from_fitness(
+    occasion_fitness: Dict[str, object] | None,
+    *,
+    minimum: float | None = None,
+    limit: int = 4,
+) -> List[str]:
+    """Threshold-filter an occasion_fitness map into a canonical occasions list.
+
+    This is the single authority for turning `infer_style_attributes()`
+    scores into a wardrobe item's `occasions`. Both the /analyze preview and
+    the persistence-layer backfill call this exact function so a normal
+    capture's preview and its saved document can never silently disagree.
+    `minimum` defaults to WARDROBE_DERIVE_OCCASIONS_MIN (0.6) — the
+    threshold the persistence path already used before this function
+    existed — so no second threshold is introduced.
+    """
+    if not isinstance(occasion_fitness, dict):
+        return []
+    if minimum is None:
+        try:
+            minimum = float(os.getenv("WARDROBE_DERIVE_OCCASIONS_MIN", "0.6"))
+        except (TypeError, ValueError):
+            minimum = 0.6
+    ranked = sorted(
+        (
+            (str(k), float(v))
+            for k, v in occasion_fitness.items()
+            if isinstance(v, (int, float))
+        ),
+        key=lambda kv: kv[1],
+        reverse=True,
+    )
+    return [k for k, v in ranked if v >= minimum][:limit]
 
 
 # Items shot away from the face — a worn/selfie photo of these does NOT include
@@ -582,4 +651,6 @@ __all__ = (
     "infer_style_attributes",
     "normalize_category_from_label",
     "is_face_risk_category",
+    "derive_occasions_from_fitness",
+    "occasions_backfill_enabled",
 )

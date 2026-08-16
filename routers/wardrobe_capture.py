@@ -341,6 +341,8 @@ from services.category_taxonomy import (
     CANONICAL_CATEGORY_KEYWORDS as _CANONICAL_CATEGORY_KEYWORDS,
     infer_style_attributes as _infer_style_attributes,
     normalize_category_from_label as _shared_normalize_category_from_label,
+    derive_occasions_from_fitness as _derive_occasions_from_fitness,
+    occasions_backfill_enabled as _occasions_backfill_enabled,
 )
 
 
@@ -2423,6 +2425,33 @@ def _merge_validator_into_preview(
     return out
 
 
+def _apply_deterministic_occasion_fallback(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Fill `occasions` from the same deterministic taxonomy signal the
+    persistence layer already uses (category_taxonomy.infer_style_attributes
+    -> occasion_fitness), when detection and the validator both left it
+    empty.
+
+    Precedence (see Phase 2 of the occasion-intelligence audit): this only
+    fills a gap, it never overwrites a value the validator already merged in
+    (`_merge_validator_into_preview` only sets `occasions` when it was
+    empty, so calling this afterward is safe either way). It also runs
+    BEFORE the universal private-wear guard in `_normalize_capture_preview_item`,
+    so a private item's suggestions still get scrubbed to the private
+    allow-list — this function has no privacy opinion of its own.
+    """
+    if not isinstance(item, dict) or item.get("occasions"):
+        return item
+    if not _occasions_backfill_enabled():
+        return item
+    fitness = item.get("occasion_fitness")
+    if not isinstance(fitness, dict):
+        fitness = _infer_style_attributes(item).get("occasion_fitness")
+    derived = _derive_occasions_from_fitness(fitness)
+    if derived:
+        item["occasions"] = derived
+    return item
+
+
 async def _apply_preview_metadata_validator(
     detected: Dict[str, Any],
     *,
@@ -2450,7 +2479,7 @@ async def _apply_preview_metadata_validator(
             "reason": reason,
             "confidence": None,
         }
-        return _enforce_preview_taxonomy(detected), state
+        return _apply_deterministic_occasion_fallback(_enforce_preview_taxonomy(detected)), state
     try:
         from services.agent_metadata_validator import validate_wardrobe_metadata
 
@@ -2472,6 +2501,11 @@ async def _apply_preview_metadata_validator(
         merged = apply_metadata_guard(merged, source="capture_preview_validator")
         # Deterministic taxonomy override wins over an empty/failed validator.
         merged = _enforce_preview_taxonomy(merged)
+        # Validator already had first shot at `occasions` above (only fills
+        # when empty) — this only fills what's still empty (e.g. the
+        # validator ran but a generic category returned no
+        # allowed_occasions).
+        merged = _apply_deterministic_occasion_fallback(merged)
         merged["metadata_validator"] = {
             "used": True,
             "reason": reason,
@@ -2496,7 +2530,7 @@ async def _apply_preview_metadata_validator(
             "reason": f"failed:{str(exc)[:80]}",
             "confidence": None,
         }
-        return _enforce_preview_taxonomy(detected), "failed"
+        return _apply_deterministic_occasion_fallback(_enforce_preview_taxonomy(detected)), "failed"
 
 
 @router.post("/analyze")
