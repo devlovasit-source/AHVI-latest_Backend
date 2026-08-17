@@ -174,6 +174,47 @@ def load_wear_memory(user_id: str, wardrobe: Any = None) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# READ: recommendation memory (what AHVI suggested — NOT actual wear).
+# Actual wear lives exclusively in outfit_history above; this reads the
+# separate memories.recent_outfits blob written by get_daily_outfits().
+# ---------------------------------------------------------------------------
+def _outfit_signature(items: Any) -> str:
+    """Order/duplicate-independent id signature for a set of outfit items."""
+    ids = {
+        _item_id(it).lower() for it in (items or []) if _item_id(it)
+    }
+    return "|".join(sorted(ids)) if ids else ""
+
+
+def load_recommendation_memory(user_id: str) -> Dict[str, Any]:
+    """Return {recent_recommended_signatures}. Signatures of outfits AHVI
+    recently recommended (memories.recent_outfits), so the scorer can avoid
+    repeating an exact past recommendation. Neutral when no history."""
+    empty = {"recent_recommended_signatures": []}
+    user_id = str(user_id or "").strip()
+    if not user_id:
+        return empty
+    try:
+        from brain.outfit_pipeline import _load_user_memory
+
+        user_memory = _load_user_memory(user_id)
+    except Exception:
+        return empty
+    recent_outfits = user_memory.get("recent_outfits") if isinstance(user_memory, dict) else None
+    if not isinstance(recent_outfits, list):
+        return empty
+
+    signatures: List[str] = []
+    for outfit in recent_outfits:
+        if not isinstance(outfit, dict):
+            continue
+        sig = _outfit_signature(outfit.get("items"))
+        if sig:
+            signatures.append(sig)
+    return {"recent_recommended_signatures": list(dict.fromkeys(signatures))}
+
+
+# ---------------------------------------------------------------------------
 # READ: saved-board memory
 # ---------------------------------------------------------------------------
 def load_saved_board_memory(user_id: str) -> Dict[str, Any]:
@@ -246,6 +287,7 @@ def build_style_memory_context(user_id: str, wardrobe: Any = None) -> Dict[str, 
         return _neutral_memory()
     wear = load_wear_memory(user_id, wardrobe)
     saved = load_saved_board_memory(user_id)
+    recommended = load_recommendation_memory(user_id)
     ctx = {
         "recently_worn_ids": wear["recently_worn_ids"],
         "underworn_ids": wear["underworn_ids"],
@@ -256,9 +298,11 @@ def build_style_memory_context(user_id: str, wardrobe: Any = None) -> Dict[str, 
         "favorite_colors": saved["favorite_colors"],
         "favorite_categories": saved["favorite_categories"],
         "disliked_item_ids": [],  # no producer yet — reserved.
+        "recent_recommended_signatures": recommended["recent_recommended_signatures"],
     }
     has_memory = bool(
         ctx["recently_worn_ids"] or ctx["saved_item_ids"] or ctx["wear_counts"]
+        or ctx["recent_recommended_signatures"]
     )
     if has_memory:
         logger.info(
@@ -279,4 +323,5 @@ def _neutral_memory() -> Dict[str, Any]:
         "favorite_colors": [],
         "favorite_categories": [],
         "disliked_item_ids": [],
+        "recent_recommended_signatures": [],
     }

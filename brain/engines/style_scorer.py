@@ -598,19 +598,33 @@ def _item_ids(items: List[Dict[str, Any]]) -> set:
     return out
 
 
+# Flat penalty for recommending the exact same item combination again.
+# Applied once per outfit, not scaled by item count (unlike recent_repeat_penalty,
+# which is a per-item actual-wear signal — see comment below).
+EXACT_RECOMMENDATION_REPEAT_PENALTY = -3.0
+
+
 def _memory_breakdown(
     items: List[Dict[str, Any]], context: Dict[str, Any]
 ) -> "Tuple[Dict[str, float], List[str]]":
-    """Explicit wear-history ranking signals. Reads optional context keys
-    (recently_worn_ids, underworn_ids, saved_item_ids, wear_counts); returns
-    neutral 0.0 fields + reasons. Never errors on missing data."""
+    """Explicit wear-history + recommendation-history ranking signals. Reads
+    optional context keys (recently_worn_ids, underworn_ids, saved_item_ids,
+    recent_recommended_signatures); returns neutral 0.0 fields + reasons.
+    Never errors on missing data.
+
+    recently_worn_ids/underworn_ids come from outfit_history (the user
+    actually wore the item). recent_recommended_signatures comes from
+    memories.recent_outfits (AHVI previously suggested this combination) —
+    a distinct signal, not actual wear.
+    """
     ctx = context if isinstance(context, dict) else {}
     ids = _item_ids(items)
-    # These 3 sum into the total score (line ~1094 sums breakdown.values()).
+    # These 4 sum into the total score (line ~1094 sums breakdown.values()).
     fields: Dict[str, float] = {
         "saved_board_affinity": 0.0,
         "recent_repeat_penalty": 0.0,
         "underworn_boost": 0.0,
+        "exact_recommendation_repeat_penalty": 0.0,
     }
     reasons: List[str] = []
     if not ids:
@@ -622,6 +636,7 @@ def _memory_breakdown(
     recent = _idset("recently_worn_ids")
     underworn = _idset("underworn_ids")
     saved = _idset("saved_item_ids")
+    recommended_signatures = _idset("recent_recommended_signatures")
 
     if recent and ids & recent:
         fields["recent_repeat_penalty"] = -1.5 * len(ids & recent)
@@ -632,13 +647,18 @@ def _memory_breakdown(
     if saved and ids & saved:
         fields["saved_board_affinity"] = 1.0 * len(ids & saved)
         reasons.append("echoes a look you saved")
+    if recommended_signatures and "|".join(sorted(ids)) in recommended_signatures:
+        fields["exact_recommendation_repeat_penalty"] = EXACT_RECOMMENDATION_REPEAT_PENALTY
+        reasons.append("recently recommended this exact combination — offering something new")
     # memory_freshness is a display-only composite — NOT summed into the score.
     freshness = round(fields["underworn_boost"] + fields["recent_repeat_penalty"], 3)
     if any(v for v in fields.values()):
         logger.info(
-            "AHVI_MEMORY_SCORER_APPLIED repeat=%.1f underworn=%.1f saved=%.1f freshness=%.1f",
+            "AHVI_MEMORY_SCORER_APPLIED repeat=%.1f underworn=%.1f saved=%.1f "
+            "exact_recommendation_repeat=%.1f freshness=%.1f",
             fields["recent_repeat_penalty"], fields["underworn_boost"],
-            fields["saved_board_affinity"], freshness,
+            fields["saved_board_affinity"], fields["exact_recommendation_repeat_penalty"],
+            freshness,
         )
     return fields, reasons
 
