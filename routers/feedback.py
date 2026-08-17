@@ -1,11 +1,14 @@
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
-from typing import Any, Dict
+from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
 import logging
+import uuid
+from datetime import datetime, timezone
 
 from services.qdrant_service import qdrant_service
 from services.embedding_service import encode_metadata
 from services.auth_helpers import enforce_owner
+from services.style_memory_service import _outfit_signature
 
 router = APIRouter(prefix="/api/feedback")
 logger = logging.getLogger("ahvi.feedback")
@@ -41,6 +44,14 @@ class BoardFeedbackRequest(BaseModel):
     user_id: str
     action: str
     board_payload: Dict[str, Any]
+    # Optional, additive: when the caller (e.g. DailyWear "Not for me") knows
+    # the exact canonical item ids of the rejected outfit, passing them lets
+    # this write carry a deterministic outfit_signature the scorer can match
+    # against exactly. Existing callers that omit these keep working exactly
+    # as before (signature stays empty, no exact-rejection penalty applies).
+    item_ids: List[str] = Field(default_factory=list)
+    occasion: str = ""
+    reason: Optional[str] = None
 
 
 @router.post("/board")
@@ -78,20 +89,44 @@ def feedback_board(request: BoardFeedbackRequest, http_request: Request):
                 "action": action,
             }
 
+        item_ids = [str(x).strip() for x in (request.item_ids or []) if str(x).strip()]
+        # Deterministic, order/dup-independent — same helper already used for
+        # recommendation-repeat memory. Empty when no valid item ids were sent.
+        outfit_signature = _outfit_signature([{"id": i} for i in item_ids])
+
         embedding = encode_metadata(request.board_payload)
+        payload = {
+            "source": "feedback.board",
+            "memory_type": "liked" if action == "like" else "disliked",
+            "action": action,
+            "user_id": user_id,
+            "board": str(request.board_payload.get("board") or ""),
+            "type": str(request.board_payload.get("type") or ""),
+            "item_ids": item_ids,
+            "outfit_signature": outfit_signature,
+            "board_id": board.get("board_id") or board.get("id") or board.get("card_id") or "",
+            "occasion": request.occasion or "",
+            "reason": request.reason,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        # Idempotency: for dislike/like WITH a real outfit signature, key the
+        # point deterministically on (user, action, signature) so repeated
+        # "Not for me" taps on the exact same outfit overwrite the same point
+        # (refreshing the timestamp/reason) instead of multiplying influence.
+        # Without a signature (existing untyped callers), fall back to a
+        # random id — unchanged legacy behavior, one point per call.
+        point_id = (
+            str(uuid.uuid5(uuid.NAMESPACE_URL, f"ahvi-feedback|{user_id}|{action}|{outfit_signature}"))
+            if outfit_signature
+            else None
+        )
         # QdrantService.upsert_user_memory accepts (user_id, vector, payload);
         # carry the like/dislike signal inside the payload (no memory_type kwarg).
         qdrant_service.upsert_user_memory(
             user_id=user_id,
             vector=embedding,
-            payload={
-                "source": "feedback.board",
-                "memory_type": "liked" if action == "like" else "disliked",
-                "action": action,
-                "user_id": user_id,
-                "board": str(request.board_payload.get("board") or ""),
-                "type": str(request.board_payload.get("type") or ""),
-            },
+            payload=payload,
+            point_id=point_id,
         )
 
         return {

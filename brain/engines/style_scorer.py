@@ -9,6 +9,7 @@ from services.wardrobe_intelligence_service import (
     normalize_occasion as normalize_style_occasion,
     score_item_for_occasion,
 )
+from services.style_item_contract import canonical_item_id, canonical_item_role
 
 try:
     from brain.engines.style_brief import resolve_occasion_archetype
@@ -603,28 +604,57 @@ def _item_ids(items: List[Dict[str, Any]]) -> set:
 # which is a per-item actual-wear signal — see comment below).
 EXACT_RECOMMENDATION_REPEAT_PENALTY = -3.0
 
+# Flat penalty for recommending an outfit whose exact item-id signature the
+# user explicitly rejected ("Not for me"). Stronger than the passive
+# recommendation-repeat penalty above (an explicit rejection is a stronger
+# signal than "we already showed you this"), but deliberately not an
+# absolute block — a strong-but-not-infinite penalty still lets the outfit
+# resurface if nothing better is available, rather than hard-banning it.
+EXACT_REJECTED_OUTFIT_PENALTY = -4.0
+
+# "Change it" signals: localized, weak, and contextual — much smaller than
+# the wear/rejection signals above. The replaced item is a mild negative
+# (the user chose something else in this context, not "I hate this item"),
+# the selected replacement is a weak positive. Per-item, not flat, since
+# these are meant to nudge rather than dominate ranking.
+CHANGED_FROM_ITEM_PENALTY = -0.5
+CHANGED_TO_ITEM_BOOST = 0.3
+
 
 def _memory_breakdown(
     items: List[Dict[str, Any]], context: Dict[str, Any]
 ) -> "Tuple[Dict[str, float], List[str]]":
     """Explicit wear-history + recommendation-history ranking signals. Reads
     optional context keys (recently_worn_ids, underworn_ids, saved_item_ids,
-    recent_recommended_signatures); returns neutral 0.0 fields + reasons.
-    Never errors on missing data.
+    recent_recommended_signatures, rejected_outfit_signatures,
+    recent_changed_items); returns neutral 0.0 fields + reasons. Never
+    errors on missing data.
 
     recently_worn_ids/underworn_ids come from outfit_history (the user
     actually wore the item). recent_recommended_signatures comes from
     memories.recent_outfits (AHVI previously suggested this combination) —
-    a distinct signal, not actual wear.
+    a distinct signal, not actual wear. rejected_outfit_signatures comes from
+    an explicit "Not for me" on this exact combination — outfit-level only,
+    never blacklists the individual items (see disliked_item_ids, which stays
+    empty/reserved). recent_changed_items comes from "Change it" swaps —
+    each event carries the role/occasion it happened in, and only applies
+    when both match the CURRENT candidate (role check is skipped, not
+    blocking, when either side's role is unresolvable; occasion match is
+    exact-normalized and REQUIRED on both sides — an event with no recorded
+    occasion, or scoring with no current occasion, contributes nothing
+    rather than becoming a blanket opinion on the item).
     """
     ctx = context if isinstance(context, dict) else {}
     ids = _item_ids(items)
-    # These 4 sum into the total score (line ~1094 sums breakdown.values()).
+    # These sum into the total score (line ~1094 sums breakdown.values()).
     fields: Dict[str, float] = {
         "saved_board_affinity": 0.0,
         "recent_repeat_penalty": 0.0,
         "underworn_boost": 0.0,
         "exact_recommendation_repeat_penalty": 0.0,
+        "exact_rejected_outfit_penalty": 0.0,
+        "changed_from_item_penalty": 0.0,
+        "changed_to_item_boost": 0.0,
     }
     reasons: List[str] = []
     if not ids:
@@ -637,6 +667,10 @@ def _memory_breakdown(
     underworn = _idset("underworn_ids")
     saved = _idset("saved_item_ids")
     recommended_signatures = _idset("recent_recommended_signatures")
+    rejected_signatures = _idset("rejected_outfit_signatures")
+    changed_events = [
+        e for e in (ctx.get("recent_changed_items") or []) if isinstance(e, dict)
+    ]
 
     if recent and ids & recent:
         fields["recent_repeat_penalty"] = -1.5 * len(ids & recent)
@@ -650,15 +684,60 @@ def _memory_breakdown(
     if recommended_signatures and "|".join(sorted(ids)) in recommended_signatures:
         fields["exact_recommendation_repeat_penalty"] = EXACT_RECOMMENDATION_REPEAT_PENALTY
         reasons.append("recently recommended this exact combination — offering something new")
+    if rejected_signatures and "|".join(sorted(ids)) in rejected_signatures:
+        fields["exact_rejected_outfit_penalty"] = EXACT_REJECTED_OUTFIT_PENALTY
+        reasons.append("kept this different from a look you passed on recently")
+    if changed_events:
+        current_occasion = normalize_occasion(ctx.get("occasion")) if ctx.get("occasion") else ""
+        item_roles: Dict[str, str] = {}
+        for it in items:
+            iid = canonical_item_id(it).strip().lower() if isinstance(it, dict) else ""
+            if not iid:
+                continue
+            role = canonical_item_role(it) if isinstance(it, dict) else ""
+            if role and role != "unknown":
+                item_roles[iid] = role
+
+        def _role_ok(item_id: str, event_role: str) -> bool:
+            # Role is a gate only when BOTH sides resolve one — an
+            # unresolvable role never blocks the signal, it just doesn't
+            # narrow it (see docstring).
+            item_role = item_roles.get(item_id, "")
+            if not event_role or not item_role:
+                return True
+            return item_role == event_role
+
+        def _occasion_ok(event_occasion: str) -> bool:
+            # Occasion is REQUIRED on both sides to apply — missing data
+            # fails neutral (no penalty) rather than defaulting to a
+            # blanket, context-free opinion on the item.
+            if not event_occasion or not current_occasion:
+                return False
+            return normalize_occasion(event_occasion) == current_occasion
+
+        for event in changed_events:
+            event_role = str(event.get("role") or "").strip().lower()
+            event_occasion = str(event.get("occasion") or "").strip()
+            from_id = str(event.get("from_item_id") or "").strip().lower()
+            to_id = str(event.get("to_item_id") or "").strip().lower()
+            compatible = _occasion_ok(event_occasion)
+            if from_id and from_id in ids and compatible and _role_ok(from_id, event_role):
+                fields["changed_from_item_penalty"] += CHANGED_FROM_ITEM_PENALTY
+            if to_id and to_id in ids and compatible and _role_ok(to_id, event_role):
+                fields["changed_to_item_boost"] += CHANGED_TO_ITEM_BOOST
+        if fields["changed_to_item_boost"] > 0:
+            reasons.append("matches a swap you made recently")
     # memory_freshness is a display-only composite — NOT summed into the score.
     freshness = round(fields["underworn_boost"] + fields["recent_repeat_penalty"], 3)
     if any(v for v in fields.values()):
         logger.info(
             "AHVI_MEMORY_SCORER_APPLIED repeat=%.1f underworn=%.1f saved=%.1f "
-            "exact_recommendation_repeat=%.1f freshness=%.1f",
+            "exact_recommendation_repeat=%.1f exact_rejected=%.1f changed_from=%.1f "
+            "changed_to=%.1f freshness=%.1f",
             fields["recent_repeat_penalty"], fields["underworn_boost"],
             fields["saved_board_affinity"], fields["exact_recommendation_repeat_penalty"],
-            freshness,
+            fields["exact_rejected_outfit_penalty"], fields["changed_from_item_penalty"],
+            fields["changed_to_item_boost"], freshness,
         )
     return fields, reasons
 

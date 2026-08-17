@@ -258,6 +258,80 @@ def load_recommendation_memory(user_id: str) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# READ: outfit-level rejection memory ("Not for me").
+# Writer is routers/feedback.py's dislike action (Qdrant user_memory,
+# memory_type="disliked", populated with item_ids/outfit_signature only when
+# the caller supplies them — legacy dislike callers still work, they just
+# never produce a signature). This is deliberately NOT disliked_item_ids:
+# rejecting one outfit must never blacklist its individual garments.
+# ---------------------------------------------------------------------------
+def load_rejected_outfit_memory(user_id: str, limit: int = 50) -> Dict[str, Any]:
+    """Return {rejected_outfit_signatures}. Neutral when no rejections or
+    Qdrant is unavailable — same best-effort contract as every other loader
+    in this module."""
+    empty = {"rejected_outfit_signatures": []}
+    user_id = str(user_id or "").strip()
+    if not user_id:
+        return empty
+    try:
+        from services.qdrant_service import qdrant_service
+
+        rows = qdrant_service.list_user_memory(user_id, "disliked", limit=limit)
+    except Exception:
+        return empty
+    signatures: List[str] = []
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict):
+            continue
+        sig = str(r.get("outfit_signature") or "").strip()
+        if sig:
+            signatures.append(sig)
+    return {"rejected_outfit_signatures": list(dict.fromkeys(signatures))}
+
+
+# ---------------------------------------------------------------------------
+# READ: localized replacement memory ("Change it").
+# Writer is the change-item endpoint, only after a mutation is actually
+# accepted/committed. from/to are intentionally separate weak signals, never
+# a global blacklist of the replaced item.
+# ---------------------------------------------------------------------------
+def load_outfit_change_memory(user_id: str, limit: int = 50) -> Dict[str, Any]:
+    """Return {recent_changed_items}: a list of {from_item_id, to_item_id,
+    role, occasion} events, newest first. Kept as structured events (not
+    flattened id sets) so the scorer can gate the from/to signal by the
+    context it happened in — a "Change it" swap must stay local to its own
+    role/occasion, never become a blanket opinion on the item. Neutral when
+    no change history or Qdrant is unavailable."""
+    empty = {"recent_changed_items": []}
+    user_id = str(user_id or "").strip()
+    if not user_id:
+        return empty
+    try:
+        from services.qdrant_service import qdrant_service
+
+        rows = qdrant_service.list_user_memory(user_id, "changed_item", limit=limit)
+    except Exception:
+        return empty
+    events: List[Dict[str, str]] = []
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict):
+            continue
+        fid = str(r.get("from_item_id") or "").strip()
+        tid = str(r.get("to_item_id") or "").strip()
+        if not fid and not tid:
+            continue
+        events.append(
+            {
+                "from_item_id": fid,
+                "to_item_id": tid,
+                "role": str(r.get("role") or "").strip(),
+                "occasion": str(r.get("occasion") or "").strip(),
+            }
+        )
+    return {"recent_changed_items": events}
+
+
+# ---------------------------------------------------------------------------
 # READ: saved-board memory
 # ---------------------------------------------------------------------------
 def load_saved_board_memory(user_id: str) -> Dict[str, Any]:
@@ -331,6 +405,8 @@ def build_style_memory_context(user_id: str, wardrobe: Any = None) -> Dict[str, 
     wear = load_wear_memory(user_id, wardrobe)
     saved = load_saved_board_memory(user_id)
     recommended = load_recommendation_memory(user_id)
+    rejected = load_rejected_outfit_memory(user_id)
+    changed = load_outfit_change_memory(user_id)
     ctx = {
         "recently_worn_ids": wear["recently_worn_ids"],
         "underworn_ids": wear["underworn_ids"],
@@ -342,6 +418,8 @@ def build_style_memory_context(user_id: str, wardrobe: Any = None) -> Dict[str, 
         "favorite_categories": saved["favorite_categories"],
         "disliked_item_ids": [],  # no producer yet — reserved.
         "recent_recommended_signatures": recommended["recent_recommended_signatures"],
+        "rejected_outfit_signatures": rejected["rejected_outfit_signatures"],
+        "recent_changed_items": changed["recent_changed_items"],
     }
     has_memory = bool(
         ctx["recently_worn_ids"] or ctx["saved_item_ids"] or ctx["wear_counts"]
@@ -367,4 +445,6 @@ def _neutral_memory() -> Dict[str, Any]:
         "favorite_categories": [],
         "disliked_item_ids": [],
         "recent_recommended_signatures": [],
+        "rejected_outfit_signatures": [],
+        "recent_changed_items": [],
     }

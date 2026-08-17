@@ -447,6 +447,9 @@ def build_style_context(
         "favorite_colors": (style_memory or {}).get("favorite_colors", []),
         "favorite_categories": (style_memory or {}).get("favorite_categories", []),
         "saved_board_patterns": (style_memory or {}).get("saved_board_patterns", []),
+        "recent_recommended_signatures": (style_memory or {}).get("recent_recommended_signatures", []),
+        "rejected_outfit_signatures": (style_memory or {}).get("rejected_outfit_signatures", []),
+        "recent_changed_items": (style_memory or {}).get("recent_changed_items", []),
     }
 
     logger.info(

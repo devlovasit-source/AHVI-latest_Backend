@@ -492,7 +492,7 @@ class QdrantService:
     # =========================
     # USER MEMORY
     # =========================
-    def upsert_user_memory(self, user_id, vector, payload):
+    def upsert_user_memory(self, user_id, vector, payload, point_id=None):
         if not self._ensure() or not vector:
             return None
 
@@ -503,7 +503,7 @@ class QdrantService:
                 collection_name=self.user_memory_collection,
                 points=[
                     PointStruct(
-                        id=str(uuid.uuid4()),
+                        id=point_id or str(uuid.uuid4()),
                         vector=vector,
                         payload=payload,
                     )
@@ -511,6 +511,34 @@ class QdrantService:
             )
         except Exception:
             logger.exception("Qdrant user memory upsert failed")
+
+    def list_user_memory(self, user_id, memory_type, limit=50):
+        """Payload-filtered read of durable user memory points, newest-first
+        by whatever `timestamp` the caller stored. Exact-match filter only
+        (no vector similarity) so results are deterministic. Returns []
+        on any failure/misconfiguration — read side is best-effort, same
+        as every other style-memory loader."""
+        if not self._ensure() or not user_id:
+            return []
+        try:
+            points, _ = self.client.scroll(
+                collection_name=self.user_memory_collection,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(key="user_id", match=MatchValue(value=str(user_id))),
+                        FieldCondition(key="memory_type", match=MatchValue(value=str(memory_type))),
+                    ]
+                ),
+                limit=max(1, int(limit or 50)),
+                with_payload=True,
+                with_vectors=False,
+            )
+            rows = [dict(p.payload or {}) for p in points]
+            rows.sort(key=lambda r: str(r.get("timestamp") or ""), reverse=True)
+            return rows
+        except Exception:
+            logger.exception("Qdrant user memory list failed")
+            return []
 
     # =========================
     # STATUS

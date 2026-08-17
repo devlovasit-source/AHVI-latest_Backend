@@ -4895,6 +4895,8 @@ def build_style_flow_response(
         for _k in (
             "recently_worn_ids", "underworn_ids", "saved_item_ids",
             "disliked_item_ids", "wear_counts",
+            "recent_recommended_signatures", "rejected_outfit_signatures",
+            "recent_changed_items",
         ):
             ctx.setdefault(_k, _mem.get(_k, []))
     except Exception:  # noqa: BLE001
