@@ -47,6 +47,32 @@ def _item_id(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _parse_iso(value: Any) -> Optional[datetime]:
+    """Same tolerant parsing load_wear_memory already uses for lastWornAt.
+    Naive timestamps are assumed UTC (never local-tz-converted) since the API
+    has no client-timezone field — see _is_same_day."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _is_same_day(a: Any, b: Any) -> bool:
+    """UTC-calendar-date equality. The wear-today contract has no client
+    timezone field, so UTC date is the narrowest safe boundary available —
+    matches the UTC 'now' load_wear_memory already uses for recency. An
+    unparsable timestamp is treated as NOT the same day so a wear is never
+    silently dropped."""
+    da, db = _parse_iso(a), _parse_iso(b)
+    if da is None or db is None:
+        return False
+    return da.astimezone(timezone.utc).date() == db.astimezone(timezone.utc).date()
+
+
 # ---------------------------------------------------------------------------
 # WRITE: wear-today
 # ---------------------------------------------------------------------------
@@ -59,7 +85,12 @@ def record_wear(
     worn_at: str = "",
 ) -> Dict[str, Any]:
     """Increment wearCount + set lastWornAt for each item. Upserts one
-    outfit_history row per (user, item). Best-effort per item."""
+    outfit_history row per (user, item). Best-effort per item.
+
+    Idempotent per (user, item, UTC calendar day): repeat taps on the same
+    day refresh board/occasion context only, never double-count wearCount or
+    overwrite the day's original lastWornAt.
+    """
     proxy = _proxy()
     worn_at = (worn_at or "").strip() or _now_iso()
     clean_ids = [i for i in (_item_id(x) for x in (item_ids or [])) if i]
@@ -67,7 +98,19 @@ def record_wear(
     for iid in clean_ids:
         try:
             existing = _find_history_row(proxy, user_id, iid)
-            if existing:
+            if existing and _is_same_day(existing.get("lastWornAt"), worn_at):
+                metadata_patch: Dict[str, Any] = {}
+                if board_id and board_id != existing.get("lastBoardId"):
+                    metadata_patch["lastBoardId"] = board_id
+                if occasion and occasion != existing.get("lastOccasion"):
+                    metadata_patch["lastOccasion"] = occasion
+                if metadata_patch:
+                    proxy.update_document(
+                        "outfit_history",
+                        existing.get("$id") or existing.get("id"),
+                        metadata_patch,
+                    )
+            elif existing:
                 count = int(existing.get("wearCount") or 0) + 1
                 proxy.update_document(
                     "outfit_history",
