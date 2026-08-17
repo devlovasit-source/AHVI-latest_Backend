@@ -246,6 +246,8 @@ def dispatch_due_reminders_task(self, window_seconds: int = 60, request_id: str 
         processed = 0
         sent = 0
         failed = 0
+        suppressed = 0
+        duplicate_prevented = 0
 
         for rem in due:
             processed += 1
@@ -253,6 +255,56 @@ def dispatch_due_reminders_task(self, window_seconds: int = 60, request_id: str 
             user_id = str(rem.get("userId") or "")
             message = str(rem.get("message") or "")
             title = "AHVI"
+            category = str(rem.get("source") or "").strip().lower()
+
+            if not doc_id:
+                failed += 1
+                continue
+
+            claim = notification_store.try_claim_reminder(reminder_doc_id=doc_id)
+            if not claim.get("claimed"):
+                if claim.get("reason") in ("already_sent", "already_processing"):
+                    duplicate_prevented += 1
+                continue
+
+            enabled, pref_status = (
+                notification_store.get_notification_preference_for_dispatch(
+                    user_id=user_id, category=category
+                )
+            )
+
+            if pref_status == "lookup_failed":
+                notification_store.release_claim(reminder_doc_id=doc_id)
+                notification_store.mark_reminder(
+                    reminder_doc_id=doc_id,
+                    status="scheduled",
+                    error="preference_lookup_failed",
+                )
+                continue
+
+            if pref_status in ("invalid_category", "invalid_user"):
+                suppressed += 1
+                notification_store.finalize_claim(
+                    reminder_doc_id=doc_id, status="suppressed"
+                )
+                notification_store.mark_reminder(
+                    reminder_doc_id=doc_id,
+                    status="suppressed",
+                    error=pref_status,
+                )
+                continue
+
+            if not enabled:
+                suppressed += 1
+                notification_store.finalize_claim(
+                    reminder_doc_id=doc_id, status="suppressed"
+                )
+                notification_store.mark_reminder(
+                    reminder_doc_id=doc_id,
+                    status="suppressed",
+                    error="user_preference",
+                )
+                continue
 
             devices = notification_store.list_devices(user_id=user_id)
             tokens = [
@@ -265,18 +317,22 @@ def dispatch_due_reminders_task(self, window_seconds: int = 60, request_id: str 
             )
             if resp.get("success") and int(resp.get("sent") or 0) > 0:
                 sent += int(resp.get("sent") or 0)
-                if doc_id:
-                    notification_store.mark_reminder(
-                        reminder_doc_id=doc_id, status="sent"
-                    )
+                notification_store.finalize_claim(
+                    reminder_doc_id=doc_id, status="sent"
+                )
+                notification_store.mark_reminder(
+                    reminder_doc_id=doc_id, status="sent"
+                )
             else:
                 failed += int(resp.get("failed") or 1)
-                if doc_id:
-                    notification_store.mark_reminder(
-                        reminder_doc_id=doc_id,
-                        status="failed",
-                        error=str(resp.get("error") or ""),
-                    )
+                notification_store.finalize_claim(
+                    reminder_doc_id=doc_id, status="failed"
+                )
+                notification_store.mark_reminder(
+                    reminder_doc_id=doc_id,
+                    status="failed",
+                    error=str(resp.get("error") or ""),
+                )
 
         _mark_succeeded(
             self,
@@ -285,6 +341,8 @@ def dispatch_due_reminders_task(self, window_seconds: int = 60, request_id: str 
                 "processed": processed,
                 "sent": sent,
                 "failed": failed,
+                "suppressed": suppressed,
+                "duplicate_prevented": duplicate_prevented,
             },
             request_id=request_id,
         )
@@ -293,6 +351,8 @@ def dispatch_due_reminders_task(self, window_seconds: int = 60, request_id: str 
             "processed": processed,
             "sent": sent,
             "failed": failed,
+            "suppressed": suppressed,
+            "duplicate_prevented": duplicate_prevented,
         }
     except Exception as e:
         logger.exception("NOTIFICATIONS DISPATCH ERROR")
