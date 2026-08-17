@@ -428,39 +428,39 @@ class NotificationStore:
                                   than "already exists" (network/Appwrite
                                   error) - caller must NOT send, safe to
                                   retry next dispatch cycle
+
+        Ownership of a takeover is proven purely by an atomic *create*
+        (never a delete - see _attempt_takeover below for why a prior
+        delete-then-create version was still racy).
         """
         rid = _safe_text(reminder_doc_id)
         if not rid:
             return {"claimed": False, "reason": "error"}
-        return self._attempt_claim(rid, allow_takeover=True)
 
-    def _attempt_claim(self, rid: str, *, allow_takeover: bool) -> Dict[str, Any]:
         now = _utcnow()
         now_iso = now.isoformat()
         expires_at = now.timestamp() + self._claim_ttl_seconds
 
+        # First-ever attempt for this reminder: a plain create with no prior
+        # row to race against - already exclusive, no takeover involved.
         try:
             self._appwrite.create_document(
                 self.dispatch_claims_resource,
                 {
                     "reminderId": rid,
                     "status": "processing",
+                    "generation": 0,
                     "claimedAtISO": now_iso,
                     "expiresAt": expires_at,
                     "updatedAtISO": now_iso,
                 },
                 document_id=rid,
             )
-            reason = "new_claim" if allow_takeover else "reclaimed_expired"
-            return {"claimed": True, "reason": reason}
+            return {"claimed": True, "reason": "new_claim"}
         except Exception as exc:
             if "(409)" not in str(exc):
-                # A real error (network/auth/5xx), not "already exists".
-                # Don't claim; the reminder stays "scheduled" and will be
-                # retried on the next dispatch cycle.
                 return {"claimed": False, "reason": "error"}
 
-        # A claim already exists - inspect it before deciding anything.
         try:
             existing = self._appwrite.get_document(self.dispatch_claims_resource, rid)
         except Exception:
@@ -471,41 +471,116 @@ class NotificationStore:
         if existing_status == "sent":
             return {"claimed": False, "reason": "already_sent"}
 
-        if existing_status == "processing":
-            try:
-                existing_expires = float((existing or {}).get("expiresAt") or 0)
-            except Exception:
-                existing_expires = 0.0
+        if existing_status != "processing":
+            # suppressed/failed/anything else: a prior run already reached a
+            # terminal state for this occurrence - do not resend.
+            return {
+                "claimed": False,
+                "reason": f"already_{existing_status or 'handled'}",
+            }
 
-            if existing_expires > now.timestamp():
+        try:
+            existing_expires = float((existing or {}).get("expiresAt") or 0)
+        except Exception:
+            existing_expires = 0.0
+
+        if existing_expires > now.timestamp():
+            return {"claimed": False, "reason": "already_processing"}
+
+        try:
+            current_generation = int((existing or {}).get("generation") or 0)
+        except Exception:
+            current_generation = 0
+
+        return self._attempt_takeover(
+            rid, current_generation + 1, now, now_iso, expires_at
+        )
+
+    def _attempt_takeover(
+        self, rid: str, target_generation: int, now, now_iso: str, expires_at: float
+    ) -> Dict[str, Any]:
+        """
+        Takes over a stale ("processing", past TTL) claim WITHOUT ever
+        deleting the canonical claim row.
+
+        Why not delete-then-create (an earlier version of this code did):
+        the delete has no way to verify it's still deleting the SAME stale
+        row it inspected a moment earlier. Two workers can both see the
+        claim as expired, then: A deletes -> A creates a fresh claim ->
+        B (still acting on its own earlier "this is expired" read) deletes
+        A's brand-new claim -> B creates -> both A and B think they won and
+        both proceed to send. Nothing here checks "is what I'm about to
+        delete still what I think it is", because Appwrite has no
+        conditional delete.
+
+        Fix: never delete the canonical row during takeover. Instead, prove
+        exclusive ownership of THIS SPECIFIC takeover via a second, tiny
+        "ticket" document whose id encodes (reminder id, target generation).
+        Appwrite guarantees only one caller can ever create a given
+        document id - so only one contender can ever win the ticket for a
+        given generation number, full stop. The ticket is never deleted
+        (a permanent tombstone), which matters: if it were deleted after
+        use, a very late/slow contender could still "win" that same
+        generation number after the fact and resend something already
+        completed. Only the ticket's rightful, sole winner ever updates the
+        canonical claim row - so no one can overwrite another contender's
+        legitimate claim, whether via delete or via update.
+
+        Trade-off, disclosed rather than hidden: if a process crashes after
+        winning a ticket but before updating the canonical row, that one
+        generation number is permanently spent and the reminder can't be
+        retried past it - it fails SAFE (never double-sent) but can get
+        stuck needing manual attention, rather than self-healing. Given the
+        goal here is "at most one FCM send", failing safe was the right
+        side to land on; happy to add generation-skip recovery on top if
+        that stuck-reminder case turns out to matter in practice.
+        """
+        ticket_id = _hash_id("claimgen", f"{rid}|{target_generation}", length=32)
+
+        try:
+            self._appwrite.create_document(
+                self.dispatch_claims_resource,
+                {
+                    "reminderId": rid,
+                    "generation": target_generation,
+                    "kind": "takeover_ticket",
+                    "claimedAtISO": now_iso,
+                },
+                document_id=ticket_id,
+            )
+        except Exception as exc:
+            if "(409)" in str(exc):
+                # Someone else already won this exact generation transition.
+                try:
+                    existing = self._appwrite.get_document(
+                        self.dispatch_claims_resource, rid
+                    )
+                    status = _safe_text((existing or {}).get("status")).lower()
+                    if status == "sent":
+                        return {"claimed": False, "reason": "already_sent"}
+                except Exception:
+                    pass
                 return {"claimed": False, "reason": "already_processing"}
+            return {"claimed": False, "reason": "error"}
 
-            if not allow_takeover:
-                # We already tried one takeover in this call and lost that
-                # race too - stop here instead of looping forever.
-                return {"claimed": False, "reason": "already_processing"}
+        # We exclusively own this generation transition - no other
+        # contender can ever reach this line for this (rid, generation).
+        try:
+            self._appwrite.update_document(
+                self.dispatch_claims_resource,
+                rid,
+                {
+                    "status": "processing",
+                    "generation": target_generation,
+                    "claimedAtISO": now_iso,
+                    "expiresAt": expires_at,
+                    "updatedAtISO": now_iso,
+                },
+            )
+        except Exception:
+            return {"claimed": False, "reason": "error"}
 
-            # Stale claim past its TTL (e.g. the process that claimed it
-            # crashed mid-send). Appwrite's update is a blind overwrite, so
-            # two workers racing here could BOTH pass the expiry check above
-            # and both "successfully" update - both would then think they
-            # won the claim. To keep the exclusivity guarantee, take over by
-            # deleting the stale row and re-attempting a fresh create: the
-            # create step is the one operation Appwrite guarantees is
-            # exclusive (only one caller can ever create a given document
-            # id), so only one of two racing takeovers can win. The other
-            # lands back here via the 409 branch above and correctly backs
-            # off as "already_processing".
-            try:
-                self._appwrite.delete_document(self.dispatch_claims_resource, rid)
-            except Exception:
-                pass  # already gone, or someone else deleted it - fine
-
-            return self._attempt_claim(rid, allow_takeover=False)
-
-        # suppressed/failed/anything else: a prior run already reached a
-        # terminal state for this occurrence - do not resend automatically.
-        return {"claimed": False, "reason": f"already_{existing_status or 'handled'}"}
+        return {"claimed": True, "reason": "reclaimed_expired"}
 
     def finalize_claim(self, *, reminder_doc_id: str, status: str) -> None:
         """Marks a claim as sent/suppressed/failed once dispatch is done with it."""

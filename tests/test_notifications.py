@@ -1,7 +1,9 @@
 import os
 import sys
+import threading
 import unittest
 from pathlib import Path
+from typing import Any, Dict
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,37 +47,50 @@ class ClaimAwareFakeProxy(FakeProxy):
     behaviour (fixed id -> 409 on a duplicate create), so tests can exercise
     try_claim_reminder's real conflict-detection logic instead of mocking
     the method away entirely.
+
+    Each operation is guarded by a real lock, matching the guarantee real
+    Appwrite gives (create/update/delete are each individually atomic) -
+    that's what makes a genuine multi-threaded test of our claim logic
+    meaningful: any race that shows up has to come from OUR multi-step
+    logic on top of these primitives, not from the fake's own bookkeeping.
     """
 
     def __init__(self):
         super().__init__()
         self.store = {}  # (resource, doc_id) -> stored document
+        self._lock = threading.Lock()
 
     def create_document(self, resource, data, document_id=None):
-        key = (resource, document_id)
-        if document_id and key in self.store:
-            raise Exception("Appwrite request failed (409): document already exists")
-        doc = {"$id": document_id or "doc", **data}
-        if document_id:
-            self.store[key] = doc
+        with self._lock:
+            key = (resource, document_id)
+            if document_id and key in self.store:
+                raise Exception(
+                    "Appwrite request failed (409): document already exists"
+                )
+            doc = {"$id": document_id or "doc", **data}
+            if document_id:
+                self.store[key] = doc
         self.created.append((resource, document_id, data))
         return doc
 
     def update_document(self, resource, document_id, data):
         key = (resource, document_id)
-        merged = {**self.store.get(key, {}), **data}
-        self.store[key] = merged
+        with self._lock:
+            merged = {**self.store.get(key, {}), **data}
+            self.store[key] = merged
         self.updated.append((resource, document_id, data))
         return merged
 
     def get_document(self, resource, document_id):
         key = (resource, document_id)
-        if key not in self.store:
-            raise Exception("Appwrite request failed (404): document not found")
-        return self.store[key]
+        with self._lock:
+            if key not in self.store:
+                raise Exception("Appwrite request failed (404): document not found")
+            return dict(self.store[key])
 
     def delete_document(self, resource, document_id):
-        self.store.pop((resource, document_id), None)
+        with self._lock:
+            self.store.pop((resource, document_id), None)
         self.deleted.append((resource, document_id))
         return {"success": True}
 
@@ -357,14 +372,12 @@ class NotificationClaimTests(unittest.TestCase):
         self.assertTrue(second["claimed"])
         self.assertEqual(second["reason"], "new_claim")
 
-    def test_concurrent_takeover_of_expired_claim_only_one_wins(self):
+    def test_sequential_takeover_of_expired_claim_only_one_wins(self):
         """
-        Boss-flagged race condition: update_document() is a blind overwrite,
-        so two dispatch runs both seeing the SAME expired claim could
-        previously both "reclaim" it via update and both proceed to send.
-        The fix routes takeover through delete-then-create instead, since
-        create is the one operation Appwrite guarantees is exclusive.
-        Exactly one of two competing takeover attempts must win.
+        Baseline (non-concurrent) sanity check: calling takeover twice in a
+        row on the same expired claim must only let the first call win.
+        See test_concurrent_interleaved_takeover_never_double_claims below
+        for the actual race-condition regression test using real threads.
         """
         proxy = ClaimAwareFakeProxy()
         store_a = self._store(proxy)
@@ -386,6 +399,60 @@ class NotificationClaimTests(unittest.TestCase):
         self.assertEqual(len(won), 1, "exactly one competitor may win the takeover")
         self.assertEqual(len(lost), 1)
         self.assertEqual(lost[0]["reason"], "already_processing")
+
+    def test_concurrent_interleaved_takeover_never_double_claims(self):
+        """
+        This is the test the boss's review specifically asked for: the
+        earlier sequential version (A then B, in order) can't expose a real
+        race, because nothing forces the two attempts to actually overlap.
+        This one uses real threads plus a barrier to force two independent
+        NotificationStore instances to attempt takeover of the SAME expired
+        claim at the same moment, repeated across many trials (since a race
+        window may not manifest on every single run).
+
+        Asserts the invariant that actually matters: across all trials,
+        it is never possible for both contenders to win the same takeover.
+        """
+        trials = 50
+        double_wins = []
+
+        for trial in range(trials):
+            proxy = ClaimAwareFakeProxy()
+            store_a = self._store(proxy)
+            store_b = self._store(proxy)
+
+            rid = f"rem_race_{trial}"
+            seeded = store_a.try_claim_reminder(reminder_doc_id=rid)
+            self.assertTrue(seeded["claimed"])
+
+            # Seed an already-expired claim, the precondition for a takeover.
+            key = (store_a.dispatch_claims_resource, rid)
+            proxy.store[key]["expiresAt"] = 0
+
+            results: Dict[str, Dict[str, Any]] = {}
+            barrier = threading.Barrier(2)
+
+            def attempt(name: str, store) -> None:
+                barrier.wait()  # force both threads to start together
+                results[name] = store.try_claim_reminder(reminder_doc_id=rid)
+
+            t_a = threading.Thread(target=attempt, args=("a", store_a))
+            t_b = threading.Thread(target=attempt, args=("b", store_b))
+            t_a.start()
+            t_b.start()
+            t_a.join()
+            t_b.join()
+
+            won = [r for r in results.values() if r["claimed"]]
+            if len(won) > 1:
+                double_wins.append(trial)
+
+        self.assertEqual(
+            double_wins,
+            [],
+            f"double-claimed the same takeover on trials {double_wins} - "
+            f"this means duplicate FCM sends are possible",
+        )
 
 
 class DispatchPreferenceFailClosedTests(unittest.TestCase):
