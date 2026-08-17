@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 import importlib.util
 import os
+from routers.auth import router as auth_router
 
 
 def _is_production() -> bool:
@@ -673,6 +674,7 @@ async def rate_limit_middleware(request: Request, call_next):
 # -------------------------
 # ROUTER REGISTRATION
 # -------------------------
+app.include_router(auth_router, prefix="/api")
 if chat_router:
     app.include_router(chat_router, prefix="/api", tags=["Chat"])
 
