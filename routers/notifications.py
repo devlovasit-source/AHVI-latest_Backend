@@ -10,7 +10,10 @@ from pydantic import BaseModel, Field
 
 from middleware.auth_middleware import get_current_user
 from services.firebase_push_service import firebase_push_service
-from services.notification_store import notification_store
+from services.notification_store import (
+    notification_store,
+    NOTIFICATION_PREFERENCE_CATEGORIES,
+)
 from services.task_queue import enqueue_task
 
 try:
@@ -48,6 +51,10 @@ class ScheduleRemindersRequest(BaseModel):
     source: str = "calendar"
 
 
+class NotificationPreferenceRequest(BaseModel):
+    enabled: bool
+
+
 def _require_dispatch_secret(request: Request) -> None:
     secret = str(os.getenv("NOTIFICATIONS_DISPATCH_SECRET", "")).strip()
     if not secret:
@@ -78,6 +85,56 @@ def notifications_health():
     }
 
 
+@router.get("/preferences")
+def get_notification_preferences(
+    user=Depends(get_current_user),
+):
+    user_id = str((user or {}).get("user_id") or "")
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="missing user_id")
+
+    return {
+        "success": True,
+        "preferences": {
+            category: notification_store.get_notification_preference(
+                user_id=user_id,
+                category=category,
+            )
+            for category in (
+                "medi",
+                "calendar",
+                "style",
+            )
+        },
+    }
+
+
+@router.put("/preferences/{category}")
+def set_notification_preference(
+    category: str,
+    req: NotificationPreferenceRequest,
+    user=Depends(get_current_user),
+):
+    user_id = str((user or {}).get("user_id") or "")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="missing user_id")
+
+    category = category.strip().lower()
+    if category not in NOTIFICATION_PREFERENCE_CATEGORIES:
+        raise HTTPException(status_code=400, detail="invalid category")
+
+    ok = notification_store.set_notification_preference(
+        user_id=user_id,
+        category=category,
+        enabled=req.enabled,
+    )
+    if not ok:
+        raise HTTPException(status_code=500, detail="failed to update preference")
+
+    return {"success": True, "category": category, "enabled": req.enabled}
+
+
 @router.post("/devices/register")
 def register_device(req: RegisterDeviceRequest, request: Request):
     state_user = getattr(request.state, "user", None)
@@ -99,7 +156,10 @@ def unregister_device(req: UnregisterDeviceRequest):
 
 
 @router.post("/reminders/schedule")
-def schedule_reminders(req: ScheduleRemindersRequest, user=Depends(get_current_user)):
+def schedule_reminders(
+    req: ScheduleRemindersRequest,
+    user=Depends(get_current_user),
+):
     user_id = str((user or {}).get("user_id") or "")
     out = notification_store.schedule_reminders(
         user_id=user_id,
@@ -118,10 +178,14 @@ def dispatch_due(request: Request, window_seconds: int = 60):
     _require_dispatch_secret(request)
 
     try:
-        due = notification_store.list_due_reminders(window_seconds=int(window_seconds))
+        due = notification_store.list_due_reminders(
+            window_seconds=int(window_seconds)
+        )
         sent = 0
         failed = 0
+        suppressed = 0
         processed = 0
+        duplicate_prevented = 0
 
         for rem in due:
             processed += 1
@@ -135,6 +199,64 @@ def dispatch_due(request: Request, window_seconds: int = 60):
                 or ""
             )
             title = "AHVI"
+            category = str(rem.get("source") or "").strip().lower()
+
+            if not doc_id:
+                # Can't be claimed without a stable id - skip rather than
+                # risk an unguarded (unclaimable) send.
+                failed += 1
+                continue
+
+            claim = notification_store.try_claim_reminder(reminder_doc_id=doc_id)
+            if not claim.get("claimed"):
+                if claim.get("reason") in ("already_sent", "already_processing"):
+                    duplicate_prevented += 1
+                continue
+
+            enabled, pref_status = (
+                notification_store.get_notification_preference_for_dispatch(
+                    user_id=user_id, category=category
+                )
+            )
+
+            if pref_status == "lookup_failed":
+                # Don't guess - release the claim and leave the reminder
+                # scheduled so the next dispatch cycle retries it.
+                notification_store.release_claim(reminder_doc_id=doc_id)
+                notification_store.mark_reminder(
+                    reminder_doc_id=doc_id,
+                    status="scheduled",
+                    error="preference_lookup_failed",
+                )
+                continue
+
+            if pref_status in ("invalid_category", "invalid_user"):
+                # Fail closed: a category outside medi/calendar/style (or a
+                # reminder with no userId) is a producer bug, not a user
+                # choice - keep it out of the "user_preference" bucket so
+                # it's visible/greppable separately.
+                suppressed += 1
+                notification_store.finalize_claim(
+                    reminder_doc_id=doc_id, status="suppressed"
+                )
+                notification_store.mark_reminder(
+                    reminder_doc_id=doc_id,
+                    status="suppressed",
+                    error=pref_status,
+                )
+                continue
+
+            if not enabled:
+                suppressed += 1
+                notification_store.finalize_claim(
+                    reminder_doc_id=doc_id, status="suppressed"
+                )
+                notification_store.mark_reminder(
+                    reminder_doc_id=doc_id,
+                    status="suppressed",
+                    error="user_preference",
+                )
+                continue
 
             devices = notification_store.list_devices(user_id=user_id)
             tokens = [
@@ -143,24 +265,38 @@ def dispatch_due(request: Request, window_seconds: int = 60):
                 if str(d.get("token") or "").strip()
             ]
             resp = firebase_push_service.send_to_tokens(
-                tokens=tokens, title=title, body=message, data={"type": "reminder"}
+                tokens=tokens,
+                title=title,
+                body=message,
+                data={"type": "reminder"},
             )
             if resp.get("success") and int(resp.get("sent") or 0) > 0:
                 sent += int(resp.get("sent") or 0)
-                if doc_id:
-                    notification_store.mark_reminder(
-                        reminder_doc_id=doc_id, status="sent"
-                    )
+                notification_store.finalize_claim(
+                    reminder_doc_id=doc_id, status="sent"
+                )
+                notification_store.mark_reminder(
+                    reminder_doc_id=doc_id, status="sent"
+                )
             else:
                 failed += int(resp.get("failed") or 1)
-                if doc_id:
-                    notification_store.mark_reminder(
-                        reminder_doc_id=doc_id,
-                        status="failed",
-                        error=str(resp.get("error") or ""),
-                    )
+                notification_store.finalize_claim(
+                    reminder_doc_id=doc_id, status="failed"
+                )
+                notification_store.mark_reminder(
+                    reminder_doc_id=doc_id,
+                    status="failed",
+                    error=str(resp.get("error") or ""),
+                )
 
-        return {"success": True, "processed": processed, "sent": sent, "failed": failed}
+        return {
+            "success": True,
+            "processed": processed,
+            "sent": sent,
+            "failed": failed,
+            "suppressed": suppressed,
+            "duplicate_prevented": duplicate_prevented,
+        }
 
     except Exception:
         logger.error("dispatch-due failed:\n%s", traceback.format_exc())
@@ -168,7 +304,10 @@ def dispatch_due(request: Request, window_seconds: int = 60):
 
 
 @router.post("/dispatch-due/async", status_code=status.HTTP_202_ACCEPTED)
-def dispatch_due_async(http_request: Request, window_seconds: int = 60):
+def dispatch_due_async(
+    http_request: Request,
+    window_seconds: int = 60,
+):
     if dispatch_due_reminders_task is None:
         raise HTTPException(status_code=503, detail="Worker not configured")
 
@@ -177,10 +316,16 @@ def dispatch_due_async(http_request: Request, window_seconds: int = 60):
     task_id = enqueue_task(
         task_func=dispatch_due_reminders_task,
         args=[int(window_seconds)],
-        kwargs={"request_id": str(getattr(http_request.state, "request_id", "") or "")},
+        kwargs={
+            "request_id": str(
+                getattr(http_request.state, "request_id", "") or ""
+            )
+        },
         kind="notifications_dispatch_due",
         user_id="system",
         source="routers.notifications.dispatch_due_async",
-        request_id=str(getattr(http_request.state, "request_id", "") or ""),
+        request_id=str(
+            getattr(http_request.state, "request_id", "") or ""
+        ),
     )
     return {"success": True, "status": "queued", "task_id": task_id}
