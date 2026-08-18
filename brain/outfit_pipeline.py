@@ -31,6 +31,17 @@ from services.wardrobe_suitability import is_style_eligible
 
 logger = logging.getLogger("ahvi.outfit_pipeline")
 from services.qdrant_service import qdrant_service
+from services.style_memory_service import (
+    load_active_rejected_outfit_signatures,
+    # Aliased: outfit_pipeline.py already defines its own module-level
+    # _outfit_signature() (a positional top/bottom/dress/shoes/outerwear
+    # slot signature, unrelated to and incompatible with this one) further
+    # down this same file — importing under the bare name would be silently
+    # shadowed by that later definition. This is the canonical, sorted/
+    # dedup item-identity signature that routers/feedback.py's write path
+    # and _memory_breakdown already use for rejected_outfit_signatures.
+    _outfit_signature as _rejection_outfit_signature,
+)
 from brain.engines.outfit_quality_guard import filter_and_guard_outfits
 import re
 
@@ -2151,6 +2162,47 @@ def _flatten_outfit_items(outfit: Dict[str, Any]) -> List[Dict[str, Any]]:
     return items
 
 
+def _exclude_active_rejected_signatures(
+    scored: List[Dict[str, Any]],
+    active_rejected_signatures: set,
+    rejected_ages: Dict[str, int],
+    user_id: str,
+) -> List[Dict[str, Any]]:
+    """Explicit "Not for me" contract: an active (< REJECTION_ACTIVE_DAYS)
+    exact-signature rejection must not be recommendable at all, not merely
+    penalized. Must be applied to the full scored candidate pool before
+    OutfitRanker.rank() cuts it down to top_n — the existing -4.0
+    exact_rejected_outfit_penalty already attached to unified_style/
+    score_meta is left untouched for diagnostics; this is a separate,
+    authoritative filter reusing the same live rejected-signature memory.
+    recent_recommended_signatures / recent_changed_items are untouched —
+    only explicit outfit-level rejections hard-exclude."""
+    if not active_rejected_signatures:
+        return scored
+    before_count = len(scored)
+    kept: List[Dict[str, Any]] = []
+    excluded_meta: List[str] = []
+    for combo in scored:
+        sig = _rejection_outfit_signature(combo.get("items"))
+        if sig and sig in active_rejected_signatures:
+            excluded_meta.append(
+                "%s:%sd"
+                % (
+                    hashlib.sha256(sig.encode("utf-8")).hexdigest()[:12],
+                    rejected_ages.get(sig, "na"),
+                )
+            )
+            continue
+        kept.append(combo)
+    if not excluded_meta:
+        return scored
+    logger.info(
+        "AHVI_REJECTED_SIGNATURE_EXCLUDED user_id=%s excluded=%d before=%d after=%d signatures=%s",
+        user_id, len(excluded_meta), before_count, len(kept), excluded_meta,
+    )
+    return kept
+
+
 def _unified_style_snapshot(
     items: List[Dict[str, Any]], context: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -3315,6 +3367,20 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             len(scored),
             min(raw_candidate_target, len(scored)),
         )
+
+        # Explicit "Not for me" contract: an active (< REJECTION_ACTIVE_DAYS)
+        # exact-signature rejection must not be recommendable at all, not
+        # merely penalized. Must run before OutfitRanker.rank() so the
+        # exclusion applies to the full candidate pool, not just whatever
+        # the (unrelated, legacy-scored) top_n cut happened to keep.
+        active_rejection = load_active_rejected_outfit_signatures(user_id)
+        scored = _exclude_active_rejected_signatures(
+            scored,
+            set(active_rejection["active_rejected_outfit_signatures"]),
+            active_rejection["active_rejected_ages_days"],
+            user_id,
+        )
+
         ranked = outfit_ranker.rank(
             user_id=user_id, outfits=scored, top_n=min(raw_candidate_target, len(scored))
         )

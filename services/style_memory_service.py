@@ -27,6 +27,9 @@ logger = logging.getLogger("ahvi.style_memory")
 RECENT_WINDOW_DAYS = 10
 # Wear count at/under this = "under-worn" (gentle boost when occasion-fit).
 UNDERWORN_MAX_WEARS = 1
+# "Not for me" exact-signature hard-exclusion window (beta). Rejections
+# older than this stop hard-blocking the exact outfit from resurfacing.
+REJECTION_ACTIVE_DAYS = 30
 
 
 def _proxy():
@@ -287,6 +290,53 @@ def load_rejected_outfit_memory(user_id: str, limit: int = 50) -> Dict[str, Any]
         if sig:
             signatures.append(sig)
     return {"rejected_outfit_signatures": list(dict.fromkeys(signatures))}
+
+
+def load_active_rejected_outfit_signatures(
+    user_id: str, limit: int = 50, active_days: int = REJECTION_ACTIVE_DAYS
+) -> Dict[str, Any]:
+    """Return {active_rejected_outfit_signatures, active_rejected_ages_days}:
+    exact "Not for me" signatures still inside the rejection cooldown window,
+    for the hard-exclusion contract (an active rejection must not be
+    recommended at all, not merely penalized). Separate from
+    load_rejected_outfit_memory above, which stays unfiltered by age and
+    keeps feeding the existing exact_rejected_outfit_penalty diagnostic
+    regardless of how old the rejection is. A row with no parseable
+    timestamp is treated as NOT active — an unproven age can never justify a
+    hard exclusion."""
+    empty: Dict[str, Any] = {
+        "active_rejected_outfit_signatures": [],
+        "active_rejected_ages_days": {},
+    }
+    user_id = str(user_id or "").strip()
+    if not user_id:
+        return empty
+    try:
+        from services.qdrant_service import qdrant_service
+
+        rows = qdrant_service.list_user_memory(user_id, "disliked", limit=limit)
+    except Exception:
+        return empty
+    now = datetime.now(timezone.utc)
+    signatures: List[str] = []
+    ages: Dict[str, int] = {}
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict):
+            continue
+        sig = str(r.get("outfit_signature") or "").strip()
+        if not sig:
+            continue
+        rejected_at = _parse_iso(r.get("timestamp"))
+        if rejected_at is None:
+            continue
+        age_days = (now - rejected_at).total_seconds() / 86400.0
+        if age_days <= active_days:
+            signatures.append(sig)
+            ages[sig] = int(age_days)
+    return {
+        "active_rejected_outfit_signatures": list(dict.fromkeys(signatures)),
+        "active_rejected_ages_days": ages,
+    }
 
 
 # ---------------------------------------------------------------------------

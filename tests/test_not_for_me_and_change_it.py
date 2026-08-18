@@ -10,6 +10,8 @@ and are not duplicated here.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -20,9 +22,13 @@ from brain.engines.style_scorer import (
     EXACT_REJECTED_OUTFIT_PENALTY,
     _memory_breakdown,
 )
+from brain.outfit_pipeline import _exclude_active_rejected_signatures
 from services import style_board_shuffle_service as shuffle_service
 from services.style_board_state_store import InMemoryBoardStateStore
 from services.style_memory_service import (
+    REJECTION_ACTIVE_DAYS,
+    _outfit_signature,
+    load_active_rejected_outfit_signatures,
     load_outfit_change_memory,
     load_rejected_outfit_memory,
 )
@@ -991,3 +997,198 @@ def test_list_user_memory_builds_production_compatible_filter_and_returns_matche
     assert isinstance(scroll_filter, Filter)
     conditions = {c.key: c.match.value for c in scroll_filter.must}
     assert conditions == {"user_id": "u1", "memory_type": "disliked"}
+
+
+# ---------------------------------------------------------------------------
+# ACTIVE-REJECTION HARD EXCLUSION (30-day cooldown)
+#
+# Live-proven defect: the exact_rejected_outfit_penalty (-4.0) computed by
+# _memory_breakdown is attached only to unified_style/score_meta, a field
+# OutfitRanker.rank() never reads (it sorts on the legacy item["score"]) —
+# so a rejected outfit could still resurface as the #1 recommendation.
+# services.style_memory_service.load_active_rejected_outfit_signatures +
+# brain.outfit_pipeline._exclude_active_rejected_signatures fix this with a
+# real, authoritative exclusion applied before OutfitRanker.rank() runs,
+# reusing the existing _outfit_signature identity and live Qdrant rejection
+# memory — no new persistence, no penalty-magnitude dependence.
+# ---------------------------------------------------------------------------
+def _seed_rejection(fake_qdrant, user_id, item_ids, *, days_ago=0.0, point_id=None):
+    sig = _outfit_signature([{"id": i} for i in item_ids])
+    ts = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    pid = point_id or f"seed-{len(fake_qdrant.points)}-{sig}"
+    fake_qdrant.points[pid] = {
+        "memory_type": "disliked",
+        "user_id": user_id,
+        "item_ids": item_ids,
+        "outfit_signature": sig,
+        "timestamp": ts.isoformat(),
+    }
+    return sig
+
+
+def _combo(item_ids, score=5.0):
+    return {"items": [{"id": i} for i in item_ids], "score": score}
+
+
+def test_active_rejection_within_window_is_returned_as_active(fake_qdrant):
+    sig = _seed_rejection(fake_qdrant, "u1", ["shirt1", "pant1", "shoe1"], days_ago=1)
+    mem = load_active_rejected_outfit_signatures("u1")
+    assert mem["active_rejected_outfit_signatures"] == [sig]
+
+
+def test_expired_rejection_beyond_window_is_not_active(fake_qdrant):
+    _seed_rejection(
+        fake_qdrant, "u1", ["shirt1", "pant1", "shoe1"],
+        days_ago=REJECTION_ACTIVE_DAYS + 1,
+    )
+    mem = load_active_rejected_outfit_signatures("u1")
+    assert mem["active_rejected_outfit_signatures"] == []
+
+
+def test_boundary_just_inside_30_days_is_active_just_outside_is_not(fake_qdrant):
+    # Documented rule: age_days <= REJECTION_ACTIVE_DAYS is active. Seeding
+    # at exactly "N days ago" would race real elapsed wall-clock time by the
+    # moment the loader actually runs, so the boundary is proven on either
+    # side of it instead (30d minus 1 minute = inside, plus 1 minute = outside).
+    inside_sig = _seed_rejection(
+        fake_qdrant, "u1", ["shirt1", "pant1"],
+        days_ago=REJECTION_ACTIVE_DAYS - (1 / 1440), point_id="inside",
+    )
+    outside_sig = _seed_rejection(
+        fake_qdrant, "u1", ["shirt2", "pant2"],
+        days_ago=REJECTION_ACTIVE_DAYS + (1 / 1440), point_id="outside",
+    )
+    mem = load_active_rejected_outfit_signatures("u1")
+    assert inside_sig in mem["active_rejected_outfit_signatures"]
+    assert outside_sig not in mem["active_rejected_outfit_signatures"]
+
+
+def test_multiple_active_rejected_signatures_all_returned(fake_qdrant):
+    sig_a = _seed_rejection(fake_qdrant, "u1", ["shirt1", "pant1"], days_ago=1)
+    sig_b = _seed_rejection(fake_qdrant, "u1", ["shirt2", "pant2"], days_ago=5)
+    mem = load_active_rejected_outfit_signatures("u1")
+    assert set(mem["active_rejected_outfit_signatures"]) == {sig_a, sig_b}
+
+
+def test_recommended_memory_type_does_not_feed_hard_exclusion(fake_qdrant):
+    fake_qdrant.points["rec-1"] = {
+        "memory_type": "recommended",  # not "disliked" -> different Qdrant filter
+        "user_id": "u1",
+        "outfit_signature": "pant1|shirt1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    mem = load_active_rejected_outfit_signatures("u1")
+    assert mem["active_rejected_outfit_signatures"] == []
+
+
+def test_change_item_memory_type_does_not_feed_hard_exclusion(fake_qdrant):
+    fake_qdrant.points["chg-1"] = {
+        "memory_type": "changed_item",  # not "disliked" -> different Qdrant filter
+        "user_id": "u1",
+        "outfit_signature": "pant1|shirt1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    mem = load_active_rejected_outfit_signatures("u1")
+    assert mem["active_rejected_outfit_signatures"] == []
+
+
+def test_active_rejection_end_to_end_via_feedback_endpoint(fake_qdrant):
+    """Proves the real write path's timestamp (routers/feedback.py's
+    datetime.now(timezone.utc).isoformat()) is read back correctly as
+    active — not just a hand-seeded payload."""
+    client = _client(None)
+    resp = client.post(
+        "/api/feedback/board",
+        json={
+            "user_id": "u1", "action": "dislike", "board_payload": {},
+            "item_ids": ["shirt1", "pant1", "shoe1"],
+        },
+        headers={"x-test-user": "u1"},
+    )
+    assert resp.status_code == 200
+    mem = load_active_rejected_outfit_signatures("u1")
+    assert mem["active_rejected_outfit_signatures"] == ["pant1|shirt1|shoe1"]
+
+
+def test_exclusion_is_a_noop_when_no_active_rejections():
+    scored = [_combo(["shirt1", "pant1"])]
+    kept = _exclude_active_rejected_signatures(scored, set(), {}, "u1")
+    assert kept is scored  # same object back -> genuine early-return no-op
+
+
+def test_exact_match_excluded_shared_item_combination_remains_eligible():
+    rejected_sig = _outfit_signature([{"id": "shirt1"}, {"id": "pant1"}, {"id": "shoe1"}])
+    exact = _combo(["shirt1", "pant1", "shoe1"])
+    different_combo_shares_one_item = _combo(["shirt1", "pant2", "shoe2"])
+
+    kept = _exclude_active_rejected_signatures(
+        [exact, different_combo_shares_one_item], {rejected_sig}, {}, "u1"
+    )
+
+    assert exact not in kept
+    assert different_combo_shares_one_item in kept
+
+
+def test_all_candidates_rejected_returns_empty_not_reintroduced():
+    rejected_sig = _outfit_signature([{"id": "shirt1"}, {"id": "pant1"}])
+    scored = [_combo(["shirt1", "pant1"])]
+
+    kept = _exclude_active_rejected_signatures(scored, {rejected_sig}, {}, "u1")
+
+    assert kept == []
+
+
+def test_non_rejected_alternatives_survive_with_scores_untouched():
+    rejected_sig = _outfit_signature([{"id": "shirt1"}, {"id": "pant1"}])
+    combo_rejected = _combo(["shirt1", "pant1"])
+    combo_a = _combo(["shirt2", "pant2"], score=3.0)
+    combo_b = _combo(["shirt3", "pant3"], score=7.0)
+
+    kept = _exclude_active_rejected_signatures(
+        [combo_rejected, combo_a, combo_b], {rejected_sig}, {}, "u1"
+    )
+
+    assert combo_rejected not in kept
+    assert combo_a in kept and combo_b in kept
+    assert max(kept, key=lambda c: c["score"]) is combo_b
+
+
+def test_exclusion_ignores_incidental_display_metadata():
+    """Same item combination, different title/board/strategy/image — the
+    canonical signature (services.style_memory_service._outfit_signature,
+    the SAME function the write path and _memory_breakdown already use)
+    reads only item identity, never display metadata."""
+    rejected_sig = _outfit_signature(
+        [{"id": "shirt1"}, {"id": "pant1"}, {"id": "shoe1"}]
+    )
+    combo = {
+        "items": [
+            {"id": "shirt1", "name": "White Shirt", "image_url": "https://img/a.png"},
+            {"id": "pant1", "name": "Blue Jeans", "image_url": "https://img/b.png"},
+            {"id": "shoe1", "name": "Red Loafers", "image_url": "https://img/c.png"},
+        ],
+        "title": "Refined Simplicity",
+        "board_id": "board-xyz",
+        "strategy": "best_overall",
+        "score": 9.0,
+    }
+
+    kept = _exclude_active_rejected_signatures([combo], {rejected_sig}, {}, "u1")
+
+    assert kept == []
+
+
+def test_exclusion_logs_safe_diagnostics_not_raw_signature(caplog):
+    import logging
+
+    rejected_sig = _outfit_signature([{"id": "shirt1"}, {"id": "pant1"}])
+    scored = [_combo(["shirt1", "pant1"])]
+
+    with caplog.at_level(logging.INFO, logger="ahvi.outfit_pipeline"):
+        _exclude_active_rejected_signatures(
+            scored, {rejected_sig}, {rejected_sig: 3}, "u1"
+        )
+
+    assert "AHVI_REJECTED_SIGNATURE_EXCLUDED" in caplog.text
+    assert rejected_sig not in caplog.text  # hash only, never the raw signature
+    assert "3d" in caplog.text
