@@ -55,6 +55,14 @@ class FakeProxy:
     def list_documents(self, resource, **kwargs):
         return list(self.rows)
 
+    def get_document(self, resource, document_id):
+        for row in self.rows:
+            if isinstance(row, dict) and row.get("$id") == document_id:
+                return dict(row)
+        raise Exception(
+            f"Appwrite request failed (404): document '{document_id}' not found"
+        )
+
 
 class ClaimAwareFakeProxy(FakeProxy):
     """
@@ -190,7 +198,7 @@ class NotificationStoreTests(unittest.TestCase):
 
     def test_preference_lookup_failure_defaults_true(self):
         class FailingProxy(FakeProxy):
-            def list_documents(self, resource, **kwargs):
+            def get_document(self, resource, document_id):
                 raise RuntimeError("appwrite down")
 
         with patch("services.notification_store.AppwriteProxy", return_value=FailingProxy()):
@@ -224,9 +232,12 @@ class NotificationStoreTests(unittest.TestCase):
             )
             self.assertTrue(ok)
 
-            # FakeProxy.update_document/create_document don't feed list_documents'
-            # `rows`, so mirror what a real Appwrite read-back would return.
-            proxy.rows = [{"category": "style", "enabled": False}]
+            # FakeProxy.update_document/create_document don't feed
+            # get_document's `rows` lookup, so mirror what a real Appwrite
+            # read-back would return - keyed by the SAME deterministic id
+            # get_notification_preference will actually look up.
+            doc_id = store._preference_doc_id("user_1", "style")
+            proxy.rows = [{"$id": doc_id, "category": "style", "enabled": False}]
             result = store.get_notification_preference(user_id="user_1", category="style")
 
         self.assertFalse(result)
@@ -262,11 +273,12 @@ class NotificationStoreTests(unittest.TestCase):
 
     def test_dispatch_preference_explicit_disabled(self):
         proxy = FakeProxy()
-        proxy.rows = [{"category": "medi", "enabled": False}]
         with patch("services.notification_store.AppwriteProxy", return_value=proxy):
             from services.notification_store import NotificationStore
 
             store = NotificationStore()
+            doc_id = store._preference_doc_id("user_1", "medi")
+            proxy.rows = [{"$id": doc_id, "category": "medi", "enabled": False}]
             enabled, pref_status = store.get_notification_preference_for_dispatch(
                 user_id="user_1", category="medi"
             )
@@ -281,7 +293,7 @@ class NotificationStoreTests(unittest.TestCase):
         """
 
         class FailingProxy(FakeProxy):
-            def list_documents(self, resource, **kwargs):
+            def get_document(self, resource, document_id):
                 raise RuntimeError("appwrite down")
 
         with patch(
@@ -297,6 +309,58 @@ class NotificationStoreTests(unittest.TestCase):
 
         self.assertFalse(enabled)
         self.assertEqual(pref_status, "lookup_failed")
+
+    def test_preference_reads_are_isolated_per_user(self):
+        """
+        Boss-flagged P0: notification_preferences was never registered in
+        AppwriteProxy's user_field_map, so list_documents' user_id filter
+        was silently ignored for this resource - one user's row for a
+        category could be returned for a completely different user. Reads
+        now go straight to the exact deterministic (user, category)
+        document instead, which makes cross-user leakage structurally
+        impossible rather than dependent on a filter being configured
+        correctly somewhere else.
+
+        Two users, opposite values, same category, same fake backend.
+        """
+        proxy = FakeProxy()
+        with patch("services.notification_store.AppwriteProxy", return_value=proxy):
+            from services.notification_store import NotificationStore
+
+            store = NotificationStore()
+            alice_doc_id = store._preference_doc_id("user_alice", "medi")
+            bob_doc_id = store._preference_doc_id("user_bob", "medi")
+            self.assertNotEqual(
+                alice_doc_id, bob_doc_id, "sanity check: ids must differ per user"
+            )
+
+            proxy.rows = [
+                {"$id": alice_doc_id, "category": "medi", "enabled": False},
+                {"$id": bob_doc_id, "category": "medi", "enabled": True},
+            ]
+
+            alice_result = store.get_notification_preference(
+                user_id="user_alice", category="medi"
+            )
+            bob_result = store.get_notification_preference(
+                user_id="user_bob", category="medi"
+            )
+
+            alice_dispatch, alice_status = (
+                store.get_notification_preference_for_dispatch(
+                    user_id="user_alice", category="medi"
+                )
+            )
+            bob_dispatch, bob_status = store.get_notification_preference_for_dispatch(
+                user_id="user_bob", category="medi"
+            )
+
+        self.assertFalse(alice_result, "Alice disabled medi - must read as disabled")
+        self.assertTrue(bob_result, "Bob enabled medi - must read as enabled")
+        self.assertFalse(alice_dispatch)
+        self.assertEqual(alice_status, "disabled")
+        self.assertTrue(bob_dispatch)
+        self.assertEqual(bob_status, "enabled")
 
 
 class NotificationClaimTests(unittest.TestCase):
