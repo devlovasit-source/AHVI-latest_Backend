@@ -99,7 +99,13 @@ class FirebasePushService:
                 "failed": len(tokens),
             }
 
-        safe_tokens = [str(t).strip() for t in (tokens or []) if str(t).strip()]
+        safe_tokens = list(
+            dict.fromkeys(
+                str(t).strip()
+                for t in (tokens or [])
+                if str(t).strip()
+            )
+        )
         if not safe_tokens:
             return {"success": True, "sent": 0, "failed": 0}
 
