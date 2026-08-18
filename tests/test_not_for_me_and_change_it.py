@@ -362,6 +362,46 @@ def test_change_item_records_from_to_role(fake_qdrant):
     assert "dailywear:" not in str(result)
 
 
+def test_change_item_route_response_exposes_updated_board_to_frontend(fake_qdrant):
+    """Route-level contract the Flutter client actually reads (daily_wear.dart
+    _changeIt): result['data']['changed_item_ids'] for the id, and
+    result['cards'][0]['items'] (mirrored in result['style_boards'][0]) for
+    the renderable board — not just the internal mutation service's return
+    value. Pins the exact shape so a future refactor can't silently break the
+    adapter without a matching frontend change."""
+    result = _call_change_item()
+    assert result["success"] is True
+
+    for key in ("cards", "style_boards"):
+        boards = result[key]
+        assert len(boards) == 1
+        items = boards[0]["items"]
+        item_ids = {item["id"] for item in items}
+        assert "shoe-3" in item_ids
+        assert "shoe-1" not in item_ids
+        assert {"top-1", "bottom-1"} <= item_ids
+
+
+def test_change_item_no_valid_replacement_is_typed_failure_not_silent_success(fake_qdrant, monkeypatch):
+    """When the canonical wardrobe has no OTHER candidate for the role being
+    changed, _choose_candidate (style_board_mutation_service.py) excludes the
+    current item id from its own candidate pool and returns None, which the
+    engine turns into a typed NO_VALID_REPLACEMENT failure — never a
+    success=True with an empty changed_item_ids. This is what lets the
+    frontend's `if (!success) { show "couldn't change" toast; return; }`
+    branch be trusted: a no-op can never masquerade as success."""
+    monkeypatch.setattr(
+        "routers.style_memory._canonical_wardrobe_candidates",
+        lambda user_id: [_outfit_item("shoe-1", "Black Loafers", "footwear")],
+    )
+    result = _call_change_item()
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "NO_VALID_REPLACEMENT"
+    assert "data" not in result
+    assert "cards" not in result
+
+
 def test_changed_from_signal_is_weak_and_contextual_role_and_occasion_match():
     items = [{"id": "shoe-1", "name": "shoe", "category": "footwear"}]
     context = {
