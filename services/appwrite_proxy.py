@@ -155,6 +155,11 @@ class AppwriteProxy:
                 )
                 or "notification_reminders"
             ),
+            "notification_preferences": (
+                os.getenv("APPWRITE_COLLECTION_NOTIFICATION_PREFERENCES", "")
+                or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_NOTIFICATION_PREFERENCES", "")
+                or "notification_preferences"
+            ),
         }
         self.resource_aliases = {
             "meal_planner": "meal_plans",
