@@ -83,6 +83,18 @@ class NotificationStore:
             30, int(os.getenv("NOTIFICATION_CLAIM_TTL_SECONDS", "300"))
         )
 
+    def _preference_doc_id(self, uid: str, category: str) -> str:
+        """
+        The single source of truth for a user's preference document id -
+        used by every read AND write so a lookup can go straight to the
+        exact document instead of listing and filtering (which was the
+        cross-user isolation bug: notification_preferences was never
+        registered in AppwriteProxy's user_field_map, so list_documents'
+        user_id filter was silently ignored for this resource, and the
+        first matching category from ANY user could be returned).
+        """
+        return _hash_id("pref", f"{uid}|{category}", length=28)
+
     def get_notification_preference(
         self,
         *,
@@ -95,23 +107,19 @@ class NotificationStore:
         if not uid or category not in NOTIFICATION_PREFERENCE_CATEGORIES:
             return True
 
+        doc_id = self._preference_doc_id(uid, category)
         try:
-            rows = self._appwrite.list_documents(
-                self.preferences_resource,
-                user_id=uid,
-                limit=100,
-            )
+            doc = self._appwrite.get_document(self.preferences_resource, doc_id)
         except Exception:
+            # Covers both "no record" (404) and a real lookup failure -
+            # this method is only ever used for the settings display screen,
+            # where fail-open is the right call either way. The dispatch
+            # path below is the one that must NOT conflate these.
             return True
 
-        for row in rows or []:
-            if not isinstance(row, dict):
-                continue
-
-            if _safe_text(row.get("category")).lower() == category:
-                return bool(row.get("enabled", True))
-
-        return True
+        if not isinstance(doc, dict):
+            return True
+        return bool(doc.get("enabled", True))
 
     def get_notification_preference_for_dispatch(
         self,
@@ -137,7 +145,8 @@ class NotificationStore:
                               sending an unrecognized category; that needs
                               fixing, not silently allowing the send.
           - "invalid_user"   no user_id on the reminder -> FAILS CLOSED
-          - "lookup_failed"  Appwrite call raised -> should_send=False; the
+          - "lookup_failed"  Appwrite call raised for a reason OTHER than
+                              "no such document" -> should_send=False; the
                               caller must NOT send and should retry later,
                               not silently treat this as enabled.
         """
@@ -154,23 +163,21 @@ class NotificationStore:
         if not uid:
             return False, "invalid_user"
 
+        doc_id = self._preference_doc_id(uid, category)
         try:
-            rows = self._appwrite.list_documents(
-                self.preferences_resource,
-                user_id=uid,
-                limit=100,
-            )
-        except Exception:
+            doc = self._appwrite.get_document(self.preferences_resource, doc_id)
+        except Exception as exc:
+            if "(404)" in str(exc):
+                # No preference document exists for this user+category yet -
+                # a genuinely different situation from a lookup failure.
+                return True, "no_record"
             return False, "lookup_failed"
 
-        for row in rows or []:
-            if not isinstance(row, dict):
-                continue
-            if _safe_text(row.get("category")).lower() == category:
-                enabled = bool(row.get("enabled", True))
-                return enabled, ("enabled" if enabled else "disabled")
+        if not isinstance(doc, dict):
+            return True, "no_record"
 
-        return True, "no_record"
+        enabled = bool(doc.get("enabled", True))
+        return enabled, ("enabled" if enabled else "disabled")
 
     def set_notification_preference(
         self,
@@ -186,12 +193,7 @@ class NotificationStore:
             return False
 
         now = _utcnow().isoformat()
-
-        doc_id = _hash_id(
-            "pref",
-            f"{uid}|{category}",
-            length=28,
-        )
+        doc_id = self._preference_doc_id(uid, category)
 
         data = {
             "userId": uid,
@@ -560,7 +562,7 @@ class NotificationStore:
                 {
                     "reminderId": rid,
                     "generation": target_generation,
-                    "kind": "takeover_ticket",
+                    "docKind": "takeover_ticket",
                     "claimedAtISO": now_iso,
                 },
                 document_id=ticket_id,
