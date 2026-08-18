@@ -12,6 +12,7 @@ from qdrant_client.models import (
     Filter,
     FieldCondition,
     MatchValue,
+    PayloadSchemaType,
 )
 
 from services.image_fingerprint import hamming_distance_hex
@@ -19,6 +20,22 @@ from services.image_fingerprint import hamming_distance_hex
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+# user_memory records (Not-for-me rejections, Change-it swaps) are read back
+# exclusively through list_user_memory()'s payload filter — never vector
+# similarity (audited: upsert_user_memory/list_user_memory are the only two
+# methods that touch this collection anywhere in the backend). Their vector
+# therefore carries no semantic meaning and must not depend on
+# sentence-transformers, which is deliberately absent from requirements.txt
+# (see requirements.txt for the cold-start/image-size rationale). A fixed,
+# deterministic, non-zero unit vector satisfies Qdrant's cosine-distance
+# collection schema without requiring a real embedding model.
+USER_MEMORY_VECTOR_DIMENSION = 512
+
+
+def user_memory_sentinel_vector():
+    component = 1.0 / (USER_MEMORY_VECTOR_DIMENSION ** 0.5)
+    return [component] * USER_MEMORY_VECTOR_DIMENSION
 
 
 class QdrantService:
@@ -39,7 +56,7 @@ class QdrantService:
 
         self.vector_size = 512
         self.memory_vector_size = int(os.getenv("QDRANT_MEMORY_VECTOR_SIZE", "8"))
-        self.user_memory_vector_size = self.vector_size
+        self.user_memory_vector_size = USER_MEMORY_VECTOR_DIMENSION
 
         self.client = None
         self._initialized = False
@@ -71,6 +88,12 @@ class QdrantService:
         self._create_collection(
             self.user_memory_collection, self.user_memory_vector_size
         )
+        # list_user_memory() exact-match filters on exactly these two payload
+        # fields (services/qdrant_service.py list_user_memory) — audited, no
+        # other field is ever filtered on this collection anywhere in the
+        # backend.
+        for field in ("user_id", "memory_type"):
+            self._ensure_payload_index(self.user_memory_collection, field)
 
         self._initialized = True
 
@@ -87,6 +110,24 @@ class QdrantService:
 
         except Exception:
             logger.exception("Qdrant collection init error for %s", name)
+
+    def _ensure_payload_index(self, collection, field_name):
+        """Idempotent: Qdrant returns an error on some client/server version
+        combinations when the index already exists — that's treated as
+        success. Only genuine provisioning failures are logged."""
+        try:
+            self.client.create_payload_index(
+                collection_name=collection,
+                field_name=field_name,
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
+        except Exception as exc:
+            if "already exists" in str(exc).lower():
+                return
+            logger.exception(
+                "Qdrant payload index provisioning failed collection=%s field=%s",
+                collection, field_name,
+            )
 
     def _ensure(self):
         if not self.client:
@@ -493,24 +534,57 @@ class QdrantService:
     # USER MEMORY
     # =========================
     def upsert_user_memory(self, user_id, vector, payload, point_id=None):
-        if not self._ensure() or not vector:
-            return None
+        """Returns True only once client.upsert() has completed without
+        raising — i.e. confirmed durable persistence. Returns False on any
+        skip (no client, no user_id, missing/wrong-dimension vector) or on a
+        Qdrant failure. Never raises; callers must check the return value
+        rather than assume a call was persisted."""
+        memory_type = (payload or {}).get("memory_type")
 
-        vector = self._normalize(vector)
+        if not self._ensure():
+            logger.warning(
+                "user_memory.upsert_skipped reason=no_client collection=%s memory_type=%s",
+                self.user_memory_collection, memory_type,
+            )
+            return False
+        if not user_id:
+            logger.warning(
+                "user_memory.upsert_skipped reason=no_user_id collection=%s memory_type=%s",
+                self.user_memory_collection, memory_type,
+            )
+            return False
 
+        vec = self._normalize(vector) if vector else vector
+        if not vec or len(vec) != self.user_memory_vector_size:
+            logger.warning(
+                "user_memory.upsert_skipped reason=invalid_vector_dimension "
+                "collection=%s memory_type=%s dimension=%s expected=%s",
+                self.user_memory_collection, memory_type,
+                len(vec) if vec else 0, self.user_memory_vector_size,
+            )
+            return False
+
+        pid = point_id or str(uuid.uuid4())
         try:
             self.client.upsert(
                 collection_name=self.user_memory_collection,
-                points=[
-                    PointStruct(
-                        id=point_id or str(uuid.uuid4()),
-                        vector=vector,
-                        payload=payload,
-                    )
-                ],
+                points=[PointStruct(id=pid, vector=vec, payload=payload)],
+                wait=True,
             )
-        except Exception:
-            logger.exception("Qdrant user memory upsert failed")
+        except Exception as exc:
+            logger.exception(
+                "user_memory.upsert_failed collection=%s memory_type=%s "
+                "point_id=%s error_type=%s status=%s",
+                self.user_memory_collection, memory_type, pid,
+                type(exc).__name__, getattr(exc, "status_code", None),
+            )
+            return False
+
+        logger.info(
+            "user_memory.upsert_success collection=%s memory_type=%s point_id=%s",
+            self.user_memory_collection, memory_type, pid,
+        )
+        return True
 
     def list_user_memory(self, user_id, memory_type, limit=50):
         """Payload-filtered read of durable user memory points, newest-first

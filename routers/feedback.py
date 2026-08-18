@@ -5,8 +5,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from services.qdrant_service import qdrant_service
-from services.embedding_service import encode_metadata
+from services.qdrant_service import qdrant_service, user_memory_sentinel_vector
 from services.auth_helpers import enforce_owner
 from services.style_memory_service import _outfit_signature
 
@@ -94,7 +93,6 @@ def feedback_board(request: BoardFeedbackRequest, http_request: Request):
         # recommendation-repeat memory. Empty when no valid item ids were sent.
         outfit_signature = _outfit_signature([{"id": i} for i in item_ids])
 
-        embedding = encode_metadata(request.board_payload)
         payload = {
             "source": "feedback.board",
             "memory_type": "liked" if action == "like" else "disliked",
@@ -122,16 +120,34 @@ def feedback_board(request: BoardFeedbackRequest, http_request: Request):
         )
         # QdrantService.upsert_user_memory accepts (user_id, vector, payload);
         # carry the like/dislike signal inside the payload (no memory_type kwarg).
-        qdrant_service.upsert_user_memory(
+        # user_memory is read back exclusively via payload filtering
+        # (list_user_memory), never vector similarity — a fixed sentinel
+        # vector avoids depending on the (deliberately absent, ~700MB)
+        # sentence-transformers dependency for what is a metadata-only write.
+        persisted = qdrant_service.upsert_user_memory(
             user_id=user_id,
-            vector=embedding,
+            vector=user_memory_sentinel_vector(),
             payload=payload,
             point_id=point_id,
         )
+        if not persisted:
+            # Durable persistence IS the purpose of like/dislike feedback —
+            # an unconfirmed write must never be reported as success. The
+            # frontend already treats any non-2xx as a failure (toast, board
+            # untouched); this just stops the backend from lying about it.
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "MEMORY_PERSISTENCE_FAILED",
+                    "message": "Could not durably record this feedback; nothing was learned.",
+                },
+            )
 
         return {
             "success": True,
             "message": "Board feedback recorded",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

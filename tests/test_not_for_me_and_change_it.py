@@ -37,17 +37,24 @@ from routers.style_memory import _canonical_wardrobe_candidates as _REAL_CANONIC
 # user_memory methods (list_user_memory / upsert_user_memory).
 # ---------------------------------------------------------------------------
 class FakeQdrant:
+    """Mirrors the real QdrantService.upsert_user_memory contract exactly:
+    returns True only on confirmed persistence, False on skip/failure —
+    never a truthy-but-meaningless id. self.fail_upsert simulates a genuine
+    Qdrant-side exception (client.upsert() raising) for tests that need to
+    prove the API doesn't report false success."""
+
     def __init__(self):
         self.points = {}  # point_id -> payload
         self._counter = 0
+        self.fail_upsert = False
 
     def upsert_user_memory(self, user_id, vector, payload, point_id=None):
-        if not vector:
-            return None
+        if not vector or not user_id or self.fail_upsert:
+            return False
         self._counter += 1
         pid = point_id or f"auto-{self._counter}"
         self.points[pid] = dict(payload)
-        return pid
+        return True
 
     def list_user_memory(self, user_id, memory_type, limit=50):
         rows = [
@@ -58,26 +65,19 @@ class FakeQdrant:
         return rows[:limit]
 
 
-def _fixed_embedding(*_args, **_kwargs):
-    # Deterministic non-empty vector so upsert_user_memory's real
-    # "no vector -> no-op" guard never fires just because the test
-    # environment has no live embedding backend configured.
-    return [0.1, 0.2, 0.3]
-
-
 @pytest.fixture()
 def fake_qdrant(monkeypatch):
     fake = FakeQdrant()
-    # routers/feedback.py imports `qdrant_service`/`encode_metadata` at
-    # module load time (plain reference, not re-read per call), so the
-    # module-level names must be patched directly. style_memory_service.py
-    # and routers/style_memory.py's memory writer import qdrant_service
-    # lazily inside the function body, so patching the source module also
-    # covers them.
+    # user_memory writes now use a fixed, always-non-empty sentinel vector
+    # (services.qdrant_service.user_memory_sentinel_vector) instead of
+    # encode_metadata() — routers/feedback.py and routers/style_memory.py no
+    # longer import or call encode_metadata at all, so there is nothing left
+    # to patch around the old "embeddings unavailable in test" workaround.
+    # style_memory_service.py and routers/style_memory.py's memory writer
+    # import qdrant_service lazily inside the function body, so patching the
+    # source module also covers them.
     monkeypatch.setattr("services.qdrant_service.qdrant_service", fake)
     monkeypatch.setattr("routers.feedback.qdrant_service", fake)
-    monkeypatch.setattr("routers.feedback.encode_metadata", _fixed_embedding)
-    monkeypatch.setattr("services.embedding_service.encode_metadata", _fixed_embedding)
     return fake
 
 
@@ -260,6 +260,73 @@ def test_like_action_is_unaffected_by_item_ids_extension(fake_qdrant):
     assert stored[0]["memory_type"] == "liked"
 
 
+def test_dislike_write_reaches_upsert_even_with_embeddings_disabled(fake_qdrant, monkeypatch):
+    """Regression for the traced production defect: routers/feedback.py used
+    to call encode_metadata(board_payload), which always returned [] because
+    sentence-transformers is deliberately absent from requirements.txt —
+    upsert_user_memory's `not vector` guard then silently skipped the write
+    every time, with zero logging and an HTTP 200 response. This test proves
+    the write no longer depends on the embedding model being available at
+    all: even with embeddings explicitly disabled, a dislike must still
+    reach (fake) Qdrant."""
+    import services.embedding_service as embedding_service
+
+    monkeypatch.setattr(embedding_service, "embeddings_enabled", lambda: False)
+
+    client = _client(None)
+    resp = client.post(
+        "/api/feedback/board",
+        json={"user_id": "u1", "action": "dislike", "board_payload": {}, "item_ids": ["shirt1", "pant1"]},
+        headers={"x-test-user": "u1"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+    assert len(fake_qdrant.points) == 1
+
+
+def test_user_memory_sentinel_vector_is_512d_deterministic_and_nonzero():
+    from services.qdrant_service import USER_MEMORY_VECTOR_DIMENSION, user_memory_sentinel_vector
+
+    v1 = user_memory_sentinel_vector()
+    v2 = user_memory_sentinel_vector()
+
+    assert len(v1) == 512
+    assert len(v1) == USER_MEMORY_VECTOR_DIMENSION
+    assert v1 == v2  # deterministic
+    assert any(component != 0 for component in v1)  # never all-zero
+
+
+def test_dislike_upsert_success_returns_api_success(fake_qdrant):
+    client = _client(None)
+    resp = client.post(
+        "/api/feedback/board",
+        json={"user_id": "u1", "action": "dislike", "board_payload": {}, "item_ids": ["shirt1"]},
+        headers={"x-test-user": "u1"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+    assert len(fake_qdrant.points) == 1
+
+
+def test_dislike_upsert_failure_does_not_return_false_success(fake_qdrant):
+    """Durable persistence IS the purpose of Not-for-me. A Qdrant upsert
+    failure must never be reported to the client as success=true — and must
+    not leave a memory point behind either."""
+    fake_qdrant.fail_upsert = True
+    client = _client(None)
+    resp = client.post(
+        "/api/feedback/board",
+        json={"user_id": "u1", "action": "dislike", "board_payload": {}, "item_ids": ["shirt1"]},
+        headers={"x-test-user": "u1"},
+    )
+    assert resp.status_code != 200
+    assert resp.status_code >= 500
+    body = resp.json()
+    assert "success" not in body or body["success"] is not True
+    assert body["detail"]["code"] == "MEMORY_PERSISTENCE_FAILED"
+    assert len(fake_qdrant.points) == 0
+
+
 # ---------------------------------------------------------------------------
 # SHUFFLE — must never write explicit rejection memory
 # ---------------------------------------------------------------------------
@@ -360,6 +427,23 @@ def test_change_item_records_from_to_role(fake_qdrant):
     # never leaks into the persisted memory or the response.
     assert stored[0]["board_id"] == "board-1"
     assert "dailywear:" not in str(result)
+    assert result["learning_persisted"] is True
+
+
+def test_change_item_mutation_succeeds_even_when_memory_persistence_fails(fake_qdrant):
+    """Board mutation success must never be transactional with Qdrant memory
+    persistence (explicit product requirement) — a failed learning write is
+    surfaced via learning_persisted=false, never a rolled-back mutation or a
+    failed change-item response."""
+    fake_qdrant.fail_upsert = True
+
+    result = _call_change_item()
+
+    assert result["success"] is True
+    assert result["data"]["changed_item_ids"] == ["shoe-3"]
+    assert result["learning_persisted"] is False
+    # Nothing was actually persisted despite the mutation succeeding.
+    assert len(fake_qdrant.points) == 0
 
 
 def test_change_item_route_response_exposes_updated_board_to_frontend(fake_qdrant):
@@ -793,3 +877,117 @@ def test_unowned_item_id_cannot_smuggle_fabricated_metadata(fake_qdrant, monkeyp
             old_item_id="ghost-1",
         )
     assert exc_info.value.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# QDRANT PERSISTENCE LAYER — payload-index provisioning, list_user_memory
+# request shape. Exercises services.qdrant_service.QdrantService directly
+# with a fake low-level client (not FakeQdrant, which replaces the whole
+# service and would bypass the real Filter/index-provisioning code these
+# tests exist to prove).
+# ---------------------------------------------------------------------------
+class _FakeLowLevelQdrantClient:
+    """Fakes just enough of qdrant_client.QdrantClient's surface for
+    QdrantService.init()'s collection/index provisioning."""
+
+    def __init__(self, existing_collections=(), raise_already_exists=False):
+        self.created_indexes = []  # (collection, field, schema)
+        self._existing = list(existing_collections)
+        self.raise_already_exists = raise_already_exists
+
+    def get_collections(self):
+        Row = type("Row", (), {})
+        result = Row()
+        result.collections = [type("C", (), {"name": n})() for n in self._existing]
+        return result
+
+    def create_collection(self, **kwargs):
+        pass
+
+    def create_payload_index(self, collection_name, field_name, field_schema):
+        if self.raise_already_exists:
+            raise Exception(f"Index for {field_name} already exists")
+        self.created_indexes.append((collection_name, field_name, field_schema))
+
+
+def _bare_qdrant_service(client):
+    """QdrantService with __init__ bypassed (no real QDRANT_URL/network) —
+    just the attributes init()/list_user_memory() actually read."""
+    from services.qdrant_service import QdrantService
+
+    svc = QdrantService.__new__(QdrantService)
+    svc.client = client
+    svc._initialized = False
+    svc.collection = "wardrobe"
+    svc.image_collection = "wardrobe_images"
+    svc.memory_collection = "outfit_memory"
+    svc.user_memory_collection = "user_memory"
+    svc.vector_size = 512
+    svc.memory_vector_size = 8
+    svc.user_memory_vector_size = 512
+    return svc
+
+
+def test_payload_index_provisioning_covers_every_field_list_user_memory_filters_on():
+    from qdrant_client.models import PayloadSchemaType
+
+    svc = _bare_qdrant_service(_FakeLowLevelQdrantClient())
+    svc.init()
+
+    user_memory_indexes = [
+        (field, schema) for (collection, field, schema) in svc.client.created_indexes
+        if collection == "user_memory"
+    ]
+    # list_user_memory() filters on exactly these two fields (services/
+    # qdrant_service.py) — if a future change adds a third filtered field
+    # without provisioning its index, this test must be updated deliberately,
+    # not silently pass.
+    assert {field for field, _ in user_memory_indexes} == {"user_id", "memory_type"}
+    assert all(schema == PayloadSchemaType.KEYWORD for _, schema in user_memory_indexes)
+    assert svc._initialized is True
+
+
+def test_payload_index_provisioning_is_idempotent_when_indexes_already_exist():
+    svc = _bare_qdrant_service(
+        _FakeLowLevelQdrantClient(existing_collections=["user_memory"], raise_already_exists=True)
+    )
+    # Must not raise even though create_payload_index always raises
+    # "already exists" — init() must complete and mark itself initialized.
+    svc.init()
+    assert svc._initialized is True
+
+
+class _FakeScrollClient:
+    def __init__(self, points):
+        self.calls = []
+        self._points = points
+
+    def scroll(self, **kwargs):
+        self.calls.append(kwargs)
+        return self._points, None
+
+
+def test_list_user_memory_builds_production_compatible_filter_and_returns_matches():
+    from qdrant_client.models import Filter
+
+    class _Point:
+        def __init__(self, payload):
+            self.payload = payload
+
+    matching = _Point({"user_id": "u1", "memory_type": "disliked", "timestamp": "2026-01-01T00:00:00Z"})
+
+    svc = _bare_qdrant_service(_FakeScrollClient([matching]))
+    svc._initialized = True  # skip collection/index provisioning for this focused test
+
+    result = svc.list_user_memory("u1", "disliked", limit=10)
+
+    assert result == [matching.payload]
+    call = svc.client.calls[0]
+    assert call["collection_name"] == "user_memory"
+    assert call["limit"] == 10
+    assert call["with_payload"] is True
+    assert call["with_vectors"] is False
+    scroll_filter = call["scroll_filter"]
+    assert isinstance(scroll_filter, Filter)
+    conditions = {c.key: c.match.value for c in scroll_filter.must}
+    assert conditions == {"user_id": "u1", "memory_type": "disliked"}

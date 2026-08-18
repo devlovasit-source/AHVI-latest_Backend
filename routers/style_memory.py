@@ -242,9 +242,14 @@ def change_item(req: Request, request: ChangeItemRequest):
 
     changed_ids = list((result.get("data") or {}).get("changed_item_ids") or [])
     to_item_id = changed_ids[0] if changed_ids else ""
+    # Board mutation success is never transactional with memory persistence:
+    # the mutation has already been accepted and returned above this point
+    # regardless of what happens next. learning_persisted is purely
+    # informational for the caller — it never causes a rollback.
+    learning_persisted = False
     if to_item_id:
         try:
-            _record_change_item_memory(
+            learning_persisted = _record_change_item_memory(
                 user_id=user_id,
                 from_item_id=old_item_id,
                 to_item_id=to_item_id,
@@ -256,15 +261,15 @@ def change_item(req: Request, request: ChangeItemRequest):
             # Memory write is best-effort; a failed write must never undo or
             # mask an already-accepted board mutation.
             logger.warning("style.change_item_memory_write_failed user_id=%s", user_id)
+    result["learning_persisted"] = learning_persisted
 
     return result
 
 
 def _record_change_item_memory(
     *, user_id: str, from_item_id: str, to_item_id: str, role: str, occasion: str, board_id: str
-) -> None:
-    from services.qdrant_service import qdrant_service
-    from services.embedding_service import encode_metadata
+) -> bool:
+    from services.qdrant_service import qdrant_service, user_memory_sentinel_vector
 
     payload: Dict[str, Any] = {
         "source": "style.change_item",
@@ -277,5 +282,10 @@ def _record_change_item_memory(
         "board_id": board_id,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    embedding = encode_metadata({"from_item_id": from_item_id, "to_item_id": to_item_id, "role": role})
-    qdrant_service.upsert_user_memory(user_id=user_id, vector=embedding, payload=payload)
+    # Same rationale as routers/feedback.py: user_memory is read back purely
+    # by payload filter, never vector similarity, so a fixed sentinel vector
+    # is sufficient and avoids the (deliberately absent) sentence-transformers
+    # dependency.
+    return qdrant_service.upsert_user_memory(
+        user_id=user_id, vector=user_memory_sentinel_vector(), payload=payload
+    )
