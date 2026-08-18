@@ -269,9 +269,14 @@ def load_recommendation_memory(user_id: str) -> Dict[str, Any]:
 # rejecting one outfit must never blacklist its individual garments.
 # ---------------------------------------------------------------------------
 def load_rejected_outfit_memory(user_id: str, limit: int = 50) -> Dict[str, Any]:
-    """Return {rejected_outfit_signatures}. Neutral when no rejections or
-    Qdrant is unavailable — same best-effort contract as every other loader
-    in this module."""
+    """Return {rejected_outfit_signatures}: ALL persisted "Not for me"
+    signatures, unfiltered by age. NOT used by build_style_memory_context —
+    that now sources rejected_outfit_signatures from
+    load_active_rejected_outfit_signatures below, so an expired (> 30 day)
+    rejection carries neither the hard exclusion nor the scorer's
+    exact_rejected_outfit_penalty. Kept for direct inspection/tests of the
+    raw persisted history; do not wire this into scoring/ranking context
+    again without re-adding the age filter."""
     empty = {"rejected_outfit_signatures": []}
     user_id = str(user_id or "").strip()
     if not user_id:
@@ -296,14 +301,15 @@ def load_active_rejected_outfit_signatures(
     user_id: str, limit: int = 50, active_days: int = REJECTION_ACTIVE_DAYS
 ) -> Dict[str, Any]:
     """Return {active_rejected_outfit_signatures, active_rejected_ages_days}:
-    exact "Not for me" signatures still inside the rejection cooldown window,
-    for the hard-exclusion contract (an active rejection must not be
-    recommended at all, not merely penalized). Separate from
-    load_rejected_outfit_memory above, which stays unfiltered by age and
-    keeps feeding the existing exact_rejected_outfit_penalty diagnostic
-    regardless of how old the rejection is. A row with no parseable
-    timestamp is treated as NOT active — an unproven age can never justify a
-    hard exclusion."""
+    exact "Not for me" signatures still inside the rejection cooldown window.
+    This is now the single source for BOTH the hard-exclusion contract (an
+    active rejection must not be recommended at all — see
+    brain.outfit_pipeline._exclude_active_rejected_signatures) AND the
+    scorer's exact_rejected_outfit_penalty diagnostic (via
+    build_style_memory_context below), so the two can never drift apart —
+    an expired rejection carries neither. A row with no parseable timestamp
+    is treated as NOT active — an unproven age can never justify a hard
+    exclusion or a penalty."""
     empty: Dict[str, Any] = {
         "active_rejected_outfit_signatures": [],
         "active_rejected_ages_days": {},
@@ -455,7 +461,11 @@ def build_style_memory_context(user_id: str, wardrobe: Any = None) -> Dict[str, 
     wear = load_wear_memory(user_id, wardrobe)
     saved = load_saved_board_memory(user_id)
     recommended = load_recommendation_memory(user_id)
-    rejected = load_rejected_outfit_memory(user_id)
+    # Age-filtered (<= REJECTION_ACTIVE_DAYS), not load_rejected_outfit_memory's
+    # all-time list — an expired rejection must carry neither the hard
+    # exclusion nor the exact_rejected_outfit_penalty diagnostic. Keeps the
+    # two contracts from drifting apart (see load_active_rejected_outfit_signatures).
+    rejected = load_active_rejected_outfit_signatures(user_id)
     changed = load_outfit_change_memory(user_id)
     ctx = {
         "recently_worn_ids": wear["recently_worn_ids"],
@@ -468,7 +478,7 @@ def build_style_memory_context(user_id: str, wardrobe: Any = None) -> Dict[str, 
         "favorite_categories": saved["favorite_categories"],
         "disliked_item_ids": [],  # no producer yet — reserved.
         "recent_recommended_signatures": recommended["recent_recommended_signatures"],
-        "rejected_outfit_signatures": rejected["rejected_outfit_signatures"],
+        "rejected_outfit_signatures": rejected["active_rejected_outfit_signatures"],
         "recent_changed_items": changed["recent_changed_items"],
     }
     has_memory = bool(

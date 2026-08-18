@@ -28,6 +28,7 @@ from services.style_board_state_store import InMemoryBoardStateStore
 from services.style_memory_service import (
     REJECTION_ACTIVE_DAYS,
     _outfit_signature,
+    build_style_memory_context,
     load_active_rejected_outfit_signatures,
     load_outfit_change_memory,
     load_rejected_outfit_memory,
@@ -1192,3 +1193,33 @@ def test_exclusion_logs_safe_diagnostics_not_raw_signature(caplog):
     assert "AHVI_REJECTED_SIGNATURE_EXCLUDED" in caplog.text
     assert rejected_sig not in caplog.text  # hash only, never the raw signature
     assert "3d" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# SCORER/EXCLUSION CONTRACT ALIGNMENT — an expired (> REJECTION_ACTIVE_DAYS)
+# rejection must carry neither the hard exclusion NOR the diagnostic
+# exact_rejected_outfit_penalty; both now derive from the same age-filtered
+# load_active_rejected_outfit_signatures via build_style_memory_context, so
+# they can never drift apart when scorer unification eventually happens.
+# ---------------------------------------------------------------------------
+def test_active_rejection_still_receives_scorer_penalty_via_context(fake_qdrant):
+    _seed_rejection(fake_qdrant, "u1", ["shirt1", "pant1", "shoe1"], days_ago=1)
+
+    ctx = build_style_memory_context("u1", wardrobe=[])
+    outfit = [{"id": "shirt1"}, {"id": "pant1"}, {"id": "shoe1"}]
+    fields, _ = _memory_breakdown(outfit, ctx)
+
+    assert fields["exact_rejected_outfit_penalty"] == EXACT_REJECTED_OUTFIT_PENALTY
+
+
+def test_expired_rejection_no_longer_receives_scorer_penalty_via_context(fake_qdrant):
+    _seed_rejection(
+        fake_qdrant, "u1", ["shirt1", "pant1", "shoe1"],
+        days_ago=REJECTION_ACTIVE_DAYS + 1,
+    )
+
+    ctx = build_style_memory_context("u1", wardrobe=[])
+    outfit = [{"id": "shirt1"}, {"id": "pant1"}, {"id": "shoe1"}]
+    fields, _ = _memory_breakdown(outfit, ctx)
+
+    assert fields["exact_rejected_outfit_penalty"] == 0.0
