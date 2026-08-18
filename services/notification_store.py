@@ -22,10 +22,24 @@ NOTIFICATION_PREFERENCE_CATEGORIES = {
     "style",
 }
 
+# Appwrite custom document ids may be at most 36 characters. Enforced inside
+# _hash_id itself (not just in a specific caller) so any future prefix/length
+# combination that would overflow fails loudly at the point it's generated,
+# rather than silently working against test fakes and only breaking once it
+# hits real Appwrite - which is exactly how the ticket-id bug slipped through.
+APPWRITE_MAX_DOCUMENT_ID_LENGTH = 36
+
 
 def _hash_id(prefix: str, raw: str, *, length: int = 32) -> str:
     digest = hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()
-    return f"{prefix}_{digest[: max(8, min(length, 48))]}"
+    doc_id = f"{prefix}_{digest[: max(8, min(length, 48))]}"
+    if len(doc_id) > APPWRITE_MAX_DOCUMENT_ID_LENGTH:
+        raise ValueError(
+            f"generated document id '{doc_id}' is {len(doc_id)} chars, "
+            f"exceeding Appwrite's {APPWRITE_MAX_DOCUMENT_ID_LENGTH}-char limit "
+            f"for custom document ids - shorten the prefix or the hash length"
+        )
+    return doc_id
 
 
 class NotificationStore:
@@ -534,7 +548,11 @@ class NotificationStore:
         side to land on; happy to add generation-skip recovery on top if
         that stuck-reminder case turns out to matter in practice.
         """
-        ticket_id = _hash_id("claimgen", f"{rid}|{target_generation}", length=32)
+        # "cg" (claim-generation) + 32 hash chars = 35 total, safely under
+        # Appwrite's 36-char custom document id limit (the earlier "claimgen"
+        # prefix pushed this to 41 and would have failed against real
+        # Appwrite while still passing against the test fakes).
+        ticket_id = _hash_id("cg", f"{rid}|{target_generation}", length=32)
 
         try:
             self._appwrite.create_document(
