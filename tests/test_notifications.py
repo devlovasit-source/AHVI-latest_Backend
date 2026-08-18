@@ -12,17 +12,32 @@ if str(ROOT) not in sys.path:
 
 
 class FakeProxy:
+    # Appwrite's real limit on custom document ids - enforced here so any
+    # id-generation bug (like the 41-char ticket id caught in review) fails
+    # a test locally instead of only failing silently against real Appwrite.
+    APPWRITE_MAX_DOCUMENT_ID_LENGTH = 36
+
     def __init__(self):
         self.created = []
         self.updated = []
         self.deleted = []
         self.rows = []
 
+    def _check_document_id_length(self, document_id):
+        if document_id and len(document_id) > self.APPWRITE_MAX_DOCUMENT_ID_LENGTH:
+            raise Exception(
+                f"Appwrite request failed (400): document id '{document_id}' "
+                f"is {len(document_id)} chars, exceeds the "
+                f"{self.APPWRITE_MAX_DOCUMENT_ID_LENGTH}-char limit"
+            )
+
     def update_document(self, resource, document_id, data):
+        self._check_document_id_length(document_id)
         self.updated.append((resource, document_id, data))
         return {"$id": document_id, **data}
 
     def create_document(self, resource, data, document_id=None):
+        self._check_document_id_length(document_id)
         self.created.append((resource, document_id, data))
         return {"$id": document_id or "doc", **data}
 
@@ -61,6 +76,7 @@ class ClaimAwareFakeProxy(FakeProxy):
         self._lock = threading.Lock()
 
     def create_document(self, resource, data, document_id=None):
+        self._check_document_id_length(document_id)
         with self._lock:
             key = (resource, document_id)
             if document_id and key in self.store:
@@ -74,6 +90,7 @@ class ClaimAwareFakeProxy(FakeProxy):
         return doc
 
     def update_document(self, resource, document_id, data):
+        self._check_document_id_length(document_id)
         key = (resource, document_id)
         with self._lock:
             merged = {**self.store.get(key, {}), **data}
@@ -606,6 +623,67 @@ class DeviceUnregisterTests(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertEqual(len(proxy.deleted), 0)
+
+
+class DocumentIdLengthConstraintTests(unittest.TestCase):
+    """
+    Boss-flagged bug: _hash_id("claimgen", ..., length=32) produced a
+    41-character document id, over Appwrite's real 36-character limit for
+    custom document ids - invisible against the test fakes (which didn't
+    enforce the limit) and only surfaced against real Appwrite. These tests
+    make that constraint a first-class, always-exercised part of the suite:
+    one directly on the id-generation helper, one on the fake proxy used by
+    the claim/takeover tests, so any future id scheme that overflows fails
+    a local test run instead of only failing in production.
+    """
+
+    def test_hash_id_rejects_a_too_long_prefix(self):
+        from services.notification_store import (
+            APPWRITE_MAX_DOCUMENT_ID_LENGTH,
+            _hash_id,
+        )
+
+        # The exact bug that was caught in review: an 8-char prefix
+        # ("claimgen") + "_" + 32 hash chars = 41 chars, over the limit.
+        with self.assertRaises(ValueError):
+            _hash_id("claimgen", "some raw value", length=32)
+
+        # The fixed prefix ("cg") comes in comfortably under the limit.
+        from services.notification_store import _hash_id as hash_id_ok
+
+        ok_id = hash_id_ok("cg", "some raw value", length=32)
+        self.assertLessEqual(len(ok_id), APPWRITE_MAX_DOCUMENT_ID_LENGTH)
+
+    def test_fake_proxy_rejects_a_too_long_document_id(self):
+        proxy = ClaimAwareFakeProxy()
+        with self.assertRaises(Exception):
+            proxy.create_document(
+                "notification_dispatch_claims",
+                {"status": "processing"},
+                document_id="x" * 41,
+            )
+
+    def test_takeover_path_produces_ids_within_the_real_appwrite_limit(self):
+        """
+        End-to-end confirmation: running an actual takeover (the code path
+        that generates ticket ids) against a proxy that enforces Appwrite's
+        real length limit must succeed without hitting that guard.
+        """
+        proxy = ClaimAwareFakeProxy()
+        with patch("services.notification_store.AppwriteProxy", return_value=proxy):
+            from services.notification_store import NotificationStore
+
+            store = NotificationStore()
+            first = store.try_claim_reminder(reminder_doc_id="rem_length_check")
+            self.assertTrue(first["claimed"])
+
+            key = (store.dispatch_claims_resource, "rem_length_check")
+            proxy.store[key]["expiresAt"] = 0
+
+            second = store.try_claim_reminder(reminder_doc_id="rem_length_check")
+
+        self.assertTrue(second["claimed"])
+        self.assertEqual(second["reason"], "reclaimed_expired")
 
 
 if __name__ == "__main__":
