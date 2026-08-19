@@ -159,6 +159,51 @@ class DispatchDueSuppressionApiTests(unittest.TestCase):
             reminder_doc_id="rem_1", status="suppressed", error="user_preference"
         )
 
+    def test_unknown_category_is_suppressed_and_skips_fcm(self):
+        """
+        Same fail-closed guarantee as the disabled-preference case above, but
+        for a reminder whose source/category isn't medi/calendar/style. This
+        proves the router path (not just the store's tri-state read) never
+        reaches FCM for an unrecognized category.
+        """
+        with patch.object(
+            notifications_router.notification_store,
+            "list_due_reminders",
+            return_value=[self._due_reminder(source="ahvi_plan_pack")],
+        ), patch.object(
+            notifications_router.notification_store,
+            "try_claim_reminder",
+            return_value={"claimed": True, "reason": "new_claim"},
+        ), patch.object(
+            notifications_router.notification_store,
+            "get_notification_preference_for_dispatch",
+            return_value=(False, "invalid_category"),
+        ), patch.object(
+            notifications_router.notification_store, "list_devices"
+        ) as mocked_list_devices, patch.object(
+            notifications_router.firebase_push_service, "send_to_tokens"
+        ) as mocked_send, patch.object(
+            notifications_router.notification_store, "finalize_claim"
+        ) as mocked_finalize, patch.object(
+            notifications_router.notification_store, "mark_reminder"
+        ) as mocked_mark:
+            resp = self.client.post("/api/notifications/dispatch-due")
+
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["processed"], 1)
+        self.assertEqual(body["sent"], 0)
+        self.assertEqual(body["suppressed"], 1)
+
+        mocked_send.assert_not_called()
+        mocked_list_devices.assert_not_called()
+        mocked_finalize.assert_called_once_with(
+            reminder_doc_id="rem_1", status="suppressed"
+        )
+        mocked_mark.assert_called_once_with(
+            reminder_doc_id="rem_1", status="suppressed", error="invalid_category"
+        )
+
     def test_enabled_category_calls_fcm_and_marks_sent(self):
         with patch.object(
             notifications_router.notification_store,
