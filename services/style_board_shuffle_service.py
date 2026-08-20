@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from brain.engines.outfit_quality_guard import is_complete_board
 from services.constrained_outfit_builder import ConstrainedOutfitBuilder
+from services.style_board_reasoning import build_styling_note
 from services.style_board_state_store import (
     AppwriteBoardStateStore,
     BoardRevisionExistsError,
@@ -146,6 +147,7 @@ def _payload_to_state(record: Dict[str, Any]) -> Dict[str, Any]:
         "occasion": payload.get("occasion"),
         "style_direction": payload.get("style_direction"),
         "style_strategy": dict(payload.get("style_strategy")) if isinstance(payload.get("style_strategy"), dict) else None,
+        "styling_note": payload.get("styling_note"),
     }
 
 
@@ -182,6 +184,7 @@ def _build_payload(
     items: Optional[List[Dict[str, Any]]],
     anchor_item_id: Optional[str] = None,
     previous_revision: Optional[int] = None,
+    styling_note: Optional[str] = None,
 ) -> Dict[str, Any]:
     payload = {
         "scenario": str(scenario or "").strip().lower(),
@@ -192,6 +195,7 @@ def _build_payload(
         "style_strategy": dict(style_strategy) if isinstance(style_strategy, dict) else None,
         "items": [dict(i) for i in (items or []) if isinstance(i, dict)],
         "previous_revision": previous_revision,
+        "styling_note": str(styling_note).strip() if styling_note else None,
     }
     if str(anchor_item_id or "").strip():
         payload["anchor_item_id"] = str(anchor_item_id).strip()
@@ -214,6 +218,7 @@ def register_board(
     style_strategy: Optional[Dict[str, Any]] = None,
     items: Optional[List[Dict[str, Any]]] = None,
     anchor_item_id: Optional[str] = None,
+    styling_note: Optional[str] = None,
     user_id: str = "",
 ) -> Dict[str, Any]:
     """Durably persist a board's creation-time contract (revision 1).
@@ -242,6 +247,7 @@ def register_board(
         occasion=occasion,
         style_direction=style_direction,
         style_strategy=style_strategy,
+        styling_note=styling_note,
         items=items,
         anchor_item_id=anchor_item_id if str(scenario or "").strip().lower() == "style_this" else None,
         previous_revision=None,
@@ -581,6 +587,20 @@ def shuffle_board(
             "The available pieces could not produce a complete outfit; your board was not changed.",
         )
 
+    # --- Regenerate reasoning from the FINAL shuffled items, not the pre- ---
+    # shuffle set. Only style_this boards have a single well-defined anchor;
+    # other scenarios keep whatever styling_note (if any) was already stored.
+    new_anchor_id = (
+        stored_payload.get("anchor_item_id") if stored_scenario == "style_this" else None
+    )
+    new_styling_note = stored_payload.get("styling_note")
+    if stored_scenario == "style_this" and new_anchor_id:
+        anchor_for_note = next(
+            (item for item in out_items if canonical_item_id(item) == new_anchor_id),
+            None,
+        )
+        new_styling_note = build_styling_note(anchor_for_note, out_items, stored_style_strategy)
+
     # --- Atomic commit: create the immutable revision N+1 document ----------
     # Creating the deterministic (board_id, N+1) document IS the claim; a
     # concurrent shuffle from the same revision loses with a typed conflict.
@@ -595,11 +615,9 @@ def shuffle_board(
         style_direction=stored_style_direction,
         style_strategy=stored_style_strategy,
         items=out_items,
-        anchor_item_id=(
-            stored_payload.get("anchor_item_id")
-            if stored_scenario == "style_this" else None
-        ),
+        anchor_item_id=new_anchor_id,
         previous_revision=previous_revision,
+        styling_note=new_styling_note,
     )
     try:
         store.create_revision(
@@ -651,7 +669,8 @@ def shuffle_board(
         "allow_wardrobe_fallback": allow_wardrobe_fallback,
         "occasion": result.get("occasion"),
         "style_strategy": stored_style_strategy,
-        "anchor_item_id": stored_payload.get("anchor_item_id") if stored_scenario == "style_this" else None,
+        "anchor_item_id": new_anchor_id,
+        "styling_note": new_styling_note,
         "source": result.get("source"),
         "changed_slots": result.get("changed_slots", []),
         "missing_items": result.get("missing_items", []),

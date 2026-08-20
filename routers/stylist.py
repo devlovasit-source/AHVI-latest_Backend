@@ -14,6 +14,7 @@ from services.appwrite_proxy import AppwriteProxy
 from services.auth_helpers import enforce_owner
 from services.style_flow_service import build_style_flow_response, item_role
 from services.location_weather_context import resolve_location_weather_context
+from services.style_board_reasoning import FALLBACK_STYLING_NOTE, build_styling_note
 from services.style_board_shuffle_service import _default_position, register_board
 from services.style_item_contract import (
     canonical_accessory_type,
@@ -382,20 +383,6 @@ def _list_all_documents(
         if not has_more:
             return rows
         offset = int(next_offset) if next_offset is not None else offset + len(documents)
-
-
-def _anchor_desc(anchor: Dict[str, Any]) -> str:
-    parts = [
-        _txt(anchor.get(k))
-        for k in ("color_name", "color", "sub_category", "subcategory", "category", "name")
-    ]
-    seen, words = set(), []
-    for p in parts:
-        low = p.lower()
-        if p and low not in seen:
-            seen.add(low)
-            words.append(p)
-    return (" ".join(words) or "wardrobe item")[:120]
 
 
 def _build_one(request: ItemStyleRequest, query: str, wardrobe: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -776,16 +763,10 @@ def _lite_build_outfit(
             groups[slot] = [g for g in groups[slot] if _item_id_of(g) != _item_id_of(pick)]
         else:
             missing.append(_lite_missing(slot, is_dress))
-    reason = note or "Built from pieces you already own, anchored on this item."
     if strategy:
-        anchor_name = _txt(anchor.get("name") or anchor.get("label")) or _anchor_desc(anchor)
-        support = next((item["name"] for item in items[1:] if item.get("name")), "the supporting pieces")
-        direction_title = _txt(strategy.get("direction_title")) or "this direction"
-        intent = (_txt(strategy.get("reasoning_intent")) or "intentional").replace(", ", " and ")
-        reason = (
-            f"{support} complements {anchor_name}, keeping the {direction_title} "
-            f"direction {intent.lower()}."
-        )
+        reason = build_styling_note(anchor, items, strategy)
+    else:
+        reason = note or FALLBACK_STYLING_NOTE
     return {
         "title": title or _outfit_title(occasion),
         "items": items,
@@ -981,6 +962,7 @@ def _register_style_this_direction(
                 else None
             ),
             items=canonical_items,
+            styling_note=_txt(direction.get("styling_note")) or None,
             user_id=user_id,
         )
 

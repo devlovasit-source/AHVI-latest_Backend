@@ -352,3 +352,203 @@ def test_other_user_is_denied_and_unknown_board_is_not_found():
 
     assert denied["error"]["code"] == "BOARD_FORBIDDEN"
     assert unknown["error"]["code"] == "BOARD_STATE_NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# Shuffle reasoning (fix/style-this-shuffle-reasoning)
+# ---------------------------------------------------------------------------
+
+
+def test_initial_registration_persists_styling_note():
+    """A. initial Style This registration persists styling_note."""
+    direction = _style_this()["style_directions"][0]
+
+    assert direction["styling_note"]
+    state = shuffle_service.get_board_state(direction["board_id"])
+    assert state["styling_note"] == direction["styling_note"]
+
+
+def _two_top_wardrobe():
+    return [
+        _item("bottom-1", "Blue Jeans", "Bottoms"),
+        _item("shirt-a", "Blue Oxford Shirt", "Tops"),
+        _item("shirt-b", "Green Flannel Shirt", "Tops"),
+        _item("shoe-1", "White Sneakers", "Footwear"),
+    ]
+
+
+def _style_this_bottom_anchor(wardrobe):
+    request = stylist.ItemStyleRequest(
+        user_id="owner-1",
+        mode="style_this",
+        anchor_item=wardrobe[0],
+        wardrobe=wardrobe,
+        weather={"status": "unavailable"},
+    )
+    result = stylist.style_wardrobe_item("bottom-1", request)
+    assert result["success"] is True
+    return result
+
+
+def test_shuffle_regenerates_reasoning_for_the_new_support_item():
+    """B. shuffle changing support item: response styling_note references the
+    new item and not the old one."""
+    wardrobe = _two_top_wardrobe()
+    direction = _style_this_bottom_anchor(wardrobe)["style_directions"][0]
+    anchor = next(item for item in direction["items"] if item["locked"])
+    old_top_id = next(
+        item["item_id"] for item in direction["items"]
+        if item["item_id"] in {"shirt-a", "shirt-b"}
+    )
+    new_top_id = "shirt-b" if old_top_id == "shirt-a" else "shirt-a"
+    old_top_name = "Blue Oxford Shirt" if old_top_id == "shirt-a" else "Green Flannel Shirt"
+    new_top_name = "Green Flannel Shirt" if old_top_id == "shirt-a" else "Blue Oxford Shirt"
+
+    result = shuffle_service.shuffle_board(
+        board_id=direction["board_id"],
+        revision=1,
+        locked_items=[anchor],
+        shuffle_slots=["top", "footwear", "accessory"],
+        exclude_item_ids=[old_top_id],
+        source_policy="inherit",
+        wardrobe=wardrobe,
+        user_id="owner-1",
+    )
+
+    assert result["success"] is True
+    new_top = next(item for item in result["board_items"] if item["item_id"] == new_top_id)
+    assert new_top["item_id"] != old_top_id
+    assert result["styling_note"]
+    assert new_top_name in result["styling_note"]
+    assert old_top_name not in result["styling_note"]
+
+
+def test_persisted_shuffled_revision_styling_note_matches_response():
+    """C. persisted shuffled revision styling_note exactly matches response."""
+    wardrobe = _two_top_wardrobe()
+    direction = _style_this_bottom_anchor(wardrobe)["style_directions"][0]
+    anchor = next(item for item in direction["items"] if item["locked"])
+
+    result = shuffle_service.shuffle_board(
+        board_id=direction["board_id"],
+        revision=1,
+        locked_items=[anchor],
+        shuffle_slots=["top", "footwear", "accessory"],
+        exclude_item_ids=["shirt-a"],
+        source_policy="inherit",
+        wardrobe=wardrobe,
+        user_id="owner-1",
+    )
+
+    assert result["success"] is True
+    state = shuffle_service.get_board_state(direction["board_id"])
+    assert state["revision"] == 2
+    assert state["styling_note"] == result["styling_note"]
+
+
+def test_accessory_anchor_board_shuffle_regenerates_reasoning():
+    """D. accessory-anchor board works through the shuffle reasoning path."""
+    wardrobe = [
+        _item("bracelet-1", "Gold Bracelet", "Jewelry"),
+        _item("shirt-a", "Blue Oxford Shirt", "Tops"),
+        _item("shirt-b", "Green Flannel Shirt", "Tops"),
+        _item("pants-1", "Black Trousers", "Bottoms"),
+        _item("shoe-1", "White Sneakers", "Footwear"),
+    ]
+    request = stylist.ItemStyleRequest(
+        user_id="owner-1",
+        mode="style_this",
+        anchor_item=wardrobe[0],
+        wardrobe=wardrobe,
+        weather={"status": "unavailable"},
+    )
+    result = stylist.style_wardrobe_item("bracelet-1", request)
+    assert result["success"] is True
+    direction = result["style_directions"][0]
+    assert "bracelet-1" in {item["item_id"] for item in direction["items"]}
+    assert direction["styling_note"]
+
+    anchor = next(item for item in direction["items"] if item["locked"])
+    old_top_id = next(
+        item["item_id"] for item in direction["items"]
+        if item["item_id"] in {"shirt-a", "shirt-b"}
+    )
+    new_top_id = "shirt-b" if old_top_id == "shirt-a" else "shirt-a"
+
+    shuffled = shuffle_service.shuffle_board(
+        board_id=direction["board_id"],
+        revision=1,
+        locked_items=[anchor],
+        shuffle_slots=["top", "bottom", "footwear"],
+        exclude_item_ids=[old_top_id],
+        source_policy="inherit",
+        wardrobe=wardrobe,
+        user_id="owner-1",
+    )
+
+    assert shuffled["success"] is True
+    assert "bracelet-1" in {item["item_id"] for item in shuffled["board_items"]}
+    assert shuffled["styling_note"]
+    new_top_name = next(
+        item["name"] for item in shuffled["board_items"] if item["item_id"] == new_top_id
+    )
+    assert new_top_name in shuffled["styling_note"]
+
+
+def test_normal_bottom_anchor_board_shuffle_regenerates_reasoning():
+    """E. normal (non-accessory) bottom-anchor board keeps working end to end."""
+    direction = _style_this()["style_directions"][0]
+    anchor = next(item for item in direction["items"] if item["locked"])
+    unlocked_before = [item for item in direction["items"] if not item["locked"]]
+
+    shuffled = shuffle_service.shuffle_board(
+        board_id=direction["board_id"],
+        revision=1,
+        locked_items=[anchor],
+        shuffle_slots=[item["slot"] for item in unlocked_before],
+        exclude_item_ids=[item["item_id"] for item in unlocked_before],
+        source_policy="inherit",
+        wardrobe=_wardrobe(),
+        user_id="owner-1",
+    )
+
+    assert shuffled["success"] is True
+    assert shuffled["styling_note"]
+    assert shuffled["styling_note"] != direction["styling_note"]
+
+
+def test_shuffle_without_stored_strategy_returns_deterministic_fallback():
+    """F. no-strategy fallback produces the deterministic fallback text."""
+    anchor_item = {
+        "item_id": "top-1", "name": "White Shirt", "source": "wardrobe", "locked": True,
+    }
+    bottom_item = {
+        "item_id": "bottom-1", "name": "Blue Jeans", "source": "wardrobe", "locked": True,
+    }
+    footwear_item = {
+        "item_id": "shoe-1", "name": "White Sneakers", "source": "wardrobe",
+    }
+    ok = shuffle_service.register_board(
+        board_id="no-strategy-board",
+        revision=1,
+        scenario="style_this",
+        source_policy="wardrobe",
+        anchor_item_id="top-1",
+        items=[anchor_item, bottom_item, footwear_item],
+        style_strategy=None,
+        user_id="owner-1",
+    )
+    assert ok["ok"] is True
+
+    result = shuffle_service.shuffle_board(
+        board_id="no-strategy-board",
+        revision=1,
+        locked_items=[anchor_item, bottom_item],
+        shuffle_slots=["footwear"],
+        source_policy="inherit",
+        wardrobe=_wardrobe(),
+        user_id="owner-1",
+    )
+
+    assert result["success"] is True
+    assert result["styling_note"] == "Built from pieces you already own, anchored on this item."
