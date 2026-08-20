@@ -676,3 +676,150 @@ def shuffle_board(
         "missing_items": result.get("missing_items", []),
         "board_items": out_items,
     }
+
+
+def undo_board(
+    board_id: str,
+    revision: int,
+    user_id: str = "",
+) -> Dict[str, Any]:
+    """Restore a board to the content of its immediately-preceding durable
+    revision, as a NEW forward revision - never decrements or overwrites.
+
+    Unlike shuffle_board, undo needs no client-supplied items/locks: the
+    entire restored payload (items, locks, anchor, styling_note, strategy)
+    comes verbatim from the durable revision history, which is authoritative
+    by construction (every stored revision already passed shuffle_board's
+    validation when it was created). Atomicity/conflict detection mirrors
+    shuffle_board exactly - creating (board_id, new_revision) IS the claim.
+    """
+    board_id = str(board_id or "").strip()
+    if not board_id:
+        return _error("INVALID_ITEM_ID", "board_id is required.")
+    try:
+        revision = int(revision)
+    except (TypeError, ValueError):
+        return _error("BOARD_REVISION_CONFLICT", "revision must be an integer.")
+
+    store = _get_store()
+    try:
+        latest = store.get_latest(board_id)
+    except BoardStateStoreError as exc:
+        logger.error("undo_board state load failed board=%s err=%s", board_id, exc)
+        return _error(
+            "BOARD_STATE_UNAVAILABLE",
+            "Board state storage is unavailable - please try again shortly.",
+        )
+    if latest is None:
+        return _error(
+            "BOARD_STATE_NOT_FOUND",
+            "This board has no stored state (it may predate durable shuffle) - regenerate the board to continue.",
+            action="regenerate_board",
+        )
+
+    stored_owner = str(latest.get("user_id") or "")
+    requester = str(user_id or "")
+    if stored_owner and requester and stored_owner != requester:
+        logger.warning(
+            "undo_board forbidden board=%s owner=%s requester=%s",
+            board_id, stored_owner, requester,
+        )
+        return _error("BOARD_FORBIDDEN", "You do not have access to this board.")
+
+    latest_revision = int(latest.get("revision") or 0)
+    if latest_revision != revision:
+        return _error(
+            "BOARD_REVISION_CONFLICT",
+            "This board changed since you last saw it - refresh and try again.",
+            current_revision=latest_revision,
+            requested_revision=revision,
+        )
+
+    latest_payload = latest.get("payload") if isinstance(latest.get("payload"), dict) else {}
+    restore_target = latest_payload.get("previous_revision")
+    if not isinstance(restore_target, int) or restore_target < 1:
+        return _error(
+            "NO_PREVIOUS_REVISION",
+            "This board has no earlier version to undo to.",
+        )
+
+    try:
+        restore_from = store.get_revision(board_id, restore_target)
+    except BoardStateStoreError as exc:
+        logger.error("undo_board restore load failed board=%s err=%s", board_id, exc)
+        return _error(
+            "BOARD_STATE_UNAVAILABLE",
+            "Board state storage is unavailable - your board was not changed.",
+        )
+    if restore_from is None:
+        return _error(
+            "NO_PREVIOUS_REVISION",
+            "The earlier version of this board is no longer available.",
+        )
+    restored_payload = (
+        restore_from.get("payload") if isinstance(restore_from.get("payload"), dict) else {}
+    )
+
+    # New revision's content is the restored payload verbatim, except
+    # previous_revision - which, like every shuffle-created revision,
+    # always points at the revision this one was created FROM (the one
+    # being undone). That keeps history walkable one step at a time
+    # regardless of whether a given revision came from a shuffle or an
+    # undo, and is what lets a later undo restore the immediate prior
+    # user-visible board rather than jumping back to revision 1.
+    new_revision = latest_revision + 1
+    new_payload = dict(restored_payload)
+    new_payload["previous_revision"] = latest_revision
+
+    try:
+        store.create_revision(
+            user_id=stored_owner or requester,
+            board_id=board_id,
+            revision=new_revision,
+            payload=new_payload,
+        )
+    except BoardRevisionExistsError:
+        current = new_revision
+        try:
+            latest_now = store.get_latest(board_id)
+            if latest_now is not None:
+                current = int(latest_now.get("revision") or new_revision)
+        except BoardStateStoreError:
+            pass
+        return _error(
+            "BOARD_REVISION_CONFLICT",
+            "This board changed since you last saw it - refresh and try again.",
+            current_revision=current,
+            requested_revision=revision,
+        )
+    except BoardStateStoreError as exc:
+        logger.error("undo_board revision commit failed board=%s err=%s", board_id, exc)
+        return _error(
+            "BOARD_STATE_UNAVAILABLE",
+            "Board state storage is unavailable - your board was not changed.",
+        )
+
+    logger.info(
+        "AHVI_STYLE_THIS_UNDO_RESULT board_id=%s old_revision=%s new_revision=%s "
+        "restored_from_revision=%s",
+        board_id, latest_revision, new_revision, restore_target,
+    )
+
+    return {
+        "success": True,
+        "board_id": board_id,
+        "revision": new_revision,
+        "previous_revision": latest_revision,
+        "restored_from_revision": restore_target,
+        "locked_items_preserved": True,
+        "scenario": str(new_payload.get("scenario") or "") or None,
+        "source_policy": new_payload.get("source_policy"),
+        "allow_wardrobe_fallback": bool(new_payload.get("allow_wardrobe_fallback")),
+        "occasion": new_payload.get("occasion"),
+        "style_strategy": new_payload.get("style_strategy"),
+        "anchor_item_id": new_payload.get("anchor_item_id"),
+        "styling_note": new_payload.get("styling_note"),
+        "changed_slots": [],
+        "missing_items": [],
+        "board_items": new_payload.get("items") or [],
+    }

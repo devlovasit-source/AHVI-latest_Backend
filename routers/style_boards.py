@@ -1,10 +1,15 @@
-"""Style board endpoints: lock-aware shuffle.
+"""Style board endpoints: lock-aware shuffle + durable undo.
 
 POST /api/style-boards/{board_id}/shuffle
 Structured contract (NOT free text through chat): the client sends the board
 revision, locked items with exact image URLs + positions, the slots to
 shuffle, exclusions and the source policy.  Locked items are hard-guaranteed
 to survive (see services.style_item_contract.assert_fixed_items_preserved).
+
+POST /api/style-boards/{board_id}/undo
+Restores the board to its immediately-preceding durable revision as a NEW
+forward revision (never decrements). The client sends only its current
+revision - the restored content comes entirely from durable server history.
 """
 
 from __future__ import annotations
@@ -41,6 +46,11 @@ class LockedBoardItem(BaseModel):
     image_url: str = ""
     name: str = ""
     position: Optional[BoardPosition] = None
+
+
+class BoardUndoRequest(BaseModel):
+    user_id: str = ""
+    revision: int = 1
 
 
 class BoardShuffleRequest(BaseModel):
@@ -155,5 +165,33 @@ def shuffle_style_board(
         "style_boards.shuffle board=%s rev=%s success=%s changed=%s",
         board_id, request.revision, result.get("success"),
         result.get("changed_slots"),
+    )
+    return result
+
+
+@router.post("/style-boards/{board_id}/undo")
+def undo_style_board(
+    board_id: str, request: BoardUndoRequest, http_request: Request = None
+) -> Dict[str, Any]:
+    user_id = enforce_owner(http_request, request.user_id)
+    logger.info(
+        "AHVI_STYLE_THIS_UNDO_REQUEST board_id=%s expected_revision=%s",
+        board_id,
+        request.revision,
+    )
+    result = style_board_shuffle_service.undo_board(
+        board_id=board_id,
+        revision=request.revision,
+        user_id=user_id,
+    )
+    result.setdefault("board_id", board_id)
+    result.setdefault("revision", request.revision)
+    result.setdefault("board_items", [])
+    result.setdefault("changed_slots", [])
+    result.setdefault("locked_items_preserved", False)
+    result.setdefault("previous_revision", request.revision)
+    logger.info(
+        "style_boards.undo board=%s rev=%s success=%s",
+        board_id, request.revision, result.get("success"),
     )
     return result

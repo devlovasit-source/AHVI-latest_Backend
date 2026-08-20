@@ -517,6 +517,231 @@ def test_normal_bottom_anchor_board_shuffle_regenerates_reasoning():
     assert shuffled["styling_note"] != direction["styling_note"]
 
 
+
+# ---------------------------------------------------------------------------
+# Durable undo (runtime fix: reasoning state + durable undo)
+# ---------------------------------------------------------------------------
+
+
+def test_undo_restores_previous_revision_content_via_route():
+    """1-5. shuffle rev1->rev2, undo rev2->rev3 restores rev1's items,
+    styling_note, locks/anchor and strategy exactly."""
+    wardrobe = _two_top_wardrobe()
+    direction = _style_this_bottom_anchor(wardrobe)["style_directions"][0]
+    anchor = next(item for item in direction["items"] if item["locked"])
+    original_items = direction["items"]
+    original_note = direction["styling_note"]
+    original_strategy = direction["style_strategy"]
+    old_top_id = next(
+        item["item_id"] for item in direction["items"]
+        if item["item_id"] in {"shirt-a", "shirt-b"}
+    )
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def add_user(request, call_next):
+        request.state.user = {"user_id": "owner-1"}
+        return await call_next(request)
+
+    app.include_router(style_boards.router, prefix="/api")
+    client = TestClient(app)
+
+    shuffled = client.post(
+        f"/api/style-boards/{direction['board_id']}/shuffle",
+        json={
+            "revision": 1,
+            "locked_items": [anchor],
+            "shuffle_slots": ["top", "footwear", "accessory"],
+            "exclude_item_ids": [old_top_id],
+            "source_policy": "inherit",
+            "board_items": direction["items"],
+            "wardrobe": wardrobe,
+        },
+    ).json()
+    assert shuffled["success"] is True
+    assert shuffled["revision"] == 2
+    assert shuffled["styling_note"] != original_note
+
+    undone = client.post(
+        f"/api/style-boards/{direction['board_id']}/undo",
+        json={"revision": 2},
+    ).json()
+
+    assert undone["success"] is True
+    assert undone["revision"] == 3
+    assert undone["previous_revision"] == 2
+    assert undone["styling_note"] == original_note
+    assert undone["style_strategy"] == original_strategy
+    assert undone["anchor_item_id"] == "bottom-1"
+    restored_ids = {item["item_id"] for item in undone["board_items"]}
+    original_ids = {item["item_id"] for item in original_items}
+    assert restored_ids == original_ids
+    restored_anchor = next(
+        item for item in undone["board_items"] if item["item_id"] == "bottom-1"
+    )
+    assert restored_anchor["locked"] is True
+
+    state = shuffle_service.get_board_state(direction["board_id"])
+    assert state["revision"] == 3
+    assert state["styling_note"] == original_note
+
+
+def test_shuffle_after_undo_succeeds_with_new_revision_cursor():
+    """6. Part D chain: rev1=A -> shuffle -> rev2=B -> undo -> rev3=A ->
+    shuffle -> rev4=C. The second shuffle must send expected_revision=3 and
+    succeed (no BOARD_REVISION_CONFLICT), operating on exactly what the undo
+    restored."""
+    wardrobe = _two_top_wardrobe()
+    direction = _style_this_bottom_anchor(wardrobe)["style_directions"][0]
+    anchor = next(item for item in direction["items"] if item["locked"])
+    old_top_id = next(
+        item["item_id"] for item in direction["items"]
+        if item["item_id"] in {"shirt-a", "shirt-b"}
+    )
+
+    shuffled = shuffle_service.shuffle_board(
+        board_id=direction["board_id"],
+        revision=1,
+        locked_items=[anchor],
+        shuffle_slots=["top", "footwear", "accessory"],
+        exclude_item_ids=[old_top_id],
+        source_policy="inherit",
+        wardrobe=wardrobe,
+        user_id="owner-1",
+    )
+    assert shuffled["revision"] == 2
+
+    undone = shuffle_service.undo_board(
+        board_id=direction["board_id"], revision=2, user_id="owner-1",
+    )
+    assert undone["success"] is True
+    assert undone["revision"] == 3
+
+    second_shuffle = shuffle_service.shuffle_board(
+        board_id=direction["board_id"],
+        revision=3,
+        locked_items=[anchor],
+        shuffle_slots=["top", "footwear", "accessory"],
+        exclude_item_ids=[old_top_id],
+        source_policy="inherit",
+        wardrobe=wardrobe,
+        user_id="owner-1",
+    )
+    assert second_shuffle.get("error") is None
+    assert second_shuffle["success"] is True
+    assert second_shuffle["revision"] == 4
+    assert second_shuffle["previous_revision"] == 3
+
+
+def test_double_shuffle_then_undo_restores_immediate_prior_not_revision_one():
+    """Part D second scenario: rev1=A -> shuffle -> rev2=B -> shuffle -> rev3=C
+    -> undo -> rev4 restores B (the immediate previous user-visible board),
+    not A/revision 1."""
+    wardrobe = _two_top_wardrobe()
+    direction = _style_this_bottom_anchor(wardrobe)["style_directions"][0]
+    anchor = next(item for item in direction["items"] if item["locked"])
+    old_top_id = next(
+        item["item_id"] for item in direction["items"]
+        if item["item_id"] in {"shirt-a", "shirt-b"}
+    )
+    new_top_id = "shirt-b" if old_top_id == "shirt-a" else "shirt-a"
+
+    first = shuffle_service.shuffle_board(
+        board_id=direction["board_id"],
+        revision=1,
+        locked_items=[anchor],
+        shuffle_slots=["top", "footwear", "accessory"],
+        exclude_item_ids=[old_top_id],
+        source_policy="inherit",
+        wardrobe=wardrobe,
+        user_id="owner-1",
+    )
+    assert first["revision"] == 2
+    b_note = first["styling_note"]
+    b_top_id = next(
+        item["item_id"] for item in first["board_items"]
+        if item["item_id"] in {"shirt-a", "shirt-b"}
+    )
+    assert b_top_id == new_top_id
+
+    second = shuffle_service.shuffle_board(
+        board_id=direction["board_id"],
+        revision=2,
+        locked_items=[anchor],
+        shuffle_slots=["top", "footwear", "accessory"],
+        exclude_item_ids=[b_top_id],
+        source_policy="inherit",
+        wardrobe=wardrobe,
+        user_id="owner-1",
+    )
+    assert second["revision"] == 3
+    assert second["styling_note"] != b_note
+
+    undone = shuffle_service.undo_board(
+        board_id=direction["board_id"], revision=3, user_id="owner-1",
+    )
+    assert undone["success"] is True
+    assert undone["revision"] == 4
+    assert undone["styling_note"] == b_note
+    undone_top_id = next(
+        item["item_id"] for item in undone["board_items"]
+        if item["item_id"] in {"shirt-a", "shirt-b"}
+    )
+    assert undone_top_id == b_top_id
+
+
+def test_undo_stale_revision_returns_conflict():
+    """7. An undo request against a revision that's no longer latest fails
+    typed BOARD_REVISION_CONFLICT."""
+    direction = _style_this()["style_directions"][0]
+    anchor = next(item for item in direction["items"] if item["locked"])
+    unlocked = [item for item in direction["items"] if not item["locked"]]
+    shuffle_service.shuffle_board(
+        board_id=direction["board_id"],
+        revision=1,
+        locked_items=[anchor],
+        shuffle_slots=[item["slot"] for item in unlocked],
+        exclude_item_ids=[item["item_id"] for item in unlocked],
+        source_policy="inherit",
+        wardrobe=_wardrobe(),
+        user_id="owner-1",
+    )
+
+    stale = shuffle_service.undo_board(
+        board_id=direction["board_id"], revision=1, user_id="owner-1",
+    )
+
+    assert stale["success"] is False
+    assert stale["error"]["code"] == "BOARD_REVISION_CONFLICT"
+    assert stale["error"]["current_revision"] == 2
+    assert stale["error"]["requested_revision"] == 1
+
+
+def test_undo_with_no_previous_revision_returns_typed_error():
+    """8. Undoing a fresh revision-1 board (nothing to undo to) fails typed
+    NO_PREVIOUS_REVISION, and the board is left completely unchanged."""
+    direction = _style_this()["style_directions"][0]
+
+    result = shuffle_service.undo_board(
+        board_id=direction["board_id"], revision=1, user_id="owner-1",
+    )
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "NO_PREVIOUS_REVISION"
+    state = shuffle_service.get_board_state(direction["board_id"])
+    assert state["revision"] == 1
+
+
+def test_undo_unknown_board_is_not_found():
+    result = shuffle_service.undo_board(
+        board_id="8bbef195-1e78-4ad7-88db-5d81e33f25b8",
+        revision=1,
+        user_id="owner-1",
+    )
+    assert result["error"]["code"] == "BOARD_STATE_NOT_FOUND"
+
+
 def test_shuffle_without_stored_strategy_returns_deterministic_fallback():
     """F. no-strategy fallback produces the deterministic fallback text."""
     anchor_item = {
