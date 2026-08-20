@@ -692,6 +692,23 @@ def _lite_missing(role: str, is_dress: bool) -> Dict[str, Any]:
     return dict(_LITE_MISSING.get(role, _LITE_MISSING["accessory"]))
 
 
+def _lite_accessory_needed_slots(
+    groups: Dict[str, List[Dict[str, Any]]],
+    variant: int,
+    strategy: Optional[Dict[str, Any]],
+) -> List[str]:
+    """Accessory anchors prefer a one-piece hero garment (dress) + footwear.
+    Most wardrobes are separates-only though, so before committing to that
+    shape, try the same pick this direction would actually use for "dress"
+    (respecting avoid/palette filtering, not just bool(groups["dress"])) -
+    if nothing survives that filtering, fall back to top+bottom+footwear so
+    the board doesn't collapse to an incomplete accessory+footwear pairing."""
+    dress_pick = _lite_pick(groups, "dress", True, variant=variant, strategy=strategy)
+    if dress_pick:
+        return ["dress", "footwear"]
+    return ["top", "bottom", "footwear"]
+
+
 def _lite_needed_slots(anchor_role: str) -> List[str]:
     if anchor_role == "dress":
         return ["footwear", "accessory"]
@@ -701,7 +718,7 @@ def _lite_needed_slots(anchor_role: str) -> List[str]:
         return ["top", "footwear", "accessory"]
     if anchor_role == "footwear":
         return ["top", "bottom", "accessory"]
-    return ["dress", "footwear"]  # accessory anchor -> hero garment + shoes
+    return ["dress", "footwear"]  # accessory anchor fallback default (see _lite_accessory_needed_slots)
 
 
 def _lite_weather_note(weather: Dict[str, Any]) -> str:
@@ -742,7 +759,12 @@ def _lite_build_outfit(
     groups = _lite_group(wardrobe, _item_id_of(anchor))
     items = [_lite_item(anchor, identity_role or "hero")]
     missing: List[Dict[str, Any]] = []
-    for slot in _lite_needed_slots(anchor_role):
+    needed_slots = (
+        _lite_accessory_needed_slots(groups, variant, strategy)
+        if anchor_role == "accessory"
+        else _lite_needed_slots(anchor_role)
+    )
+    for slot in needed_slots:
         pick = _lite_pick(
             groups, slot, is_dress,
             prefer=prefer if slot == "footwear" else (),

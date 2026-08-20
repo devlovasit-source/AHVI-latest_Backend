@@ -287,3 +287,147 @@ def test_style_this_failure_returns_three_fallback_directions(monkeypatch):
     assert result["success"] is False
     assert len(result["style_directions"]) == 3
     assert result["message"] == stylist._FRIENDLY_FAIL
+
+
+# ---------------------------------------------------------------------------
+# Accessory-anchor Style This (fix/style-this-accessory-anchor)
+#
+# Accessory anchors (jewelry, watches, bags, belts...) prefer a one-piece
+# "hero" dress + footwear when the wardrobe has a usable dress, since the
+# accessory is meant to sit on/complement it. Most wardrobes are separates
+# only though, so when no dress survives filtering, the board must fall back
+# to top+bottom+footwear instead of collapsing to accessory+footwear (which
+# can never satisfy is_complete_board and used to zero out every direction).
+# ---------------------------------------------------------------------------
+
+_BRACELET = _it("bracelet-1", "Gold Bracelet", "Jewelry")
+
+
+def test_accessory_anchor_falls_back_to_separates_when_no_dress():
+    wardrobe = [
+        _BRACELET,
+        _it("shirt-1", "White T-Shirt", "Tops"),
+        _it("pants-1", "Black Trousers", "Bottoms"),
+        _it("sneak-1", "White Sneakers", "Footwear"),
+    ]
+    result = stylist.style_wardrobe_item(
+        "bracelet-1", _req(wardrobe, mode="style_this", anchor=_BRACELET)
+    )
+
+    assert result["success"] is True
+    dirs = result["style_directions"]
+    assert len(dirs) >= 1
+    for d in dirs:
+        ids = {i["item_id"] for i in d["items"]}
+        assert "bracelet-1" in ids, "accessory anchor must remain in the board"
+        assert "shirt-1" in ids
+        assert "pants-1" in ids
+        assert "sneak-1" in ids
+
+
+def test_accessory_anchor_uses_dress_when_available():
+    dress = _it("dress-2", "Emerald Green Gown", "Dresses")
+    wardrobe = [_BRACELET, dress, _it("sneak-1", "White Sneakers", "Footwear")]
+    result = stylist.style_wardrobe_item(
+        "bracelet-1", _req(wardrobe, mode="style_this", anchor=_BRACELET)
+    )
+
+    assert result["success"] is True
+    dirs = result["style_directions"]
+    assert len(dirs) >= 1
+    for d in dirs:
+        ids = {i["item_id"] for i in d["items"]}
+        assert "bracelet-1" in ids
+        assert "dress-2" in ids, "hero-garment pairing must still work when a dress exists"
+
+
+def test_accessory_anchor_falls_back_when_only_dress_is_strategy_rejected():
+    # The dress candidate exists in the wardrobe (bool(groups["dress"]) is
+    # True) but every direction's strategy avoids it by name/token - the
+    # fallback decision must be made at build time against the real pick,
+    # not just presence in the wardrobe.
+    dress = _it("dress-3", "Sequin Gown", "Dresses")
+    wardrobe = [
+        _BRACELET,
+        dress,
+        _it("shirt-1", "White T-Shirt", "Tops"),
+        _it("pants-1", "Black Trousers", "Bottoms"),
+        _it("sneak-1", "White Sneakers", "Footwear"),
+    ]
+    rejecting_strategy = {
+        "direction_title": "Rejected Dress Direction",
+        "archetype_id": "test-archetype",
+        "formality": "casual",
+        "palette": [],
+        "avoid": ["gown", "sequin"],
+        "reasoning_intent": "test",
+    }
+    monkeypatch_strategies = [dict(rejecting_strategy) for _ in range(3)]
+
+    directions = stylist._lite_directions(
+        _BRACELET, wardrobe, {}, strategies=monkeypatch_strategies
+    )
+
+    assert len(directions) == 3
+    for d in directions:
+        ids = {i["item_id"] for i in d["items"]}
+        assert "bracelet-1" in ids
+        assert "dress-3" not in ids, "the avoided dress must not be selected"
+        assert "shirt-1" in ids
+        assert "pants-1" in ids
+        assert "sneak-1" in ids
+        missing_roles = {m["label"] for m in d["missing_items"]}
+        assert "A standout dress" not in missing_roles, (
+            "must not surface a 'missing dress' when falling back to separates"
+        )
+
+
+def test_accessory_needed_slots_helper_matches_build_time_pick():
+    groups_with_usable_dress = {
+        "dress": [_it("dress-4", "Floral Dress", "Dresses")],
+        "top": [], "bottom": [], "footwear": [], "accessory": [],
+    }
+    assert stylist._lite_accessory_needed_slots(
+        groups_with_usable_dress, 0, None
+    ) == ["dress", "footwear"]
+
+    groups_without_dress = {
+        "dress": [], "top": [], "bottom": [], "footwear": [], "accessory": [],
+    }
+    assert stylist._lite_accessory_needed_slots(
+        groups_without_dress, 0, None
+    ) == ["top", "bottom", "footwear"]
+
+    groups_dress_rejected_by_strategy = {
+        "dress": [_it("dress-5", "Sequin Gown", "Dresses")],
+        "top": [], "bottom": [], "footwear": [], "accessory": [],
+    }
+    assert stylist._lite_accessory_needed_slots(
+        groups_dress_rejected_by_strategy, 0, {"avoid": ["gown"]}
+    ) == ["top", "bottom", "footwear"], (
+        "presence in groups alone must not be trusted - the trial pick must "
+        "respect the same avoid filtering _lite_pick would apply at build time"
+    )
+
+
+def test_non_accessory_anchors_are_unaffected_by_the_accessory_fallback():
+    # Control: top/bottom/footwear/dress anchors must keep using the
+    # unmodified _lite_needed_slots() path.
+    assert stylist._lite_needed_slots("dress") == ["footwear", "accessory"]
+    assert stylist._lite_needed_slots("top") == ["bottom", "footwear", "accessory"]
+    assert stylist._lite_needed_slots("bottom") == ["top", "footwear", "accessory"]
+    assert stylist._lite_needed_slots("footwear") == ["top", "bottom", "accessory"]
+
+
+def test_footwear_anchor_control_case_unchanged():
+    sneaker = _it("sneak-2", "White Sneakers", "Footwear")
+    wardrobe = [
+        sneaker,
+        _it("shirt-1", "White T-Shirt", "Tops"),
+        _it("pants-1", "Black Trousers", "Bottoms"),
+    ]
+    result = stylist.style_wardrobe_item(
+        "sneak-2", _req(wardrobe, mode="build_outfit", anchor=sneaker)
+    )
+    ids = {i["item_id"] for i in result["outfit"]["items"]}
+    assert "sneak-2" in ids and "shirt-1" in ids and "pants-1" in ids
