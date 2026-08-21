@@ -336,11 +336,31 @@ def normalize_style_item(item: Any) -> Dict[str, Any]:
     normalized["owned"] = normalized["source"] == "wardrobe"
     if role == "accessory":
         normalized["accessory_type"] = canonical_accessory_type(src)
-    for key in (
-        "masked_url", "board_image_url", "normalized_url", "position",
-        "x", "y", "width", "height", "scale", "z", "rotation",
+    # Board-readiness candidate/provenance fields: every field
+    # services.style_board_image_readiness treats as a genuine board-safe
+    # image source (or its gating status) must survive normalization, or an
+    # item that was renderable pre-normalization silently stops being
+    # renderable post-normalization. camelCase aliases are read but always
+    # written under their canonical snake_case name.
+    for key, camel_alias in (
+        ("masked_url", "maskedUrl"),
+        ("board_image_url", "boardImageUrl"),
+        ("normalized_url", "normalizedUrl"),
+        ("cutout_url", "cutoutUrl"),
+        ("transparent_url", None),
+        ("transparent_image_url", None),
+        ("rmbg_url", None),
+        ("processed_url", None),
+        ("cutout_status", None),
+        ("board_status", None),
+        ("image_status", None),
+        ("position", None),
+        ("x", None), ("y", None), ("width", None), ("height", None),
+        ("scale", None), ("z", None), ("rotation", None),
     ):
         value = src.get(key)
+        if value in (None, "") and camel_alias:
+            value = src.get(camel_alias)
         if value not in (None, ""):
             normalized[key] = value
     return normalized

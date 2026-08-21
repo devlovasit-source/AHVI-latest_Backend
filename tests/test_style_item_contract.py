@@ -14,6 +14,7 @@ from services.style_item_contract import (
     is_wardrobe_item,
     normalize_style_item,
 )
+from services.style_board_image_readiness import is_board_renderable
 
 
 # ---------------------------------------------------------------- identity
@@ -179,3 +180,114 @@ def test_normalize_preserves_full_board_contract():
     assert norm["accessory_type"] == "watch"
     for key in ("masked_url", "board_image_url", "normalized_url", "position", "scale", "rotation"):
         assert norm[key] == raw[key]
+
+
+# ------------------------------------------------- board-readiness roundtrip
+#
+# services.style_board_image_readiness.is_board_renderable recognizes several
+# genuine board-safe representations. normalize_style_item() must preserve
+# whichever one made an item renderable - a raw wardrobe item that passes
+# is_board_renderable() must still pass it after normalization, with the same
+# winning field (and its gating status, where the field is status-gated)
+# intact. See the readiness-gate revision forensic for how a dropped field
+# here turns into a live empty-hanger placeholder after shuffle selection.
+
+_RAW = "https://cdn/user/raw_photo.jpg"
+_SAFE = "https://cdn/processed/jeans.png"
+
+_READY_CASES = [
+    # (case, extra_fields, image_field, status_pair)
+    ("masked_url", {"masked_url": _SAFE}, "masked_url", None),
+    ("normalized_url", {"normalized_url": _SAFE}, "normalized_url", None),
+    (
+        "board_image_url",
+        {"board_image_url": _SAFE, "board_status": "cutout_ready"},
+        "board_image_url",
+        ("board_status", "cutout_ready"),
+    ),
+    (
+        "cutout_url",
+        {"cutout_url": _SAFE, "cutout_status": "ready"},
+        "cutout_url",
+        ("cutout_status", "ready"),
+    ),
+    ("transparent_url", {"transparent_url": _SAFE}, "transparent_url", None),
+    (
+        "transparent_image_url",
+        {"transparent_image_url": _SAFE},
+        "transparent_image_url",
+        None,
+    ),
+    (
+        "rmbg_url",
+        {"rmbg_url": _SAFE, "image_status": "rmbg_complete"},
+        "rmbg_url",
+        ("image_status", "rmbg_complete"),
+    ),
+    (
+        "processed_url",
+        {"processed_url": _SAFE, "image_status": "rmbg_complete"},
+        "processed_url",
+        ("image_status", "rmbg_complete"),
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "case,extra,image_field,status_pair",
+    _READY_CASES,
+    ids=[c[0] for c in _READY_CASES],
+)
+def test_board_ready_field_survives_normalization(case, extra, image_field, status_pair):
+    raw_item = {"id": f"item-{case}", "name": "Jeans", "source": "wardrobe", "image_url": _RAW, **extra}
+
+    # Sanity: the raw item is genuinely board-ready per the shared authority.
+    assert is_board_renderable(raw_item) is True
+
+    normalized = normalize_style_item(raw_item)
+
+    assert normalized.get(image_field) == extra[image_field], (
+        f"{case}: normalize_style_item() dropped {image_field!r}"
+    )
+    if status_pair is not None:
+        status_field, status_value = status_pair
+        assert normalized.get(status_field) == status_value, (
+            f"{case}: normalize_style_item() dropped gating status {status_field!r}"
+        )
+    assert is_board_renderable(normalized) is True, (
+        f"{case}: item was board-renderable before normalize_style_item() "
+        "but not after - a qualifying field was dropped"
+    )
+
+
+# ------------------------------------------------- safety: never manufacture readiness
+#
+# The flip side of the roundtrip guarantee: normalize_style_item() must never
+# turn an UNSAFE item into a READY one. It only ever copies fields through -
+# it must never synthesize, upgrade or infer a board-safe field that wasn't
+# already present and genuine on the raw item.
+
+_UNSAFE_CASES = [
+    ("raw_image_only", {"image_url": _RAW}),
+    ("masked_equals_image", {"image_url": _RAW, "masked_url": _RAW}),
+    (
+        "forged_board_status_no_candidate",
+        {"image_url": _RAW, "board_status": "cutout_ready"},
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "case,extra", _UNSAFE_CASES, ids=[c[0] for c in _UNSAFE_CASES]
+)
+def test_unsafe_item_stays_unsafe_through_normalization(case, extra):
+    raw_item = {"id": f"item-{case}", "name": "Jeans", "source": "wardrobe", **extra}
+
+    assert is_board_renderable(raw_item) is False, f"{case}: fixture is not actually unsafe"
+
+    normalized = normalize_style_item(raw_item)
+
+    assert is_board_renderable(normalized) is False, (
+        f"{case}: normalize_style_item() manufactured board-readiness "
+        "for an item that was not genuinely board-safe"
+    )

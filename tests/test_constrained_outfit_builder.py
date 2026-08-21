@@ -4,6 +4,7 @@ dress rules and typed failures."""
 import pytest
 
 from services.constrained_outfit_builder import ConstrainedOutfitBuilder
+from services.style_board_image_readiness import is_board_renderable
 from services.style_item_contract import canonical_item_id
 
 builder = ConstrainedOutfitBuilder()
@@ -460,3 +461,82 @@ def test_outerwear_with_only_not_ready_candidate_never_selected():
             "INSUFFICIENT_WARDROBE",
             "NO_REPLACEMENT_FOUND",
         }
+
+
+# ------------------------------------------------- board-readiness field
+# preservation through the actual selection path (readiness-gate revision
+# forensic): a field like cutout_url/rmbg_url passes is_board_renderable() at
+# pool-filter time (using the raw item), but normalize_style_item() used to
+# drop it when building the selected/returned item - so the item entered the
+# pool and was picked, yet the persisted board item was no longer
+# board-renderable. These exercise the builder's real output, not just pool
+# membership.
+
+
+def _cutout_only(item_id, name, category=""):
+    """Genuinely board-safe ONLY via cutout_url + cutout_status=ready - no
+    masked_url/normalized_url, the fields normalize_style_item() already
+    preserved before the field-preservation fix."""
+    return {
+        "id": item_id,
+        "name": name,
+        "category": category,
+        "source": "wardrobe",
+        "image_url": f"https://img/{item_id}.png",
+        "cutout_url": f"https://img/{item_id}-cutout.png",
+        "cutout_status": "ready",
+    }
+
+
+def _rmbg_only(item_id, name, category=""):
+    """Genuinely board-safe ONLY via rmbg_url + image_status=rmbg_complete."""
+    return {
+        "id": item_id,
+        "name": name,
+        "category": category,
+        "source": "wardrobe",
+        "image_url": f"https://img/{item_id}.png",
+        "rmbg_url": f"https://img/{item_id}-rmbg.png",
+        "image_status": "rmbg_complete",
+    }
+
+
+@pytest.mark.parametrize(
+    "factory,item_id,field",
+    [
+        (_cutout_only, "bottom-cutout", "cutout_url"),
+        (_rmbg_only, "bottom-rmbg", "rmbg_url"),
+    ],
+    ids=["cutout_url", "rmbg_url"],
+)
+def test_builder_output_preserves_previously_dropped_readiness_field(factory, item_id, field):
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    only_bottom = factory(item_id, "Only Renderable Bottom", "Bottoms")
+    result = _gen([top], wardrobe=[top, only_bottom])
+    assert result["success"] is True
+    assert item_id in _ids(result)
+    returned = next(i for i in result["items"] if i["item_id"] == item_id)
+    assert returned.get(field), f"builder output dropped {field!r} for the selected item"
+    assert is_board_renderable(returned) is True, (
+        "builder returned a selected item that is not board-renderable"
+    )
+
+
+def test_shuffle_selects_and_preserves_cutout_only_replacement():
+    """Same field-preservation guarantee, exercised through the shuffle_unlocked
+    scenario (the actual live path where the empty-hanger regression was
+    observed on device), not just plain build_outfit."""
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    only_bottom = _cutout_only("bottom-cutout", "Only Renderable Bottom", "Bottoms")
+    result = _gen(
+        [top],
+        wardrobe=[top, only_bottom],
+        scenario="shuffle_unlocked",
+        replaceable_slots=["bottom"],
+        context={"wardrobe": [top, only_bottom]},
+    )
+    assert result["success"] is True
+    assert "bottom-cutout" in _ids(result)
+    returned = next(i for i in result["items"] if i["item_id"] == "bottom-cutout")
+    assert returned.get("cutout_url")
+    assert is_board_renderable(returned) is True
