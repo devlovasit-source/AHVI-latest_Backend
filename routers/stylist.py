@@ -14,6 +14,7 @@ from services.appwrite_proxy import AppwriteProxy
 from services.auth_helpers import enforce_owner
 from services.style_flow_service import build_style_flow_response, item_role
 from services.location_weather_context import resolve_location_weather_context
+from services.style_board_image_readiness import is_board_renderable
 from services.style_board_reasoning import FALLBACK_STYLING_NOTE, build_styling_note
 from services.style_board_shuffle_service import _default_position, register_board
 from services.style_item_contract import (
@@ -587,6 +588,8 @@ def _lite_group(wardrobe: List[Dict[str, Any]], exclude_id: str) -> Dict[str, Li
     for item in wardrobe:
         if not isinstance(item, dict) or _item_id_of(item) == exclude_id:
             continue
+        if not is_board_renderable(item):
+            continue  # no genuine board-safe image - never a support-piece candidate
         groups.setdefault(_lite_role(item), []).append(item)
     return groups
 
@@ -1064,6 +1067,31 @@ def style_wardrobe_item(
             "STYLE_THIS_ANCHOR_UNAVAILABLE",
             "The selected wardrobe item could not be verified. Refresh your wardrobe and try again.",
         )
+    # Explicit Style This anchor boundary: the user chose THIS item, so an
+    # unrenderable image must never be silently swapped for another garment
+    # or shown as-is. Fail with a typed error instead - the item is still
+    # fully usable everywhere else (wardrobe view, Try-On, etc.), just not as
+    # a Style This anchor until it has a real processed image.
+    # Gated on http_request (the real production path) so direct test/legacy
+    # callers keep the same allow_missing_image leniency
+    # _resolve_style_this_anchor already grants them.
+    #
+    # Checked against the RAW authoritative wardrobe row, not the transformed
+    # `anchor` dict: canonical_style_this_anchor() deliberately sets
+    # anchor["image_url"] = safe_image_url (whatever field won), which would
+    # make image_url equal normalized_url/masked_url on an already-safe item
+    # and false-positive as a "raw alias" under this same check.
+    if mode == "style_this" and http_request is not None:
+        _anchor_row = next(
+            (item for item in wardrobe if _item_id_of(item) == _txt(anchor.get("item_id"))),
+            anchor,
+        )
+        if not is_board_renderable(_anchor_row):
+            return _style_this_failure(
+                anchor,
+                "ANCHOR_IMAGE_NOT_BOARD_READY",
+                "This item's photo needs to be reprocessed before Style This can use it.",
+            )
     resolved = resolve_location_weather_context(
         user_id=request.user_id,
         request_data={**request.model_dump(exclude_none=True), **request.context},

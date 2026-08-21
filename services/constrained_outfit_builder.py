@@ -22,6 +22,7 @@ import hashlib
 import logging
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from services.style_board_image_readiness import is_board_renderable
 from services.style_item_contract import (
     FixedItemLostError,
     VALID_SOURCES,
@@ -293,6 +294,8 @@ class ConstrainedOutfitBuilder:
                 continue  # unknown / non-fashion / sport-swim
             if canonical_item_source(raw) not in allowed_sources:
                 continue  # unknown source is NOT wardrobe
+            if not is_board_renderable(raw):
+                continue  # no genuine board-safe image - never select, never display later
             if style_strategy and _strategy_avoid_match(raw, style_strategy):
                 continue
             if professional:

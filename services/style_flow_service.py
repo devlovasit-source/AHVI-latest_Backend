@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from brain.engines.outfit_quality_guard import is_complete_board
 from services.category_taxonomy import infer_style_attributes
+from services.style_board_image_readiness import resolve_board_image_candidate
 from services.style_item_contract import canonical_item_role
 from services.wardrobe_suitability import outfit_contains_private_wear
 
@@ -4216,6 +4217,14 @@ def _enrich_board_piece_from_wardrobe(
         ("masked_url", "maskedUrl"),
         ("normalized_url", "normalizedUrl"),
         ("catalog_image_url", "catalogImageUrl"),
+        # Status fields travel WITH their URL - cutout_url/board_image_url
+        # require the matching *_status="ready"/"cutout_ready" to be trusted
+        # (see style_board_image_readiness), so forwarding the URL without
+        # its status silently makes a genuinely-ready wardrobe record look
+        # not-ready through this join.
+        ("cutout_status", "cutoutStatus"),
+        ("board_status", "boardStatus"),
+        ("image_status", "imageStatus"),
     ):
         val = _safe_text(rec.get(snake) or rec.get(camel))
         if val:
@@ -4232,6 +4241,11 @@ def _adapt_board_item(_it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     is what put a person photo on the board). Catalog/normalized stays on its
     own field for the frontend to frame; a bare board_image_url with no cutout
     provenance is dropped.
+
+    The actual admission decision is delegated to
+    services.style_board_image_readiness.resolve_board_image_candidate — the
+    one shared authority Style This/Shuffle candidate selection also uses, so
+    this board and those pools never diverge on what counts as board-safe.
     """
     _name = str(_it.get("name") or _it.get("title") or _it.get("label") or "").strip()
     if not _name:
@@ -4239,37 +4253,10 @@ def _adapt_board_item(_it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     _raw = str(
         _it.get("image_url") or _it.get("raw_url") or _it.get("url") or ""
     ).strip()
-    # A masked/cutout URL that is just the raw upload is a fabricated cutout, not
-    # a real transparent one: `row.setdefault("masked_url", image)` copies the
-    # raw image (often a selfie/mirror photo) into masked_url when RMBG produced
-    # nothing. Trusting it stamps cutout_ready on a person photo.
-    _raw_aliases = {
-        str(_it.get(_k) or "").strip()
-        for _k in (
-            "image_url",
-            "imageUrl",
-            "raw_url",
-            "rawUrl",
-            "url",
-            "original_image_url",
-            "originalImageUrl",
-            "preview_url",
-            "previewUrl",
-        )
-    }
-    _raw_aliases.discard("")
-    # Pick the first cutout candidate that is NOT a raw alias, so a fabricated
-    # masked=raw never shadows a real cutout_url that arrived from the wardrobe
-    # record.
-    _cutout = ""
-    for _cand in ("masked_url", "transparent_url", "transparent_image_url", "cutout_url"):
-        _cv = str(_it.get(_cand) or "").strip()
-        if _cv and _cv not in _raw_aliases:
-            _cutout = _cv
-            break
+    _candidate = resolve_board_image_candidate(_it)
     _entry = {**_it, "name": _name, "role": _it.get("role") or ""}
-    if _cutout:
-        _entry["board_image_url"] = _cutout
+    if _candidate["renderable"] and _candidate["reason"] == "processed_cutout":
+        _entry["board_image_url"] = _candidate["selected_url"]
         _entry["board_status"] = "cutout_ready"
         _selected, _rejected_raw = "masked_cutout", False
     else:
@@ -4277,7 +4264,7 @@ def _adapt_board_item(_it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         _entry.pop("board_image_url", None)
         if _entry.get("board_status") == "cutout_ready":
             _entry.pop("board_status", None)
-        _selected = "catalog" if _it.get("normalized_url") else "raw_rejected"
+        _selected = "catalog" if _candidate["renderable"] else "raw_rejected"
         _rejected_raw = bool(_raw) and _selected == "raw_rejected"
     if not (_entry.get("board_image_url") or _it.get("normalized_url") or _raw):
         return None
@@ -4285,7 +4272,7 @@ def _adapt_board_item(_it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "AHVI_BOARD_IMAGE_PROVENANCE role=%s has_cutout=%s has_normalized=%s "
         "has_raw=%s selected=%s board_status=%s rejected_raw=%s",
         _entry.get("role") or "unknown",
-        bool(_cutout),
+        _candidate["renderable"] and _candidate["reason"] == "processed_cutout",
         bool(_it.get("normalized_url")),
         bool(_raw),
         _selected,

@@ -93,12 +93,35 @@ def test_enrich_pulls_catalog_from_wardrobe_record():
 
 
 def test_enrich_pulls_real_cutout_from_wardrobe_record():
-    by_id = {"tee-1": {"item_id": "tee-1", "cutout_url": _MASK}}
+    # cutout_url requires cutout_status="ready" to earn cutout_ready - aligned
+    # with the Flutter resolver, which gates cutout_url the same way. A bare
+    # cutout_url with no status is covered by
+    # test_bare_cutout_url_without_status_not_trusted below.
+    by_id = {
+        "tee-1": {
+            "item_id": "tee-1",
+            "cutout_url": _MASK,
+            "cutout_status": "ready",
+        }
+    }
     piece = {"item_id": "tee-1", "name": "Black T-Shirt", "role": "top",
              "image_url": _SELFIE, "masked_url": _SELFIE}
     e = _adapt_board_item(_enrich_board_piece_from_wardrobe(piece, by_id))
     assert e["board_image_url"] == _MASK
     assert e["board_status"] == "cutout_ready"
+
+
+def test_bare_cutout_url_without_status_not_trusted():
+    # Device blocker (readiness-gate forensic): the backend previously trusted
+    # a bare cutout_url unconditionally while Flutter required cutout_status
+    # == "ready" for the same field - a real contract mismatch. Reconciled:
+    # both sides now require the status.
+    by_id = {"tee-1": {"item_id": "tee-1", "cutout_url": _MASK}}
+    piece = {"item_id": "tee-1", "name": "Black T-Shirt", "role": "top",
+             "image_url": _SELFIE, "masked_url": _SELFIE}
+    e = _adapt_board_item(_enrich_board_piece_from_wardrobe(piece, by_id))
+    assert e.get("board_image_url") is None
+    assert e.get("board_status") != "cutout_ready"
 
 
 def test_enrich_no_matching_record_is_unchanged():

@@ -134,10 +134,25 @@ def test_item_style_consumes_canonical_weather(monkeypatch):
         ItemStyleRequest(
             user_id="u1",
             mode="style_this",
-            anchor_item={"id": "shirt-1", "name": "White shirt", "category": "top"},
+            anchor_item={
+                "id": "shirt-1",
+                "name": "White shirt",
+                "category": "top",
+                "normalized_url": "https://images.test/shirt-1-normalized.png",
+            },
             wardrobe=[
-                {"id": "pants-1", "name": "Black trousers", "category": "bottom"},
-                {"id": "shoe-1", "name": "Leather shoes", "category": "footwear"},
+                {
+                    "id": "pants-1",
+                    "name": "Black trousers",
+                    "category": "bottom",
+                    "normalized_url": "https://images.test/pants-1-normalized.png",
+                },
+                {
+                    "id": "shoe-1",
+                    "name": "Leather shoes",
+                    "category": "footwear",
+                    "normalized_url": "https://images.test/shoe-1-normalized.png",
+                },
             ],
             weather={"condition": "rain", "temperature_c": 20},
         ),

@@ -24,6 +24,10 @@ def _w(item_id, name, category="", **extra):
         "category": category,
         "source": "wardrobe",
         "image_url": f"https://img/{item_id}.png",
+        # A real (non-aliased) processed image, so every fixture item is
+        # board-renderable by default. Readiness gating itself is covered by
+        # tests/test_style_board_image_readiness.py, not by every test here.
+        "normalized_url": f"https://img/{item_id}-normalized.png",
     }
     row.update(extra)
     return row

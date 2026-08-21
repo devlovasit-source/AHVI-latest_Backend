@@ -16,6 +16,11 @@ def _w(item_id, name, category="", source="wardrobe", **extra):
         "category": category,
         "source": source,
         "image_url": f"https://img/{item_id}.png",
+        # A real (non-aliased) processed image, so every fixture item is
+        # board-renderable by default - readiness itself is covered by
+        # tests/test_style_board_image_readiness.py and the
+        # test_*_not_board_ready_* cases below, not by every unrelated test.
+        "normalized_url": f"https://img/{item_id}-normalized.png",
     }
     row.update(extra)
     return row
@@ -311,3 +316,147 @@ def test_stored_strategy_rejects_explicit_avoid_match():
     assert result["success"] is True
     assert "bottom-loud" not in _ids(result)
     assert "bottom-quiet" in _ids(result)
+
+
+# ------------------------------------------------- board-readiness gate
+# (H, I from the readiness-gate implementation spec)
+
+
+def _not_ready(item_id, name, category="", source="wardrobe", **extra):
+    """A wardrobe row with the exact fabricated-alias signature confirmed
+    live on device: masked_url == image_url, no real processed image."""
+    raw = f"https://img/{item_id}.png"
+    row = {
+        "id": item_id,
+        "name": name,
+        "category": category,
+        "source": source,
+        "image_url": raw,
+        "masked_url": raw,
+    }
+    row.update(extra)
+    return row
+
+
+def test_not_board_ready_support_item_never_enters_pool():
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    bad_bottom = _not_ready("bottom-bad", "Fabricated Alias Jeans", "Bottoms")
+    good_bottom = _w("bottom-good", "Real Cutout Jeans", "Bottoms")
+    result = _gen([top], wardrobe=[top, bad_bottom, good_bottom])
+    assert result["success"] is True
+    assert "bottom-bad" not in _ids(result)
+    assert "bottom-good" in _ids(result)
+
+
+def test_not_board_ready_item_alone_in_slot_is_typed_insufficient_wardrobe():
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    bad_bottom = _not_ready("bottom-bad", "Fabricated Alias Jeans", "Bottoms")
+    result = _gen([top], wardrobe=[top, bad_bottom], scenario="style_this")
+    assert result["success"] is False
+    assert result["error"]["code"] == "INSUFFICIENT_WARDROBE"
+
+
+def test_ready_alternatives_still_generate_complete_board():
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    wardrobe = [
+        top,
+        _not_ready("bottom-bad-1", "Fabricated Alias Jeans", "Bottoms"),
+        _not_ready("bottom-bad-2", "No Cutout Chinos", "Bottoms"),
+        _w("bottom-good", "Real Cutout Jeans", "Bottoms"),
+        _not_ready("shoe-bad", "No Cutout Sneakers", "Footwear"),
+        _w("shoe-good", "Real Cutout Loafers", "Footwear"),
+    ]
+    result = _gen([top], wardrobe=wardrobe)
+    assert result["success"] is True
+    assert "bottom-good" in _ids(result)
+    assert "shoe-good" in _ids(result)
+    assert "bottom-bad-1" not in _ids(result)
+    assert "bottom-bad-2" not in _ids(result)
+    assert "shoe-bad" not in _ids(result)
+
+
+def test_shuffle_never_selects_not_board_ready_replacement():
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    wardrobe = [
+        top,
+        _not_ready("bottom-bad", "Fabricated Alias Jeans", "Bottoms"),
+        _w("bottom-alt", "Charcoal Trousers", "Bottoms"),
+    ]
+    for variant in range(5):
+        result = _gen(
+            [top],
+            wardrobe=wardrobe,
+            scenario="shuffle_unlocked",
+            replaceable_slots=["bottom"],
+            context={"wardrobe": wardrobe, "variant": variant},
+        )
+        assert result["success"] is True
+        assert "bottom-bad" not in _ids(result)
+        assert "bottom-alt" in _ids(result)
+
+
+# ------------------------------------------------- small-pool safety
+# (Part 6 of the readiness-gate implementation spec: dress/outerwear pools
+# are typically much smaller than tops/bottoms, so the filter is checked
+# here specifically rather than assumed safe from the tops/bottoms coverage
+# above.)
+
+
+def test_dress_anchor_succeeds_when_ready_footwear_available():
+    dress = _w("dress-1", "Red Maxi Dress", "Dresses")
+    footwear = _w("shoe-good", "Real Cutout Sandals", "Footwear")
+    result = _gen([dress], wardrobe=[dress, footwear])
+    assert result["success"] is True
+    assert "shoe-good" in _ids(result)
+
+
+def test_dress_anchor_with_only_not_ready_footwear_is_safe_insufficient_not_hanger():
+    dress = _w("dress-1", "Red Maxi Dress", "Dresses")
+    bad_footwear = _not_ready("shoe-bad", "Fabricated Alias Sandals", "Footwear")
+    result = _gen([dress], wardrobe=[dress, bad_footwear])
+    # Never silently include the not-ready item (the "hanger" outcome this
+    # gate exists to prevent) - either a typed failure, or success with the
+    # slot correctly reported missing. Both are safe; a selected item with
+    # no board-safe image is not.
+    if result["success"]:
+        assert "shoe-bad" not in _ids(result)
+        assert "footwear" in result.get("missing_items", [])
+    else:
+        assert result["error"]["code"] in {
+            "INSUFFICIENT_WARDROBE",
+            "NO_REPLACEMENT_FOUND",
+        }
+
+
+def test_outerwear_succeeds_when_ready_candidate_available():
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    outerwear = _w("jacket-good", "Real Cutout Blazer", "Outerwear")
+    result = _gen(
+        [top],
+        wardrobe=[top, outerwear],
+        scenario="shuffle_unlocked",
+        replaceable_slots=["outerwear"],
+        context={"wardrobe": [top, outerwear]},
+    )
+    assert result["success"] is True
+    assert "jacket-good" in _ids(result)
+
+
+def test_outerwear_with_only_not_ready_candidate_never_selected():
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    bad_outerwear = _not_ready("jacket-bad", "Fabricated Alias Blazer", "Outerwear")
+    result = _gen(
+        [top],
+        wardrobe=[top, bad_outerwear],
+        scenario="shuffle_unlocked",
+        replaceable_slots=["outerwear"],
+        context={"wardrobe": [top, bad_outerwear]},
+    )
+    if result["success"]:
+        assert "jacket-bad" not in _ids(result)
+        assert "outerwear" in result.get("missing_items", [])
+    else:
+        assert result["error"]["code"] in {
+            "INSUFFICIENT_WARDROBE",
+            "NO_REPLACEMENT_FOUND",
+        }

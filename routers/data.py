@@ -398,11 +398,15 @@ def _normalize_outfit_payload(
     if not occasions:
         occasions = []
 
-    # Keep required URL parity resilient across client payload variants.
+    # image_url may fall back to a genuinely-supplied masked_url (a real
+    # cutout is a fine display image). The reverse is NOT safe: masked_url
+    # must never be fabricated by copying the raw image_url into it - that
+    # falsely claims a raw/selfie photo is a processed cutout, which is
+    # exactly what makes Style Board surfaces show it (see
+    # services.style_board_image_readiness). A genuinely-supplied masked_url
+    # is preserved as-is; a missing one stays missing/empty.
     if not image_url and masked_url:
         image_url = masked_url
-    if not masked_url and image_url:
-        masked_url = image_url
 
     if image_url:
         normalized["image_url"] = image_url
@@ -1684,13 +1688,16 @@ def create_document(http_request: Request, request: CreateRequest):
             payload.setdefault("masked_id", str(uuid.uuid4()))
             payload.setdefault("qdrant_point_id", str(uuid.uuid4()))
 
-            # Heal URL fields before write, so strict schemas don't fail intermittently.
+            # image_url may fall back to a genuinely-supplied masked_url. The
+            # reverse must never happen: fabricating masked_url by copying
+            # image_url falsely claims a raw/selfie photo is a processed
+            # cutout (see services.style_board_image_readiness) - a write
+            # that only has a raw photo is correctly rejected below, not
+            # silently accepted with a forged cutout field.
             image_url = str(payload.get("image_url") or "").strip()
             masked_url = str(payload.get("masked_url") or "").strip()
             if not image_url and masked_url:
                 image_url = masked_url
-            if not masked_url and image_url:
-                masked_url = image_url
             if not image_url or not masked_url:
                 raise HTTPException(
                     status_code=400,

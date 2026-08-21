@@ -102,7 +102,11 @@ _POS = {"x": 0.123, "y": 0.456, "width": 0.31, "height": 0.29, "z": 3, "rotation
 def _wardrobe():
     return [
         {"id": i, "name": n, "category": c, "source": "wardrobe",
-         "image_url": f"https://img/{i}.png"}
+         "image_url": f"https://img/{i}.png",
+         # A real (non-aliased) processed image, so every fixture item is
+         # board-renderable by default. Readiness gating itself is covered
+         # by tests/test_style_board_image_readiness.py, not here.
+         "normalized_url": f"https://img/{i}-normalized.png"}
         for i, n, c in [
             ("top-1", "White Oxford Shirt", "Tops"),
             ("bottom-1", "Blue Jeans", "Bottoms"),

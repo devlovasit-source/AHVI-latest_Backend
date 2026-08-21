@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from routers import style_boards, stylist
 from services import style_board_shuffle_service as shuffle_service
+from services.style_board_image_readiness import is_board_renderable
 from services.style_board_state_store import (
     BoardStateStoreError,
     InMemoryBoardStateStore,
@@ -19,6 +20,10 @@ def _item(item_id, name, category, **extra):
         "category": category,
         "source": "wardrobe",
         "image_url": f"https://images.test/{item_id}.png",
+        # A real (non-aliased) processed image, so every fixture item is
+        # board-renderable by default. Readiness gating itself is covered by
+        # tests/test_style_board_image_readiness.py, not by every test here.
+        "normalized_url": f"https://images.test/{item_id}-normalized.png",
     }
     item.update(extra)
     return item
@@ -777,3 +782,46 @@ def test_shuffle_without_stored_strategy_returns_deterministic_fallback():
 
     assert result["success"] is True
     assert result["styling_note"] == "Built from pieces you already own, anchored on this item."
+
+
+def test_shuffle_never_selects_not_board_ready_item_and_reasoning_matches_selection():
+    """K, L, M from the readiness-gate implementation spec, exercised through
+    the real shuffle_board() service end to end (not just the builder unit):
+    K. a not-board-ready candidate is never selected by shuffle.
+    L. the returned changed item always has a genuine board-safe image.
+    M. the reasoning names whichever item was actually selected.
+    """
+    wardrobe = _two_top_wardrobe() + [
+        _item(
+            "shirt-bad",
+            "Fabricated Alias Shirt",
+            "Tops",
+            masked_url="https://images.test/shirt-bad.png",  # aliases image_url below
+            image_url="https://images.test/shirt-bad.png",
+            normalized_url=None,  # override _item()'s default - no safe fallback either
+        ),
+    ]
+    direction = _style_this_bottom_anchor(wardrobe)["style_directions"][0]
+    anchor = next(item for item in direction["items"] if item["locked"])
+    old_top_id = next(
+        item["item_id"] for item in direction["items"]
+        if item["item_id"] in {"shirt-a", "shirt-b"}
+    )
+
+    for _ in range(5):
+        result = shuffle_service.shuffle_board(
+            board_id=direction["board_id"],
+            revision=shuffle_service.get_board_state(direction["board_id"])["revision"],
+            locked_items=[anchor],
+            shuffle_slots=["top", "footwear", "accessory"],
+            exclude_item_ids=[old_top_id],
+            source_policy="inherit",
+            wardrobe=wardrobe,
+            user_id="owner-1",
+        )
+        assert result["success"] is True
+        new_top = next(item for item in result["board_items"] if item["role"] == "top")
+        assert new_top["item_id"] != "shirt-bad", "not-board-ready item must never be selected"
+        assert is_board_renderable(new_top), "selected item must have a genuine board-safe image"
+        assert result["styling_note"]
+        assert new_top["name"] in result["styling_note"], "reasoning must name the actually-selected item"

@@ -345,3 +345,66 @@ def test_shuffle_reconstructs_style_this_anchor_from_durable_state():
     assert shuffled["anchor_item_id"] == "shirt-1"
     assert [item["item_id"] for item in shuffled["board_items"]].count("shirt-1") == 1
     assert shuffled["revision"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Explicit Style This anchor readiness contract (N, O from the
+# readiness-gate implementation spec)
+#
+# A user-selected anchor that lacks a genuine board-safe image must fail
+# with a typed error - never silently swap to a different garment, never
+# render the raw photo. Only enforced on the real production path
+# (http_request present); direct/legacy callers keep the existing
+# allow_missing_image leniency.
+# ---------------------------------------------------------------------------
+
+
+def test_explicit_not_ready_anchor_returns_typed_error(monkeypatch):
+    not_ready_anchor = {
+        "id": "shirt-bad",
+        "item_id": "shirt-bad",
+        "name": "Fabricated Alias Shirt",
+        "category": "Tops",
+        "source": "wardrobe",
+        "image_url": "https://images.test/shirt-bad.png",
+        "masked_url": "https://images.test/shirt-bad.png",  # aliases raw - not a real cutout
+    }
+    wardrobe = [not_ready_anchor] + _wardrobe()
+    client = _http_client(monkeypatch, wardrobe)
+
+    response = client.post(
+        "/api/stylist/items/shirt-bad/style",
+        json={
+            "user_id": "owner-1",
+            "mode": "style_this",
+            "anchor_item_id": "shirt-bad",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "ANCHOR_IMAGE_NOT_BOARD_READY"
+    # The item is not silently replaced - no directions are generated at all.
+    assert body["style_directions"] == []
+
+
+def test_explicit_ready_anchor_unchanged_behavior(monkeypatch):
+    wardrobe = _wardrobe()
+    client = _http_client(monkeypatch, wardrobe)
+
+    response = client.post(
+        "/api/stylist/items/shirt-1/style",
+        json={
+            "user_id": "owner-1",
+            "mode": "style_this",
+            "anchor_item_id": "shirt-1",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["anchor_item_id"] == "shirt-1"
+    for direction in body["style_directions"]:
+        assert direction["anchor_item_id"] == "shirt-1"

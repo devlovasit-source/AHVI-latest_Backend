@@ -9,7 +9,15 @@ from routers import stylist
 
 
 def _it(item_id, name, category):
-    return {"id": item_id, "name": name, "category": category}
+    return {
+        "id": item_id,
+        "name": name,
+        "category": category,
+        # A real (non-aliased) processed image, so every fixture item is
+        # board-renderable by default. Readiness gating itself is covered by
+        # tests/test_style_board_image_readiness.py, not by every test here.
+        "normalized_url": f"https://images.test/{item_id}-normalized.png",
+    }
 
 
 _DRESS = _it("dress-1", "Red Polka Dot Dress", "Dresses")
