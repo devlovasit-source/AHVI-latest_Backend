@@ -108,7 +108,13 @@ def resolve_board_image_candidate(item: Any) -> Dict[str, Any]:
 
     for field in _CATALOG_FIELDS:
         value = _text(item.get(field))
-        if value and value not in aliases:
+        # Unconditional, unlike the cutout fields above: the Flutter
+        # wardrobe_image_resolver's normalized_url candidates never
+        # alias-check against image_url either (normalized_url is always a
+        # regenerated catalog/product shot, never a raw upload copy, by the
+        # contract those fields represent) - matching that here, not
+        # inventing a stricter rule the frontend doesn't itself enforce.
+        if value:
             return {
                 "renderable": True,
                 "selected_field": field,

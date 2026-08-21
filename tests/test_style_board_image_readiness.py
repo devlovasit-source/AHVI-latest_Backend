@@ -39,6 +39,20 @@ def test_normalized_url_renderable():
     assert result["reason"] == "catalog_normalized"
 
 
+def test_normalized_url_equal_to_image_url_still_renderable():
+    # Device blocker (readiness-gate final device gate): unlike masked_url,
+    # normalized_url is never alias-checked against image_url - it matches
+    # the Flutter wardrobe_image_resolver contract, which admits its
+    # unconditional normalized_url candidates without an alias check
+    # (normalized_url represents a regenerated catalog shot, not a raw
+    # upload copy, by contract - even when a given item's value happens to
+    # be identical to its image_url).
+    item = {"image_url": _RAW, "normalized_url": _RAW}
+    result = resolve_board_image_candidate(item)
+    assert result["renderable"] is True
+    assert result["selected_field"] == "normalized_url"
+
+
 # D. valid RMBG processed_url + completed status -> renderable
 def test_processed_url_with_complete_status_renderable():
     item = {"image_url": _RAW, "processed_url": _PROCESSED, "image_status": "rmbg_complete"}

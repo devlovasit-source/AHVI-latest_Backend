@@ -477,6 +477,11 @@ def _style_fallback(
 def _style_this_failure(
     anchor: Dict[str, Any], code: str, message: str
 ) -> Dict[str, Any]:
+    logger.info(
+        "AHVI_STYLE_THIS_TYPED_FAILURE code=%s anchor_item_id=%s",
+        code,
+        canonical_item_id(anchor) if isinstance(anchor, dict) else "",
+    )
     return {
         "success": False,
         "mode": "style_this",
