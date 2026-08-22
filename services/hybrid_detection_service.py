@@ -1,0 +1,383 @@
+import io
+import uuid
+import asyncio
+import os
+import base64
+from typing import List, Dict
+
+import numpy as np
+from PIL import Image
+import httpx
+
+from services.bg_service import remove_bg_bytes
+from services.r2_storage import R2Storage, R2StorageError
+
+# =========================
+# CONFIG
+# =========================
+MAX_ITEMS = max(1, int(os.getenv("WARDROBE_CAPTURE_MAX_ITEMS", "6") or "6"))
+RESIZE_LIMIT = 640
+
+HF_TOKEN = os.getenv("HF_TOKEN")
+HF_URL = "https://api-inference.huggingface.co/models/IDEA-Research/grounding-dino-tiny"
+
+TEXT_PROMPT = (
+    "shirt . t-shirt . blouse . crop top . pants . trousers . jeans . skirt . shorts . "
+    "dress . gown . saree . kurta . blazer . jacket . coat . sneakers . heels . boots . "
+    "sandals . handbag . backpack . belt . watch . necklace . earrings . bracelet . scarf . sunglasses . "
+    "cap . hat . headwear . baseball cap . snapback . dad cap . visor . beanie"
+)
+
+# 🔥 FEATURE FLAGS
+ENABLE_DETECTION = os.getenv("ENABLE_DETECTION", "true") == "true"
+ENABLE_MEDIAPIPE = os.getenv("ENABLE_MEDIAPIPE", "false") == "true"
+
+
+# =========================
+# LAZY MEDIAPIPE
+# =========================
+def get_mediapipe():
+    if not ENABLE_MEDIAPIPE:
+        return None
+
+    try:
+        import mediapipe as mp
+
+        return mp
+    except Exception as e:
+        print("[mediapipe disabled]", e)
+        return None
+
+
+# =========================
+# RESIZE
+# =========================
+def resize_image(image: Image.Image):
+    w, h = image.size
+    if max(w, h) <= RESIZE_LIMIT:
+        return image
+
+    scale = RESIZE_LIMIT / max(w, h)
+    return image.resize((int(w * scale), int(h * scale)))
+
+
+def image_to_bytes(image: Image.Image) -> bytes:
+    buf = io.BytesIO()
+    image.save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+# =========================
+# HF DETECTION (ASYNC)
+# =========================
+async def hf_detect_async(image: Image.Image):
+    if not HF_TOKEN or not ENABLE_DETECTION:
+        return []
+
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    image_bytes = image_to_bytes(image)
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            res = await client.post(
+                HF_URL,
+                headers=headers,
+                content=image_bytes,
+                params={"text": TEXT_PROMPT},
+            )
+
+        if res.status_code != 200:
+            print("[HF ERROR]", res.text)
+            return []
+
+        return res.json()
+
+    except Exception as e:
+        print("[HF EXCEPTION]", e)
+        return []
+
+
+# =========================
+# PARSER
+# =========================
+def parse_detections(hf_output):
+    if not hf_output:
+        return []
+
+    if isinstance(hf_output, dict):
+        if "error" in hf_output:
+            return []
+        hf_output = hf_output.get("outputs", [])
+
+    detections = []
+
+    for item in hf_output:
+        box = item.get("box", {})
+
+        detections.append(
+            {
+                "label": item.get("label", "item"),
+                "bbox": [
+                    int(box.get("xmin", 0)),
+                    int(box.get("ymin", 0)),
+                    int(box.get("xmax", 0)),
+                    int(box.get("ymax", 0)),
+                ],
+                "score": float(item.get("score", 0)),
+            }
+        )
+
+    return detections
+
+
+# =========================
+# MEDIAPIPE SAFE
+# =========================
+def get_regions_safe(image_np):
+    mp = get_mediapipe()
+    if not mp:
+        return []
+
+    regions = []
+    h, w, _ = image_np.shape
+
+    try:
+        with mp.solutions.face_mesh.FaceMesh(static_image_mode=True) as face:
+            res = face.process(image_np)
+            if res.multi_face_landmarks:
+                lm = res.multi_face_landmarks[0]
+                x = int(lm.landmark[234].x * w)
+                y = int(lm.landmark[234].y * h)
+                regions.append(
+                    {
+                        "label": "earring",
+                        "bbox": [x - 40, y - 40, x + 40, y + 40],
+                        "score": 0.9,
+                    }
+                )
+
+        with mp.solutions.pose.Pose(static_image_mode=True) as pose:
+            res = pose.process(image_np)
+            if res.pose_landmarks:
+                wrist = res.pose_landmarks.landmark[
+                    mp.solutions.pose.PoseLandmark.LEFT_WRIST
+                ]
+                x = int(wrist.x * w)
+                y = int(wrist.y * h)
+                regions.append(
+                    {
+                        "label": "watch",
+                        "bbox": [x - 50, y - 50, x + 50, y + 50],
+                        "score": 0.9,
+                    }
+                )
+
+    except Exception as e:
+        print("[mediapipe runtime error]", e)
+
+    return regions
+
+
+# =========================
+# IOU + FILTER
+# =========================
+def iou(box1, box2):
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
+
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+    union = (
+        (box1[2] - box1[0]) * (box1[3] - box1[1])
+        + (box2[2] - box2[0]) * (box2[3] - box2[1])
+        - inter
+    )
+
+    return inter / union if union else 0
+
+
+def _bbox_is_full_frame(bbox, width, height):
+    """A detection box anchored at the origin that spans (almost) the whole
+    frame, e.g. [0, 0, width, height]."""
+    if not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+        return False
+    if not width or not height:
+        return False
+    try:
+        x1, y1, x2, y2 = (float(v) for v in bbox[:4])
+    except (TypeError, ValueError):
+        return False
+    w = abs(x2 - x1)
+    h = abs(y2 - y1)
+    if w <= 0 or h <= 0:
+        return False
+    area_ratio = (w * h) / float(width * height)
+    return x1 <= 2 and y1 <= 2 and x2 >= width - 2 and y2 >= height - 2 and area_ratio >= 0.9
+
+
+def _resolve_crop_quality(meta_row, width, height):
+    """Never label a full-frame bbox as a tight crop. Full-frame source detents
+    read as full_frame (background-heavy), so downstream scoring/cropping does
+    not treat the whole image as a clean tight cutout."""
+    cq = meta_row.get("crop_quality")
+    if cq:
+        return cq
+    if _bbox_is_full_frame(meta_row.get("bbox") or [], width, height):
+        return "full_frame"
+    return "tight"
+
+
+def filter_and_limit(detections, width, height):
+    filtered = []
+
+    for d in detections:
+        x1, y1, x2, y2 = d["bbox"]
+
+        if (x2 - x1) < 30 or (y2 - y1) < 30:
+            continue
+
+        area = (x2 - x1) * (y2 - y1)
+        if area > 0.9 * width * height:
+            continue
+
+        if any(iou(f["bbox"], d["bbox"]) > 0.7 for f in filtered):
+            continue
+
+        filtered.append(d)
+
+    filtered.sort(key=lambda x: x["score"], reverse=True)
+    return filtered[:MAX_ITEMS]
+
+
+# =========================
+# BG REMOVAL
+# =========================
+async def batch_bg(crops):
+    return await asyncio.gather(*[remove_bg_bytes(c) for c in crops])
+
+
+# =========================
+# MAIN PIPELINE
+# =========================
+async def run_hybrid_detection(image: Image.Image):
+    image = resize_image(image)
+
+    width, height = image.size
+    image_np = np.array(image)
+
+    r2 = R2Storage()
+
+    # -------------------------
+    # DETECTION (OPTIONAL)
+    # -------------------------
+    detections = []
+
+    try:
+        hf_output = await hf_detect_async(image)
+        detections = parse_detections(hf_output)
+    except Exception as e:
+        print("[HF DETECTION FAILED]", e)
+
+    # -------------------------
+    # MEDIAPIPE (OPTIONAL)
+    # -------------------------
+    try:
+        detections.extend(get_regions_safe(image_np))
+    except Exception:
+        pass
+
+    # -------------------------
+    # FALLBACK (IMPORTANT 🔥)
+    # -------------------------
+    if not detections:
+        detections = [
+            {
+                "label": "item",
+                "bbox": [0, 0, width, height],
+                "score": 1.0,
+                "crop_source": "full_image_fallback",
+                "crop_quality": "full_image",
+            }
+        ]
+
+    detections = filter_and_limit(detections, width, height)
+
+    # -------------------------
+    # CROPS
+    # -------------------------
+    crops = []
+    meta = []
+
+    for d in detections:
+        x1, y1, x2, y2 = map(int, d["bbox"])
+        crop = image.crop((x1, y1, x2, y2))
+
+        buf = io.BytesIO()
+        crop.save(buf, format="JPEG")
+
+        crops.append(buf.getvalue())
+        meta.append(d)
+
+    # -------------------------
+    # BG REMOVAL
+    # -------------------------
+    masked_list = await batch_bg(crops)
+
+    # -------------------------
+    # UPLOAD
+    # -------------------------
+    async def upload_one(raw, masked, meta_row):
+        file_id = str(uuid.uuid4())
+        label = str(meta_row.get("label") or "item")
+        fallback = {
+            "item_id": file_id,
+            "label": label,
+            "score": float(meta_row.get("score") or 0.0),
+            "bbox": meta_row.get("bbox") or [],
+            "crop_source": meta_row.get("crop_source") or "hybrid",
+            "crop_quality": _resolve_crop_quality(meta_row, width, height),
+            "orientation_corrected": True,
+            "raw_url": None,
+            "masked_url": None,
+            "raw_image_base64": "data:image/jpeg;base64,"
+            + base64.b64encode(raw).decode("ascii"),
+            "masked_image_base64": "data:image/png;base64,"
+            + base64.b64encode(masked).decode("ascii"),
+            "upload_error": "",
+        }
+
+        try:
+            upload = r2.upload_wardrobe_images(
+                file_id=file_id, raw_image_bytes=raw, masked_image_bytes=masked
+            )
+        except (R2StorageError, Exception) as exc:
+            fallback["upload_error"] = str(exc)
+            return fallback
+
+        return {
+            "item_id": file_id,
+            "label": label,
+            "score": float(meta_row.get("score") or 0.0),
+            "bbox": meta_row.get("bbox") or [],
+            "crop_source": meta_row.get("crop_source") or "hybrid",
+            "crop_quality": _resolve_crop_quality(meta_row, width, height),
+            "orientation_corrected": True,
+            "raw_url": upload["raw_image_url"],
+            "masked_url": upload["masked_image_url"],
+            "normalized_url": (
+                upload.get("normalized_image_url")
+                or upload.get("normalized_url")
+                or upload.get("image_url")
+                or upload.get("masked_image_url")
+            ),
+            "raw_image_base64": fallback["raw_image_base64"],
+            "masked_image_base64": fallback["masked_image_base64"],
+            "upload_error": "",
+        }
+
+    results = await asyncio.gather(
+        *[upload_one(crops[i], masked_list[i], meta[i]) for i in range(len(crops))]
+    )
+
+    return results

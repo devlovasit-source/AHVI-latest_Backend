@@ -1,0 +1,397 @@
+{
+"version": "1.0",
+
+"experience": "inspiration_board",
+
+"description": "A visual reference experience that provides real-world examples, styling references, lifestyle inspiration, outfit ideas, destination references, beauty looks, and execution pathways based on a desired goal or aesthetic.",
+
+"experience_objective": {
+
+```
+"primary_goal":
+  "Help users understand how a desired outcome can be achieved.",
+
+"secondary_goals": [
+
+  "increase confidence",
+
+  "provide visual references",
+
+  "reduce uncertainty",
+
+  "demonstrate possibilities",
+
+  "bridge inspiration and action"
+]
+```
+
+},
+
+"activation_conditions": [
+
+```
+"inspiration_requested",
+
+"style_exploration",
+
+"outfit_generation",
+
+"shopping_recommendation",
+
+"travel_planning",
+
+"beauty_exploration",
+
+"event_preparation"
+```
+
+],
+
+"inspiration_categories": {
+
+```
+"fashion": {
+
+  "purpose":
+    "Real outfit inspiration and styling examples."
+},
+
+"beauty": {
+
+  "purpose":
+    "Makeup, skincare and beauty references."
+},
+
+"travel": {
+
+  "purpose":
+    "Destination experiences and travel styling."
+},
+
+"event": {
+
+  "purpose":
+    "Wedding, party and occasion inspiration."
+},
+
+"career": {
+
+  "purpose":
+    "Professional presence, interview and executive styling."
+},
+
+"wellness": {
+
+  "purpose":
+    "Habit, fitness and lifestyle inspiration."
+},
+
+"lifestyle": {
+
+  "purpose":
+    "Lifestyle references and aspirational examples."
+}
+```
+
+},
+
+"required_context": {
+
+```
+"critical": [
+
+  "goal",
+
+  "intent"
+],
+
+"important": [
+
+  "preferences",
+
+  "style_profile",
+
+  "life_domain",
+
+  "calendar"
+]
+```
+
+},
+
+"board_structure": {
+
+```
+"hero_card": {
+
+  "required": true,
+
+  "elements": [
+
+    "goal",
+
+    "inspiration_theme",
+
+    "recommended_direction"
+  ]
+},
+
+"reference_gallery": {
+
+  "required": true,
+
+  "minimum_assets": 8,
+
+  "maximum_assets": 24
+},
+
+"best_examples": {
+
+  "required": true,
+
+  "minimum": 3,
+
+  "maximum": 6
+},
+
+"pattern_analysis": {
+
+  "required": true,
+
+  "elements": [
+
+    "common_elements",
+
+    "key_styles",
+
+    "repeating_patterns",
+
+    "success_signals"
+  ]
+},
+
+"implementation_guide": {
+
+  "required": true
+},
+
+"next_best_action": {
+
+  "required": true
+}
+```
+
+},
+
+"asset_selection_priority": [
+
+```
+"user_saved_references",
+
+"user_uploaded_images",
+
+"editorial_references",
+
+"brand_references",
+
+"celebrity_references",
+
+"lifestyle_references",
+
+"destination_references"
+```
+
+],
+
+"reference_types": {
+
+```
+"outfit_references": [
+
+  "casual",
+
+  "elevated",
+
+  "vacation",
+
+  "workwear",
+
+  "occasion_wear"
+],
+
+"beauty_references": [
+
+  "natural",
+
+  "glam",
+
+  "bridal",
+
+  "editorial"
+],
+
+"travel_references": [
+
+  "luxury",
+
+  "adventure",
+
+  "beach",
+
+  "city",
+
+  "wellness"
+],
+
+"lifestyle_references": [
+
+  "wellness",
+
+  "productivity",
+
+  "luxury",
+
+  "creative"
+]
+```
+
+},
+
+"inspiration_analysis_framework": {
+
+```
+"identify": [
+
+  "visual_patterns",
+
+  "color_patterns",
+
+  "silhouettes",
+
+  "materials",
+
+  "styling_techniques",
+
+  "accessory_patterns"
+]
+```
+
+},
+
+"implementation_framework": {
+
+```
+"translate_inspiration_into": [
+
+  "style_board",
+
+  "shopping_board",
+
+  "travel_board",
+
+  "beauty_board"
+]
+```
+
+},
+
+"recommendation_generation": {
+
+```
+"derive_from": [
+
+  "most_relevant_references",
+
+  "user_preferences",
+
+  "goal_alignment"
+]
+```
+
+},
+
+"visual_layout": {
+
+```
+"sections": [
+
+  "hero",
+
+  "reference_gallery",
+
+  "pattern_analysis",
+
+  "recommended_direction",
+
+  "implementation_guide",
+
+  "next_action"
+]
+```
+
+},
+
+"proactive_extensions": {
+
+```
+"fashion_inspiration": [
+
+  "generate_style_board",
+
+  "generate_shopping_board"
+],
+
+"travel_inspiration": [
+
+  "generate_travel_board",
+
+  "generate_packing_board"
+],
+
+"event_inspiration": [
+
+  "generate_event_board",
+
+  "generate_beauty_board",
+
+  "generate_shopping_board"
+]
+```
+
+},
+
+"success_metrics": [
+
+```
+"references_saved",
+
+"board_shared",
+
+"recommendation_followed",
+
+"experience_generated"
+```
+
+],
+
+"response_schema": {
+
+```
+"required_output": [
+
+  "theme",
+
+  "reference_gallery",
+
+  "pattern_analysis",
+
+  "recommended_direction",
+
+  "implementation_guide",
+
+  "next_best_action"
+]
+```
+
+}
+}

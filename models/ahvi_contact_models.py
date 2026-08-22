@@ -1,0 +1,119 @@
+"""API models and Appwrite mappers for AHVI contacts."""
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
+
+class AhviContactCreate(BaseModel):
+    firstName: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    lastName: Optional[str] = Field(default=None, max_length=80)
+    phoneNumber: Optional[str] = Field(default=None, min_length=3, max_length=40)
+    email: Optional[str] = Field(default=None, max_length=160)
+    displayName: Optional[str] = Field(default=None, max_length=160)
+    relationship: Optional[str] = Field(default=None, max_length=80)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    tags: List[str] = Field(default_factory=list)
+    isFavorite: bool = False
+    avatarUrl: Optional[str] = Field(default=None, max_length=1000)
+    # Backward-compatible aliases used by older/dev builds.
+    name: Optional[str] = Field(default=None, max_length=160)
+    phone: Optional[str] = Field(default=None, max_length=40)
+    favorite: Optional[bool] = None
+
+
+class AhviContactUpdate(BaseModel):
+    firstName: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    lastName: Optional[str] = Field(default=None, max_length=80)
+    phoneNumber: Optional[str] = Field(default=None, min_length=3, max_length=40)
+    email: Optional[str] = Field(default=None, max_length=160)
+    displayName: Optional[str] = Field(default=None, max_length=160)
+    relationship: Optional[str] = Field(default=None, max_length=80)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+    tags: Optional[List[str]] = None
+    isFavorite: Optional[bool] = None
+    avatarUrl: Optional[str] = Field(default=None, max_length=1000)
+    name: Optional[str] = Field(default=None, max_length=160)
+    phone: Optional[str] = Field(default=None, max_length=40)
+    favorite: Optional[bool] = None
+
+
+def model_to_dict(model: BaseModel, *, exclude_unset: bool = False) -> Dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump(exclude_unset=exclude_unset)
+    return model.dict(exclude_unset=exclude_unset)
+
+
+def _clean_tags(value: Any) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    tags: List[str] = []
+    for item in value:
+        text = str(item or "").strip()
+        if text and text not in tags:
+            tags.append(text[:40])
+    return tags[:20]
+
+
+def contact_to_appwrite(data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+    """Map public API names to the existing Appwrite contact schema."""
+    normalized = dict(data or {})
+    if not normalized.get("firstName") and normalized.get("name"):
+        name = str(normalized.get("name") or "").strip()
+        parts = name.split(None, 1)
+        normalized["firstName"] = parts[0] if parts else ""
+        if len(parts) > 1 and not normalized.get("lastName"):
+            normalized["lastName"] = parts[1]
+        normalized.setdefault("displayName", name)
+    if not normalized.get("phoneNumber") and normalized.get("phone") is not None:
+        normalized["phoneNumber"] = str(normalized.get("phone") or "").strip()
+    if "favorite" in normalized and "isFavorite" not in normalized:
+        normalized["isFavorite"] = bool(normalized.get("favorite"))
+
+    payload: Dict[str, Any] = {"userId": user_id}
+    mapping = {
+        "firstName": "firstName",
+        "lastName": "lastName",
+        "phoneNumber": "phoneNumber",
+        "email": "email",
+        "relationship": "relationship",
+        "notes": "notes",
+        "isFavorite": "isFavorite",
+        "avatarUrl": "avatarUrl",
+    }
+    for public_key, appwrite_key in mapping.items():
+        if public_key not in normalized:
+            continue
+        value = normalized.get(public_key)
+        if isinstance(value, str):
+            value = value.strip()
+        if value is not None:
+            if public_key == "phoneNumber":
+                value = str(value)
+            payload[appwrite_key] = value
+    if "tags" in normalized:
+        payload["tags"] = _clean_tags(normalized.get("tags"))
+    return payload
+
+
+def contact_from_appwrite(doc: Dict[str, Any]) -> Dict[str, Any]:
+    first = str(doc.get("firstname") or doc.get("firstName") or "").strip()
+    last = str(doc.get("surname") or doc.get("lastName") or "").strip()
+    display = str(doc.get("displayName") or f"{first} {last}".strip()).strip()
+    return {
+        "id": doc.get("$id") or doc.get("id"),
+        "userId": doc.get("userId") or doc.get("user_id"),
+        "firstName": first,
+        "lastName": last,
+        "phoneNumber": doc.get("phoneNumber") or doc.get("phoneno") or "",
+        "email": doc.get("email") or "",
+        "displayName": display or first,
+        "relationship": doc.get("relationship") or "",
+        "notes": doc.get("notes") or "",
+        "tags": _clean_tags(doc.get("tags")),
+        "isFavorite": bool(doc.get("isFavorite") or False),
+        "avatarUrl": doc.get("avatarUrl") or "",
+        "createdAt": doc.get("$createdAt"),
+        "updatedAt": doc.get("$updatedAt"),
+    }

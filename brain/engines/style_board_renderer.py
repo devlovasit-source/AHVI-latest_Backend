@@ -1,0 +1,802 @@
+import io
+import base64
+import os
+import re
+from typing import Dict, Any
+
+import requests
+from PIL import Image, ImageFilter, ImageDraw, ImageFont
+
+# NEW ✅
+from services.bg_service import remove_bg_external_sync as remove_background_sync
+
+
+class StyleBoardRenderer:
+    """
+    🔥 FINAL ELITE RENDERER
+
+    Features:
+    - Engine-driven layout
+    - Fallback safety
+    - Collision avoidance
+    - Editorial layering
+    - Premium shadows
+    """
+
+    CANVAS_SIZE = (1024, 1280)
+
+    # =========================
+    # MAIN ENTRY
+    # =========================
+    def render(self, board: Dict[str, Any]) -> bytes:
+
+        canvas = self._create_background(board)
+
+        items = board.get("items", [])
+        layout = board.get("layout", {})
+        preset = str(board.get("layout_preset") or "").strip()
+        composition_items = board.get("composition_items") or []
+
+        # 🔥 VALIDATE OR FALLBACK
+        if composition_items:
+            layout = self._build_composition_layout(items, board)
+        elif preset:
+            layout = self._build_preset_layout(items, preset)
+        elif not self._is_valid_layout(layout, items):
+            layout = self._build_fallback_layout(items)
+
+        placements = layout.get("placements", {})
+        layers = layout.get("layers", {})
+
+        # 🔥 COLLISION FIX
+        placements = self._resolve_collisions(placements)
+
+        # 🔥 RENDER BY DEPTH
+        for layer_name in ["background", "midground", "foreground"]:
+            for item in layers.get(layer_name, []):
+                self._place_item(canvas, item, placements.get(item.get("id"), {}))
+
+        if str(os.getenv("STYLE_BOARD_INCLUDE_TEXT", "false")).lower() in {
+            "1",
+            "true",
+            "yes",
+        }:
+            canvas = self._add_text(canvas, board)
+
+        buffer = io.BytesIO()
+        canvas.save(buffer, format="PNG")
+        buffer.seek(0)
+
+        return buffer.read()
+
+    # =========================
+    # BACKGROUND
+    # =========================
+    def _create_background(self, board):
+
+        aesthetic = str(board.get("aesthetic", "")).lower()
+
+        if "luxury" in aesthetic:
+            base = (245, 240, 232)
+        elif "street" in aesthetic:
+            base = (20, 20, 20)
+        else:
+            base = (250, 250, 250)
+
+        img = Image.new("RGB", self.CANVAS_SIZE, base)
+
+        overlay = Image.new("RGBA", self.CANVAS_SIZE, (255, 255, 255, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        for y in range(0, self.CANVAS_SIZE[1], 4):
+            alpha = int(30 * (y / self.CANVAS_SIZE[1]))
+            draw.rectangle(
+                [(0, y), (self.CANVAS_SIZE[0], y + 4)], fill=(255, 255, 255, alpha)
+            )
+
+        img.paste(overlay, (0, 0), overlay)
+        return img
+
+    # =========================
+    # LAYOUT VALIDATION
+    # =========================
+    def _is_valid_layout(self, layout, items):
+
+        if not layout:
+            return False
+
+        layers = layout.get("layers")
+        placements = layout.get("placements")
+
+        if not isinstance(layers, dict) or not isinstance(placements, dict):
+            return False
+
+        item_ids = {str(i.get("id")) for i in items if i.get("id")}
+        placed_ids = set(placements.keys())
+
+        return bool(item_ids.intersection(placed_ids))
+
+    # =========================
+    # FALLBACK LAYOUT
+    # =========================
+    def _build_fallback_layout(self, items):
+        """Emergency fallback. Still EDITORIAL (role-aware hierarchy), never a
+        mechanical corner grid. Only used when no composition_items / preset
+        are supplied by the backend layout planner."""
+        if not items:
+            return {}
+
+        role_items = {"dress": [], "top": [], "bottom": [], "footwear": [], "accessory": []}
+        for item in items:
+            role_items.setdefault(self._item_role(item), []).append(item)
+
+        layers = {"background": [], "midground": [], "foreground": []}
+        placements = {}
+
+        def add(item, layer, x, y, scale, rotation=0):
+            if not item:
+                return
+            ident = item.get("id") or self._item_id(item)
+            layers[layer].append(item)
+            placements[ident] = {
+                "x": max(0.08, min(0.92, x)),
+                "y": max(0.08, min(0.92, y)),
+                "scale": scale,
+                "rotation": rotation,
+                "z": {"background": 1, "midground": 2, "foreground": 3}[layer],
+            }
+
+        dress = (role_items["dress"] or [None])[0]
+        top = (role_items["top"] or [None])[0]
+        bottom = (role_items["bottom"] or [None])[0]
+        footwear = (role_items["footwear"] or [None])[0]
+        accessories = role_items["accessory"][:3]
+
+        if dress:
+            add(dress, "midground", 0.46, 0.42, 1.45)
+            add(footwear, "foreground", 0.72, 0.78, 0.78)
+        elif top and bottom:
+            add(top, "midground", 0.38, 0.36, 1.30)
+            add(bottom, "background", 0.62, 0.54, 1.05)
+            add(footwear, "foreground", 0.30, 0.78, 0.80)
+        else:
+            hero = items[0]
+            add(hero, "midground", 0.50, 0.46, 1.40)
+
+        # Accessory orbit on the right — small accents, not a grid.
+        for idx, acc in enumerate(accessories):
+            x, y = [(0.80, 0.18), (0.85, 0.31), (0.80, 0.44)][idx]
+            add(acc, "foreground", x, y, 0.40)
+
+        # Anything not yet placed (rare) gets an editorial off-center slot,
+        # never an even grid.
+        placed = {self._item_id(i) for layer in layers.values() for i in layer}
+        spare = [(0.70, 0.66), (0.30, 0.24), (0.72, 0.26)]
+        for idx, item in enumerate(i for i in items if self._item_id(i) not in placed):
+            x, y = spare[idx % len(spare)]
+            add(item, "background", x, y, 0.62)
+
+        return {"composition": "editorial_fallback", "layers": layers, "placements": placements}
+
+    def _item_role(self, item):
+        text = " ".join(
+            str(item.get(k) or "")
+            for k in ("role", "slot", "type", "category", "sub_category", "subcategory", "name")
+        ).lower()
+        if any(k in text for k in ("dress", "gown", "saree", "lehenga", "jumpsuit")):
+            return "dress"
+        if any(k in text for k in ("shoe", "sneaker", "loafer", "boot", "sandal", "heel")):
+            return "footwear"
+        if any(k in text for k in ("bottom", "jean", "trouser", "pant", "chino", "shorts", "skirt")):
+            return "bottom"
+        if any(k in text for k in ("watch", "belt", "sunglass", "bag", "necklace", "bracelet", "ring", "scarf")):
+            return "accessory"
+        if any(k in text for k in ("top", "shirt", "tee", "tshirt", "polo", "kurta", "blouse", "jacket", "blazer", "overshirt", "coat", "hoodie", "sweater", "knit")):
+            return "top"
+        return "accessory"
+
+    def _norm_text(self, value):
+        return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", str(value or "").lower())).strip()
+
+    def _item_text(self, item):
+        if not isinstance(item, dict):
+            return ""
+        return self._norm_text(
+            " ".join(
+                str(item.get(k) or "")
+                for k in (
+                    "name",
+                    "title",
+                    "label",
+                    "category",
+                    "sub_category",
+                    "subcategory",
+                    "type",
+                    "role",
+                    "slot",
+                )
+            )
+        )
+
+    def _hero_piece_kind(self, hero_piece):
+        text = self._norm_text(hero_piece)
+        tokens = set(text.split())
+        if tokens.intersection({"loafer", "loafers", "sneaker", "sneakers", "boot", "boots", "shoe", "shoes"}) or (
+            "oxford" in tokens and tokens.intersection({"shoe", "shoes"})
+        ):
+            return "footwear"
+        if tokens.intersection({"blazer", "jacket", "overshirt", "coat"}):
+            return "outerwear"
+        if tokens.intersection({"shirt", "oxford", "button", "buttondown", "polo", "tee", "tshirt", "sweater", "knit", "hoodie"}):
+            return "top"
+        if tokens.intersection({"trouser", "trousers", "pant", "pants", "jean", "jeans", "chino", "chinos", "short", "shorts"}):
+            return "bottom"
+        if tokens.intersection({"watch", "belt", "bag", "necklace", "bracelet", "ring", "sunglass", "sunglasses"}):
+            return "accessory"
+        return ""
+
+    def _item_compatible_with_hero_piece(self, item, hero_piece):
+        kind = self._hero_piece_kind(hero_piece)
+        if not kind:
+            return True
+        role = self._item_role(item)
+        text = self._item_text(item)
+        if kind in {"top", "outerwear"}:
+            if role in {"footwear", "accessory", "bottom"}:
+                return False
+            if kind == "outerwear":
+                return any(term in text for term in ("blazer", "jacket", "overshirt", "coat", "outerwear"))
+            return any(term in text for term in ("top", "shirt", "oxford", "button", "polo", "tee", "tshirt", "sweater", "knit", "hoodie"))
+        if kind == "bottom":
+            if role in {"top", "dress", "footwear", "accessory"}:
+                return False
+            return role == "bottom" or any(term in text for term in ("bottom", "trouser", "pant", "jean", "chino", "short"))
+        if kind == "footwear":
+            if role in {"top", "bottom", "dress", "accessory"}:
+                return False
+            return role == "footwear" or any(term in text for term in ("footwear", "shoe", "loafer", "sneaker", "boot", "oxford"))
+        if kind == "accessory":
+            return role == "accessory"
+        return True
+
+    def _find_item_matching_hero_piece(self, items, hero_piece):
+        hero = self._norm_text(hero_piece)
+        if not hero:
+            return None
+        compatible = [
+            item
+            for item in (items or [])
+            if isinstance(item, dict) and self._item_compatible_with_hero_piece(item, hero_piece)
+        ]
+        if not compatible:
+            return None
+        for item in compatible:
+            text = self._item_text(item)
+            if text and (hero in text or text in hero):
+                return item
+        hero_terms = {term for term in hero.split() if len(term) > 2}
+        for item in compatible:
+            text_terms = set(self._item_text(item).split())
+            if hero_terms and hero_terms.intersection(text_terms):
+                return item
+        return compatible[0] if compatible else None
+
+    def _build_preset_layout(self, items, preset):
+        role_items = {"top": [], "dress": [], "bottom": [], "footwear": [], "accessory": []}
+        for item in items or []:
+            role = self._item_role(item)
+            role_items.setdefault(role, []).append(item)
+
+        hero = (role_items["dress"] or role_items["top"] or items[:1] or [None])[0]
+        bottom = (role_items["bottom"] or [None])[0]
+        footwear = (role_items["footwear"] or [None])[0]
+        accessories = role_items["accessory"][:4]
+        left_anchor = "left" in preset or "asymmetric" in preset
+        compact = "compact" in preset
+
+        layers = {"background": [], "midground": [], "foreground": []}
+        placements = {}
+
+        def add(item, layer, x, y, scale, rotation=0):
+            if not item:
+                return
+            item_id = item.get("id")
+            layers[layer].append(item)
+            placements[item_id] = {
+                "x": x,
+                "y": y,
+                "scale": scale,
+                "rotation": rotation,
+                "z": {"background": 1, "midground": 2, "foreground": 3}[layer],
+            }
+
+        if hero and self._item_role(hero) == "dress":
+            add(hero, "midground", 0.46, 0.42, 1.45)
+        else:
+            add(bottom, "background", 0.62 if left_anchor else 0.58, 0.54, 1.18)
+            add(hero, "midground", 0.42 if left_anchor else 0.46, 0.38, 1.38)
+
+        add(footwear, "foreground", 0.27 if left_anchor else 0.70, 0.80, 0.98 if not compact else 0.84, -6 if left_anchor else 6)
+
+        accessory_positions = [(0.82, 0.18), (0.86, 0.30), (0.80, 0.42), (0.88, 0.54)]
+        if compact:
+            accessory_positions = [(0.80, 0.16), (0.88, 0.16), (0.80, 0.27), (0.88, 0.27)]
+        for idx, item in enumerate(accessories):
+            x, y = accessory_positions[idx % len(accessory_positions)]
+            add(item, "foreground", x, y, 0.46)
+
+        return {"composition": preset, "layers": layers, "placements": placements}
+
+    def _item_id(self, item):
+        return str(
+            item.get("id")
+            or item.get("$id")
+            or item.get("item_id")
+            or item.get("itemId")
+            or item.get("image_id")
+            or item.get("name")
+            or ""
+        ).strip()
+
+    def _build_composition_layout(self, items, board):
+        mode = str(board.get("composition_mode") or "stack").lower()
+        composition_items = board.get("composition_items") or []
+        by_id = {self._item_id(item): item for item in items or [] if self._item_id(item)}
+        roles = {
+            str(entry.get("id") or ""): str(entry.get("role") or "").lower()
+            for entry in composition_items
+            if isinstance(entry, dict)
+        }
+
+        hero_id = str(board.get("hero_item_id") or "").strip()
+        anchor_id = str(board.get("anchor_item_id") or "").strip()
+        hero_piece = board.get("hero_piece")
+        explicit_hero = by_id.get(hero_id)
+        if explicit_hero and not self._item_compatible_with_hero_piece(explicit_hero, hero_piece):
+            explicit_hero = None
+        hero = (
+            explicit_hero
+            or self._find_item_matching_hero_piece(items, hero_piece)
+            or next(
+                (
+                    item
+                    for item in (items or [])
+                    if self._item_compatible_with_hero_piece(item, hero_piece)
+                ),
+                None,
+            )
+        )
+        anchor = by_id.get(anchor_id)
+        supports = []
+        accessories = []
+        for item in items or []:
+            ident = self._item_id(item)
+            role = roles.get(ident) or self._item_role(item)
+            if item is hero or ident == hero_id:
+                continue
+            if item is anchor or ident == anchor_id or role == "anchor":
+                anchor = item
+                continue
+            if role in {"accent", "accessory"} or self._item_role(item) == "accessory":
+                accessories.append(item)
+            else:
+                supports.append(item)
+
+        if self._has_explicit_layout_spec(composition_items):
+            return self._build_spec_layout(items, composition_items, mode)
+        if mode == "grid":
+            return self._build_grid_layout(items, hero, anchor, supports, accessories)
+        return self._build_stack_layout(items, hero, anchor, supports, accessories)
+
+    def _has_explicit_layout_spec(self, composition_items):
+        return any(
+            isinstance(entry, dict) and entry.get("x") is not None and entry.get("y") is not None
+            for entry in composition_items or []
+        )
+
+    def _scale_for_spec_role(self, role, relative_size):
+        try:
+            size = float(relative_size or 0.0)
+        except Exception:
+            size = 0.0
+        role = str(role or "").lower()
+        if role == "hero":
+            return 1.40 if size <= 0 else max(1.20, min(1.55, size / 0.27))
+        if role == "anchor":
+            return 0.94 if size <= 0 else max(0.76, min(1.10, size / 0.23))
+        if role == "accent":
+            return 0.34 if size <= 0 else max(0.24, min(0.46, size / 0.22))
+        return 0.82 if size <= 0 else max(0.58, min(1.05, size / 0.19))
+
+    def _build_spec_layout(self, items, composition_items, mode):
+        layers = {"background": [], "midground": [], "foreground": []}
+        placements = {}
+        by_id = {self._item_id(item): item for item in items or [] if self._item_id(item)}
+
+        def layer_for_z(z):
+            try:
+                z_int = int(z)
+            except Exception:
+                z_int = 2
+            if z_int >= 5:
+                return "foreground"
+            if z_int <= 1:
+                return "background"
+            return "midground"
+
+        placed = set()
+        for entry in composition_items or []:
+            if not isinstance(entry, dict):
+                continue
+            ident = str(entry.get("id") or "").strip()
+            item = by_id.get(ident)
+            if not item:
+                continue
+            role = str(entry.get("role") or "support").lower()
+            layer = layer_for_z(entry.get("z"))
+            try:
+                x = float(entry.get("x"))
+                y = float(entry.get("y"))
+            except Exception:
+                continue
+            rotation = 0 if str(mode).lower() == "grid" else max(-8, min(8, float(entry.get("rotation") or 0)))
+            layers[layer].append(item)
+            placements[ident] = {
+                "x": max(0.06, min(0.94, x)),
+                "y": max(0.06, min(0.94, y)),
+                "scale": self._scale_for_spec_role(role, entry.get("relative_size")),
+                "rotation": rotation,
+                "z": {"background": 1, "midground": 2, "foreground": 3}[layer],
+            }
+            placed.add(ident)
+
+        fallback_positions = [(0.62, 0.52), (0.28, 0.76), (0.82, 0.22), (0.72, 0.34)]
+        for idx, item in enumerate([i for i in items or [] if self._item_id(i) not in placed]):
+            ident = self._item_id(item)
+            x, y = fallback_positions[idx % len(fallback_positions)]
+            layer = "foreground" if self._item_role(item) in {"footwear", "accessory"} else "background"
+            layers[layer].append(item)
+            placements[ident] = {"x": x, "y": y, "scale": 0.62, "rotation": 0, "z": 2}
+        return {"composition": str(mode or "stack"), "layers": layers, "placements": placements}
+
+    def _build_stack_layout(self, items, hero, anchor, supports, accessories):
+        layers = {"background": [], "midground": [], "foreground": []}
+        placements = {}
+
+        def add(item, layer, x, y, scale, rotation=0):
+            if not item:
+                return
+            ident = self._item_id(item)
+            layers[layer].append(item)
+            placements[ident] = {
+                "x": max(0.06, min(0.94, x)),
+                "y": max(0.06, min(0.94, y)),
+                "scale": scale,
+                "rotation": rotation,
+                "z": {"background": 1, "midground": 2, "foreground": 3}[layer],
+            }
+
+        add(hero, "midground", 0.42, 0.40, 1.42, 0)
+        for idx, item in enumerate(supports[:2]):
+            add(item, "background", [0.64, 0.58][idx % 2], [0.54, 0.34][idx % 2], 1.05 if idx == 0 else 0.78, 0)
+        add(anchor, "foreground", 0.28, 0.78, 0.94, -5)
+
+        accent_positions = [(0.80, 0.18), (0.86, 0.30), (0.78, 0.42)]
+        for idx, item in enumerate(accessories[:3]):
+            x, y = accent_positions[idx]
+            add(item, "foreground", x, y, 0.34, 4 if idx == 1 else 0)
+
+        placed = {self._item_id(item) for layer in layers.values() for item in layer}
+        fallback_positions = [(0.72, 0.70), (0.24, 0.24), (0.72, 0.24)]
+        for idx, item in enumerate([i for i in items or [] if self._item_id(i) not in placed]):
+            x, y = fallback_positions[idx % len(fallback_positions)]
+            add(item, "background", x, y, 0.64, 0)
+        return {"composition": "stack", "layers": layers, "placements": placements}
+
+    def _build_grid_layout(self, items, hero, anchor, supports, accessories):
+        layers = {"background": [], "midground": [], "foreground": []}
+        placements = {}
+
+        def add(item, layer, x, y, scale):
+            if not item:
+                return
+            ident = self._item_id(item)
+            layers[layer].append(item)
+            placements[ident] = {
+                "x": x,
+                "y": y,
+                "scale": scale,
+                "rotation": 0,
+                "z": {"background": 1, "midground": 2, "foreground": 3}[layer],
+            }
+
+        add(hero, "midground", 0.38, 0.40, 1.30)
+        for idx, item in enumerate(supports[:2]):
+            add(item, "background", [0.68, 0.68][idx], [0.36, 0.58][idx], 0.82)
+        add(anchor, "foreground", 0.34, 0.76, 0.78)
+        for idx, item in enumerate(accessories[:3]):
+            add(item, "foreground", 0.70 + (idx % 2) * 0.10, 0.76 + (idx // 2) * 0.10, 0.30)
+
+        placed = {self._item_id(item) for layer in layers.values() for item in layer}
+        for idx, item in enumerate([i for i in items or [] if self._item_id(i) not in placed]):
+            add(item, "background", 0.62 + (idx % 2) * 0.16, 0.24 + (idx // 2) * 0.16, 0.52)
+        return {"composition": "grid", "layers": layers, "placements": placements}
+
+    # =========================
+    # PLACEMENT
+    # =========================
+    def _place_item(self, canvas, item, placement):
+
+        img = self._prepare_image(item, placement)
+        if img is None:
+            return
+
+        img = self._add_shadow(img)
+
+        cw, ch = self.CANVAS_SIZE
+        iw, ih = img.size
+        x = int(placement.get("x", 0.5) * cw - iw / 2)
+        y = int(placement.get("y", 0.5) * ch - ih / 2)
+
+        # Safe bounds: keep the item inside the canvas (center it if it is
+        # somehow larger than the canvas) so nothing clips off the edge.
+        x = (cw - iw) // 2 if iw >= cw else max(0, min(x, cw - iw))
+        y = (ch - ih) // 2 if ih >= ch else max(0, min(y, ch - ih))
+
+        canvas.paste(img, (x, y), img)
+
+    # =========================
+    # IMAGE PREP
+    # =========================
+    def _prepare_image(self, item, placement):
+
+        img = self._load_image(item)
+        if img is None:
+            return None
+
+        scale = placement.get("scale", 1.0)
+        rotation = placement.get("rotation", 0)
+
+        base_width = int(self._base_width_for_item(item) * scale)
+
+        w, h = img.size
+        ratio = base_width / max(w, 1)
+
+        img = img.resize((max(1, int(w * ratio)), max(1, int(h * ratio))))
+        img = img.rotate(rotation, expand=True)
+
+        # Safe bounds: never let a hero (or any item) exceed the canvas so a
+        # large dress stays fully visible instead of clipping off-frame.
+        max_w = int(self.CANVAS_SIZE[0] * 0.94)
+        max_h = int(self.CANVAS_SIZE[1] * 0.94)
+        if img.size[0] > max_w or img.size[1] > max_h:
+            clamp = min(max_w / img.size[0], max_h / img.size[1])
+            img = img.resize(
+                (max(1, int(img.size[0] * clamp)), max(1, int(img.size[1] * clamp)))
+            )
+
+        return img
+
+    def _base_width_for_item(self, item):
+        text = " ".join(
+            [
+                str(item.get("type") or ""),
+                str(item.get("category") or ""),
+                str(item.get("sub_category") or ""),
+                str(item.get("name") or ""),
+            ]
+        ).lower()
+        if any(x in text for x in ["dress", "saree", "lehenga", "gown", "jumpsuit"]):
+            return 420
+        if any(x in text for x in ["bottom", "jean", "trouser", "pant", "skirt"]):
+            return 360
+        if any(
+            x in text
+            for x in [
+                "top",
+                "shirt",
+                "kurta",
+                "blouse",
+                "tee",
+                "jacket",
+                "blazer",
+                "coat",
+            ]
+        ):
+            return 380
+        if any(x in text for x in ["shoe", "sneaker", "heel", "boot", "sandal", "bag"]):
+            return 300
+        if any(
+            x in text
+            for x in [
+                "watch",
+                "necklace",
+                "earring",
+                "bracelet",
+                "belt",
+                "scarf",
+                "sunglass",
+            ]
+        ):
+            return 220
+        return 320
+
+    # =========================
+    # IMAGE LOADING
+    # =========================
+    def _load_image(self, item):
+        # Prefer pre-masked/sticker assets from R2 whenever available.
+        masked_url = (
+            item.get("normalized_url")
+            or item.get("normalizedUrl")
+            or item.get("masked_url")
+            or item.get("masked_image_url")
+            or item.get("sticker_url")
+            or item.get("cutout_url")
+        )
+        url = masked_url or item.get("image_url")
+        if not url and item.get("image_base64"):
+            try:
+                text = str(item.get("image_base64") or "").strip()
+                if "," in text:
+                    text = text.split(",", 1)[1]
+                base = Image.open(io.BytesIO(base64.b64decode(text))).convert("RGBA")
+                return base
+            except Exception:
+                return None
+        if not url:
+            return None
+
+        try:
+            res = requests.get(url, timeout=5)
+            if not res.ok:
+                return None
+            base = Image.open(io.BytesIO(res.content)).convert("RGBA")
+
+            # If this is already a masked/sticker image (or has alpha transparency), don't re-run BG removal.
+            if masked_url or self._has_transparency(base):
+                return base
+
+            # Optional fallback only for raw images.
+            # Keep this disabled by default to avoid re-segmenting already clean assets.
+            if str(os.getenv("STYLE_BOARD_APPLY_BG_REMOVAL", "false")).lower() not in {
+                "1",
+                "true",
+                "yes",
+            }:
+                return base
+
+            result = remove_background_sync(res.content)
+            return Image.open(io.BytesIO(result or res.content)).convert("RGBA")
+
+        except Exception:
+            return None
+
+    def _has_transparency(self, image: Image.Image) -> bool:
+        try:
+            if image.mode != "RGBA":
+                return False
+            alpha = image.getchannel("A")
+            lo, hi = alpha.getextrema()
+            return int(lo) < 255
+        except Exception:
+            return False
+
+    # =========================
+    # SHADOW
+    # =========================
+    def _add_shadow(self, img):
+        """Natural object shadow from the item's alpha silhouette — not a
+        rectangle. Falls back to no shadow if the image has no usable alpha."""
+        if img.mode != "RGBA":
+            img = img.convert("RGBA")
+
+        pad = 28
+        offset = (10, 14)
+        out_size = (img.size[0] + pad * 2, img.size[1] + pad * 2)
+        base = Image.new("RGBA", out_size, (0, 0, 0, 0))
+
+        try:
+            alpha = img.getchannel("A")
+            lo, _hi = alpha.getextrema()
+            # Build a soft shadow shaped by the item silhouette (alpha mask),
+            # not a filled box. Skip entirely for fully-opaque rectangular
+            # assets so we never stamp a hard rectangle.
+            if lo < 255:
+                silhouette = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                black = Image.new("RGBA", img.size, (0, 0, 0, 115))
+                silhouette = Image.composite(black, silhouette, alpha)
+                shadow_canvas = Image.new("RGBA", out_size, (0, 0, 0, 0))
+                shadow_canvas.paste(
+                    silhouette, (pad + offset[0], pad + offset[1]), silhouette
+                )
+                shadow_canvas = shadow_canvas.filter(ImageFilter.GaussianBlur(16))
+                base = Image.alpha_composite(base, shadow_canvas)
+        except Exception:
+            pass
+
+        base.paste(img, (pad, pad), img)
+        return base
+
+    # =========================
+    # COLLISION SYSTEM
+    # =========================
+    def _get_bbox(self, placement, size=(400, 400)):
+
+        scale = placement.get("scale", 1.0)
+        w = int(size[0] * scale)
+        h = int(size[1] * scale)
+
+        x = placement.get("x", 0.5) * self.CANVAS_SIZE[0]
+        y = placement.get("y", 0.5) * self.CANVAS_SIZE[1]
+
+        return {"x1": x - w / 2, "y1": y - h / 2, "x2": x + w / 2, "y2": y + h / 2}
+
+    def _is_overlapping(self, b1, b2):
+
+        padding = 20
+
+        return not (
+            b1["x2"] + padding < b2["x1"]
+            or b1["x1"] - padding > b2["x2"]
+            or b1["y2"] + padding < b2["y1"]
+            or b1["y1"] - padding > b2["y2"]
+        )
+
+    def _resolve_collisions(self, placements):
+
+        keys = list(placements.keys())
+
+        for i in range(len(keys)):
+            for j in range(i + 1, len(keys)):
+
+                p1 = placements[keys[i]]
+                p2 = placements[keys[j]]
+
+                b1 = self._get_bbox(p1)
+                b2 = self._get_bbox(p2)
+
+                if self._is_overlapping(b1, b2):
+
+                    dx = (p2["x"] - p1["x"]) or 0.1
+                    dy = (p2["y"] - p1["y"]) or 0.1
+
+                    mag = (dx**2 + dy**2) ** 0.5
+                    dx /= mag
+                    dy /= mag
+
+                    push = 0.08
+
+                    p2["x"] += dx * push
+                    p2["y"] += dy * push
+
+                    p2["x"] = max(0.1, min(0.9, p2["x"]))
+                    p2["y"] = max(0.1, min(0.9, p2["y"]))
+
+        return placements
+
+    # =========================
+    # TYPOGRAPHY
+    # =========================
+    def _add_text(self, img, board):
+
+        draw = ImageDraw.Draw(img)
+
+        title = str(board.get("vibe", "STYLE")).upper()
+        subtitle = str(board.get("aesthetic", "")).title()
+
+        try:
+            title_font = ImageFont.truetype("PlayfairDisplay-Bold.ttf", 64)
+            sub_font = ImageFont.truetype("Montserrat-Regular.ttf", 28)
+        except:
+            title_font = ImageFont.load_default()
+            sub_font = ImageFont.load_default()
+
+        draw.text((60, 80), title, fill=(20, 20, 20), font=title_font)
+        draw.text((60, 150), subtitle, fill=(90, 90, 90), font=sub_font)
+
+        return img
+
+
+# Singleton
+style_board_renderer = StyleBoardRenderer()

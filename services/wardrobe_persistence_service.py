@@ -1,0 +1,1685 @@
+import json
+import logging
+import os
+import re
+import uuid
+from typing import Any, Dict, List, Tuple
+
+import requests
+
+from services.embedding_service import embedding_service
+from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
+from services.category_taxonomy import infer_style_attributes, normalize_category_from_label, is_face_risk_category
+from services.qdrant_service import qdrant_service
+from services.wardrobe_taxonomy import normalize as _taxonomy_normalize
+from services.wardrobe_intelligence_service import enrich_wardrobe_item
+from services.wardrobe_suitability import apply_metadata_guard
+
+logger = logging.getLogger("ahvi.wardrobe_persistence")
+
+# =========================
+# ENV CONFIG
+# =========================
+APPWRITE_ENDPOINT = os.getenv("APPWRITE_ENDPOINT")
+APPWRITE_PROJECT_ID = os.getenv("APPWRITE_PROJECT_ID")
+APPWRITE_API_KEY = os.getenv("APPWRITE_API_KEY")
+APPWRITE_DATABASE_ID = (
+    os.getenv("APPWRITE_DATABASE_ID")
+    or os.getenv("EXPO_PUBLIC_APPWRITE_DATABASE_ID")
+)
+
+
+def _all_known_outfits_collections() -> List[str]:
+    """Every env var name we've ever used for the outfits collection.
+
+    Cloud Run + Expo + legacy deploys have set different combinations.
+    update_item_labels probes them in order on 404 so users don't get
+    'Not Found' just because the env var the code reads first happens
+    to be empty or pointing at an older collection.
+    """
+    candidates: List[str] = []
+    seen: set[str] = set()
+    for name in (
+        "APPWRITE_COLLECTION_OUTFITS",
+        "EXPO_PUBLIC_APPWRITE_COLLECTION_OUTFITS",
+        "APPWRITE_COLLECTION_ID",
+        "APPWRITE_OUTFITS_COLLECTION_ID",
+        "APPWRITE_WARDROBE_COLLECTION_ID",
+    ):
+        val = os.getenv(name)
+        if val and val not in seen:
+            candidates.append(val)
+            seen.add(val)
+    return candidates
+
+
+_KNOWN_COLLECTIONS = _all_known_outfits_collections()
+APPWRITE_COLLECTION_ID = _KNOWN_COLLECTIONS[0] if _KNOWN_COLLECTIONS else None
+
+HEADERS = {
+    "X-Appwrite-Project": APPWRITE_PROJECT_ID or "",
+    "X-Appwrite-Key": APPWRITE_API_KEY or "",
+    "Content-Type": "application/json",
+}
+
+STYLE_METADATA_RESOURCE = "wardrobe_style_metadata"
+
+
+# =========================
+# HELPERS
+# =========================
+_HEX6_RE = re.compile(r"^[0-9a-fA-F]{6}$")
+_SAFE_DOC_ID_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+_APPWRITE_RESPONSE_ONLY_KEYS = {
+    "pixel_hash",
+    "pixelHash",
+    "masked_pixel_hash",
+    "maskedPixelHash",
+    "raw_pixel_hash",
+    "rawPixelHash",
+    "display_image_url",
+    "displayImageUrl",
+    "display_image_source",
+    "displayImageSource",
+    "catalog_ready",
+    "catalogReady",
+    "catalog_reason",
+    "catalogReason",
+    "regen_provider",
+    "regenProvider",
+    "imageStatus",
+    "image_status",
+    "validation_status",
+    "validationStatus",
+    "rejection_reason",
+    "rejectionReason",
+    "review_reason",
+    "reviewReason",
+    "selected_by_default",
+    "selectedByDefault",
+    "crop_source",
+    "cropSource",
+    "crop_quality",
+    "cropQuality",
+    "crop_quality_score",
+    "cropQualityScore",
+    "source_contains_person",
+    "sourceContainsPerson",
+    "unsafe_source",
+    "unsafeSource",
+    "needs_review",
+    "needsReview",
+    "requires_manual_entry",
+    "requiresManualEntry",
+    "wardrobe_profile_mismatch",
+    "wardrobeProfileMismatch",
+    "needs_wearer_confirmation",
+    "needsWearerConfirmation",
+    "mismatch_reason",
+    "mismatchReason",
+}
+
+
+def _appwrite_ready() -> bool:
+    return bool(
+        APPWRITE_ENDPOINT
+        and APPWRITE_PROJECT_ID
+        and APPWRITE_API_KEY
+        and APPWRITE_DATABASE_ID
+        and APPWRITE_COLLECTION_ID
+    )
+
+
+def _tokens(value: str) -> List[str]:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip().split()
+
+
+def _has_any(tokens: List[str], words: List[str]) -> bool:
+    return any(word in tokens for word in words)
+
+
+def _safe_text(value: Any, fallback: str = "") -> str:
+    text = str(value or "").strip()
+    return text if text else fallback
+
+
+def _first_url(item: Dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = item.get(key)
+        text = _safe_text(value)
+        if text and text.lower() != "null":
+            return text
+    return ""
+
+
+def _safe_document_id(value: Any) -> str:
+    raw = _safe_text(value)
+    if not raw:
+        raw = str(uuid.uuid4())
+
+    safe = _SAFE_DOC_ID_RE.sub("_", raw).strip("._-")
+    if not safe:
+        safe = str(uuid.uuid4())
+
+    # Appwrite custom document IDs have length restrictions.
+    return safe[:36]
+
+
+def _sanitize_appwrite_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    clean = dict(payload)
+    dropped: List[str] = []
+    for key in _APPWRITE_RESPONSE_ONLY_KEYS:
+        if key in clean:
+            clean.pop(key, None)
+            dropped.append(key)
+    if dropped:
+        logger.info(
+            "ahvi.persistence.dropped_unknown_attrs dropped=%s",
+            sorted(dropped),
+        )
+    return clean
+
+
+def _normalize_hex_color(value: Any, default: str = "#000000") -> str:
+    text = str(value or "").strip()
+    if not text:
+        return default
+
+    # Common named-color fallback for AI outputs.
+    named = {
+        "black": "#000000",
+        "white": "#FFFFFF",
+        "red": "#FF0000",
+        "blue": "#0000FF",
+        "green": "#008000",
+        "yellow": "#FFFF00",
+        "brown": "#8B4513",
+        "tan": "#D2B48C",
+        "beige": "#F5F5DC",
+        "grey": "#808080",
+        "gray": "#808080",
+        "navy": "#000080",
+        "pink": "#FFC0CB",
+        "purple": "#800080",
+        "orange": "#FFA500",
+    }
+
+    lowered = text.lower()
+    if lowered in named:
+        return named[lowered]
+
+    if text.startswith("#"):
+        text = text[1:]
+
+    if len(text) == 3:
+        text = "".join(c * 2 for c in text)
+
+    if not _HEX6_RE.match(text):
+        return default
+
+    return f"#{text.upper()}"
+
+
+def _normalize_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x or "").strip()]
+
+    if isinstance(value, str):
+        if not value.strip():
+            return []
+        return [x.strip() for x in value.split(",") if x.strip()]
+
+    return []
+
+
+def _create_document(document_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    if not _appwrite_ready():
+        raise RuntimeError(
+            "Appwrite wardrobe persistence is not configured. "
+            "Set APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_API_KEY, "
+            "APPWRITE_DATABASE_ID, and APPWRITE_COLLECTION_OUTFITS."
+        )
+
+    url = (
+        f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
+        f"/collections/{APPWRITE_COLLECTION_ID}/documents"
+    )
+
+    def post(payload: Dict[str, Any]):
+        return requests.post(
+            url,
+            json={
+                "documentId": document_id,
+                "data": payload,
+            },
+            headers=HEADERS,
+            timeout=20,
+        )
+
+    data = _sanitize_appwrite_payload(data)
+    res = post(data)
+
+    # Surgical unknown-attribute recovery: drop ONLY the attribute Appwrite names
+    # as unknown, then retry — iteratively for multiple unknowns. This must NOT
+    # blanket-strip a whole family (a single unknown like pixel_hash used to take
+    # the valid catalog_* fields down with it). Required image fields are never
+    # targeted (Appwrite would not call a required, schema-present attr unknown).
+    _catalog_keys = {
+        "catalog_status",
+        "catalog_url",
+        "catalog_png_url",
+        "catalog_method",
+        "catalog_provider",
+        "catalog_quality_score",
+        "catalog_generation_version",
+        "catalog_rotation_applied",
+        "catalog_generated_at",
+        "catalogStatus",
+        "catalogUrl",
+        "catalogPngUrl",
+        "catalogMethod",
+        "catalogProvider",
+        "catalogQualityScore",
+        "catalogGenerationVersion",
+        "catalogRotationApplied",
+        "catalogGeneratedAt",
+    }
+    current = dict(data)
+    dropped: List[str] = []
+    attempts = 0
+    while res.status_code not in (200, 201) and attempts < 8:
+        body = str(res.text or "")
+        low = body.lower()
+        if "unknown attribute" not in low and "invalid document structure" not in low:
+            break
+        bad = _unknown_attribute_from_appwrite_error(body)
+        if not bad or bad not in current:
+            break  # not a strippable named-attribute error
+        current.pop(bad, None)
+        dropped.append(bad)
+        attempts += 1
+        res = post(current)
+    if dropped:
+        logger.info(
+            "ahvi.persistence.dropped_unknown_attrs document_id=%s dropped=%s",
+            document_id,
+            dropped,
+        )
+        cat_dropped = [k for k in dropped if k in _catalog_keys]
+        if cat_dropped:
+            logger.info(
+                "ahvi.catalog.persistence_stripped document_id=%s stripped=%s",
+                document_id,
+                cat_dropped,
+            )
+
+    if res.status_code == 409:
+        # save-selected can be retried by the client after a slow RMBG/upload
+        # response. Keep the stable item id and make the operation idempotent
+        # instead of reporting an already-saved wardrobe item as a failure.
+        update_url = (
+            f"{APPWRITE_ENDPOINT}/databases/{APPWRITE_DATABASE_ID}"
+            f"/collections/{APPWRITE_COLLECTION_ID}/documents/{document_id}"
+        )
+        update_payload = _sanitize_appwrite_payload(current)
+        res = requests.patch(
+            update_url,
+            json={"data": update_payload},
+            headers=HEADERS,
+            timeout=20,
+        )
+        logger.info(
+            "ahvi.wardrobe.save_retry_upsert item_id=%s status=%s",
+            document_id,
+            res.status_code,
+        )
+
+    if res.status_code not in (200, 201):
+        raise RuntimeError(f"Appwrite error: {res.status_code} {res.text}")
+
+    return res.json()
+
+
+def _unknown_attribute_from_appwrite_error(body: Any) -> str:
+    text = str(body or "")
+    normalized = text.replace('\\"', '"').replace("\\'", "'")
+    match = re.search(
+        r"unknown attribute[:\s]+(?:[\"'])?([A-Za-z0-9_]+)",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    return match.group(1) if match else ""
+
+
+try:
+    from services.agent_metadata_validator import (
+        is_enabled as _agent_metadata_enabled,
+        validate_wardrobe_metadata_sync as _agent_validate_metadata_sync,
+    )
+except Exception:  # pragma: no cover - optional during partial deploys
+    _agent_metadata_enabled = lambda: False  # noqa: E731
+    _agent_validate_metadata_sync = None
+
+
+def _style_metadata_payload(
+    *,
+    item_id: str,
+    user_id: str,
+    item_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    style_meta = enrich_wardrobe_item(item_payload if isinstance(item_payload, dict) else {})
+
+    # AHVI Metadata Validator agent — merge agent-produced fields on top of
+    # the legacy enrichment when the env flag is enabled. Failures are
+    # absorbed by the agent layer itself (returns safe defaults).
+    try:
+        if _agent_validate_metadata_sync is not None and _agent_metadata_enabled():
+            agent_meta = _agent_validate_metadata_sync(
+                item=item_payload if isinstance(item_payload, dict) else {},
+                user_id=user_id,
+                vision_result=(item_payload or {}).get("vision_result")
+                if isinstance(item_payload, dict)
+                else None,
+                context={"source": "_style_metadata_payload"},
+            )
+            if isinstance(agent_meta, dict):
+                merged = dict(style_meta) if isinstance(style_meta, dict) else {}
+                # Agent fields are authoritative when present.
+                for key, value in agent_meta.items():
+                    if value in (None, "", [], {}):
+                        continue
+                    merged[key] = value
+                merged["agent_validated"] = True
+                merged["agent_confidence"] = float(agent_meta.get("confidence") or 0.0)
+                style_meta = merged
+    except Exception:
+        logging.getLogger("ahvi.wardrobe_persistence").warning(
+            "ahvi.metadata.merge_failed item=%s user=%s",
+            item_id,
+            user_id,
+            exc_info=True,
+        )
+
+    try:
+        from services.agent_metadata_validator import normalize_metadata_v2
+
+        style_meta = normalize_metadata_v2(
+            style_meta if isinstance(style_meta, dict) else {},
+            base_item=item_payload if isinstance(item_payload, dict) else {},
+        )
+    except Exception:
+        logging.getLogger("ahvi.wardrobe_persistence").warning(
+            "ahvi.metadata.v2_normalize_failed item=%s user=%s",
+            item_id,
+            user_id,
+            exc_info=True,
+        )
+
+    return {
+        "item_id": _safe_text(item_id),
+        "userId": _safe_text(user_id),
+        "style_metadata": json.dumps(style_meta, separators=(",", ":"), ensure_ascii=False),
+    }
+
+
+def _upsert_style_metadata(
+    *,
+    item_id: str,
+    user_id: str,
+    item_payload: Dict[str, Any],
+) -> str:
+    doc_id = _safe_document_id(item_id)
+    payload = _style_metadata_payload(
+        item_id=doc_id,
+        user_id=user_id,
+        item_payload=item_payload,
+    )
+    proxy = AppwriteProxy()
+    try:
+        proxy.update_document(STYLE_METADATA_RESOURCE, doc_id, payload)
+        return "updated"
+    except AppwriteProxyError as exc:
+        if "404" not in str(exc):
+            raise
+    proxy.create_document(STYLE_METADATA_RESOURCE, payload, document_id=doc_id)
+    return "created"
+
+
+def _persist_style_metadata_nonfatal(
+    *,
+    item_id: str,
+    user_id: str,
+    item_payload: Dict[str, Any],
+    source: str,
+) -> str:
+    try:
+        result = _upsert_style_metadata(
+            item_id=item_id,
+            user_id=user_id,
+            item_payload=item_payload,
+        )
+        logging.getLogger("ahvi.wardrobe_persistence").info(
+            "ahvi.style_metadata.%s item=%s user=%s source=%s",
+            result,
+            item_id,
+            user_id,
+            source,
+        )
+        return result
+    except Exception as exc:
+        logging.getLogger("ahvi.wardrobe_persistence").warning(
+            "ahvi.style_metadata.failed item=%s user=%s source=%s err=%s",
+            item_id,
+            user_id,
+            source,
+            exc,
+        )
+        return "failed"
+
+
+# =========================
+# CATEGORY NORMALIZATION
+# =========================
+def normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
+    """Final save-time category. Delegates to canonical taxonomy module."""
+    category, _ = _taxonomy_normalize(cat, name, sub_category)
+    return category
+
+
+def _legacy_normalize_category(cat: Any, name: Any = "", sub_category: Any = "") -> str:
+    """
+    Legacy fallback (kept for reference). Strong garment/accessory signals
+    override weak explicit categories. New code should use normalize_category
+    which now delegates to services.wardrobe_taxonomy.
+    """
+
+    text = " ".join(
+        [
+            str(cat or ""),
+            str(name or ""),
+            str(sub_category or ""),
+        ]
+    ).lower()
+    tokens = _tokens(text)
+
+    def has_any(words: List[str]) -> bool:
+        return _has_any(tokens, words) or any(word in text for word in words)
+
+    # Strong overrides FIRST. These must run before trusting explicit
+    # "Tops" / "Accessories" labels from vision or older clients.
+    if has_any(["saree", "sari", "lehenga"]):
+        return "Dresses"
+    if has_any(["dupatta", "sherwani", "kurta", "kurti", "anarkali"]):
+        return "Traditional"
+
+    if has_any(
+        [
+            "one piece dress",
+            "one-piece dress",
+            "mini dress",
+            "midi dress",
+            "maxi dress",
+            "bodycon dress",
+            "shift dress",
+            "wrap dress",
+            "slip dress",
+            "dress",
+            "dresses",
+            "gown",
+            "jumpsuit",
+        ]
+    ):
+        return "Dresses"
+
+    if has_any(
+        [
+            "handbag",
+            "shoulder bag",
+            "sling bag",
+            "crossbody",
+            "cross body",
+            "tote",
+            "clutch",
+            "purse",
+            "backpack",
+            "bag",
+            "bags",
+        ]
+    ):
+        return "Bags"
+
+    if has_any(
+        [
+            "ring",
+            "rings",
+            "bracelet",
+            "bracelets",
+            "necklace",
+            "necklaces",
+            "earring",
+            "earrings",
+            "bangle",
+            "bangles",
+            "pendant",
+            "pendants",
+            "chain",
+            "chains",
+            "jewelry",
+            "jewellery",
+        ]
+    ):
+        return "Jewelry"
+
+    if has_any(["watch", "watches", "belt", "belts", "sunglass", "sunglasses", "eyewear", "glasses"]):
+        return "Accessories"
+
+    explicit = str(cat or "").strip().lower()
+    explicit_map = {
+        "tops": "Tops",
+        "top": "Tops",
+        "bottoms": "Bottoms",
+        "bottom": "Bottoms",
+        "footwear": "Footwear",
+        "shoe": "Footwear",
+        "shoes": "Footwear",
+        "outerwear": "Outerwear",
+        "dresses": "Dresses",
+        "dress": "Dresses",
+        "indian wear": "Traditional",
+        "traditional": "Traditional",
+        "bags": "Bags",
+        "bag": "Bags",
+        "jewelry": "Jewelry",
+        "jewellery": "Jewelry",
+        "watches": "Accessories",
+        "watch": "Accessories",
+        "belts": "Accessories",
+        "belt": "Accessories",
+        "eyewear": "Accessories",
+        "accessories": "Accessories",
+        "accessory": "Accessories",
+    }
+
+    if explicit in explicit_map:
+        return explicit_map[explicit]
+
+    # Tops before bottoms, but only after dress/Indian/accessory overrides.
+    if has_any(
+        [
+            "shirt",
+            "shirts",
+            "tee",
+            "tshirt",
+            "tshirts",
+            "top",
+            "tops",
+            "blouse",
+            "blouses",
+            "hoodie",
+            "hoodies",
+            "sweater",
+            "sweaters",
+            "polo",
+            "polos",
+        ],
+    ):
+        return "Tops"
+
+    # Only "shorts", not "short".
+    if has_any(
+        [
+            "pants",
+            "pant",
+            "trousers",
+            "trouser",
+            "jeans",
+            "jean",
+            "shorts",
+            "skirt",
+            "skirts",
+            "legging",
+            "leggings",
+            "chino",
+            "chinos",
+        ],
+    ):
+        return "Bottoms"
+
+    if has_any(
+        [
+            "shoe",
+            "shoes",
+            "boot",
+            "boots",
+            "sneaker",
+            "sneakers",
+            "heel",
+            "heels",
+            "sandal",
+            "sandals",
+            "loafer",
+            "loafers",
+            "slipper",
+            "slippers",
+        ],
+    ):
+        return "Footwear"
+
+    if has_any(["jacket", "coat", "blazer", "outerwear", "cardigan", "overshirt"]):
+        return "Outerwear"
+
+    # Unknown / low-confidence items must NOT silently land in Accessories.
+    return "Needs Review"
+
+
+def normalize_display_name_and_subcategory(
+    name: str,
+    sub_category: str,
+    category: str,
+) -> tuple[str, str]:
+    raw_name = str(name or "").strip()
+    raw_sub = str(sub_category or "").strip()
+    text = f"{raw_name} {raw_sub}".lower()
+
+    if "sari" in text or "saree" in text:
+        return (
+            raw_name.replace("Sari", "Saree").replace("sari", "Saree") or "Saree",
+            "Saree",
+        )
+    if "mini dress" in text:
+        return raw_name or "Mini Dress", "Mini Dress"
+    if "one piece" in text or "one-piece" in text:
+        return raw_name or "One-Piece Dress", "One-Piece Dress"
+    if "dress" in text:
+        return raw_name or "Dress", raw_sub if raw_sub else "Dress"
+    if "handbag" in text:
+        return raw_name or "Handbag", "Handbag"
+    if "shoulder bag" in text:
+        return raw_name or "Shoulder Bag", "Shoulder Bag"
+    if "tote" in text:
+        return raw_name or "Tote Bag", "Tote Bag"
+    if "ring" in text:
+        return raw_name or "Ring", "Ring"
+    if "bracelet" in text:
+        return raw_name or "Bracelet", "Bracelet"
+    if "necklace" in text:
+        return raw_name or "Necklace", "Necklace"
+    if "watch" in text:
+        return raw_name or "Watch", "Watch"
+    if "belt" in text:
+        return raw_name or "Belt", "Belt"
+    if "sunglass" in text or "eyewear" in text or "glasses" in text:
+        return raw_name or "Eyewear", "Eyewear"
+
+    return raw_name or raw_sub or "Item", raw_sub or category or "Item"
+
+
+def normalize_final_wardrobe_item_name_and_taxonomy(
+    item: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Last save-time guard for detector label merges.
+
+    Gemini can occasionally emit contradictory labels like
+    "Distressed Jeans Shorts". Before Appwrite persistence, long-bottom terms
+    win over an appended "Shorts" token unless the whole label is clearly a
+    real shorts item.
+    """
+    out = dict(item or {})
+    name = _safe_text(out.get("name") or out.get("label"))
+    sub = _safe_text(out.get("sub_category") or out.get("subcategory"))
+    probe = f"{name} {sub}".lower()
+
+    has_shorts = bool(re.search(r"\b(shorts|short pants|above[- ]?knee shorts|knee[- ]?length shorts)\b", probe))
+    has_jeans = bool(re.search(r"\b(jeans|denim jeans|slim fit jeans|distressed jeans|full[- ]?length(?: [a-z]+){0,4} denim)\b", probe))
+    has_trousers = bool(re.search(r"\b(trousers|formal trousers|dress trousers|formal pants|dress pants)\b", probe))
+    has_pants = bool(re.search(r"\b(pants|full[- ]?length|ankle[- ]?length|straight leg)\b", probe))
+    has_chinos = bool(re.search(r"\b(chinos|chino)\b", probe))
+
+    if has_shorts and (has_jeans or has_trousers or has_pants or has_chinos):
+        cleaned_name = re.sub(r"\s+\b[Ss]horts\b", "", name).strip() or name
+        cleaned_sub = re.sub(r"\s+\b[Ss]horts\b", "", sub).strip() or sub
+        out["name"] = cleaned_name
+        if has_jeans:
+            out["category"] = "Bottoms"
+            out["sub_category"] = "Jeans"
+        elif has_trousers:
+            out["category"] = "Bottoms"
+            out["sub_category"] = "Trousers"
+        elif has_chinos:
+            out["category"] = "Bottoms"
+            out["sub_category"] = "Chinos"
+        else:
+            out["category"] = "Bottoms"
+            out["sub_category"] = "Pants"
+        out["subcategory"] = out["sub_category"]
+        return out
+
+    category, sub_category = normalize_category_from_label(f"{name} {sub}".strip())
+    if category == "Bottoms":
+        out["category"] = category
+        out["sub_category"] = sub_category
+        out["subcategory"] = sub_category
+    return out
+
+
+def _build_appwrite_doc(
+    *,
+    user_id: str,
+    file_id: str,
+    item: Dict[str, Any],
+    raw_url: str,
+    masked_url: str,
+    normalized_url: str,
+) -> Dict[str, Any]:
+    item = apply_metadata_guard(item, source="persistence_build_doc")
+    item = normalize_final_wardrobe_item_name_and_taxonomy(item)
+    sub_category = _safe_text(
+        item.get("sub_category")
+        or item.get("subcategory")
+        or item.get("type")
+        or item.get("label"),
+        "Item",
+    )
+
+    name = _safe_text(
+        item.get("name") or item.get("label") or sub_category,
+        "Item",
+    )
+    if name.strip().lower() in {
+        "item",
+        "unknown",
+        "review item",
+        "reviewed item",
+        "needs review",
+        "needs_review",
+    }:
+        color_name = _safe_text(item.get("color_name") or item.get("color"))
+        noun = sub_category if sub_category.strip().lower() not in {"", "item", "unknown"} else ""
+        if not noun:
+            noun = _safe_text(item.get("category"), "Wardrobe Item")
+        name = " ".join(part for part in [color_name, noun] if part).strip() or "Wardrobe Item"
+
+    category = normalize_category(item.get("category"), name, sub_category)
+    name, sub_category = normalize_display_name_and_subcategory(
+        name=name,
+        sub_category=sub_category,
+        category=category,
+    )
+    color = _normalize_hex_color(
+        item.get("color_code") or item.get("color") or item.get("hex")
+    )
+    pattern = _safe_text(item.get("pattern"), "plain").lower()
+    occasions = _normalize_list(item.get("occasions") or item.get("occasion_tags"))
+    style_attrs = infer_style_attributes(
+        {
+            **item,
+            "name": name,
+            "category": category,
+            "sub_category": sub_category,
+            "color_code": color,
+            "pattern": pattern,
+            "occasions": occasions,
+        }
+    )
+
+    # Backfill the display `occasions` when the detector/preview-validator left
+    # it empty (true for most non-ethnic items, since the preview Gemini
+    # validator only runs for risky/low-confidence items). Derive from the
+    # already-computed occasion_fitness scores so every item gets meaningful
+    # tags. Only fills when empty — never overrides occasions already set.
+    if not occasions and str(
+        os.getenv("WARDROBE_DERIVE_OCCASIONS", "true")
+    ).strip().lower() in {"1", "true", "yes", "on"}:
+        try:
+            _occ_min = float(os.getenv("WARDROBE_DERIVE_OCCASIONS_MIN", "0.6"))
+        except (TypeError, ValueError):
+            _occ_min = 0.6
+        _fitness = style_attrs.get("occasion_fitness") if isinstance(style_attrs, dict) else None
+        if isinstance(_fitness, dict):
+            _ranked = sorted(
+                (
+                    (str(k), float(v))
+                    for k, v in _fitness.items()
+                    if isinstance(v, (int, float))
+                ),
+                key=lambda kv: kv[1],
+                reverse=True,
+            )
+            occasions = [k for k, v in _ranked if v >= _occ_min][:4]
+
+    # Must match Appwrite outfits collection schema exactly.
+    # Keep raw_url out of the Appwrite document unless the collection schema
+    # explicitly adds it. Qdrant/search payloads can still use cleaner masked
+    # assets below without breaking Appwrite writes.
+    privacy_catalog_only = str(
+        os.getenv("WARDROBE_PRIVACY_CATALOG_ONLY", "false")
+    ).strip().lower() in {"1", "true", "yes", "on"} and is_face_risk_category(
+        category, sub_category, name
+    )
+    if privacy_catalog_only:
+        # Privacy: only the regenerated catalog image (face-free) is stored. The
+        # raw crop and RMBG cutout can contain the user's face on worn/selfie
+        # photos, so they are never persisted and never used as a fallback. If
+        # no catalog was produced, the item is stored without an image rather
+        # than leaking a face.
+        garment_url = normalized_url
+        stored_image_url = garment_url
+        stored_masked_url = garment_url
+        stored_normalized_url = garment_url
+    else:
+        final_image_url = normalized_url or masked_url or raw_url
+        stored_image_url = raw_url or item.get("image_url") or item.get("imageUrl") or final_image_url
+        stored_masked_url = masked_url or final_image_url
+        stored_normalized_url = normalized_url or final_image_url
+    pixel_hash = _safe_text(
+        item.get("pixel_hash") or item.get("pixelHash") or item.get("masked_pixel_hash")
+    )
+
+    doc = {
+        "image_url": stored_image_url,
+        "category": category,
+        "userId": user_id,
+        "status": "active",
+        "masked_url": stored_masked_url,
+        "normalized_url": stored_normalized_url,
+        "image_id": file_id,
+        "masked_id": file_id,
+        "name": name,
+        "sub_category": sub_category,
+        "color_code": color,
+        "occasions": occasions,
+        "pattern": pattern,
+        "worn": int(item.get("worn") or 0),
+        "liked": bool(item.get("liked") or False),
+        "qdrant_point_id": file_id,
+    }
+    if pixel_hash:
+        doc["pixel_hash"] = pixel_hash
+    doc["_style_attrs"] = style_attrs
+    return doc
+
+
+# =========================
+# MAIN FUNCTION
+# =========================
+def persist_selected_items(
+    user_id: str,
+    selected_item_ids: List[str],
+    detected_items: List[Dict[str, Any]],
+):
+    if not _appwrite_ready():
+        raise RuntimeError(
+            "Appwrite wardrobe persistence is not configured; refusing to report a fake save."
+        )
+
+    user_id = _safe_text(user_id)
+    if not user_id:
+        raise ValueError("user_id is required")
+
+    selected_ids = {
+        str(x).strip() for x in (selected_item_ids or []) if str(x or "").strip()
+    }
+
+    saved_items: List[Dict[str, Any]] = []
+    errors: List[str] = []
+    skipped = 0
+
+    for item in detected_items or []:
+        if not isinstance(item, dict):
+            skipped += 1
+            continue
+
+        item_id = (
+            item.get("item_id")
+            or item.get("id")
+            or item.get("image_id")
+            or item.get("masked_id")
+        )
+
+        if selected_ids and str(item_id) not in selected_ids:
+            continue
+
+        try:
+            file_id = _safe_document_id(item_id or uuid.uuid4())
+
+            raw_url = _first_url(
+                item,
+                "raw_url",
+                "rawUrl",
+                "raw_image_url",
+                "rawImageUrl",
+            )
+
+            masked_url = _first_url(
+                item,
+                "masked_url",
+                "maskedUrl",
+                "masked_image_url",
+                "maskedImageUrl",
+                "processed_url",
+                "processedUrl",
+                "transparent_url",
+                "transparentUrl",
+            )
+
+            normalized_url = _first_url(
+                item,
+                "normalized_url",
+                "normalizedUrl",
+                "normalized_image_url",
+                "normalizedImageUrl",
+                "png_url",
+                "pngUrl",
+                "cutout_url",
+                "cutoutUrl",
+            )
+
+            _privacy_catalog_only = str(
+                os.getenv("WARDROBE_PRIVACY_CATALOG_ONLY", "false")
+            ).strip().lower() in {"1", "true", "yes", "on"} and is_face_risk_category(
+                item.get("category"), item.get("sub_category"), item.get("name")
+            )
+
+            if _privacy_catalog_only:
+                # Privacy: the stored image must be a real catalog (face-free).
+                # Drop the raw crop / cutout entirely and NEVER backfill the
+                # garment image from them or a client-supplied original (those
+                # can contain the user's face on worn/selfie). No catalog ->
+                # all empty -> item skipped below, never a face stored.
+                _catalog_ok = str(
+                    item.get("catalogStatus") or item.get("catalog_status") or ""
+                ).strip() in {"catalog_generated", "catalog_ready"}
+                raw_url = ""
+                masked_url = ""
+                if not _catalog_ok:
+                    normalized_url = ""
+            else:
+                # Legacy clients may only send image_url/imageUrl. Treat that as
+                # the best available display image, not necessarily the raw original.
+                legacy_image_url = _first_url(item, "image_url", "imageUrl", "url")
+
+                if not normalized_url:
+                    normalized_url = masked_url or legacy_image_url
+                if not masked_url:
+                    masked_url = normalized_url or legacy_image_url or raw_url
+                if not raw_url:
+                    raw_url = legacy_image_url or masked_url or normalized_url
+
+            if not raw_url and not masked_url and not normalized_url:
+                skipped += 1
+                errors.append(f"{file_id}: missing image_url/masked_url/normalized_url")
+                continue
+
+            item = apply_metadata_guard(item, source="persist_selected_items")
+            image_source = _safe_text(item.get("_save_image_source"))
+            if not image_source:
+                if normalized_url:
+                    image_source = "normalized_url"
+                elif masked_url:
+                    image_source = "masked_url"
+                elif raw_url:
+                    image_source = "raw_url"
+                else:
+                    image_source = "missing"
+            logger.info(
+                "ahvi.capture.save_item name=%s image_source=%s raw_present=%s "
+                "masked_present=%s masked_url=%s",
+                item.get("name") or item.get("label") or item_id,
+                image_source,
+                bool(item.get("raw_image_base64")),
+                bool(item.get("masked_image_base64")),
+                masked_url,
+            )
+            doc = _build_appwrite_doc(
+                user_id=user_id,
+                file_id=file_id,
+                item=item,
+                raw_url=raw_url,
+                masked_url=masked_url,
+                normalized_url=normalized_url,
+            )
+            style_attrs = doc.pop("_style_attrs", {})
+
+            created = _create_document(file_id, doc)
+            metadata_payload = {
+                **item,
+                **doc,
+                **created,
+                "subcategory": doc.get("sub_category"),
+                "sub_category": doc.get("sub_category"),
+                "colors": [doc.get("color_code")],
+                "tags": doc.get("occasions"),
+            }
+            _persist_style_metadata_nonfatal(
+                item_id=file_id,
+                user_id=user_id,
+                item_payload=metadata_payload,
+                source="save_selected",
+            )
+
+            try:
+                pixel_hash = _safe_text(
+                    item.get("pixel_hash")
+                    or item.get("pixelHash")
+                    or item.get("masked_pixel_hash")
+                    or doc.get("pixel_hash")
+                )
+                image_embedding = (
+                    item.get("image_embedding")
+                    or item.get("imageEmbedding")
+                    or item.get("image_vector")
+                    or item.get("imageVector")
+                    or []
+                )
+                embedding = embedding_service.encode_text(
+                    " ".join(
+                        [
+                            doc["name"],
+                            doc["category"],
+                            doc["sub_category"],
+                            doc["color_code"],
+                            doc["pattern"],
+                            " ".join(doc["occasions"]),
+                            str(style_attrs.get("aesthetic_cluster") or ""),
+                            str(style_attrs.get("silhouette_family") or ""),
+                        ]
+                    )
+                )
+
+                qdrant_service.upsert_wardrobe_item(
+                    {
+                        "id": file_id,
+                        "userId": user_id,
+                        "type": str(doc["sub_category"]).lower(),
+                        "category": doc["category"],
+                        "color": doc["color_code"],
+                        "image_url": normalized_url or masked_url or doc.get("image_url"),
+                        "masked_url": masked_url,
+                        "normalized_url": normalized_url,
+                        "pixel_hash": pixel_hash,
+                        "embedding": embedding,
+                        "formality": style_attrs.get("formality"),
+                        "aesthetic_cluster": style_attrs.get("aesthetic_cluster"),
+                        "visual_weight": style_attrs.get("visual_weight"),
+                        "silhouette_family": style_attrs.get("silhouette_family"),
+                        "occasion_fitness": style_attrs.get("occasion_fitness"),
+                    }
+                )
+                if image_embedding:
+                    qdrant_service.upsert_image_vector(
+                        file_id,
+                        image_embedding,
+                        {
+                            "userId": user_id,
+                            "type": str(doc["sub_category"]).lower(),
+                            "category": doc["category"],
+                            "color": doc["color_code"],
+                            "image_url": normalized_url or masked_url or doc.get("image_url"),
+                            "masked_url": masked_url,
+                            "normalized_url": normalized_url,
+                            "pixel_hash": pixel_hash,
+                            "qdrant_point_id": file_id,
+                            "formality": style_attrs.get("formality"),
+                            "aesthetic_cluster": style_attrs.get("aesthetic_cluster"),
+                            "visual_weight": style_attrs.get("visual_weight"),
+                            "silhouette_family": style_attrs.get("silhouette_family"),
+                            "occasion_fitness": style_attrs.get("occasion_fitness"),
+                        },
+                    )
+                try:
+                    created["qdrant_indexed"] = True
+                except Exception:  # noqa: BLE001 — marker is best-effort
+                    pass
+            except Exception as exc:
+                # Do not fail wardrobe save because Qdrant failed — but surface
+                # it loudly. A silent failure causes Appwrite<->Qdrant drift:
+                # the item persists to the wardrobe yet is never embedded, so it
+                # is invisible to similarity / board generation. The
+                # qdrant_indexed=False marker lets a backfill job find and retry.
+                logger.error(
+                    "qdrant_upsert_failed user_id=%s file_id=%s err=%s",
+                    user_id,
+                    file_id,
+                    exc,
+                    exc_info=True,
+                )
+                try:
+                    created["qdrant_indexed"] = False
+                except Exception:  # noqa: BLE001
+                    pass
+
+            saved_items.append(created)
+
+        except Exception as exc:
+            skipped += 1
+            error_msg = f"{item.get('item_id') or item.get('id') or 'unknown'}: {exc}"
+            errors.append(error_msg)
+            print("[persist error]", error_msg)
+
+    return {
+        "success": bool(saved_items),
+        "saved_count": len(saved_items),
+        "items": saved_items,
+        "skipped": skipped,
+        "errors": errors[:10],
+    }
+
+
+def _fetch_document(
+    document_id: str,
+    *,
+    override_collection_id: str = "",
+    override_database_id: str = "",
+) -> Tuple[Dict[str, Any], str, str]:
+    """GET document, returning (doc_json, collection_id_used, database_id_used).
+
+    When the client passes their own collection_id / database_id we
+    try those FIRST — that eliminates the 'Update failed: Not Found'
+    pattern caused by Cloud Run env vars drifting from the client's
+    Appwrite location.
+    """
+    import logging
+    log = logging.getLogger("ahvi.wardrobe_persistence")
+
+    if not _appwrite_ready() and not override_collection_id:
+        raise RuntimeError("Appwrite wardrobe persistence is not configured.")
+
+    # Build candidate list. Client overrides come first; env candidates
+    # are added afterwards as fallback. Dedup while preserving order.
+    candidate_dbs: List[str] = []
+    candidate_cols: List[str] = []
+    for db in (override_database_id, APPWRITE_DATABASE_ID):
+        if db and db not in candidate_dbs:
+            candidate_dbs.append(db)
+    for col in [override_collection_id, *(_KNOWN_COLLECTIONS or [])]:
+        if col and col not in candidate_cols:
+            candidate_cols.append(col)
+
+    if not candidate_dbs or not candidate_cols:
+        raise RuntimeError(
+            f"No Appwrite db/collection to try: dbs={candidate_dbs} cols={candidate_cols}"
+        )
+
+    last_body = ""
+    last_status = 0
+    tried: List[str] = []
+
+    for db_id in candidate_dbs:
+        for col_id in candidate_cols:
+            tried.append(f"{db_id}/{col_id}")
+            url = (
+                f"{APPWRITE_ENDPOINT}/databases/{db_id}"
+                f"/collections/{col_id}/documents/{document_id}"
+            )
+            log.info(
+                "ahvi.fetch_doc db=%s col=%s id=%s",
+                db_id, col_id, document_id,
+            )
+            res = requests.get(url, headers=HEADERS, timeout=15)
+            if res.status_code in (200, 201):
+                if col_id != APPWRITE_COLLECTION_ID or db_id != APPWRITE_DATABASE_ID:
+                    log.warning(
+                        "ahvi.fetch_doc.fallback_hit primary=%s/%s actual=%s/%s id=%s",
+                        APPWRITE_DATABASE_ID, APPWRITE_COLLECTION_ID,
+                        db_id, col_id, document_id,
+                    )
+                return res.json(), col_id, db_id
+            last_status = res.status_code
+            last_body = str(res.text or "")[:300]
+            if res.status_code == 404:
+                log.warning(
+                    "ahvi.fetch_doc.not_found db=%s col=%s id=%s body=%s",
+                    db_id, col_id, document_id, last_body,
+                )
+                continue
+            raise RuntimeError(
+                f"Appwrite fetch error: {res.status_code} {res.text}"
+            )
+
+    raise LookupError(
+        f"Wardrobe item not found in any known location: id={document_id} "
+        f"tried={tried} last_status={last_status} body={last_body}"
+    )
+
+
+def _patch_document(
+    document_id: str,
+    data: Dict[str, Any],
+    collection_id: str = "",
+    database_id: str = "",
+) -> Tuple[Dict[str, Any], List[str]]:
+    """PATCH a document, returning (response_json, dropped_keys).
+
+    Caller (update_item_labels) supplies the exact db + collection
+    that _fetch_document confirmed holds the document, so we PATCH the
+    right document on the first try.
+    """
+    target_collection = collection_id or APPWRITE_COLLECTION_ID
+    target_database = database_id or APPWRITE_DATABASE_ID
+    url = (
+        f"{APPWRITE_ENDPOINT}/databases/{target_database}"
+        f"/collections/{target_collection}/documents/{document_id}"
+    )
+
+    def post(payload: Dict[str, Any]):
+        return requests.patch(
+            url, headers=HEADERS, json={"data": payload}, timeout=20
+        )
+
+    dropped: List[str] = []
+    attempt = dict(data)
+    # Allow a small number of retries — Appwrite's error message reports
+    # ONE missing attribute at a time so we may need multiple passes.
+    for _ in range(4):
+        res = post(attempt)
+        if res.status_code in (200, 201):
+            return res.json(), dropped
+
+        body_text = str(res.text or "")
+        body_lower = body_text.lower()
+        if "unknown attribute" not in body_lower and "invalid document structure" not in body_lower:
+            raise RuntimeError(f"Appwrite update error: {res.status_code} {res.text}")
+
+        before = dict(attempt)
+        key = _unknown_attribute_from_appwrite_error(body_text)
+        if key:
+            attempt.pop(key, None)
+            dropped.append(key)
+        else:
+            for k in ("style_metadata", "occasions", "color_code", "sub_category", "material"):
+                if attempt.pop(k, None) is not None:
+                    dropped.append(k)
+                    break
+        if attempt == before or not attempt:
+            raise RuntimeError(f"Appwrite update error: {res.status_code} {res.text}")
+
+    # Exhausted retries.
+    raise RuntimeError(
+        f"Appwrite update exhausted retries after dropping {dropped}"
+    )
+
+
+def update_wardrobe_item_images(
+    *,
+    user_id: str,
+    item_id: str,
+    masked_url: str = "",
+    image_status: str = "",
+) -> bool:
+    """Best-effort patch of a wardrobe item's cutout fields after async RMBG
+    finishes in the background. Returns True on success. Never raises — the
+    item is already saved with its catalog image; this only fills the masked
+    (cutout) fallback fields. Unknown attributes are dropped by _patch_document.
+    """
+    log = logging.getLogger("ahvi.wardrobe_persistence")
+    item_id = _safe_text(item_id)
+    if not item_id:
+        return False
+    patch: Dict[str, Any] = {}
+    if masked_url:
+        patch["masked_url"] = masked_url
+    if image_status:
+        patch["image_status"] = image_status
+    if not patch:
+        return False
+    try:
+        _patch_document(item_id, patch)
+        log.info(
+            "ahvi.async_rmbg.patched user_id=%s item_id=%s masked_url=%s status=%s",
+            user_id,
+            item_id,
+            masked_url,
+            image_status,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001 — background, must never raise
+        log.warning(
+            "ahvi.async_rmbg.patch_failed user_id=%s item_id=%s err=%s",
+            user_id,
+            item_id,
+            exc,
+        )
+        return False
+
+
+def _delete_document_at_location(
+    document_id: str,
+    *,
+    collection_id: str,
+    database_id: str,
+) -> None:
+    target_collection = _safe_text(collection_id)
+    target_database = _safe_text(database_id)
+    document_id = _safe_text(document_id)
+    if not target_collection or not target_database or not document_id:
+        raise RuntimeError("Missing Appwrite delete target.")
+
+    url = (
+        f"{APPWRITE_ENDPOINT}/databases/{target_database}"
+        f"/collections/{target_collection}/documents/{document_id}"
+    )
+    res = requests.delete(url, headers=HEADERS, timeout=20)
+    if res.status_code in (200, 202, 204):
+        return
+    if res.status_code == 404:
+        # Idempotent delete: if the owner check saw the row but a retry or
+        # concurrent request already removed it, the end state is correct.
+        return
+    raise RuntimeError(f"Appwrite delete error: {res.status_code} {res.text}")
+
+
+def _delete_style_metadata_document(proxy: AppwriteProxy, document_id: str) -> bool:
+    doc_id = _safe_text(document_id)
+    if not doc_id:
+        return False
+    try:
+        proxy.delete_document(STYLE_METADATA_RESOURCE, doc_id)
+        return True
+    except AppwriteProxyError as exc:
+        msg = str(exc).lower()
+        if "404" in msg or "not found" in msg:
+            return False
+        raise
+
+
+def _delete_wardrobe_style_metadata(*, user_id: str, item_id: str) -> bool:
+    proxy = AppwriteProxy()
+    deleted_any = False
+    tried_ids: set[str] = set()
+
+    for doc_id in (item_id, item_id.replace("-", "")):
+        clean = _safe_text(doc_id)
+        if not clean or clean in tried_ids:
+            continue
+        tried_ids.add(clean)
+        deleted_any = _delete_style_metadata_document(proxy, clean) or deleted_any
+
+    try:
+        docs = proxy.list_documents(
+            STYLE_METADATA_RESOURCE,
+            user_id=user_id,
+            limit=int(os.getenv("WARDROBE_DELETE_METADATA_SCAN_LIMIT", "500")),
+        )
+    except Exception:
+        logging.getLogger("ahvi.wardrobe_persistence").warning(
+            "ahvi.wardrobe.delete.metadata_query_failed item=%s user=%s",
+            item_id,
+            user_id,
+            exc_info=True,
+        )
+        docs = []
+
+    for doc in docs if isinstance(docs, list) else []:
+        if not isinstance(doc, dict):
+            continue
+        owner = _safe_text(doc.get("userId") or doc.get("user_id"))
+        if owner and owner != user_id:
+            continue
+        if _safe_text(doc.get("item_id")) != item_id:
+            continue
+        doc_id = _safe_text(doc.get("$id") or doc.get("id"))
+        if not doc_id or doc_id in tried_ids:
+            continue
+        tried_ids.add(doc_id)
+        deleted_any = _delete_style_metadata_document(proxy, doc_id) or deleted_any
+
+    return deleted_any
+
+
+def delete_wardrobe_item(
+    *,
+    user_id: str,
+    item_id: str,
+) -> Dict[str, Any]:
+    """Owner-verified delete of one wardrobe item and its style metadata."""
+    log = logging.getLogger("ahvi.wardrobe_persistence")
+
+    user_id = _safe_text(user_id)
+    item_id = _safe_text(item_id)
+    if not user_id:
+        raise PermissionError("Missing user_id.")
+    if not item_id:
+        raise ValueError("Missing item_id.")
+
+    existing, source_collection, source_database = _fetch_document(item_id)
+    owner = _safe_text(existing.get("userId") or existing.get("user_id"))
+    if not owner:
+        raise PermissionError("Wardrobe item has no owner. Refusing delete.")
+    if owner != user_id:
+        log.warning(
+            "ahvi.wardrobe.delete.forbidden item=%s owner=%s requester=%s",
+            item_id,
+            owner,
+            user_id,
+        )
+        raise PermissionError("Item does not belong to user.")
+
+    _delete_document_at_location(
+        item_id,
+        collection_id=source_collection,
+        database_id=source_database,
+    )
+    log.info(
+        "ahvi.wardrobe.delete.main_deleted user_id=%s item_id=%s collection=%s",
+        user_id,
+        item_id,
+        source_collection,
+    )
+
+    metadata_deleted = _delete_wardrobe_style_metadata(
+        user_id=user_id,
+        item_id=item_id,
+    )
+    log.info(
+        "ahvi.wardrobe.delete.metadata_deleted user_id=%s item_id=%s deleted=%s",
+        user_id,
+        item_id,
+        metadata_deleted,
+    )
+
+    return {
+        "success": True,
+        "deleted_item_id": item_id,
+        "metadata_deleted": metadata_deleted,
+        "item": existing,
+    }
+
+
+def update_item_labels(
+    *,
+    user_id: str,
+    item_id: str,
+    name: Any = None,
+    category: Any = None,
+    subcategory: Any = None,
+    color: Any = None,
+    material: Any = None,
+    tags: Any = None,
+    override_collection_id: str = "",
+    override_database_id: str = "",
+) -> Dict[str, Any]:
+    """Owner-verified update of wardrobe item labels via Appwrite server key.
+
+    Only writes attributes that exist in the outfits collection schema:
+      name, category, sub_category, color_code, occasions
+
+    Unknown frontend keys (tags, material) are mapped or dropped so the
+    Appwrite PATCH never fails with 'Unknown attribute'.
+    """
+    import logging
+    log = logging.getLogger("ahvi.wardrobe_persistence")
+
+    user_id = _safe_text(user_id)
+    item_id = _safe_text(item_id)
+    if not user_id:
+        raise PermissionError("Missing user_id.")
+    if not item_id:
+        raise ValueError("Missing item_id.")
+
+    # Build the patch BEFORE we know what `existing` looks like. We only
+    # need `existing` for ownership verification, not for field defaults,
+    # because we always treat missing inputs as 'do not change'.
+    patch: Dict[str, Any] = {}
+    if name is not None:
+        patch["name"] = _safe_text(name) or None
+    if category is not None or name is not None or subcategory is not None:
+        normalized_category = normalize_category(
+            category if category is not None else None,
+            name if name is not None else None,
+            subcategory if subcategory is not None else None,
+        )
+        display_name, normalized_sub = normalize_display_name_and_subcategory(
+            _safe_text(name),
+            _safe_text(subcategory),
+            normalized_category,
+        )
+        if name is not None:
+            patch["name"] = display_name
+        patch["category"] = normalized_category
+        patch["sub_category"] = normalized_sub
+    if color is not None:
+        # Schema uses color_code, not color.
+        patch["color_code"] = _safe_text(color)
+    # tags from the frontend edit dialog are the user's chosen occasions
+    # — map them to the canonical occasions[] field.
+    if tags is not None:
+        patch["occasions"] = _normalize_list(tags)
+    # material is not in the schema; ignore to avoid 'Unknown attribute'.
+
+    guard_probe = apply_metadata_guard(
+        {
+            "name": patch.get("name") if "name" in patch else name,
+            "category": patch.get("category") if "category" in patch else category,
+            "sub_category": patch.get("sub_category") if "sub_category" in patch else subcategory,
+            "occasions": patch.get("occasions") if "occasions" in patch else tags,
+        },
+        source="update_labels_request",
+    )
+    if guard_probe.get("privateWear") is True:
+        patch["name"] = _safe_text(guard_probe.get("name") or patch.get("name") or name or "Private Wear")
+        patch["category"] = "Innerwear"
+        patch["sub_category"] = "Private Wear"
+        patch["occasions"] = _normalize_list(guard_probe.get("occasions"))
+
+    if not patch:
+        raise ValueError("Nothing to update.")
+
+    # Strategy: PATCH-first, GET-fallback.
+    #
+    # Old flow (GET then PATCH) lost a round-trip and meant a single 404
+    # on GET aborted the whole update — even when the client knew exactly
+    # which collection holds the doc. New flow: try the client-supplied
+    # location's PATCH straight away. If that 404s, only THEN walk env
+    # candidates with GET to discover the right collection.
+    target_db_override = _safe_text(override_database_id)
+    target_col_override = _safe_text(override_collection_id)
+    source_collection = target_col_override or APPWRITE_COLLECTION_ID or ""
+    source_database = target_db_override or APPWRITE_DATABASE_ID or ""
+    updated: Dict[str, Any] | None = None
+    dropped_keys: List[str] = []
+
+    if target_db_override and target_col_override:
+        log.info(
+            "ahvi.update_labels.direct user=%s item=%s db=%s col=%s patch_keys=%s",
+            user_id, item_id, target_db_override, target_col_override, list(patch.keys()),
+        )
+        try:
+            updated, dropped_keys = _patch_document(
+                item_id, patch, target_col_override, target_db_override
+            )
+        except RuntimeError as exc:
+            msg = str(exc)
+            if " 404 " not in f" {msg} " and "404" not in msg:
+                # Real error (auth/schema) — propagate
+                log.error("ahvi.update_labels.direct_failed item=%s err=%s", item_id, exc)
+                raise
+            log.warning(
+                "ahvi.update_labels.direct_404 item=%s db=%s col=%s — falling back to env walk",
+                item_id, target_db_override, target_col_override,
+            )
+
+    if updated is None:
+        # GET-walk fallback. Locates the document across every known
+        # outfits collection, verifies ownership, then PATCHes there.
+        existing, source_collection, source_database = _fetch_document(
+            item_id,
+            override_collection_id=target_col_override,
+            override_database_id=target_db_override,
+        )
+        owner = _safe_text(existing.get("userId") or existing.get("user_id"))
+        if not owner:
+            raise PermissionError("Wardrobe item has no owner. Refusing update.")
+        if owner != user_id:
+            log.warning(
+                "ahvi.update_labels.forbidden item=%s owner=%s requester=%s",
+                item_id, owner, user_id,
+            )
+            raise PermissionError("Item does not belong to user.")
+        merged_payload = {**existing, **patch}
+        merged_payload["subcategory"] = merged_payload.get("subcategory") or merged_payload.get("sub_category")
+        merged_payload["tags"] = merged_payload.get("occasions")
+        try:
+            updated, dropped_keys = _patch_document(
+                item_id, patch, source_collection, source_database
+            )
+        except RuntimeError as exc:
+            log.error("ahvi.update_labels.patch_failed item=%s err=%s", item_id, exc)
+            raise
+
+    # Post-patch ownership verification (only needed when we skipped the
+    # GET pre-check). Cheap because `updated` is already in memory.
+    final_owner = _safe_text(updated.get("userId") or updated.get("user_id"))
+    if final_owner and final_owner != user_id:
+        log.error(
+            "ahvi.update_labels.owner_mismatch_after_patch item=%s owner=%s requester=%s",
+            item_id, final_owner, user_id,
+        )
+        raise PermissionError("Item does not belong to user.")
+
+    metadata_payload = {**updated}
+    metadata_payload["subcategory"] = (
+        metadata_payload.get("subcategory") or metadata_payload.get("sub_category")
+    )
+    metadata_payload["tags"] = metadata_payload.get("occasions")
+    metadata_payload["colors"] = [metadata_payload.get("color_code")]
+    _persist_style_metadata_nonfatal(
+        item_id=item_id,
+        user_id=user_id,
+        item_payload=metadata_payload,
+        source="update_labels",
+    )
+
+    log.info(
+        "ahvi.update_labels.ok user=%s item=%s collection=%s patch_keys=%s dropped=%s",
+        user_id, item_id, source_collection, list(patch.keys()), dropped_keys,
+    )
+
+    if dropped_keys:
+        log.warning(
+            "ahvi.update_labels.partial item=%s dropped=%s",
+            item_id, dropped_keys,
+        )
+
+    return {
+        "success": True,
+        "item": updated,
+        # Partial-save warning so the frontend can show a toast if user
+        # cares (e.g. 'Saved, but tags weren't stored — collection
+        # schema is missing the field').
+        "dropped_keys": dropped_keys,
+        "partial": bool(dropped_keys),
+    }
+
+
+__all__ = [
+    "persist_selected_items",
+    "normalize_category",
+    "normalize_display_name_and_subcategory",
+    "update_item_labels",
+    "delete_wardrobe_item",
+]

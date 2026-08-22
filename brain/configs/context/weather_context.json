@@ -1,0 +1,140 @@
+{
+  "schema_version": "1.0",
+
+  "description": "Live weather intelligence context used across styling, beauty, shopping, travel, packing, wellness, and planning experiences. Converts weather data into actionable AHVI insights.",
+
+  "context_metadata": {
+    "generated_at": "",
+    "last_updated": "",
+    "source": "",
+    "context_confidence": 0.0
+  },
+
+  "location": {
+    "city": "",
+    "state": "",
+    "country": "",
+    "latitude": null,
+    "longitude": null,
+    "timezone": ""
+  },
+
+  "current_conditions": {
+    "condition": "",
+    "temperature_celsius": null,
+    "feels_like_celsius": null,
+    "humidity": null,
+    "wind_speed_kmh": null,
+    "uv_index": null,
+    "visibility_km": null,
+    "rain_probability": null
+  },
+
+  "daily_forecast": {
+    "today": {},
+    "tomorrow": {},
+    "next_7_days": []
+  },
+
+  "weather_classification": {
+    "season": "",
+    "climate_type": "",
+    "comfort_level": "",
+    "weather_severity": ""
+  },
+
+  "style_impact": {
+    "recommended_fabrics": [],
+    "recommended_layers": [],
+    "recommended_footwear": [],
+    "recommended_accessories": [],
+    "weather_restricted_items": [],
+    "outfit_adjustments": []
+  },
+
+  "beauty_impact": {
+    "skin_considerations": [],
+    "hair_considerations": [],
+    "makeup_considerations": [],
+    "beauty_risks": [],
+    "recommended_products": []
+  },
+
+  "travel_impact": {
+    "travel_risk_level": "",
+    "flight_disruption_risk": false,
+    "outdoor_activity_score": null,
+    "packing_adjustments": [],
+    "destination_alerts": []
+  },
+
+  "packing_impact": {
+    "required_items": [],
+    "optional_items": [],
+    "weather_protection_items": [],
+    "packing_warnings": []
+  },
+
+  "shopping_impact": {
+    "weather_driven_needs": [],
+    "seasonal_purchase_opportunities": [],
+    "replacement_recommendations": []
+  },
+
+  "wellness_impact": {
+    "hydration_requirement": "",
+    "heat_stress_risk": false,
+    "cold_stress_risk": false,
+    "activity_recommendation": "",
+    "energy_impact": ""
+  },
+
+  "event_impact": {
+    "affected_events": [],
+    "event_preparation_adjustments": [],
+    "outdoor_event_risks": []
+  },
+
+  "weather_readiness": {
+    "style_readiness_score": null,
+    "travel_readiness_score": null,
+    "event_readiness_score": null,
+    "wellness_readiness_score": null
+  },
+
+  "detected_risks": {
+    "critical": [],
+    "high": [],
+    "medium": [],
+    "low": []
+  },
+
+  "detected_opportunities": {
+    "style_opportunities": [],
+    "travel_opportunities": [],
+    "shopping_opportunities": [],
+    "wellness_opportunities": []
+  },
+
+  "proactive_signals": {
+    "weather_change_detected": false,
+    "outfit_adjustment_required": false,
+    "travel_adjustment_required": false,
+    "packing_adjustment_required": false,
+    "beauty_adjustment_required": false,
+    "shopping_opportunity_detected": false
+  },
+
+  "recommended_experiences": {
+    "primary": "",
+    "secondary": []
+  },
+
+  "recommended_boards": [
+    {
+      "board_type": "",
+      "reason": "",
+      "priority": 0
+    }
+  ]
+}

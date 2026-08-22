@@ -1,0 +1,35 @@
+﻿node_modules/
+.env
+.env.*
+*.pem
+*serviceAccount*.json
+firebase-adminsdk*.json
+logs/
+*.log
+dist/
+build/
+.DS_Store
+Thumbs.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Temp search files
+backend-files.txt
+backend-python-search.txt
+
+__pycache__/
+*.pyc
+
+# cleanup
+__pycache__/
+*.pyc
+.vscode/
+local_backend.err
+.env
+env.yaml
+*.log
+data/mens_assets_import/

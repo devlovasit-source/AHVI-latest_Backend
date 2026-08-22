@@ -1,0 +1,12 @@
+﻿.git
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.env.*
+*.log
+logs/
+brain/data/outfit_memory.json
+patch_*.py
+*.bak

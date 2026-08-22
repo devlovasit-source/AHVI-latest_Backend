@@ -1,0 +1,392 @@
+{
+  "files": [
+    {
+      "source": "01_persona/persona.json",
+      "output": "persona_normalized.json",
+      "summary": {
+        "type": "object",
+        "keys": [
+          "name",
+          "classification",
+          "identity",
+          "core_mission",
+          "worldview",
+          "relationship_with_user",
+          "personality",
+          "operating_principles",
+          "user_model",
+          "memory_philosophy",
+          "world_model",
+          "predictive_intelligence",
+          "proactive_behavior",
+          "life_orchestration",
+          "life_domains",
+          "agentic_evolution",
+          "outcome_ownership",
+          "visual_first_philosophy",
+          "continuous_optimization",
+          "north_star_2035"
+        ],
+        "key_count": 20
+      },
+      "metadata": {
+        "source_file": "C:\\Users\\USER\\Downloads\\ahvi_personality\\ahvi_personality\\01_persona\\persona.json",
+        "original_valid_json": false,
+        "valid_after_markdown_fence_removal": true,
+        "normalization_actions": [
+          "removed_markdown_fence_lines"
+        ],
+        "root_objects_found": 1,
+        "objects_after_deduplication": 1,
+        "duplicates_removed": 0,
+        "needs_review_count": 0
+      }
+    },
+    {
+      "source": "02_tone/tone_rules.json",
+      "output": "tone_rules_normalized.json",
+      "summary": {
+        "type": "object",
+        "keys": [
+          "version",
+          "purpose",
+          "core_emotional_rule",
+          "emotional_north_star",
+          "relationship_dynamic",
+          "communication_goal",
+          "voice_identity",
+          "golden_rules",
+          "confidence_framework",
+          "humanity_rules",
+          "proactive_voice",
+          "emotional_responses",
+          "decision_fatigue_reduction",
+          "jarvis_principle",
+          "ending_feelings",
+          "success_test"
+        ],
+        "key_count": 16
+      },
+      "metadata": {
+        "source_file": "C:\\Users\\USER\\Downloads\\ahvi_personality\\ahvi_personality\\02_tone\\tone_rules.json",
+        "original_valid_json": false,
+        "valid_after_markdown_fence_removal": true,
+        "normalization_actions": [
+          "removed_markdown_fence_lines"
+        ],
+        "root_objects_found": 1,
+        "objects_after_deduplication": 1,
+        "duplicates_removed": 0,
+        "needs_review_count": 0
+      }
+    },
+    {
+      "source": "03_behavior/behavior_rules.json",
+      "output": "behavior_rules_normalized.json",
+      "summary": {
+        "type": "object",
+        "keys": [
+          "version",
+          "purpose",
+          "behavioral_identity",
+          "operating_model",
+          "golden_behavior_rule",
+          "companion_behavior",
+          "confidence_protection",
+          "decision_fatigue_reduction",
+          "proactive_behavior",
+          "reality_check_behavior",
+          "celebration_behavior",
+          "support_behavior",
+          "optimization_behavior",
+          "sassy_behavior",
+          "fun_factor",
+          "trust_building",
+          "jarvis_mode",
+          "success_test"
+        ],
+        "key_count": 18
+      },
+      "metadata": {
+        "source_file": "C:\\Users\\USER\\Downloads\\ahvi_personality\\ahvi_personality\\03_behavior\\behavior_rules.json",
+        "original_valid_json": false,
+        "valid_after_markdown_fence_removal": true,
+        "normalization_actions": [
+          "removed_markdown_fence_lines"
+        ],
+        "root_objects_found": 1,
+        "objects_after_deduplication": 1,
+        "duplicates_removed": 0,
+        "needs_review_count": 0
+      }
+    },
+    {
+      "source": "03_behavior/response_priorities.json",
+      "output": "response_priorities_normalized.json",
+      "summary": {
+        "type": "object",
+        "keys": [
+          "version",
+          "purpose",
+          "core_principle",
+          "north_star",
+          "priority_hierarchy",
+          "decision_framework",
+          "outcome_over_information",
+          "goal_alignment",
+          "confidence_priority",
+          "short_term_vs_long_term",
+          "conflict_resolution",
+          "proactive_priority_order",
+          "jarvis_priority",
+          "success_definition",
+          "golden_rule"
+        ],
+        "key_count": 15
+      },
+      "metadata": {
+        "source_file": "C:\\Users\\USER\\Downloads\\ahvi_personality\\ahvi_personality\\03_behavior\\response_priorities.json",
+        "original_valid_json": false,
+        "valid_after_markdown_fence_removal": true,
+        "normalization_actions": [
+          "removed_markdown_fence_lines"
+        ],
+        "root_objects_found": 1,
+        "objects_after_deduplication": 1,
+        "duplicates_removed": 0,
+        "needs_review_count": 0
+      }
+    },
+    {
+      "source": "03_behavior/decision_frameworks.json",
+      "output": "decision_frameworks_normalized.json",
+      "summary": {
+        "type": "object",
+        "keys": [
+          "version",
+          "purpose",
+          "core_decision_principle",
+          "global_questions",
+          "decision_order",
+          "fashion_framework",
+          "shopping_framework",
+          "wellness_framework",
+          "nutrition_framework",
+          "fitness_framework",
+          "productivity_framework",
+          "travel_framework",
+          "daily_planning_framework",
+          "relationship_framework",
+          "money_framework",
+          "goal_framework",
+          "conflict_resolution_framework",
+          "jarvis_reasoning_layer",
+          "golden_rule"
+        ],
+        "key_count": 19
+      },
+      "metadata": {
+        "source_file": "C:\\Users\\USER\\Downloads\\ahvi_personality\\ahvi_personality\\03_behavior\\decision_frameworks.json",
+        "original_valid_json": false,
+        "valid_after_markdown_fence_removal": true,
+        "normalization_actions": [
+          "removed_markdown_fence_lines"
+        ],
+        "root_objects_found": 1,
+        "objects_after_deduplication": 1,
+        "duplicates_removed": 0,
+        "needs_review_count": 0
+      }
+    },
+    {
+      "source": "05_system/visual_rules.json",
+      "output": "visual_rules_normalized.json",
+      "summary": {
+        "type": "array",
+        "count": 200,
+        "item_keys": [
+          "id",
+          "scenario",
+          "user_input",
+          "response"
+        ]
+      },
+      "metadata": {
+        "source_file": "C:\\Users\\USER\\Downloads\\ahvi_personality\\ahvi_personality\\05_system\\visual_rules.json",
+        "original_valid_json": false,
+        "valid_after_markdown_fence_removal": false,
+        "normalization_actions": [
+          "parsed_adjacent_json_roots",
+          "removed_markdown_fence_lines"
+        ],
+        "root_objects_found": 10,
+        "objects_found_before_deduplication": 200,
+        "objects_after_deduplication": 200,
+        "duplicates_removed": 0,
+        "needs_review_count": 0
+      }
+    },
+    {
+      "source": "04_examples/outfit_validation.json",
+      "output": "outfit_validation_examples_normalized.json",
+      "summary": {
+        "type": "array",
+        "count": 197,
+        "item_keys": [
+          "id",
+          "scenario",
+          "user_input",
+          "what_ahvi_notices",
+          "response_objectives",
+          "desired_emotional_outcome",
+          "jarvis_behaviors",
+          "response"
+        ]
+      },
+      "metadata": {
+        "source_file": "C:\\Users\\USER\\Downloads\\ahvi_personality\\ahvi_personality\\04_examples\\outfit_validation.json",
+        "original_valid_json": false,
+        "valid_after_markdown_fence_removal": false,
+        "normalization_actions": [
+          "parsed_adjacent_json_roots",
+          "removed_markdown_fence_lines",
+          "removed_duplicate_objects"
+        ],
+        "root_objects_found": 200,
+        "objects_found_before_deduplication": 200,
+        "objects_after_deduplication": 197,
+        "duplicates_removed": 3,
+        "needs_review_count": 0
+      }
+    },
+    {
+      "source": "04_examples/wardrobe_management.json",
+      "output": "wardrobe_management_examples_normalized.json",
+      "summary": {
+        "type": "array",
+        "count": 190,
+        "item_keys": [
+          "id",
+          "scenario",
+          "user_input",
+          "what_ahvi_notices",
+          "response_objectives",
+          "desired_emotional_outcome",
+          "jarvis_behaviors",
+          "response"
+        ]
+      },
+      "metadata": {
+        "source_file": "C:\\Users\\USER\\Downloads\\ahvi_personality\\ahvi_personality\\04_examples\\wardrobe_management.json",
+        "original_valid_json": false,
+        "valid_after_markdown_fence_removal": false,
+        "normalization_actions": [
+          "parsed_adjacent_json_roots",
+          "removed_markdown_fence_lines",
+          "removed_duplicate_objects"
+        ],
+        "root_objects_found": 38,
+        "objects_found_before_deduplication": 200,
+        "objects_after_deduplication": 190,
+        "duplicates_removed": 10,
+        "needs_review_count": 0
+      }
+    },
+    {
+      "source": "04_examples/style_your_day.json",
+      "output": "style_your_day_examples_normalized.json",
+      "summary": {
+        "type": "array",
+        "count": 150,
+        "item_keys": [
+          "id",
+          "scenario",
+          "available_context",
+          "what_ahvi_notices",
+          "response_objectives",
+          "desired_emotional_outcome",
+          "jarvis_behaviors",
+          "response"
+        ]
+      },
+      "metadata": {
+        "source_file": "C:\\Users\\USER\\Downloads\\ahvi_personality\\ahvi_personality\\04_examples\\style_your_day.json",
+        "original_valid_json": false,
+        "valid_after_markdown_fence_removal": false,
+        "normalization_actions": [
+          "parsed_adjacent_json_roots",
+          "removed_markdown_fence_lines"
+        ],
+        "root_objects_found": 15,
+        "objects_found_before_deduplication": 150,
+        "objects_after_deduplication": 150,
+        "duplicates_removed": 0,
+        "needs_review_count": 0
+      }
+    },
+    {
+      "source": "04_examples/shopping.json",
+      "output": "shopping_examples_normalized.json",
+      "summary": {
+        "type": "array",
+        "count": 195,
+        "item_keys": [
+          "id",
+          "scenario",
+          "user_input",
+          "what_ahvi_notices",
+          "response_objectives",
+          "desired_emotional_outcome",
+          "jarvis_behaviors",
+          "response"
+        ]
+      },
+      "metadata": {
+        "source_file": "C:\\Users\\USER\\Downloads\\ahvi_personality\\ahvi_personality\\04_examples\\shopping.json",
+        "original_valid_json": false,
+        "valid_after_markdown_fence_removal": false,
+        "normalization_actions": [
+          "parsed_adjacent_json_roots",
+          "removed_markdown_fence_lines"
+        ],
+        "root_objects_found": 20,
+        "objects_found_before_deduplication": 195,
+        "objects_after_deduplication": 195,
+        "duplicates_removed": 0,
+        "needs_review_count": 0
+      }
+    },
+    {
+      "source": "04_examples/packing_intelligence.json",
+      "output": "packing_intelligence_examples_normalized.json",
+      "summary": {
+        "type": "array",
+        "count": 200,
+        "item_keys": [
+          "id",
+          "scenario",
+          "user_input",
+          "what_ahvi_notices",
+          "response_objectives",
+          "desired_emotional_outcome",
+          "jarvis_behaviors",
+          "response"
+        ]
+      },
+      "metadata": {
+        "source_file": "C:\\Users\\USER\\Downloads\\ahvi_personality\\ahvi_personality\\04_examples\\packing_intelligence.json",
+        "original_valid_json": false,
+        "valid_after_markdown_fence_removal": false,
+        "normalization_actions": [
+          "parsed_adjacent_json_roots",
+          "removed_markdown_fence_lines"
+        ],
+        "root_objects_found": 20,
+        "objects_found_before_deduplication": 200,
+        "objects_after_deduplication": 200,
+        "duplicates_removed": 0,
+        "needs_review_count": 0
+      }
+    }
+  ]
+}
