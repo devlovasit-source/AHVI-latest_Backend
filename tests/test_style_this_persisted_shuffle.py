@@ -11,6 +11,7 @@ from services.style_board_state_store import (
     BoardStateStoreError,
     InMemoryBoardStateStore,
 )
+from tests.test_constrained_outfit_builder import _flutter_wardrobe_resolvable
 
 
 def _item(item_id, name, category, **extra):
@@ -825,3 +826,59 @@ def test_shuffle_never_selects_not_board_ready_item_and_reasoning_matches_select
         assert is_board_renderable(new_top), "selected item must have a genuine board-safe image"
         assert result["styling_note"]
         assert new_top["name"] in result["styling_note"], "reasoning must name the actually-selected item"
+
+
+# ------------------------------------------------------------------- device
+# gate regression: a real persisted Style This board, Shuffle the accessory
+# slot onto a candidate whose ONLY board-safe field is a form the pre-fix
+# ConstrainedOutfitBuilder output would drop or leave under a Flutter-
+# unrecognized name (services/style_board_shuffle_service.py -> generate() ->
+# normalize_style_item()). This is the exact live path the device gate ran.
+
+
+@pytest.mark.parametrize(
+    "accessory_fields",
+    [
+        {"transparent_url": "https://images.test/acc-transparent.png"},
+        {"transparentUrl": "https://images.test/acc-transparent.png"},
+        {"rmbg_url": "https://images.test/acc-rmbg.png", "image_status": "rmbg_complete"},
+        {"rmbgUrl": "https://images.test/acc-rmbg.png", "image_status": "rmbg_complete"},
+        {"processed_url": "https://images.test/acc-processed.png", "image_status": "rmbg_complete"},
+        {"processedUrl": "https://images.test/acc-processed.png", "image_status": "rmbg_complete"},
+    ],
+    ids=["transparent_url", "transparentUrl", "rmbg_url", "rmbgUrl", "processed_url", "processedUrl"],
+)
+def test_real_shuffle_accessory_gains_flutter_resolvable_image(accessory_fields):
+    wardrobe = _two_top_wardrobe() + [
+        _item(
+            "acc-only",
+            "Only Renderable Accessory",
+            "Accessories",
+            normalized_url=None,  # only board-safe via accessory_fields
+            **accessory_fields,
+        ),
+    ]
+    direction = _style_this_bottom_anchor(wardrobe)["style_directions"][0]
+    anchor = next(item for item in direction["items"] if item["locked"])
+
+    result = shuffle_service.shuffle_board(
+        board_id=direction["board_id"],
+        revision=1,
+        locked_items=[anchor],
+        shuffle_slots=["top", "footwear", "accessory"],
+        source_policy="inherit",
+        wardrobe=wardrobe,
+        user_id="owner-1",
+    )
+
+    assert result["success"] is True
+    assert result["revision"] == 2
+    accessory = next(
+        (i for i in result["board_items"] if i["item_id"] == "acc-only"), None
+    )
+    assert accessory is not None, "accessory candidate was not selected by shuffle"
+    assert is_board_renderable(accessory) is True
+    assert _flutter_wardrobe_resolvable(accessory) is True, (
+        "shuffled accessory has no field the Flutter wardrobe resolver reads "
+        "- this is the empty-hanger regression"
+    )

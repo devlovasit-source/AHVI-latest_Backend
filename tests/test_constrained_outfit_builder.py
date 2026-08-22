@@ -540,3 +540,204 @@ def test_shuffle_selects_and_preserves_cutout_only_replacement():
     returned = next(i for i in result["items"] if i["item_id"] == "bottom-cutout")
     assert returned.get("cutout_url")
     assert is_board_renderable(returned) is True
+
+
+# ------------------------------------------------- READY implies FLUTTER-READY
+#
+# is_board_renderable(raw) proves the backend's OWN readiness gate is
+# satisfied. It does NOT prove the field name the builder's serialized output
+# carries is one lib/util/wardrobe_image_resolver.dart (commit 4be647a, the
+# currently-shipped resolver - verified by reading that exact file, not from
+# memory) actually reads for a wardrobe (non-style-asset) item. The device
+# gate found a live gap: normalize_style_item() (services/style_item_contract)
+# preserves a winning field under its ORIGINAL name, but the Shuffle path
+# never runs project_board_image_fields() the way routers/stylist.py's
+# initial Style This path does - so an item whose only board-safe field is a
+# bare transparent_url survives is_board_renderable() and gets selected, but
+# Flutter's non-asset branch never reads a field by that name (only under
+# masked_url) and renders an empty hanger.
+#
+# _flutter_wardrobe_resolvable() below is a deliberately narrow, faithful
+# mirror of that resolver's non-asset admission rules - not a reimplementation
+# of its full tiered fallback/candidate-ranking logic, just enough to answer
+# "would ANY candidate survive admission" for these single-field fixtures.
+
+
+def _clean(value):
+    text = str(value or "").strip()
+    return text if text and text.lower() != "null" else None
+
+
+def _flutter_wardrobe_resolvable(item):
+    """Mirrors lib/util/wardrobe_image_resolver.dart's non-style-asset
+    (isStyleAsset=false) candidate admission for a Style-board surface."""
+    board_ready = (_clean(item.get("board_status") or item.get("boardStatus")) or "").lower() == "cutout_ready"
+    cutout_ready = (_clean(item.get("cutout_status") or item.get("cutoutStatus")) or "").lower() == "ready"
+    rmbg_ready = (_clean(item.get("image_status") or item.get("imageStatus")) or "").lower() == "rmbg_complete"
+
+    # tier 0: validated_cutout / board-ready cutout
+    if cutout_ready and _clean(item.get("cutout_url") or item.get("cutoutUrl")):
+        return True
+    if board_ready and _clean(item.get("board_image_url") or item.get("boardImageUrl")):
+        return True
+    # tier 1: masked_url, unconditional (legacy_masked_cutout path) - the ONLY
+    # field name the non-asset branch reads for a "masked/transparent cutout"
+    if _clean(item.get("masked_url") or item.get("maskedUrl")):
+        return True
+    # tier 2: rmbg_url / transparent_image_url / processed_url, status-gated
+    if rmbg_ready and _clean(item.get("rmbg_url") or item.get("rmbgUrl")):
+        return True
+    if (board_ready or cutout_ready) and _clean(
+        item.get("transparent_image_url") or item.get("transparentImageUrl")
+    ):
+        return True
+    if rmbg_ready and _clean(item.get("processed_url") or item.get("processedUrl")):
+        return True
+    # tier 3: normalized_url, unconditional catalog fallback
+    if _clean(item.get("normalized_url") or item.get("normalizedUrl")):
+        return True
+    # Deliberately NOT checked: bare transparent_url/transparentUrl - the
+    # non-asset branch never reads that field name at all.
+    return False
+
+
+def _board_safe_forms():
+    return [
+        ("transparent_url", {"transparent_url": "https://img/x-t.png"}),
+        ("transparentUrl", {"transparentUrl": "https://img/x-t.png"}),
+        ("transparent_image_url", {"transparent_image_url": "https://img/x-ti.png", "board_status": "cutout_ready"}),
+        ("transparentImageUrl", {"transparentImageUrl": "https://img/x-ti.png", "board_status": "cutout_ready"}),
+        ("cutout_url", {"cutout_url": "https://img/x-c.png", "cutout_status": "ready"}),
+        ("cutoutUrl", {"cutoutUrl": "https://img/x-c.png", "cutout_status": "ready"}),
+        ("rmbg_url", {"rmbg_url": "https://img/x-r.png", "image_status": "rmbg_complete"}),
+        ("rmbgUrl", {"rmbgUrl": "https://img/x-r.png", "image_status": "rmbg_complete"}),
+        ("processed_url", {"processed_url": "https://img/x-p.png", "image_status": "rmbg_complete"}),
+        ("processedUrl", {"processedUrl": "https://img/x-p.png", "image_status": "rmbg_complete"}),
+        ("board_image_url", {"board_image_url": "https://img/x-b.png", "board_status": "cutout_ready"}),
+        ("boardImageUrl", {"boardImageUrl": "https://img/x-b.png", "board_status": "cutout_ready"}),
+        ("masked_url", {"masked_url": "https://img/x-m.png"}),
+        ("maskedUrl", {"maskedUrl": "https://img/x-m.png"}),
+        ("normalized_url", {"normalized_url": "https://img/x-n.png"}),
+        ("normalizedUrl", {"normalizedUrl": "https://img/x-n.png"}),
+    ]
+
+
+@pytest.mark.parametrize("form,fields", _board_safe_forms(), ids=[f[0] for f in _board_safe_forms()])
+def test_ready_implies_flutter_ready_through_real_shuffle(form, fields):
+    """RAW_RENDERABLE -> BUILDER_OUTPUT_RENDERABLE -> FLUTTER_RESOLVABLE, all
+    through the real ConstrainedOutfitBuilder shuffle_unlocked path (not just
+    pool membership) - the permanent tripwire against another path split."""
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    accessory = {
+        "id": "acc-only",
+        "name": "Only Renderable Accessory",
+        "category": "Accessories",
+        "source": "wardrobe",
+        "image_url": "https://img/acc-only.png",
+        **fields,
+    }
+    assert is_board_renderable(accessory) is True, f"{form}: fixture must be board-renderable pre-selection"
+
+    result = _gen(
+        [top],
+        wardrobe=[top, accessory],
+        scenario="shuffle_unlocked",
+        replaceable_slots=["accessory"],
+        context={"wardrobe": [top, accessory]},
+    )
+    assert result["success"] is True, f"{form}: {result.get('error')}"
+    assert "acc-only" in _ids(result), f"{form}: item was not selected"
+    returned = next(i for i in result["items"] if i["item_id"] == "acc-only")
+
+    assert is_board_renderable(returned) is True, (
+        f"{form}: builder output is not board-renderable"
+    )
+    assert _flutter_wardrobe_resolvable(returned) is True, (
+        f"{form}: builder output has no field the Flutter wardrobe resolver "
+        f"actually reads - this is the empty-hanger regression"
+    )
+
+
+def test_style_asset_transparent_url_field_name_untouched():
+    """The board-image projection is skipped for style_asset items on
+    purpose: Flutter's isStyleAsset branch reads transparent_url directly
+    under its own name (never masked_url) - canonicalizing it the way
+    wardrobe items need would break asset rendering instead of fixing it."""
+    accessory = _w(
+        "asset-acc-1",
+        "Curated Chain",
+        "accessory",
+        source="style_asset",
+        transparent_url="https://img/asset-acc-1-transparent.png",
+    )
+    accessory.pop("normalized_url", None)
+    top = _w("top-1", "White Oxford Shirt", "top", source="style_asset")
+    bottom = _w("bottom-1", "Pleated Trousers", "bottom", source="style_asset")
+    footwear = _w("shoe-1", "Minimal Slides", "footwear", source="style_asset")
+
+    result = builder.generate(
+        scenario="style_this",
+        fixed_items=[],
+        style_assets=[top, bottom, footwear, accessory],
+        source_policy={"allowed_sources": ["style_asset"]},
+        context={"accessory_budget": 1},
+    )
+
+    assert result["success"] is True
+    returned = next(i for i in result["items"] if i["item_id"] == "asset-acc-1")
+    assert returned.get("transparent_url") == "https://img/asset-acc-1-transparent.png"
+    assert "masked_url" not in returned
+
+
+def test_raw_image_url_only_stays_unsafe_through_shuffle():
+    """Unsafe items must stay unsafe: a raw upload photo with no processed
+    field must never enter the pool, let alone be selected."""
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    raw_only = {
+        "id": "acc-raw",
+        "name": "Raw Only Accessory",
+        "category": "Accessories",
+        "source": "wardrobe",
+        "image_url": "https://img/acc-raw.png",
+    }
+    assert is_board_renderable(raw_only) is False
+
+    result = _gen(
+        [top],
+        wardrobe=[top, raw_only],
+        scenario="shuffle_unlocked",
+        replaceable_slots=["accessory"],
+        context={"wardrobe": [top, raw_only]},
+    )
+    if result["success"]:
+        assert "acc-raw" not in _ids(result)
+    else:
+        assert result["error"]["code"] in {"INSUFFICIENT_WARDROBE", "NO_REPLACEMENT_FOUND"}
+
+
+def test_masked_url_aliasing_raw_stays_unsafe_through_shuffle():
+    """Unsafe items must stay unsafe: masked_url == image_url is fabricated
+    provenance (the RMBG-produced-nothing healing alias), not a real cutout."""
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    raw = "https://img/acc-alias.png"
+    aliased = {
+        "id": "acc-alias",
+        "name": "Aliased Accessory",
+        "category": "Accessories",
+        "source": "wardrobe",
+        "image_url": raw,
+        "masked_url": raw,
+    }
+    assert is_board_renderable(aliased) is False
+
+    result = _gen(
+        [top],
+        wardrobe=[top, aliased],
+        scenario="shuffle_unlocked",
+        replaceable_slots=["accessory"],
+        context={"wardrobe": [top, aliased]},
+    )
+    if result["success"]:
+        assert "acc-alias" not in _ids(result)
+    else:
+        assert result["error"]["code"] in {"INSUFFICIENT_WARDROBE", "NO_REPLACEMENT_FOUND"}

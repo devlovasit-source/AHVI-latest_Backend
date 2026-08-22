@@ -22,7 +22,10 @@ import hashlib
 import logging
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from services.style_board_image_readiness import is_board_renderable
+from services.style_board_image_readiness import (
+    is_board_renderable,
+    project_board_image_fields,
+)
 from services.style_item_contract import (
     FixedItemLostError,
     VALID_SOURCES,
@@ -368,6 +371,21 @@ class ConstrainedOutfitBuilder:
             raw, norm = picked
             norm = dict(norm)
             norm["locked"] = False
+            if norm.get("source") != "style_asset":
+                # normalize_style_item() preserves a winning board-safe field
+                # under its ORIGINAL name (and even drops a few camelCase-only
+                # forms entirely - it has no camel alias wired for rmbg_url/
+                # processed_url/transparent_image_url). project_board_image_fields
+                # re-derives the field from the untouched raw candidate and
+                # projects it under the name lib/util/wardrobe_image_resolver.dart
+                # actually reads for a wardrobe item - the same authority
+                # routers/stylist.py's initial Style This path already uses, so
+                # Shuffle and Style This can't diverge on what counts as
+                # Flutter-renderable. Skipped for style_asset items: Flutter's
+                # asset branch reads transparent_url/transparentImageUrl under
+                # their own names (never masked_url), so canonicalizing here
+                # would break asset rendering rather than fix it.
+                norm.update(project_board_image_fields(raw))
             outfit_items.append(norm)
             changed_slots.append(slot)
             if norm["role"] == "dress":
