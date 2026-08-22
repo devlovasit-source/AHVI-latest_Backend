@@ -6,6 +6,7 @@ exact matrix this implements.
 
 from services.style_board_image_readiness import (
     is_board_renderable,
+    project_board_image_fields,
     resolve_board_image_candidate,
 )
 
@@ -128,3 +129,115 @@ def test_cutout_url_requires_ready_status():
 def test_transparent_url_unconditional_like_masked_url():
     item = {"image_url": _RAW, "transparent_url": _MASK}
     assert is_board_renderable(item) is True
+
+
+# ---------------------------------------------- project_board_image_fields
+#
+# Board serializers (initial Style This's _lite_item, registration) need the
+# winning candidate carried through under its own canonical field + status,
+# not flattened into a single image_url - collapsing it is exactly how a
+# renderable item becomes an empty hanger downstream.
+
+
+def test_project_not_renderable_returns_empty_dict():
+    assert project_board_image_fields({"image_url": _RAW}) == {}
+    assert project_board_image_fields({}) == {}
+    assert project_board_image_fields(None) == {}
+
+
+def test_project_masked_url():
+    item = {"image_url": _RAW, "masked_url": _MASK}
+    assert project_board_image_fields(item) == {"masked_url": _MASK}
+
+
+def test_project_normalized_url():
+    item = {"image_url": _RAW, "normalized_url": _CAT}
+    assert project_board_image_fields(item) == {"normalized_url": _CAT}
+
+
+def test_project_cutout_url_carries_status():
+    item = {"image_url": _RAW, "cutout_url": _MASK, "cutout_status": "ready"}
+    assert project_board_image_fields(item) == {
+        "cutout_url": _MASK,
+        "cutout_status": "ready",
+    }
+
+
+def test_project_rmbg_url_carries_status():
+    item = {"image_url": _RAW, "rmbg_url": _RMBG, "image_status": "rmbg_complete"}
+    assert project_board_image_fields(item) == {
+        "rmbg_url": _RMBG,
+        "image_status": "rmbg_complete",
+    }
+
+
+def test_project_processed_url_carries_status():
+    item = {"image_url": _RAW, "processed_url": _PROCESSED, "image_status": "rmbg_complete"}
+    assert project_board_image_fields(item) == {
+        "processed_url": _PROCESSED,
+        "image_status": "rmbg_complete",
+    }
+
+
+def test_project_board_image_url_carries_status():
+    item = {"image_url": _RAW, "board_image_url": _MASK, "board_status": "cutout_ready"}
+    assert project_board_image_fields(item) == {
+        "board_image_url": _MASK,
+        "board_status": "cutout_ready",
+    }
+
+
+def test_project_transparent_url_maps_to_masked_url():
+    # The Flutter wardrobe_image_resolver's non-asset branch never reads a
+    # bare transparent_url field - only masked_url (which is also what
+    # wardrobe_persistence_service folds transparent_url into on write).
+    # Projecting it under its own name would silently stop rendering once
+    # the item reaches Flutter, even though is_board_renderable() says True.
+    item = {"image_url": _RAW, "transparent_url": _MASK}
+    assert project_board_image_fields(item) == {"masked_url": _MASK}
+
+
+def test_project_transparent_url_camel_case_maps_to_masked_url():
+    item = {"image_url": _RAW, "transparentUrl": _MASK}
+    assert project_board_image_fields(item) == {"masked_url": _MASK}
+
+
+def test_transparent_url_camel_case_unconditional():
+    item = {"image_url": _RAW, "transparentUrl": _MASK}
+    assert is_board_renderable(item) is True
+
+
+def test_rmbg_url_camel_case_with_complete_status_renderable():
+    item = {"image_url": _RAW, "rmbgUrl": _RMBG, "image_status": "rmbg_complete"}
+    assert is_board_renderable(item) is True
+    assert project_board_image_fields(item) == {
+        "rmbg_url": _RMBG,
+        "image_status": "rmbg_complete",
+    }
+
+
+def test_processed_url_camel_case_with_complete_status_renderable():
+    item = {
+        "image_url": _RAW,
+        "processedUrl": _PROCESSED,
+        "image_status": "rmbg_complete",
+    }
+    assert is_board_renderable(item) is True
+    assert project_board_image_fields(item) == {
+        "processed_url": _PROCESSED,
+        "image_status": "rmbg_complete",
+    }
+
+
+def test_transparent_image_url_camel_case_normalized_to_snake_case():
+    item = {"image_url": _RAW, "transparentImageUrl": _MASK}
+    assert is_board_renderable(item) is True
+    assert project_board_image_fields(item) == {"transparent_image_url": _MASK}
+
+
+def test_project_camel_case_field_normalized_to_snake_case():
+    item = {"image_url": _RAW, "cutoutUrl": _MASK, "cutout_status": "ready"}
+    assert project_board_image_fields(item) == {
+        "cutout_url": _MASK,
+        "cutout_status": "ready",
+    }
