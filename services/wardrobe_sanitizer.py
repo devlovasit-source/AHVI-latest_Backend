@@ -128,6 +128,15 @@ BLOCKED_NAME_TOKENS: tuple[str, ...] = (
     "packing cube",
     "ziploc",
     "sanitizer",
+    # Travel identity/document objects - "passport" alone covers "Passport",
+    # "Passport Holder" and "Passport Bag" (a bare "bag"/"holder" positive
+    # match must never override this). Recovers the "passport" guard that
+    # existed in services.style_flow_service._NON_APPAREL_KEYWORDS (commit
+    # 44ae362) but was never carried into this, the canonical, sanitizer.
+    "passport",
+    "travel document",
+    "document holder",
+    "travel file",
 )
 
 # Short tokens that only count as a match when they equal a whole word —

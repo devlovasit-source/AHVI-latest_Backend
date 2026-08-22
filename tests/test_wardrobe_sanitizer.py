@@ -79,6 +79,49 @@ def test_fashion_items_accepted(item):
     assert is_fashion_item(item) is True
 
 
+@pytest.mark.parametrize("category", ["", "Accessories"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Passport",
+        "Passport Holder",
+        "Passport Bag",
+        "Travel Document Bag",
+        "Document Holder",
+        "Travel File",
+    ],
+)
+def test_travel_document_items_rejected_even_when_mislabeled_accessory(name, category):
+    # A bare "bag"/"holder" positive fashion signal must never rescue a
+    # travel-identity object, even when a bad persisted row already carries
+    # category="Accessories". Recovers the "passport" guard that existed in
+    # services.style_flow_service._NON_APPAREL_KEYWORDS (commit 44ae362) but
+    # was never carried into this, the canonical, sanitizer.
+    assert is_fashion_item({"name": name, "category": category}) is False
+
+
+@pytest.mark.parametrize("category", ["", "Accessories"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Handbag",
+        "Leather Handbag",
+        "Tote Bag",
+        "Sling Bag",
+        "Clutch Bag",
+        "Backpack",
+        "Gold Bracelet",
+        "Watch",
+        "Sunglasses",
+        "Belt",
+    ],
+)
+def test_real_accessories_stay_eligible_after_travel_document_fix(name, category):
+    # The passport/travel-document fix must not collaterally block ordinary
+    # bags or other real accessory styling.
+    assert is_fashion_item({"name": name, "category": category}) is True
+
+
 def test_blocked_category_cannot_be_rescued_by_fashion_name():
     assert is_fashion_item(
         {"name": "Blue Linen Shirt", "category": "electronics"}

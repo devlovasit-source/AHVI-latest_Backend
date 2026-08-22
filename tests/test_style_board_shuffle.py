@@ -60,6 +60,31 @@ def test_router_resolves_sanitized_inline_wardrobe():
     assert trusted is False
 
 
+def test_router_resolves_sanitized_wardrobe_excludes_observed_junk():
+    # Integration proof: the exact device-observed non-fashion objects never
+    # reach the Shuffle candidate pool, whatever category a bad row happens
+    # to carry (real persisted junk rows have been seen mislabeled as
+    # "Accessories").
+    junk = [
+        _w("bottle-1", "Water Bottle", "Accessories"),
+        _w("bottle-2", "Sports Water Bottle", ""),
+        _w("flask-1", "Drink Flask", "misc"),
+        _w("charger-1", "Phone Charger", "Accessories"),
+        _w("powerbank-1", "Power Bank", ""),
+        _w("passport-1", "Passport", "Accessories"),
+        _w("passport-2", "Passport Bag", "Accessories"),
+        _w("travelbag-1", "Travel Document Bag", "Accessories"),
+    ]
+    request = style_boards.BoardShuffleRequest(
+        user_id="u-test",
+        wardrobe=[*junk, _w("shirt-ok", "White Oxford Shirt", "Tops")],
+    )
+
+    wardrobe, _trusted = style_boards._resolve_wardrobe(request)
+
+    assert [item["id"] for item in wardrobe] == ["shirt-ok"]
+
+
 def test_router_resolves_sanitized_appwrite_wardrobe(monkeypatch):
     class FakeProxy:
         def list_documents(self, resource, *, user_id):
@@ -306,4 +331,91 @@ def test_unknown_board_returns_state_not_found():
     assert result["success"] is False
     assert result["error"]["code"] == "BOARD_STATE_NOT_FOUND"
     assert result["error"].get("action") == "regenerate_board"
+
+
+# ---------------------------------------------- locked non-fashion lifecycle
+
+
+@pytest.mark.parametrize(
+    "name,role",
+    [
+        ("Passport", "accessory"),
+        ("Passport Bag", "accessory"),
+        ("Travel Document Bag", "accessory"),
+        ("Water Bottle", "accessory"),
+    ],
+)
+def test_locked_non_fashion_item_rejects_typed_before_mutation(name, role):
+    # A legacy locked item (saved before the sanitizer existed, or before it
+    # covered travel-document items) must not be preserved forever merely
+    # because assert_fixed_items_preserved guarantees locked items survive.
+    bad_locked = {
+        "item_id": "bad-1",
+        "slot": role,
+        "role": role,
+        "source": "wardrobe",
+        "name": name,
+        "image_url": "https://img/bad-1.png",
+    }
+    result = _shuffle(locked=[bad_locked])
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "BOARD_CONTAINS_NON_FASHION_ITEM"
+    assert result["error"]["item_ids"] == ["bad-1"]
+    # No partial mutation: the board must still be on revision 1.
+    state = sbs.get_board_state("b-1")
+    assert state["revision"] == 1
+
+
+@pytest.mark.parametrize(
+    "name,role",
+    [
+        ("Gold Bracelet", "accessory"),
+        ("Handbag", "accessory"),
+        ("Leather Handbag", "accessory"),
+        ("Tote Bag", "accessory"),
+        ("Sling Bag", "accessory"),
+    ],
+)
+def test_locked_real_accessory_with_name_still_shuffles(name, role):
+    # Fixing the travel-document/passport gap must not collaterally block a
+    # locked item that happens to carry a real accessory name.
+    good_locked = {
+        "item_id": "acc-1",
+        "slot": role,
+        "role": role,
+        "source": "wardrobe",
+        "name": name,
+        "image_url": "https://img/acc-1.png",
+    }
+    # top/bottom/footwear must all be covered (by lock or shuffle slot) for
+    # a complete outfit; only the accessory is under test here.
+    result = _shuffle(locked=[good_locked], slots=["top", "bottom", "footwear"])
+
+    assert result["success"] is True
+    ids = {i["item_id"] for i in result["board_items"]}
+    assert "acc-1" in ids
+
+
+def test_locked_item_without_name_is_trusted_by_role():
+    # A sparse id/role/slot-only locked payload (no name sent back by the
+    # client) is the normal shape for this contract - it must keep working,
+    # not be treated as unclassifiable-therefore-non-fashion.
+    result = _shuffle(locked=[_locked_top()])
+    assert result["success"] is True
+
+
+def test_locked_unknown_role_without_name_is_rejected():
+    # id/role-only AND role is unknown/absent: no evidence this is fashion,
+    # so it must not be silently trusted either.
+    bad_locked = {
+        "item_id": "mystery-1",
+        "slot": "unknown",
+        "role": "unknown",
+        "source": "wardrobe",
+        "image_url": "https://img/mystery-1.png",
+    }
+    result = _shuffle(locked=[bad_locked])
+    assert result["success"] is False
+    assert result["error"]["code"] == "BOARD_CONTAINS_NON_FASHION_ITEM"
     assert sbs.get_board_state("fresh-board") is None

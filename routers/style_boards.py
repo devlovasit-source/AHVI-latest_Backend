@@ -117,8 +117,15 @@ def shuffle_style_board(
     # the wardrobe is only ever loaded for the authenticated id. Inline
     # wardrobe (tests / offline) is preserved but never marked trusted.
     user_id = enforce_owner(http_request, request.user_id)
-    wardrobe, wardrobe_source_trusted = _resolve_wardrobe(request, user_id)
     locked = [dict(item) for item in request.locked_items]
+    # Non-fashion locked-item lifecycle guard lives in
+    # style_board_shuffle_service.shuffle_board, not here: for style_this
+    # boards it must run on locked_items AFTER they're rebuilt from durable
+    # stored state (which is where the real item name/category lives - a
+    # locked item in this request body may be id/slot/role-only), so a
+    # second check against this thin, possibly-sparse payload would be
+    # either redundant or wrong, never additive.
+    wardrobe, wardrobe_source_trusted = _resolve_wardrobe(request, user_id)
     inline_assets = (
         [dict(i) for i in request.style_assets if isinstance(i, dict)]
         if isinstance(request.style_assets, list) else None

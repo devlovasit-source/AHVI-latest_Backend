@@ -33,6 +33,7 @@ from services.style_item_contract import (
     canonical_item_id,
     canonical_item_source,
 )
+from services.wardrobe_sanitizer import is_fashion_item
 
 logger = logging.getLogger("ahvi.style_board_shuffle")
 
@@ -107,6 +108,23 @@ def _error(code: str, message: str, **extra: Any) -> Dict[str, Any]:
     err = {"code": code, "message": message}
     err.update(extra)
     return {"success": False, "error": err}
+
+
+def _locked_item_is_fashion(item: Dict[str, Any]) -> bool:
+    """is_fashion_item(), but tolerant of an id/role/slot-only locked-item
+    payload with no name/category to classify against (name is optional on
+    LockedBoardItem - a client may echo back only identity + position).
+    is_fashion_item() itself treats a missing name as an automatic reject,
+    which would misfire here; a locked item with no identifying text is not
+    evidence of anything, so trust the role a non-fashion item could never
+    have earned in the first place (canonical_item_role/_lite_role both
+    already exclude non-fashion tokens before a role is assigned).
+    """
+    name = str(item.get("name") or item.get("title") or "").strip()
+    if not name:
+        role = str(item.get("role") or item.get("slot") or "").strip().lower()
+        return role not in ("", "unknown")
+    return is_fashion_item(item)
 
 
 def _default_position(item_id: str, slot: str) -> Dict[str, Any]:
@@ -422,6 +440,27 @@ def shuffle_board(
                 "Style This revisions cannot contain style assets.",
                 source_policy="wardrobe",
             )
+
+    # --- Locked-item lifecycle guard -----------------------------------------
+    # For style_this, locked_items above was just rebuilt from stored_by_id
+    # (durable state), including a stored anchor the caller never has to name
+    # explicitly - so this must run on the FINAL resolved list, not the raw
+    # request. assert_fixed_items_preserved only proves locked items survive
+    # shuffle; it has no opinion on whether they should still exist. A board
+    # saved before the fashion sanitizer existed (or before it covered
+    # travel-document items) must not have that item preserved forever purely
+    # because it is durably locked - fail typed, before any generation or
+    # state mutation, rather than silently carrying it into every future
+    # revision (undo/missing-slot-repair reuse the same stored_items/locked
+    # rebuild path, so this one check also covers those).
+    non_fashion_locked = [item for item in locked_items if not _locked_item_is_fashion(item)]
+    if non_fashion_locked:
+        return _error(
+            "BOARD_CONTAINS_NON_FASHION_ITEM",
+            "This look contains an item that can no longer be used for "
+            "styling. Refresh the look to continue.",
+            item_ids=[canonical_item_id(item) for item in non_fashion_locked],
+        )
 
     # --- Board policy resolution (NEVER inferred from locked-item sources) --
     # Precedence: explicit dict (internal) > explicit canonical string >
