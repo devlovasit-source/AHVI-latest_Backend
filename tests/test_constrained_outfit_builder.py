@@ -741,3 +741,87 @@ def test_masked_url_aliasing_raw_stays_unsafe_through_shuffle():
         assert "acc-alias" not in _ids(result)
     else:
         assert result["error"]["code"] in {"INSUFFICIENT_WARDROBE", "NO_REPLACEMENT_FOUND"}
+
+
+# ------------------------------------------------- URL-identity alias parity
+#
+# Live device bug: masked_url differed from image_url only by a query-string
+# token (a signed/cache-busted URL copy) - exact-string-different, but
+# Flutter's _urlIdentity() (scheme+host+port+path only, query/fragment
+# dropped) calls it the same resource and rejects it, producing an empty
+# hanger for an item the backend had called board_renderable. Exercised
+# through the real candidate pool + shuffle_unlocked selection, not just
+# resolve_board_image_candidate() in isolation.
+
+
+def test_query_string_aliased_item_never_enters_pool_or_shuffle_output():
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    bad = {
+        "id": "acc-query-alias",
+        "name": "Query Alias Accessory",
+        "category": "Accessories",
+        "source": "wardrobe",
+        "image_url": "https://cdn.test/item.png?token=abc",
+        "masked_url": "https://cdn.test/item.png?token=xyz",
+    }
+    assert is_board_renderable(bad) is False, "pre-fix proof: this must be unsafe"
+
+    result = _gen(
+        [top],
+        wardrobe=[top, bad],
+        scenario="shuffle_unlocked",
+        replaceable_slots=["accessory"],
+        context={"wardrobe": [top, bad]},
+    )
+    if result["success"]:
+        assert "acc-query-alias" not in _ids(result)
+    else:
+        assert result["error"]["code"] in {"INSUFFICIENT_WARDROBE", "NO_REPLACEMENT_FOUND"}
+
+
+def test_genuinely_different_masked_url_with_own_query_stays_selectable():
+    """Guard against over-normalizing: a real cutout on a different path,
+    carrying its own unrelated query string, must remain selectable."""
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    good = {
+        "id": "acc-genuine",
+        "name": "Genuine Accessory",
+        "category": "Accessories",
+        "source": "wardrobe",
+        "image_url": "https://cdn.test/raw/item.png?x=1",
+        "masked_url": "https://cdn.test/masked/item.png?x=2",
+    }
+    assert is_board_renderable(good) is True
+
+    result = _gen(
+        [top],
+        wardrobe=[top, good],
+        scenario="shuffle_unlocked",
+        replaceable_slots=["accessory"],
+        context={"wardrobe": [top, good]},
+    )
+    assert result["success"] is True
+    assert "acc-genuine" in _ids(result)
+    returned = next(i for i in result["items"] if i["item_id"] == "acc-genuine")
+    assert is_board_renderable(returned) is True
+
+
+def test_required_slot_never_left_empty_when_only_candidate_is_url_aliased():
+    """Core-slot exhaustion safety: if the ONLY candidate for a required role
+    is correctly rejected as a URL-identity alias, the builder must fall back
+    to its existing typed-incomplete behavior - never fabricate a placeholder
+    and never report success with that slot silently empty."""
+    bad_bottom = {
+        "id": "bottom-alias",
+        "name": "Alias Bottom",
+        "category": "Bottoms",
+        "source": "wardrobe",
+        "image_url": "https://cdn.test/item.png?token=abc",
+        "masked_url": "https://cdn.test/item.png?token=xyz",
+    }
+    result = _gen([], wardrobe=[bad_bottom], scenario="build_outfit")
+    if result["success"]:
+        assert "bottom-alias" not in _ids(result)
+        assert "bottom" in result.get("missing_items", [])
+    else:
+        assert result["error"]["code"] == "INSUFFICIENT_WARDROBE"

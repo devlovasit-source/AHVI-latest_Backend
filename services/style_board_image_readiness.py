@@ -18,6 +18,7 @@ independent rules.
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
+from urllib.parse import urlsplit
 
 # Raw-photo fields. A processed-image field whose value equals one of these
 # is a fabricated cutout, never a real one.
@@ -81,6 +82,30 @@ def _raw_aliases(item: Dict[str, Any]) -> set:
     return {_text(item.get(k)) for k in _RAW_ALIAS_KEYS if _text(item.get(k))}
 
 
+def _board_url_identity(url: Any) -> str:
+    """Mirror lib/util/wardrobe_image_resolver.dart's _urlIdentity(): two URLs
+    naming the "same" underlying resource for alias-detection purposes,
+    regardless of query string / fragment / scheme-host casing.
+
+    A masked_url that is a signed/cache-busted copy of image_url (same host
+    + path, different query token) is exact-string-different but IS the same
+    fabricated-cutout alias Flutter itself will reject - admitting it here
+    only for Flutter to hang an empty placeholder on it. Mirrors the Dart
+    function line for line: parse as a URI; if it has no scheme or no host,
+    fall back to the raw string (Flutter does the same); otherwise identity
+    is scheme(lower) + "://" + host(lower) + explicit-port + path, with the
+    query and fragment always dropped.
+    """
+    text = _text(url)
+    if not text:
+        return text
+    parts = urlsplit(text)
+    if not parts.scheme or not parts.hostname:
+        return text
+    port = f":{parts.port}" if parts.port is not None else ""
+    return f"{parts.scheme.lower()}://{parts.hostname}{port}{parts.path}"
+
+
 def resolve_board_image_candidate(item: Any) -> Dict[str, Any]:
     """Return the board-safe image candidate (if any) for `item`.
 
@@ -103,10 +128,11 @@ def resolve_board_image_candidate(item: Any) -> Dict[str, Any]:
         }
 
     aliases = _raw_aliases(item)
+    alias_identities = {_board_url_identity(a) for a in aliases}
 
     for field, status_req in _CANDIDATE_FIELDS:
         value = _text(item.get(field))
-        if not value or value in aliases:
+        if not value or value in aliases or _board_url_identity(value) in alias_identities:
             continue
         if status_req is not None:
             status_field, expected = status_req
