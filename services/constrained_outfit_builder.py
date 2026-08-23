@@ -23,6 +23,7 @@ import logging
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from services.style_board_image_readiness import (
+    has_declared_processed_image,
     is_board_renderable,
     prepare_board_item,
 )
@@ -63,6 +64,7 @@ ERROR_CODES = frozenset({
     "CONSTRAINED_BUILDER_FAILED",
     "BOARD_SOURCE_POLICY_UNKNOWN",
     "SOURCE_POLICY_VIOLATION",
+    "FIXED_ITEM_NOT_BOARD_SAFE",
 })
 
 _SCENARIO_DEFAULT_SOURCES = {
@@ -234,6 +236,43 @@ class ConstrainedOutfitBuilder:
                         fixed_item_ids=[norm["item_id"]],
                         reason_code=decision["reason_code"],
                     )
+            # A locked wardrobe item must satisfy the exact same board-safety
+            # invariant as an unlocked candidate: prepare_board_item() is the
+            # one place that builds the exact representation a board may
+            # serialize, and gating must run on THAT object, not on `raw` or
+            # the plain normalize_style_item() output - otherwise a
+            # masked-only locked item (no explicit image_url) silently
+            # carries the same normalize_style_item() image_url fallback
+            # into a fabricated masked_url alias downstream, just like the
+            # unlocked pool bug this mirrors (fix(style): preserve image
+            # provenance before board selection). style_asset fixed items
+            # are excluded, matching the unlocked pool's own exception:
+            # their Flutter branch reads transparent_url/transparentImageUrl
+            # under their own names and prepare_board_item() returns them
+            # untouched anyway.
+            if norm["source"] != "style_asset":
+                prepared = prepare_board_item(raw)
+                # Only reject when raw actively declares a PROCESSED image
+                # field that turned out unsafe/corrupted (e.g. a fabricated
+                # alias) - not merely a raw photo, and not no image at all.
+                # A raw-photo-only item is the ordinary, always-tolerated
+                # "not board-safe yet" state (see
+                # test_raw_image_url_only_stays_unsafe_through_shuffle for
+                # the unlocked-pool equivalent - it's excluded from the
+                # pool, never a hard failure). Locked items were never
+                # gated on renderability at all before this fix; both an
+                # already-persisted locked item with no image fields and
+                # one with only a raw photo must keep working exactly as
+                # they did, while a genuinely aliased processed field must
+                # not.
+                if has_declared_processed_image(raw) and not is_board_renderable(prepared):
+                    return _failure(
+                        "FIXED_ITEM_NOT_BOARD_SAFE",
+                        "A locked item's image is not board-safe and cannot be preserved on this board.",
+                        fixed_item_ids=[norm["item_id"]],
+                    )
+                prepared["locked"] = True
+                norm = prepared
             fixed_norm.append(norm)
         fixed_ids = {n["item_id"] for n in fixed_norm}
         fixed_pairs = list(zip(fixed_raw, fixed_norm))

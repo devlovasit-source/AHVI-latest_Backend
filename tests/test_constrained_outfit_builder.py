@@ -978,3 +978,224 @@ def test_required_slot_never_left_empty_when_only_candidate_is_masked_only_and_r
     result = _gen([], wardrobe=[masked_only_bottom], scenario="build_outfit")
     assert result["success"] is True
     assert "bottom-masked-only" in _ids(result)
+
+
+# ------------------------------------------ locked-item provenance
+#
+# The unlocked candidate pool now gates on prepare_board_item(raw), but
+# fixed/locked items took a separate path: normalize_style_item(raw) only,
+# never re-gated, never scrubbed. A locked masked-only item (no explicit
+# image_url) hits the exact same normalize_style_item() image_url fallback
+# bug - is_board_renderable(raw) says True (no raw photo to alias against),
+# but the served fixed item ends up with image_url == masked_url, which
+# Flutter's own alias check (correctly) rejects. Fixed items must satisfy
+# the identical prepare_board_item() invariant as unlocked candidates.
+
+
+def test_pre_fix_locked_mechanism_reproduces_synthetic_alias_if_bypassed():
+    """Documents WHY the locked-item bug existed: normalize_style_item(raw)
+    alone (the exact sequence the fixed-item path used before this fix)
+    still manufactures image_url == masked_url for a masked-only item.
+    normalize_style_item() was not changed by this fix (general-purpose,
+    out of scope) - the fix is that ConstrainedOutfitBuilder's fixed-item
+    path must call prepare_board_item() too, exactly like the unlocked pool
+    already does."""
+    raw = {
+        "id": "locked-masked-only",
+        "name": "Black Night Trousers",
+        "category": "Bottoms",
+        "source": "wardrobe",
+        "masked_url": "https://cdn.test/processed/trousers.png",
+    }
+    assert is_board_renderable(raw) is True
+
+    from services.style_item_contract import normalize_style_item
+    normalized = normalize_style_item(raw)
+    assert normalized["image_url"] == raw["masked_url"]
+
+
+def test_locked_masked_only_item_has_no_synthetic_image_url_alias():
+    """Real fixed-item path: a locked masked-only bottom must remain
+    locked, keep its role/id, render successfully, and gain no synthetic
+    image_url alias - the live-bug shape, now through the lock contract."""
+    locked = {
+        "id": "locked-masked-only",
+        "name": "Black Night Trousers",
+        "category": "Bottoms",
+        "source": "wardrobe",
+        "masked_url": "https://cdn.test/processed/trousers.png",
+    }
+    result = _gen([locked], wardrobe=[locked], scenario="build_outfit")
+    assert result["success"] is True
+    kept = next(i for i in result["items"] if i["item_id"] == "locked-masked-only")
+
+    assert kept["locked"] is True
+    assert kept["role"] == "bottom"
+    assert kept["item_id"] == "locked-masked-only"
+    assert kept["masked_url"] == locked["masked_url"]
+    assert "image_url" not in kept
+    assert is_board_renderable(kept) is True
+
+
+def test_locked_raw_plus_genuine_masked_preserves_both_fields():
+    """A locked item WITH an explicit, genuinely-distinct image_url must
+    keep both fields exactly - the provenance fix must not erase a real
+    raw photo, only refuse to manufacture a fake one."""
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    locked = {
+        "id": "locked-genuine",
+        "name": "Navy Blazer",
+        "category": "Outerwear",
+        "source": "wardrobe",
+        "image_url": "https://cdn.test/raw/blazer.png",
+        "masked_url": "https://cdn.test/masked/blazer.png",
+    }
+    result = _gen([locked], wardrobe=[locked, top], scenario="build_outfit")
+    assert result["success"] is True
+    kept = next(i for i in result["items"] if i["item_id"] == "locked-genuine")
+    assert kept["image_url"] == locked["image_url"]
+    assert kept["masked_url"] == locked["masked_url"]
+    assert kept["locked"] is True
+
+
+def test_locked_aliased_item_rejected_with_typed_error_no_partial_mutation():
+    """An unsafe locked item (image_url/masked_url share Flutter URL
+    identity) must never be silently unlocked, dropped, or substituted
+    behind the user's lock, and must never produce a board with a blank
+    slot where the lock should be. It must fail with a typed error before
+    any board mutation."""
+    aliased_locked = {
+        "id": "locked-alias",
+        "name": "Aliased Trousers",
+        "category": "Bottoms",
+        "source": "wardrobe",
+        "image_url": "https://cdn.test/item.png?token=a",
+        "masked_url": "https://cdn.test/item.png?token=b",
+    }
+    assert is_board_renderable(aliased_locked) is False
+
+    result = _gen([aliased_locked], wardrobe=[aliased_locked], scenario="build_outfit")
+    assert result["success"] is False
+    assert result["error"]["code"] == "FIXED_ITEM_NOT_BOARD_SAFE"
+    assert "locked-alias" in result["error"]["fixed_item_ids"]
+
+
+def test_locked_style_asset_untouched_by_provenance_gate():
+    """590cc2e rule preserved for LOCKED items too: a fixed style_asset item
+    keeps its own Flutter resolver branch, is never scrubbed/projected, and
+    is never rejected by the new board-safety gate (which does not apply to
+    style_asset sources at all, matching the unlocked pool's exception)."""
+    locked_asset = {
+        "id": "asset-locked-1",
+        "name": "Curated Chain",
+        "category": "accessory",
+        "source": "style_asset",
+        "transparent_url": "https://img/asset-locked-1-transparent.png",
+    }
+    top = _w("top-1", "White Oxford Shirt", "top", source="style_asset")
+    bottom = _w("bottom-1", "Pleated Trousers", "bottom", source="style_asset")
+    footwear = _w("shoe-1", "Minimal Slides", "footwear", source="style_asset")
+    result = builder.generate(
+        scenario="style_this",
+        fixed_items=[locked_asset],
+        style_assets=[locked_asset, top, bottom, footwear],
+        source_policy={"allowed_sources": ["style_asset"]},
+        context={"accessory_budget": 1},
+    )
+    assert result["success"] is True
+    kept = next(i for i in result["items"] if i["item_id"] == "asset-locked-1")
+    assert kept.get("transparent_url") == locked_asset["transparent_url"]
+    assert "masked_url" not in kept
+    assert kept["locked"] is True
+
+
+def test_locked_item_with_no_image_fields_at_all_still_succeeds():
+    """Locked items were never gated on renderability before this fix - an
+    already-persisted locked board item with NO image fields at all (a
+    pre-image-tracking board row, as some persisted-shuffle-service tests
+    use) must keep working exactly as it did. Only items that actively
+    declare unsafe/corrupted image data are rejected, not items with none."""
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    bare_locked = {"id": "bottom-bare", "name": "Blue Jeans", "category": "Bottoms", "source": "wardrobe"}
+    result = _gen([bare_locked], wardrobe=[bare_locked, top], scenario="build_outfit")
+    assert result["success"] is True
+    assert "bottom-bare" in _ids(result)
+
+
+def test_locked_item_with_only_raw_image_url_still_succeeds():
+    """A raw-photo-only locked item (no processed field at all) is the
+    ordinary, long-tolerated "not board-safe yet" state every wardrobe item
+    starts in - it must NOT become a hard lock failure. This mirrors how
+    the unlocked pool merely excludes (never hard-fails on) a raw-only
+    item; the difference is a locked item can't be silently excluded, so it
+    must be preserved as-is instead. Regression guard: this is the exact
+    shape most of this codebase's pre-existing locked-item fixtures use."""
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    raw_only_locked = {
+        "id": "bottom-raw-only",
+        "name": "Blue Jeans",
+        "category": "Bottoms",
+        "source": "wardrobe",
+        "image_url": "https://img/bottom-raw-only.png",
+    }
+    result = _gen([raw_only_locked], wardrobe=[raw_only_locked, top], scenario="build_outfit")
+    assert result["success"] is True
+    kept = next(i for i in result["items"] if i["item_id"] == "bottom-raw-only")
+    assert kept["image_url"] == raw_only_locked["image_url"]
+    assert kept["locked"] is True
+
+
+def test_real_shuffle_with_masked_only_locked_anchor_and_unlocked_replacements():
+    """Full real-path regression: a masked-only locked bottom anchor, plus
+    valid unlocked top/footwear/accessory, shuffled. The anchor must
+    survive with no synthetic alias while unlocked roles change."""
+    anchor = {
+        "id": "locked-masked-anchor",
+        "name": "Black Night Trousers",
+        "category": "Bottoms",
+        "source": "wardrobe",
+        "masked_url": "https://cdn.test/processed/trousers.png",
+    }
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    shoe = _w("shoe-1", "White Sneakers", "Footwear")
+    bag = _w("bag-1", "Structured Handbag", "Accessories")
+    wardrobe = [anchor, top, shoe, bag]
+
+    result = builder.generate(
+        scenario="shuffle_unlocked",
+        fixed_items=[anchor],
+        wardrobe=wardrobe,
+        replaceable_slots=["top", "footwear", "accessory"],
+        context={"wardrobe": wardrobe},
+    )
+    assert result["success"] is True
+    kept_anchor = next(i for i in result["items"] if i["item_id"] == "locked-masked-anchor")
+    assert kept_anchor["locked"] is True
+    assert kept_anchor["masked_url"] == anchor["masked_url"]
+    assert "image_url" not in kept_anchor
+    assert is_board_renderable(kept_anchor) is True
+
+
+def test_real_shuffle_rejects_unsafe_aliased_locked_anchor_no_partial_mutation():
+    """The unsafe-lock rejection must hold through the real shuffle path
+    too, not just build_outfit."""
+    aliased_anchor = {
+        "id": "locked-alias-anchor",
+        "name": "Aliased Trousers",
+        "category": "Bottoms",
+        "source": "wardrobe",
+        "image_url": "https://cdn.test/item.png?token=a",
+        "masked_url": "https://cdn.test/item.png?token=b",
+    }
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    wardrobe = [aliased_anchor, top]
+
+    result = builder.generate(
+        scenario="shuffle_unlocked",
+        fixed_items=[aliased_anchor],
+        wardrobe=wardrobe,
+        replaceable_slots=["top"],
+        context={"wardrobe": wardrobe},
+    )
+    assert result["success"] is False
+    assert result["error"]["code"] == "FIXED_ITEM_NOT_BOARD_SAFE"

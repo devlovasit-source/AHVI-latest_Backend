@@ -236,6 +236,33 @@ def project_board_image_fields(item: Any) -> Dict[str, Any]:
     return result
 
 
+_PROCESSED_FIELD_KEYS = tuple(field for field, _status in _CANDIDATE_FIELDS) + _CATALOG_FIELDS
+
+
+def has_declared_processed_image(item: Any) -> bool:
+    """True if `item` declares a processed/candidate image field (masked_url,
+    cutout_url, normalized_url, etc. - any _CANDIDATE_FIELDS/_CATALOG_FIELDS
+    name), regardless of whether it ends up board-safe. Deliberately
+    excludes the plain raw-photo fields (_RAW_ALIAS_KEYS): an item with
+    ONLY a raw image_url and no processed field is the ordinary,
+    pre-existing "not board-safe yet" state every wardrobe item starts in
+    (see test_raw_image_url_only_stays_unsafe_through_shuffle) - not a
+    corrupted/fabricated one.
+
+    is_board_renderable() alone cannot distinguish "this item actively
+    presents unsafe/corrupted PROCESSED image data" (a real alias) from
+    "this item simply has no processed image data yet" (ordinary,
+    long-tolerated for locked items) - both return False. A caller that
+    must reject the former while still tolerating the latter (e.g. an
+    already-persisted locked board item that's never had more than a raw
+    photo, which was never gated on renderability and must not start being
+    rejected now) needs this narrower signal instead.
+    """
+    if not isinstance(item, dict):
+        return False
+    return any(_text(item.get(k)) for k in _PROCESSED_FIELD_KEYS)
+
+
 def prepare_board_item(raw: Any) -> Dict[str, Any]:
     """Produce the exact item representation a board is allowed to serialize
     for `raw` - the one object that must be both is_board_renderable() and
@@ -280,4 +307,5 @@ __all__ = [
     "resolve_board_image_candidate",
     "project_board_image_fields",
     "prepare_board_item",
+    "has_declared_processed_image",
 ]
