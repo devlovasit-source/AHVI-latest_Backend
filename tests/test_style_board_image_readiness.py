@@ -6,9 +6,11 @@ exact matrix this implements.
 
 from services.style_board_image_readiness import (
     is_board_renderable,
+    prepare_board_item,
     project_board_image_fields,
     resolve_board_image_candidate,
 )
+from services.style_item_contract import normalize_style_item
 
 _RAW = "https://cdn/user/raw_photo.jpg"
 _MASK = "https://cdn/masked/shirt.png"
@@ -340,3 +342,123 @@ def test_genuine_masked_image_with_query_difference_from_unrelated_raw():
         "masked_url": "https://cdn.test/masked/item.png?x=2",
     }
     assert is_board_renderable(item) is True
+
+
+# ------------------------------------------ prepare_board_item (post-normalization alias)
+#
+# Live device bug (ce4ade1 device gate, item 69f5cf416867b929beb6): a
+# masked-only wardrobe item has no raw image_url to alias against, so
+# is_board_renderable(raw) correctly says True. But normalize_style_item()
+# falls back to masked_url to fill the display "image_url" field when raw
+# has none (canonical_image_url()'s priority chain) - then
+# project_board_image_fields() re-adds masked_url under its own name too,
+# so the SERVED item ends up with image_url == masked_url: a fabricated
+# alias resolve_board_image_candidate() never re-checks, because it only
+# ever validated the untouched raw dict. Flutter's own _urlIdentity() alias
+# check then (correctly, by its own contract) rejects the self-aliased item
+# and renders an empty hanger. prepare_board_item() is the fix: it is the
+# ONE place that builds the exact item a board may serialize, and it must
+# never let that synthesis happen.
+
+_MASKED_ONLY_BELT = {
+    "id": "masked-only",
+    "name": "Leather Belt",
+    "category": "Accessories",
+    "masked_url": "https://cdn.test/processed/belt.png",
+}
+
+
+def test_pre_fix_mechanism_still_reproduces_synthetic_alias_if_bypassed():
+    """Documents WHY the bug existed: is_board_renderable(raw) is True (no
+    raw photo to alias against), yet naively chaining
+    normalize_style_item() + project_board_image_fields() - the exact
+    sequence prepare_board_item() now replaces - still manufactures
+    image_url == masked_url. Neither of those two functions was changed by
+    this fix (out of scope - normalize_style_item() is general-purpose with
+    other callers); the fix is that ConstrainedOutfitBuilder must use
+    prepare_board_item() instead of this raw sequence. If this test ever
+    starts failing, the underlying mechanism no longer applies and this
+    fix's rationale should be re-examined."""
+    raw = _MASKED_ONLY_BELT
+    assert is_board_renderable(raw) is True
+
+    normalized = normalize_style_item(raw)
+    assert normalized["image_url"] == raw["masked_url"]
+
+    normalized.update(project_board_image_fields(raw))
+    assert normalized["image_url"] == normalized["masked_url"]
+
+
+def test_prepare_board_item_masked_only_has_no_synthetic_image_url():
+    prepared = prepare_board_item(_MASKED_ONLY_BELT)
+    assert prepared["masked_url"] == _MASKED_ONLY_BELT["masked_url"]
+    assert "image_url" not in prepared
+    assert is_board_renderable(prepared) is True
+
+
+def test_prepare_board_item_transparent_only_has_no_synthetic_image_url():
+    raw = {"id": "t1", "name": "Scarf", "transparent_url": "https://cdn.test/t/scarf.png"}
+    prepared = prepare_board_item(raw)
+    assert prepared["masked_url"] == raw["transparent_url"]
+    assert "image_url" not in prepared
+    assert is_board_renderable(prepared) is True
+
+
+def test_prepare_board_item_rmbg_only_has_no_synthetic_image_url():
+    raw = {
+        "id": "r1", "name": "Cap", "rmbg_url": _RMBG, "image_status": "rmbg_complete",
+    }
+    prepared = prepare_board_item(raw)
+    assert prepared["rmbg_url"] == _RMBG
+    assert "image_url" not in prepared
+    assert is_board_renderable(prepared) is True
+
+
+def test_prepare_board_item_processed_only_has_no_synthetic_image_url():
+    raw = {
+        "id": "p1", "name": "Jacket", "processed_url": _PROCESSED, "image_status": "rmbg_complete",
+    }
+    prepared = prepare_board_item(raw)
+    assert prepared["processed_url"] == _PROCESSED
+    assert "image_url" not in prepared
+    assert is_board_renderable(prepared) is True
+
+
+def test_prepare_board_item_normalized_only_has_no_synthetic_image_url():
+    raw = {"id": "n1", "name": "Shirt", "normalized_url": _CAT}
+    prepared = prepare_board_item(raw)
+    assert prepared["normalized_url"] == _CAT
+    assert "image_url" not in prepared
+    assert is_board_renderable(prepared) is True
+
+
+def test_prepare_board_item_raw_plus_genuine_masked_preserves_both():
+    raw = {"id": "g1", "name": "Coat", "image_url": _RAW, "masked_url": _MASK}
+    prepared = prepare_board_item(raw)
+    assert prepared["image_url"] == _RAW
+    assert prepared["masked_url"] == _MASK
+    assert is_board_renderable(prepared) is True
+
+
+def test_prepare_board_item_raw_plus_aliased_masked_rejected():
+    raw = {
+        "id": "a1", "name": "Alias",
+        "image_url": "https://cdn.test/item.png?token=1",
+        "masked_url": "https://cdn.test/item.png?token=2",
+    }
+    prepared = prepare_board_item(raw)
+    assert is_board_renderable(prepared) is False
+
+
+def test_prepare_board_item_style_asset_untouched():
+    """590cc2e rule preserved: style_asset items keep their own resolver
+    branch, never scrubbed or projected."""
+    raw = {
+        "id": "asset-1",
+        "name": "Curated Chain",
+        "source": "style_asset",
+        "transparent_url": "https://img/asset-1-transparent.png",
+    }
+    prepared = prepare_board_item(raw)
+    assert prepared.get("transparent_url") == raw["transparent_url"]
+    assert "masked_url" not in prepared

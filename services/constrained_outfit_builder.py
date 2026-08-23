@@ -24,7 +24,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from services.style_board_image_readiness import (
     is_board_renderable,
-    project_board_image_fields,
+    prepare_board_item,
 )
 from services.style_item_contract import (
     FixedItemLostError,
@@ -295,9 +295,22 @@ class ConstrainedOutfitBuilder:
             role = canonical_item_role(raw)
             if role not in ALL_SLOTS:
                 continue  # unknown / non-fashion / sport-swim
-            if canonical_item_source(raw) not in allowed_sources:
+            source = canonical_item_source(raw)
+            if source not in allowed_sources:
                 continue  # unknown source is NOT wardrobe
-            if not is_board_renderable(raw):
+            # Prepare BEFORE gating: the prepared object is the exact
+            # representation that will be serialized if selected, so
+            # renderability must be checked on it, not on `raw` - otherwise
+            # normalize_style_item()'s image_url fallback can manufacture a
+            # masked_url alias after the gate already passed (the live
+            # device bug on ce4ade1). style_asset items keep their own
+            # Flutter resolver branch (590cc2e) and normalize_style_item()
+            # doesn't carry every camelCase candidate alias through, so they
+            # are gated on the untouched raw dict instead - exactly today's
+            # behavior, unchanged.
+            prepared = prepare_board_item(raw)
+            gate_item = raw if source == "style_asset" else prepared
+            if not is_board_renderable(gate_item):
                 continue  # no genuine board-safe image - never select, never display later
             if style_strategy and _strategy_avoid_match(raw, style_strategy):
                 continue
@@ -306,9 +319,8 @@ class ConstrainedOutfitBuilder:
                 if not decision["allowed"]:
                     continue
             seen_pool_ids.add(cid)
-            norm = normalize_style_item(raw)
-            norm["locked"] = False
-            pools[role].append((raw, norm))
+            prepared["locked"] = False
+            pools[role].append((raw, prepared))
 
         if "style_asset" in allowed_sources:
             pool_has_assets = any(
@@ -368,24 +380,13 @@ class ConstrainedOutfitBuilder:
             if picked is None:
                 missing_slots.append(slot)
                 continue
-            raw, norm = picked
-            norm = dict(norm)
+            raw, prepared = picked
+            # `prepared` was already built (and gated) by prepare_board_item()
+            # when the pool was constructed - the same object proven safe is
+            # the one served, with no further transformation that could
+            # manufacture a new image_url alias after the fact.
+            norm = dict(prepared)
             norm["locked"] = False
-            if norm.get("source") != "style_asset":
-                # normalize_style_item() preserves a winning board-safe field
-                # under its ORIGINAL name (and even drops a few camelCase-only
-                # forms entirely - it has no camel alias wired for rmbg_url/
-                # processed_url/transparent_image_url). project_board_image_fields
-                # re-derives the field from the untouched raw candidate and
-                # projects it under the name lib/util/wardrobe_image_resolver.dart
-                # actually reads for a wardrobe item - the same authority
-                # routers/stylist.py's initial Style This path already uses, so
-                # Shuffle and Style This can't diverge on what counts as
-                # Flutter-renderable. Skipped for style_asset items: Flutter's
-                # asset branch reads transparent_url/transparentImageUrl under
-                # their own names (never masked_url), so canonicalizing here
-                # would break asset rendering rather than fix it.
-                norm.update(project_board_image_fields(raw))
             outfit_items.append(norm)
             changed_slots.append(slot)
             if norm["role"] == "dress":

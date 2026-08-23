@@ -20,6 +20,8 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
 
+from services.style_item_contract import normalize_style_item
+
 # Raw-photo fields. A processed-image field whose value equals one of these
 # is a fabricated cutout, never a real one.
 _RAW_ALIAS_KEYS = (
@@ -234,8 +236,48 @@ def project_board_image_fields(item: Any) -> Dict[str, Any]:
     return result
 
 
+def prepare_board_item(raw: Any) -> Dict[str, Any]:
+    """Produce the exact item representation a board is allowed to serialize
+    for `raw` - the one object that must be both is_board_renderable() and
+    Flutter-resolvable, with no further transformation between this call and
+    the wire.
+
+    normalize_style_item() falls back to masked_url/normalized_url/etc (via
+    canonical_image_url()'s display-priority chain) to fill `image_url` when
+    a raw item has no explicit one - a reasonable "give me *something* to
+    show" default for a wardrobe grid thumbnail, but fatal for a board: this
+    function's caller then projects the winning candidate field back onto
+    the item under its own name (project_board_image_fields), so an item
+    with only masked_url ends up served as image_url == masked_url - a
+    fabricated raw-image alias resolve_board_image_candidate() never sees,
+    because it only ever validated the untouched raw dict, before this
+    synthesis happened. Live device bug (device gate on ce4ade1): a
+    masked-only wardrobe item passed is_board_renderable(raw) - correctly,
+    it has no real alias - then normalize_style_item() manufactured
+    image_url=masked_url, and Flutter's own _urlIdentity() alias check
+    rejected the now-self-aliased item, rendering an empty hanger.
+
+    Style-asset items are returned untouched (590cc2e): Flutter's asset
+    branch reads transparent_url/transparentImageUrl under their own names
+    (never masked_url), and normalize_style_item() doesn't carry every
+    camelCase candidate alias through - callers that need to gate a
+    style_asset item's renderability must still check the raw dict, not this
+    function's output, to avoid losing camelCase-only candidates.
+    """
+    norm = normalize_style_item(raw)
+    if norm.get("source") == "style_asset":
+        return norm
+    raw_dict = raw if isinstance(raw, dict) else {}
+    has_explicit_original = bool(_text(raw_dict.get("image_url")) or _text(raw_dict.get("imageUrl")))
+    if not has_explicit_original:
+        norm.pop("image_url", None)
+    norm.update(project_board_image_fields(raw))
+    return norm
+
+
 __all__ = [
     "is_board_renderable",
     "resolve_board_image_candidate",
     "project_board_image_fields",
+    "prepare_board_item",
 ]

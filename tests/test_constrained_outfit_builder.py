@@ -658,6 +658,49 @@ def test_ready_implies_flutter_ready_through_real_shuffle(form, fields):
     )
 
 
+def _no_raw_image_forms():
+    return [
+        ("masked_url", {"masked_url": "https://img/x-m.png"}),
+        ("transparent_url", {"transparent_url": "https://img/x-t.png"}),
+        ("rmbg_url", {"rmbg_url": "https://img/x-r.png", "image_status": "rmbg_complete"}),
+        ("processed_url", {"processed_url": "https://img/x-p.png", "image_status": "rmbg_complete"}),
+    ]
+
+
+@pytest.mark.parametrize("form,fields", _no_raw_image_forms(), ids=[f[0] for f in _no_raw_image_forms()])
+def test_masked_transparent_rmbg_processed_only_no_synthetic_image_url_alias(form, fields):
+    """RAW_READY -> PREPARED_READY -> FLUTTER_READY for items with NO raw
+    image_url at all (the exact live-bug shape - masked-only, no photo to
+    alias against). Must remain renderable, and the served item must never
+    gain a synthetic image_url that equals the winning field."""
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    accessory = {
+        "id": "acc-no-raw",
+        "name": "No Raw Image Accessory",
+        "category": "Accessories",
+        "source": "wardrobe",
+        **fields,
+    }
+    assert is_board_renderable(accessory) is True, f"{form}: RAW_READY failed"
+
+    result = _gen(
+        [top],
+        wardrobe=[top, accessory],
+        scenario="shuffle_unlocked",
+        replaceable_slots=["accessory"],
+        context={"wardrobe": [top, accessory]},
+    )
+    assert result["success"] is True, f"{form}: {result.get('error')}"
+    returned = next(i for i in result["items"] if i["item_id"] == "acc-no-raw")
+
+    assert is_board_renderable(returned) is True, f"{form}: PREPARED_READY failed"
+    assert _flutter_wardrobe_resolvable(returned) is True, f"{form}: FLUTTER_READY failed"
+    assert "image_url" not in returned, (
+        f"{form}: NO_SYNTHETIC_IMAGE_URL_ALIAS failed - a synthetic image_url "
+        f"was manufactured, which is exactly the live-device hanger bug"
+    )
+
+
 def test_style_asset_transparent_url_field_name_untouched():
     """The board-image projection is skipped for style_asset items on
     purpose: Flutter's isStyleAsset branch reads transparent_url directly
@@ -825,3 +868,113 @@ def test_required_slot_never_left_empty_when_only_candidate_is_url_aliased():
         assert "bottom" in result.get("missing_items", [])
     else:
         assert result["error"]["code"] == "INSUFFICIENT_WARDROBE"
+
+
+# ------------------------------------------ post-normalization provenance
+#
+# Live device bug (ce4ade1 device gate, item 69f5cf416867b929beb6): a
+# masked-only accessory (no raw image_url at all) correctly passed
+# is_board_renderable(raw) - there's no raw photo to alias against - but the
+# OLD pipeline normalized+projected the winning field AFTER selection,
+# manufacturing image_url == masked_url in the served item. Flutter's own
+# alias check then rejected the self-aliased item and rendered an empty
+# hanger. The fix (prepare_board_item) prepares and gates BEFORE selection,
+# so the exact object proven safe is the one served - exercised here through
+# the real ConstrainedOutfitBuilder pool + shuffle_unlocked selection.
+
+
+def test_real_shuffle_masked_only_accessory_has_no_synthetic_image_url():
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    masked_only = {
+        "id": "masked-only",
+        "name": "Leather Belt",
+        "category": "Accessories",
+        "source": "wardrobe",
+        "masked_url": "https://cdn.test/processed/belt.png",
+    }
+    assert is_board_renderable(masked_only) is True
+
+    result = _gen(
+        [top],
+        wardrobe=[top, masked_only],
+        scenario="shuffle_unlocked",
+        replaceable_slots=["accessory"],
+        context={"wardrobe": [top, masked_only]},
+    )
+    assert result["success"] is True
+    assert "masked-only" in _ids(result)
+    returned = next(i for i in result["items"] if i["item_id"] == "masked-only")
+    assert returned["masked_url"] == masked_only["masked_url"]
+    assert "image_url" not in returned
+    assert is_board_renderable(returned) is True
+
+
+def test_real_shuffle_raw_plus_aliased_masked_accessory_never_selected():
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    aliased = {
+        "id": "acc-real-alias",
+        "name": "Aliased Accessory",
+        "category": "Accessories",
+        "source": "wardrobe",
+        "image_url": "https://cdn.test/item.png?token=1",
+        "masked_url": "https://cdn.test/item.png?token=2",
+    }
+    assert is_board_renderable(aliased) is False
+
+    result = _gen(
+        [top],
+        wardrobe=[top, aliased],
+        scenario="shuffle_unlocked",
+        replaceable_slots=["accessory"],
+        context={"wardrobe": [top, aliased]},
+    )
+    if result["success"]:
+        assert "acc-real-alias" not in _ids(result)
+    else:
+        assert result["error"]["code"] in {"INSUFFICIENT_WARDROBE", "NO_REPLACEMENT_FOUND"}
+
+
+def test_no_admitted_candidate_can_gain_an_image_url_alias_after_selection():
+    """Output invariant: for every non-style_asset item actually returned by
+    the builder, image_url (if present at all) must never equal the field
+    that won board-image selection - no post-selection transformation may
+    introduce one."""
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    masked_only = {
+        "id": "masked-only",
+        "name": "Leather Belt",
+        "category": "Accessories",
+        "source": "wardrobe",
+        "masked_url": "https://cdn.test/processed/belt.png",
+    }
+    result = _gen(
+        [top],
+        wardrobe=[top, masked_only],
+        scenario="shuffle_unlocked",
+        replaceable_slots=["accessory"],
+        context={"wardrobe": [top, masked_only]},
+    )
+    assert result["success"] is True
+    for item in result["items"]:
+        if item.get("source") == "style_asset":
+            continue
+        assert is_board_renderable(item) is True
+        image_url = item.get("image_url")
+        for field in ("masked_url", "cutout_url", "board_image_url", "rmbg_url", "processed_url"):
+            if image_url and item.get(field):
+                assert image_url != item[field]
+
+
+def test_required_slot_never_left_empty_when_only_candidate_is_masked_only_and_role_mismatched():
+    """A masked-only item must never be silently dropped just because
+    provenance scrubbing ran - it must still fill its role normally."""
+    masked_only_bottom = {
+        "id": "bottom-masked-only",
+        "name": "Masked Only Trousers",
+        "category": "Bottoms",
+        "source": "wardrobe",
+        "masked_url": "https://cdn.test/processed/trousers.png",
+    }
+    result = _gen([], wardrobe=[masked_only_bottom], scenario="build_outfit")
+    assert result["success"] is True
+    assert "bottom-masked-only" in _ids(result)
