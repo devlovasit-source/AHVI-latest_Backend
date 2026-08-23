@@ -6,6 +6,7 @@ import pytest
 
 from routers import style_boards
 from services import style_board_shuffle_service as sbs
+from services.style_board_image_readiness import is_board_renderable
 from services.style_board_state_store import InMemoryBoardStateStore
 
 
@@ -115,6 +116,15 @@ def _locked_top():
         "role": "top",
         "source": "wardrobe",
         "image_url": "https://img/top-1.png",
+        # A genuinely different processed field, not just a raw photo: a
+        # raw-image-only locked item is not board-renderable (confirmed
+        # against lib/util/wardrobe_image_resolver.dart - sourceKind
+        # 'original' is never board-safe) and ConstrainedOutfitBuilder
+        # rejects it with FIXED_ITEM_NOT_BOARD_SAFE. This fixture predates
+        # that gate; see test_fixed_item_matrix_rejects_unsafe_forms in
+        # test_constrained_outfit_builder.py for the dedicated raw-only
+        # regression instead of modeling it here implicitly.
+        "masked_url": "https://img/top-1-masked.png",
         "position": copy.deepcopy(_POS),
     }
 
@@ -126,6 +136,7 @@ def _locked_bottom():
         "role": "bottom",
         "source": "wardrobe",
         "image_url": "https://img/bottom-1.png",
+        "masked_url": "https://img/bottom-1-masked.png",
     }
 
 
@@ -184,6 +195,7 @@ def test_multiple_locks_all_preserved():
         _locked_top(),
         {"item_id": "shoe-1", "slot": "footwear", "role": "footwear",
          "source": "wardrobe", "image_url": "https://img/shoe-1.png",
+         "masked_url": "https://img/shoe-1-masked.png",
          "position": copy.deepcopy(_POS)},
     ]
     result = _shuffle(locked=locked, slots=["bottom", "accessory"])
@@ -387,6 +399,7 @@ def test_locked_real_accessory_with_name_still_shuffles(name, role):
         "source": "wardrobe",
         "name": name,
         "image_url": "https://img/acc-1.png",
+        "masked_url": "https://img/acc-1-masked.png",
     }
     # top/bottom/footwear must all be covered (by lock or shuffle slot) for
     # a complete outfit; only the accessory is under test here.
@@ -403,6 +416,59 @@ def test_locked_item_without_name_is_trusted_by_role():
     # not be treated as unclassifiable-therefore-non-fashion.
     result = _shuffle(locked=[_locked_top()])
     assert result["success"] is True
+
+
+def test_locked_raw_only_item_rejected_before_mutation():
+    # Confirmed against the real Flutter resolver (wardrobe_image_resolver.dart,
+    # the commit that built the currently-installed APK): a raw-image-only
+    # wardrobe item's only candidate has sourceKind 'original', which the
+    # board-surface admission guard excludes unconditionally - it renders
+    # nothing. A raw-only locked item must be rejected the same way a
+    # fabricated alias is, not silently shuffled through to a hanger.
+    raw_only_locked = {
+        "item_id": "top-raw-only",
+        "slot": "top",
+        "role": "top",
+        "source": "wardrobe",
+        "image_url": "https://img/top-raw-only.png",
+    }
+    result = _shuffle(locked=[raw_only_locked])
+    assert result["success"] is False
+    assert result["error"]["code"] == "FIXED_ITEM_NOT_BOARD_SAFE"
+    state = sbs.get_board_state("b-1")
+    assert state["revision"] == 1
+
+
+def test_locked_zero_image_item_rejected_before_mutation():
+    zero_image_locked = {
+        "item_id": "top-zero-image",
+        "slot": "top",
+        "role": "top",
+        "source": "wardrobe",
+    }
+    result = _shuffle(locked=[zero_image_locked])
+    assert result["success"] is False
+    assert result["error"]["code"] == "FIXED_ITEM_NOT_BOARD_SAFE"
+    state = sbs.get_board_state("b-1")
+    assert state["revision"] == 1
+
+
+def test_locked_masked_only_item_shuffles_successfully_and_renders():
+    masked_only_locked = {
+        "item_id": "top-masked-only",
+        "slot": "top",
+        "role": "top",
+        "source": "wardrobe",
+        "masked_url": "https://img/top-masked-only-masked.png",
+    }
+    result = _shuffle(locked=[masked_only_locked])
+    assert result["success"] is True
+    assert result["revision"] == 2
+    locked = next(i for i in result["board_items"] if i["item_id"] == "top-masked-only")
+    assert locked["locked"] is True
+    assert locked["masked_url"] == masked_only_locked["masked_url"]
+    assert "image_url" not in locked
+    assert is_board_renderable(locked) is True
 
 
 def test_locked_unknown_role_without_name_is_rejected():

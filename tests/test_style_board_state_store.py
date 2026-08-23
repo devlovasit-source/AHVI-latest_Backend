@@ -120,7 +120,13 @@ def _wardrobe():
 def _locked_top():
     return {
         "item_id": "top-1", "slot": "top", "role": "top", "source": "wardrobe",
-        "image_url": "https://img/top-1.png", "position": copy.deepcopy(_POS),
+        "image_url": "https://img/top-1.png",
+        # A genuinely different processed field, not just a raw photo - a
+        # raw-image-only locked item is not board-renderable (confirmed
+        # against lib/util/wardrobe_image_resolver.dart) and is rejected
+        # with FIXED_ITEM_NOT_BOARD_SAFE by ConstrainedOutfitBuilder.
+        "masked_url": "https://img/top-1-masked.png",
+        "position": copy.deepcopy(_POS),
     }
 
 

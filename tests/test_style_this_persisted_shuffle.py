@@ -752,9 +752,11 @@ def test_shuffle_without_stored_strategy_returns_deterministic_fallback():
     """F. no-strategy fallback produces the deterministic fallback text."""
     anchor_item = {
         "item_id": "top-1", "name": "White Shirt", "source": "wardrobe", "locked": True,
+        "masked_url": "https://img/top-1-masked.png",
     }
     bottom_item = {
         "item_id": "bottom-1", "name": "Blue Jeans", "source": "wardrobe", "locked": True,
+        "masked_url": "https://img/bottom-1-masked.png",
     }
     footwear_item = {
         "item_id": "shoe-1", "name": "White Sneakers", "source": "wardrobe",

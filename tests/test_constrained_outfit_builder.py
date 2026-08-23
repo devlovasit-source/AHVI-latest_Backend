@@ -1109,27 +1109,29 @@ def test_locked_style_asset_untouched_by_provenance_gate():
     assert kept["locked"] is True
 
 
-def test_locked_item_with_no_image_fields_at_all_still_succeeds():
-    """Locked items were never gated on renderability before this fix - an
-    already-persisted locked board item with NO image fields at all (a
-    pre-image-tracking board row, as some persisted-shuffle-service tests
-    use) must keep working exactly as it did. Only items that actively
-    declare unsafe/corrupted image data are rejected, not items with none."""
+def test_locked_item_with_no_image_fields_at_all_is_rejected():
+    """lib/util/wardrobe_image_resolver.dart's board-surface admission guard
+    (_boardSafeSourceKinds) has no "legacy locked item, tolerate it"
+    placeholder path - a locked item with zero image fields resolves to
+    zero board-safe candidates and renders as an empty hanger, exactly
+    like a fabricated alias does. It must be rejected with the same typed
+    error before any mutation, never silently accepted."""
     top = _w("top-1", "White Oxford Shirt", "Tops")
     bare_locked = {"id": "bottom-bare", "name": "Blue Jeans", "category": "Bottoms", "source": "wardrobe"}
     result = _gen([bare_locked], wardrobe=[bare_locked, top], scenario="build_outfit")
-    assert result["success"] is True
-    assert "bottom-bare" in _ids(result)
+    assert result["success"] is False
+    assert result["error"]["code"] == "FIXED_ITEM_NOT_BOARD_SAFE"
+    assert "bottom-bare" in result["error"]["fixed_item_ids"]
 
 
-def test_locked_item_with_only_raw_image_url_still_succeeds():
-    """A raw-photo-only locked item (no processed field at all) is the
-    ordinary, long-tolerated "not board-safe yet" state every wardrobe item
-    starts in - it must NOT become a hard lock failure. This mirrors how
-    the unlocked pool merely excludes (never hard-fails on) a raw-only
-    item; the difference is a locked item can't be silently excluded, so it
-    must be preserved as-is instead. Regression guard: this is the exact
-    shape most of this codebase's pre-existing locked-item fixtures use."""
+def test_locked_item_with_only_raw_image_url_is_rejected():
+    """Confirmed against the real Flutter resolver (wardrobe_image_resolver.dart,
+    the commit that built the currently-installed APK): a raw-image-only
+    wardrobe item's only surviving candidate has sourceKind 'original',
+    which _boardSafeSourceKinds excludes unconditionally on a Style Board
+    surface - boardPool is empty, nothing renders. A raw-only locked item
+    is therefore just as unsafe as a fabricated alias for board purposes
+    and must be rejected the same way, not silently preserved."""
     top = _w("top-1", "White Oxford Shirt", "Tops")
     raw_only_locked = {
         "id": "bottom-raw-only",
@@ -1139,10 +1141,9 @@ def test_locked_item_with_only_raw_image_url_still_succeeds():
         "image_url": "https://img/bottom-raw-only.png",
     }
     result = _gen([raw_only_locked], wardrobe=[raw_only_locked, top], scenario="build_outfit")
-    assert result["success"] is True
-    kept = next(i for i in result["items"] if i["item_id"] == "bottom-raw-only")
-    assert kept["image_url"] == raw_only_locked["image_url"]
-    assert kept["locked"] is True
+    assert result["success"] is False
+    assert result["error"]["code"] == "FIXED_ITEM_NOT_BOARD_SAFE"
+    assert "bottom-raw-only" in result["error"]["fixed_item_ids"]
 
 
 def test_real_shuffle_with_masked_only_locked_anchor_and_unlocked_replacements():
@@ -1199,3 +1200,180 @@ def test_real_shuffle_rejects_unsafe_aliased_locked_anchor_no_partial_mutation()
     )
     assert result["success"] is False
     assert result["error"]["code"] == "FIXED_ITEM_NOT_BOARD_SAFE"
+
+
+def test_real_shuffle_rejects_raw_only_locked_anchor_no_partial_mutation():
+    """A raw-image-only locked anchor is exactly as unsafe as an aliased one
+    for board purposes (confirmed against the real Flutter resolver:
+    sourceKind 'original' is never board-safe) - the real shuffle path must
+    reject it too, not just build_outfit."""
+    raw_only_anchor = {
+        "id": "locked-raw-only-anchor",
+        "name": "Raw Only Trousers",
+        "category": "Bottoms",
+        "source": "wardrobe",
+        "image_url": "https://cdn.test/raw/trousers.png",
+    }
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    wardrobe = [raw_only_anchor, top]
+
+    result = builder.generate(
+        scenario="shuffle_unlocked",
+        fixed_items=[raw_only_anchor],
+        wardrobe=wardrobe,
+        replaceable_slots=["top"],
+        context={"wardrobe": wardrobe},
+    )
+    assert result["success"] is False
+    assert result["error"]["code"] == "FIXED_ITEM_NOT_BOARD_SAFE"
+    assert "locked-raw-only-anchor" in result["error"]["fixed_item_ids"]
+
+
+def test_real_shuffle_rejects_zero_image_locked_anchor_no_partial_mutation():
+    """A locked anchor with no image fields at all must be rejected the
+    same way through the real shuffle path."""
+    zero_image_anchor = {
+        "id": "locked-zero-image-anchor",
+        "name": "No Image Trousers",
+        "category": "Bottoms",
+        "source": "wardrobe",
+    }
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    wardrobe = [zero_image_anchor, top]
+
+    result = builder.generate(
+        scenario="shuffle_unlocked",
+        fixed_items=[zero_image_anchor],
+        wardrobe=wardrobe,
+        replaceable_slots=["top"],
+        context={"wardrobe": wardrobe},
+    )
+    assert result["success"] is False
+    assert result["error"]["code"] == "FIXED_ITEM_NOT_BOARD_SAFE"
+    assert "locked-zero-image-anchor" in result["error"]["fixed_item_ids"]
+
+
+# ------------------------------------------ complete fixed-item image matrix
+#
+# Every board-safe form a locked wardrobe item may take, confirmed against
+# the real Flutter resolver contract (lib/util/wardrobe_image_resolver.dart,
+# the commit that built the currently-installed APK): sourceKind 'original'
+# (a raw photo, or nothing at all) is never board-safe on a Style Board
+# surface, so REJECT is not a backend-only opinion here - it is required for
+# backend acceptance to agree with what the client can actually render.
+
+_ACCEPT_LOCKED_FORMS = [
+    ("masked_only", {"masked_url": "https://cdn.test/masked/item.png"}),
+    ("normalized_only", {"normalized_url": "https://cdn.test/normalized/item.png"}),
+    (
+        "transparent_valid",
+        {"transparent_url": "https://cdn.test/transparent/item.png"},
+    ),
+    (
+        "rmbg_valid",
+        {"rmbg_url": "https://cdn.test/rmbg/item.png", "image_status": "rmbg_complete"},
+    ),
+    (
+        "processed_valid",
+        {"processed_url": "https://cdn.test/processed/item.png", "image_status": "rmbg_complete"},
+    ),
+    (
+        "cutout_valid",
+        {"cutout_url": "https://cdn.test/cutout/item.png", "cutout_status": "ready"},
+    ),
+    (
+        "raw_plus_genuine_masked",
+        {
+            "image_url": "https://cdn.test/raw/item.png",
+            "masked_url": "https://cdn.test/masked/item.png",
+        },
+    ),
+]
+
+_REJECT_LOCKED_FORMS = [
+    ("raw_only", {"image_url": "https://cdn.test/raw/item.png"}),
+    ("zero_image", {}),
+    (
+        "raw_plus_exact_masked_alias",
+        {
+            "image_url": "https://cdn.test/raw/item.png",
+            "masked_url": "https://cdn.test/raw/item.png",
+        },
+    ),
+    (
+        "raw_plus_query_only_masked_alias",
+        {
+            "image_url": "https://cdn.test/item.png?token=a",
+            "masked_url": "https://cdn.test/item.png?token=b",
+        },
+    ),
+    (
+        "raw_plus_fragment_only_masked_alias",
+        {
+            "image_url": "https://cdn.test/item.png#one",
+            "masked_url": "https://cdn.test/item.png#two",
+        },
+    ),
+]
+
+
+@pytest.mark.parametrize("form,fields", _ACCEPT_LOCKED_FORMS, ids=[f[0] for f in _ACCEPT_LOCKED_FORMS])
+def test_fixed_item_matrix_accepts_board_safe_forms(form, fields):
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    locked = {
+        "id": "bottom-matrix",
+        "name": "Matrix Bottom",
+        "category": "Bottoms",
+        "source": "wardrobe",
+        **fields,
+    }
+    result = _gen([locked], wardrobe=[locked, top], scenario="build_outfit")
+    assert result["success"] is True, f"{form}: {result.get('error')}"
+    kept = next(i for i in result["items"] if i["item_id"] == "bottom-matrix")
+    assert kept["locked"] is True
+    assert kept["role"] == "bottom"
+    assert is_board_renderable(kept) is True, f"{form}: served item not board-renderable"
+
+
+@pytest.mark.parametrize("form,fields", _REJECT_LOCKED_FORMS, ids=[f[0] for f in _REJECT_LOCKED_FORMS])
+def test_fixed_item_matrix_rejects_unsafe_forms(form, fields):
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    locked = {
+        "id": "bottom-matrix",
+        "name": "Matrix Bottom",
+        "category": "Bottoms",
+        "source": "wardrobe",
+        **fields,
+    }
+    result = _gen([locked], wardrobe=[locked, top], scenario="build_outfit")
+    assert result["success"] is False, f"{form}: expected rejection, got success"
+    assert result["error"]["code"] == "FIXED_ITEM_NOT_BOARD_SAFE", f"{form}: wrong error code"
+
+
+def test_all_fixed_wardrobe_items_pass_prepare_and_renderability_before_output():
+    """Output invariant: every non-style_asset item in the final board -
+    fixed AND unlocked-selected - must be board-renderable, with the same
+    object that passed the gate being the one served (no post-gate
+    transformation that could reintroduce an alias)."""
+    anchor = {
+        "id": "anchor-matrix",
+        "name": "Anchor Bottom",
+        "category": "Bottoms",
+        "source": "wardrobe",
+        "masked_url": "https://cdn.test/masked/anchor.png",
+    }
+    top = _w("top-1", "White Oxford Shirt", "Tops")
+    shoe = _w("shoe-1", "White Sneakers", "Footwear")
+    wardrobe = [anchor, top, shoe]
+
+    result = builder.generate(
+        scenario="build_outfit",
+        fixed_items=[anchor],
+        wardrobe=wardrobe,
+        context={"wardrobe": wardrobe},
+    )
+    assert result["success"] is True
+    for item in result["items"]:
+        if item.get("source") == "style_asset":
+            continue
+        assert is_board_renderable(item) is True, item

@@ -23,7 +23,6 @@ import logging
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from services.style_board_image_readiness import (
-    has_declared_processed_image,
     is_board_renderable,
     prepare_board_item,
 )
@@ -245,27 +244,27 @@ class ConstrainedOutfitBuilder:
             # carries the same normalize_style_item() image_url fallback
             # into a fabricated masked_url alias downstream, just like the
             # unlocked pool bug this mirrors (fix(style): preserve image
-            # provenance before board selection). style_asset fixed items
+            # provenance before board selection).
+            #
+            # Unconditional, unlike an earlier version of this gate: a
+            # raw-image-only or zero-image locked item is NOT tolerated
+            # either, even though it declares no corrupted processed field.
+            # lib/util/wardrobe_image_resolver.dart's board-surface admission
+            # guard (_boardSafeSourceKinds) excludes sourceKind 'original'
+            # unconditionally - a raw photo (or nothing at all) resolves to
+            # zero board-safe candidates and renders as an empty hanger
+            # there, exactly like a fabricated alias does. There is no
+            # "legacy locked item, tolerate it" placeholder path in the
+            # renderer; gating only on a declared-but-corrupted processed
+            # field (has_declared_processed_image()) let success=True ship
+            # for a shape Flutter can never render. style_asset fixed items
             # are excluded, matching the unlocked pool's own exception:
             # their Flutter branch reads transparent_url/transparentImageUrl
             # under their own names and prepare_board_item() returns them
             # untouched anyway.
             if norm["source"] != "style_asset":
                 prepared = prepare_board_item(raw)
-                # Only reject when raw actively declares a PROCESSED image
-                # field that turned out unsafe/corrupted (e.g. a fabricated
-                # alias) - not merely a raw photo, and not no image at all.
-                # A raw-photo-only item is the ordinary, always-tolerated
-                # "not board-safe yet" state (see
-                # test_raw_image_url_only_stays_unsafe_through_shuffle for
-                # the unlocked-pool equivalent - it's excluded from the
-                # pool, never a hard failure). Locked items were never
-                # gated on renderability at all before this fix; both an
-                # already-persisted locked item with no image fields and
-                # one with only a raw photo must keep working exactly as
-                # they did, while a genuinely aliased processed field must
-                # not.
-                if has_declared_processed_image(raw) and not is_board_renderable(prepared):
+                if not is_board_renderable(prepared):
                     return _failure(
                         "FIXED_ITEM_NOT_BOARD_SAFE",
                         "A locked item's image is not board-safe and cannot be preserved on this board.",
