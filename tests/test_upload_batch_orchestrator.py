@@ -57,6 +57,30 @@ def _needs_review_item(item_id: str) -> dict:
     }
 
 
+def _duplicate_item(item_id: str, *, checked: bool = True, confidence: float = 0.97, reason: str = "pixel_hash", matched_item_id: str = "existing-wardrobe-item-1") -> dict:
+    item = _valid_item(item_id)
+    item["duplicate"] = {
+        "checked": checked,
+        "is_duplicate": True,
+        "reason": reason,
+        "confidence": confidence,
+        "matched_item_id": matched_item_id,
+    }
+    return item
+
+
+def _not_checked_duplicate_item(item_id: str) -> dict:
+    item = _valid_item(item_id)
+    item["duplicate"] = {
+        "checked": False,
+        "is_duplicate": False,
+        "reason": None,
+        "confidence": 0.0,
+        "matched_item_id": None,
+    }
+    return item
+
+
 def _mock_analyze(monkeypatch, items_by_call):
     """items_by_call: list of item-lists, one per call to analyze_capture (or
     a single list reused for every call)."""
@@ -309,3 +333,204 @@ async def test_persistence_receives_item_with_current_image_fields_intact(orch, 
     assert passed_item["normalized_url"] == item["normalized_url"]
     assert passed_item["category"] == item["category"]
     assert passed_item["name"] == item["name"]
+
+
+# --------------------------------------------------------------------- #
+# Duplicate contract audit: canonical signal is analyze_capture()'s own
+# item["duplicate"] object - no second detector, no routers.data engine.
+# --------------------------------------------------------------------- #
+
+@pytest.mark.anyio
+async def test_normal_new_garment_persists(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="d1", client_batch_request_id="batch-dup1", total_items=1)
+    _mock_analyze(monkeypatch, [_valid_item("item-new")])
+    persist_calls = _mock_persist(monkeypatch)
+
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="d1", batch_id="batch-dup1",
+        client_upload_item_id="upload-new", image_base64="x" * 30,
+    )
+    assert res["status"] == "ADDED_TO_WARDROBE"
+    assert persist_calls["n"] == 1
+
+
+@pytest.mark.anyio
+async def test_duplicate_needs_review_zero_persistence(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="d2", client_batch_request_id="batch-dup2", total_items=1)
+    _mock_analyze(monkeypatch, [_duplicate_item("item-dup")])
+    persist_calls = _mock_persist(monkeypatch)
+
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="d2", batch_id="batch-dup2",
+        client_upload_item_id="upload-dup", image_base64="x" * 30,
+    )
+    assert res["success"] is False
+    assert res["status"] == "NEEDS_REVIEW"
+    assert res["reason"] == "duplicate_wardrobe_item"
+    assert persist_calls["n"] == 0
+
+    status = orch.get_batch_status("d2", "batch-dup2")
+    assert status["needs_review_count"] == 1
+    assert status["added_count"] == 0
+
+
+@pytest.mark.anyio
+async def test_duplicate_matched_id_reason_confidence_preserved(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="d3", client_batch_request_id="batch-dup3", total_items=1)
+    _mock_analyze(
+        monkeypatch,
+        [_duplicate_item("item-dup3", confidence=0.91, reason="image_vector", matched_item_id="wardrobe-xyz")],
+    )
+    _mock_persist(monkeypatch)
+
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="d3", batch_id="batch-dup3",
+        client_upload_item_id="upload-dup3", image_base64="x" * 30,
+    )
+    assert res["matched_item_id"] == "wardrobe-xyz"
+    assert res["duplicate_reason"] == "image_vector"
+    assert res["duplicate_confidence"] == 0.91
+
+    doc = orch._get_doc(orch.items_collection, deterministic_appwrite_id("d3", "upload-dup3"))
+    assert doc["matched_item_id"] == "wardrobe-xyz"
+    assert doc["duplicate_reason"] == "image_vector"
+    assert doc["duplicate_confidence"] == 0.91
+    assert doc["error_code"] == "DUPLICATE_WARDROBE_ITEM"
+
+    # Retry (no override) must keep returning the SAME preserved fields.
+    res2 = await orch.process_single_batch_item(
+        http_request=None, user_id="d3", batch_id="batch-dup3",
+        client_upload_item_id="upload-dup3", image_base64="x" * 30,
+    )
+    assert res2["matched_item_id"] == "wardrobe-xyz"
+    assert res2["duplicate_reason"] == "image_vector"
+    assert res2["duplicate_confidence"] == 0.91
+    assert res2["idempotent"] is True
+
+
+@pytest.mark.anyio
+async def test_duplicate_detector_unavailable_is_normal_behavior(orch, monkeypatch):
+    """checked=false must never block a save - the detector being
+    unavailable is not evidence of a duplicate."""
+    orch.create_or_resume_batch(user_id="d4", client_batch_request_id="batch-dup4", total_items=1)
+    _mock_analyze(monkeypatch, [_not_checked_duplicate_item("item-unchecked")])
+    persist_calls = _mock_persist(monkeypatch)
+
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="d4", batch_id="batch-dup4",
+        client_upload_item_id="upload-unchecked", image_base64="x" * 30,
+    )
+    assert res["status"] == "ADDED_TO_WARDROBE"
+    assert persist_calls["n"] == 1
+
+
+@pytest.mark.anyio
+async def test_explicit_add_anyway_persists_duplicate_once(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="d5", client_batch_request_id="batch-dup5", total_items=1)
+    _mock_analyze(monkeypatch, [_duplicate_item("item-dup5")])
+    persist_calls = _mock_persist(monkeypatch)
+
+    # First call: blocked, needs review, zero persistence.
+    blocked = await orch.process_single_batch_item(
+        http_request=None, user_id="d5", batch_id="batch-dup5",
+        client_upload_item_id="upload-dup5", image_base64="x" * 30,
+    )
+    assert blocked["status"] == "NEEDS_REVIEW"
+    assert persist_calls["n"] == 0
+
+    # Explicit "Add anyway" on the SAME item: persists exactly once.
+    added = await orch.process_single_batch_item(
+        http_request=None, user_id="d5", batch_id="batch-dup5",
+        client_upload_item_id="upload-dup5", image_base64="x" * 30,
+        override_duplicate=True,
+    )
+    assert added["status"] == "ADDED_TO_WARDROBE"
+    assert added["success"] is True
+    assert persist_calls["n"] == 1
+
+    # A further retry (still override=True) must not persist again.
+    retried = await orch.process_single_batch_item(
+        http_request=None, user_id="d5", batch_id="batch-dup5",
+        client_upload_item_id="upload-dup5", image_base64="x" * 30,
+        override_duplicate=True,
+    )
+    assert retried["status"] == "ADDED_TO_WARDROBE"
+    assert retried["idempotent"] is True
+    assert persist_calls["n"] == 1
+
+    # Batch counters must not double-count this one item across two states.
+    status = orch.get_batch_status("d5", "batch-dup5")
+    assert status["added_count"] == 1
+    assert status["needs_review_count"] == 0
+
+
+@pytest.mark.anyio
+async def test_add_anyway_cannot_bypass_unrelated_rejection(orch, monkeypatch):
+    """override_duplicate must only relax the DUPLICATE check - an item that
+    is also needs_review for an unrelated reason must stay blocked."""
+    item = _duplicate_item("item-dup-and-bad")
+    item["validation_status"] = "needs_review"  # unrelated reason too
+    orch.create_or_resume_batch(user_id="d6", client_batch_request_id="batch-dup6", total_items=1)
+    _mock_analyze(monkeypatch, [item])
+    persist_calls = _mock_persist(monkeypatch)
+
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="d6", batch_id="batch-dup6",
+        client_upload_item_id="upload-dup-bad", image_base64="x" * 30,
+        override_duplicate=True,
+    )
+    assert res["status"] == "NEEDS_REVIEW"
+    assert res["reason"] == "not_auto_approved"
+    assert persist_calls["n"] == 0
+
+
+@pytest.mark.anyio
+async def test_valid_duplicate_valid_first_and_third_continue(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="d7", client_batch_request_id="batch-dup7", total_items=3)
+    _mock_analyze(
+        monkeypatch,
+        [[_valid_item("item-d7-1")], [_duplicate_item("item-d7-2")], [_valid_item("item-d7-3")]],
+    )
+    _mock_persist(monkeypatch)
+
+    r1 = await orch.process_single_batch_item(
+        http_request=None, user_id="d7", batch_id="batch-dup7",
+        client_upload_item_id="upload-d7-1", image_base64="x" * 30,
+    )
+    r2 = await orch.process_single_batch_item(
+        http_request=None, user_id="d7", batch_id="batch-dup7",
+        client_upload_item_id="upload-d7-2", image_base64="x" * 30,
+    )
+    r3 = await orch.process_single_batch_item(
+        http_request=None, user_id="d7", batch_id="batch-dup7",
+        client_upload_item_id="upload-d7-3", image_base64="x" * 30,
+    )
+
+    assert r1["status"] == "ADDED_TO_WARDROBE"
+    assert r2["status"] == "NEEDS_REVIEW"
+    assert r2["reason"] == "duplicate_wardrobe_item"
+    assert r3["status"] == "ADDED_TO_WARDROBE", "item 3 must still run after item 2 was flagged a duplicate"
+
+    status = orch.get_batch_status("d7", "batch-dup7")
+    assert status["added_count"] == 2
+    assert status["needs_review_count"] == 1
+    assert status["status"] == "COMPLETED_WITH_ISSUES"
+
+
+@pytest.mark.anyio
+async def test_retry_already_added_item_no_second_persistence(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="d8", client_batch_request_id="batch-dup8", total_items=1)
+    _mock_analyze(monkeypatch, [_valid_item("item-d8")])
+    persist_calls = _mock_persist(monkeypatch)
+
+    r1 = await orch.process_single_batch_item(
+        http_request=None, user_id="d8", batch_id="batch-dup8",
+        client_upload_item_id="upload-d8", image_base64="x" * 30,
+    )
+    r2 = await orch.process_single_batch_item(
+        http_request=None, user_id="d8", batch_id="batch-dup8",
+        client_upload_item_id="upload-d8", image_base64="x" * 30,
+    )
+    assert r1["status"] == r2["status"] == "ADDED_TO_WARDROBE"
+    assert r1["wardrobe_item_id"] == r2["wardrobe_item_id"]
+    assert persist_calls["n"] == 1

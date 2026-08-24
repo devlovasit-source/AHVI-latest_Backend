@@ -35,6 +35,10 @@ class ProcessBatchItemRequest(BaseModel):
     client_upload_item_id: str = Field(..., min_length=1)
     image_base64: str = Field(..., min_length=20)
     metadata: Optional[Dict[str, Any]] = None
+    # Explicit, item-scoped "Add anyway" - set only when the user picked
+    # "Include Duplicate Item" for THIS specific image. Scoped by construction:
+    # each call is one item, so this can never affect any other item's result.
+    override_duplicate: bool = False
 
 
 def _infra_failure(exc: Exception) -> HTTPException:
@@ -85,6 +89,7 @@ async def process_batch_item(
             client_upload_item_id=request.client_upload_item_id,
             image_base64=request.image_base64,
             metadata=request.metadata or {},
+            override_duplicate=request.override_duplicate,
         )
     except UploadBatchInfraError as exc:
         raise _infra_failure(exc) from exc

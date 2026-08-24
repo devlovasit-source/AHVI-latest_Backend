@@ -239,6 +239,94 @@ def test_save_selected_skips_needs_review_and_rejected_items(monkeypatch):
     assert result["regen_skipped_count"] == 2
 
 
+def test_save_selected_excludes_duplicate_by_default(monkeypatch):
+    """The canonical duplicate signal (item["duplicate"]) must be honored by
+    /save-selected the same way analyze_capture()'s own auto_save path
+    already honors it - excluded unless save_duplicates=True."""
+    calls = {"rmbg": 0}
+
+    async def _remove_bg(raw):
+        calls["rmbg"] += 1
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    ok = _item("ok")
+    dup = _item("dup")
+    dup["duplicate"] = {
+        "checked": True,
+        "is_duplicate": True,
+        "reason": "pixel_hash",
+        "confidence": 0.97,
+        "matched_item_id": "existing-1",
+    }
+
+    request = wc.SaveSelectedRequest(
+        user_id="user-1",
+        selected_item_ids=["ok", "dup"],
+        detected_items=[ok, dup],
+    )
+
+    result = _save_selected(_Request(), request)
+
+    assert result["success"] is True
+    assert calls["rmbg"] == 1
+    assert [i["item_id"] for i in persisted["items"]] == ["ok"]
+    assert result["selected_count"] == 1
+
+
+def test_save_selected_save_duplicates_true_includes_duplicate(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    dup = _item("dup")
+    dup["duplicate"] = {
+        "checked": True,
+        "is_duplicate": True,
+        "reason": "image_vector",
+        "confidence": 0.9,
+        "matched_item_id": "existing-2",
+    }
+
+    request = wc.SaveSelectedRequest(
+        user_id="user-1",
+        selected_item_ids=["dup"],
+        detected_items=[dup],
+        save_duplicates=True,
+    )
+
+    result = _save_selected(_Request(), request)
+
+    assert result["success"] is True
+    assert [i["item_id"] for i in persisted["items"]] == ["dup"]
+
+
+def test_save_selected_duplicate_unchecked_is_normal_behavior(monkeypatch):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+    item = _item("unchecked")
+    item["duplicate"] = {
+        "checked": False,
+        "is_duplicate": False,
+        "reason": None,
+        "confidence": 0.0,
+        "matched_item_id": None,
+    }
+
+    request = wc.SaveSelectedRequest(
+        user_id="user-1",
+        selected_item_ids=["unchecked"],
+        detected_items=[item],
+    )
+
+    result = _save_selected(_Request(), request)
+
+    assert result["success"] is True
+    assert [i["item_id"] for i in persisted["items"]] == ["unchecked"]
+
+
 def test_save_selected_response_reports_drop_accounting(monkeypatch):
     async def _remove_bg(raw):
         return b"masked-" + raw

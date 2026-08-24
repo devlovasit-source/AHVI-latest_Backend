@@ -239,6 +239,11 @@ class SaveSelectedRequest(BaseModel):
     user_id: str
     selected_item_ids: List[str]
     detected_items: List[Dict[str, Any]]
+    # Same contract analyze_capture()'s own auto_save path already uses:
+    # an item flagged item["duplicate"]["is_duplicate"] is excluded from
+    # save UNLESS the caller explicitly opts in (client sends this after the
+    # user picks "Include Duplicate Item" in the Skip/Include UX).
+    save_duplicates: bool = False
 
 
 class CaptureAnalyzeBatchRequest(BaseModel):
@@ -3922,6 +3927,10 @@ def save_selected(
         if isinstance(i, dict)
         and str(i.get("item_id") or "").strip() in selected_set
         and _is_preview_item_save_approved(i)
+        # Same duplicate gate analyze_capture()'s own auto_save path already
+        # applies - canonical signal is item["duplicate"], never a second
+        # detector. save_duplicates is the caller's explicit "Add anyway".
+        and (bool(request.save_duplicates) or not bool((i.get("duplicate") or {}).get("is_duplicate")))
     ]
     approved_selected_ids = [
         str(i.get("item_id") or "").strip()
