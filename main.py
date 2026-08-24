@@ -147,6 +147,7 @@ ai_router = _load_optional_router("api.ai")
 # Optional
 stylist_router = _load_optional_router("routers.stylist")
 style_boards_router = _load_optional_router("routers.style_boards")
+upload_batches_router = _load_optional_router("routers.upload_batches")
 reddit_router = _load_optional_router("routers.reddit")
 
 # Feature-based
@@ -742,6 +743,9 @@ if style_boards_router:
         prefix="/api",
         tags=["StyleBoards"],
     )
+
+if upload_batches_router:
+    app.include_router(upload_batches_router)
 
 if reddit_router:
     app.include_router(reddit_router)
