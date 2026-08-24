@@ -261,21 +261,29 @@ class UploadBatchOrchestrator:
         self, user_id: str, client_batch_request_id: str, field: str, *, migrate_from: Optional[str] = None
     ) -> None:
         """Increment `field` by one. migrate_from also decrements that other
-        counter by one in the SAME update - used only when an item that was
-        already counted once (e.g. needs_review_count on a duplicate flag)
-        reaches a DIFFERENT terminal state on an explicit re-entry (e.g.
-        "Add anyway" -> added_count), so the item is never double-counted
-        across the batch's terminal-count total."""
+        counter by one in the SAME update - used when an item that was
+        already counted once (e.g. needs_review_count on a duplicate flag,
+        or failed_count on a FAILED item) reaches a DIFFERENT terminal state
+        on an explicit re-entry (e.g. "Add anyway" -> added_count, or a
+        FAILED retry -> added_count), so the item is never double-counted
+        across the batch's terminal-count total.
+
+        migrate_from == field (e.g. a FAILED retry that fails AGAIN) is the
+        one case that must NOT increment: the item was already counted in
+        this exact bucket - re-affirming the same terminal state is a no-op
+        for the count, not a second item."""
         batch_doc_id = deterministic_appwrite_id(user_id, client_batch_request_id)
         doc = self._get_doc(self.batches_collection, batch_doc_id)
         if not doc:
             return
         doc = dict(doc)
-        doc[field] = int(doc.get(field) or 0) + 1
-        update: Dict[str, Any] = {field: doc[field]}
-        if migrate_from and migrate_from != field:
-            doc[migrate_from] = max(0, int(doc.get(migrate_from) or 0) - 1)
-            update[migrate_from] = doc[migrate_from]
+        update: Dict[str, Any] = {}
+        if migrate_from != field:
+            doc[field] = int(doc.get(field) or 0) + 1
+            update[field] = doc[field]
+            if migrate_from:
+                doc[migrate_from] = max(0, int(doc.get(migrate_from) or 0) - 1)
+                update[migrate_from] = doc[migrate_from]
         doc["status"] = self._recompute_batch_status(doc)
         update["status"] = doc["status"]
         update["updated_at"] = _utcnow_iso()
@@ -380,10 +388,17 @@ class UploadBatchOrchestrator:
             "total_item_ms": 0,
         }
         doc_id = deterministic_appwrite_id(user_id, client_upload_item_id)
-        reentering_duplicate = False
+        # Set to the batch counter field this item was previously counted
+        # under, whenever a terminal _update_doc below moves it to a NEW
+        # terminal state - _bump_batch_counter decrements that field in the
+        # SAME update so the item is never double-counted across the batch's
+        # terminal total (added + needs_review + rejected + failed).
+        migrate_from_field: Optional[str] = None
 
         existing = self._get_doc(self.items_collection, doc_id)
-        if existing and str(existing.get("status") or "").upper() == "ADDED_TO_WARDROBE":
+        existing_status = str(existing.get("status") or "").upper() if existing else ""
+
+        if existing_status == "ADDED_TO_WARDROBE":
             wardrobe_item_id = str(existing.get("wardrobe_item_id") or "").strip()
             if not wardrobe_item_id:
                 raise UploadBatchInfraError(
@@ -396,8 +411,21 @@ class UploadBatchOrchestrator:
                 "idempotent": True,
                 "metrics": metrics,
             }
-        if existing and str(existing.get("status") or "").upper() in {"NEEDS_REVIEW", "REJECTED", "FAILED"}:
-            if str(existing.get("status")).upper() == "NEEDS_REVIEW" and not override_duplicate:
+        elif existing_status == "REJECTED":
+            # REJECTED (no item detected) stays terminal - nothing about a
+            # bare retry changes what was actually in the image.
+            return {
+                "success": False,
+                "status": existing.get("status"),
+                "idempotent": True,
+                "error_code": existing.get("error_code"),
+                "metrics": metrics,
+            }
+        elif existing_status == "NEEDS_REVIEW":
+            if not override_duplicate:
+                # Ordinary NEEDS_REVIEW (not-auto-approved) AND a duplicate
+                # flag without explicit override both stay terminal here -
+                # the only way out of NEEDS_REVIEW is override_duplicate=True.
                 return {
                     "success": False,
                     "status": existing.get("status"),
@@ -406,14 +434,6 @@ class UploadBatchOrchestrator:
                     "matched_item_id": existing.get("matched_item_id"),
                     "duplicate_reason": existing.get("duplicate_reason"),
                     "duplicate_confidence": existing.get("duplicate_confidence"),
-                    "metrics": metrics,
-                }
-            if str(existing.get("status")).upper() != "NEEDS_REVIEW":
-                return {
-                    "success": False,
-                    "status": existing.get("status"),
-                    "idempotent": True,
-                    "error_code": existing.get("error_code"),
                     "metrics": metrics,
                 }
             # NEEDS_REVIEW + override_duplicate=True is the one deliberate
@@ -428,8 +448,29 @@ class UploadBatchOrchestrator:
                 self.items_collection, doc_id,
                 {"status": "PROCESSING", "attempt_count": int(existing.get("attempt_count") or 1) + 1, "updated_at": _utcnow_iso()},
             )
-            reentering_duplicate = True
+            migrate_from_field = "needs_review_count"
+        elif existing_status == "FAILED":
+            # FAILED is the one terminal status that IS retryable: unlike
+            # REJECTED/NEEDS_REVIEW, a FAILED item never told the user
+            # anything true about their photo - it's a transport/persistence
+            # hiccup, and the exact same reviewed_item/image is worth trying
+            # again. Same batch_id/client_upload_item_id, no new IDs. Clear
+            # error_code so a stale error can never survive into whatever
+            # terminal doc this attempt produces next.
+            self._update_doc(
+                self.items_collection, doc_id,
+                {
+                    "status": "PROCESSING",
+                    "attempt_count": int(existing.get("attempt_count") or 1) + 1,
+                    "error_code": None,
+                    "updated_at": _utcnow_iso(),
+                },
+            )
+            migrate_from_field = "failed_count"
         else:
+            # No existing doc, or an existing PROCESSING lease (possibly
+            # stale) - claim_item()'s existing create/reclaim logic handles
+            # both, unchanged.
             claim = self.claim_item(user_id=user_id, batch_id=batch_id, client_upload_item_id=client_upload_item_id)
             if not claim["success"]:
                 doc = claim.get("doc") or {}
@@ -484,7 +525,7 @@ class UploadBatchOrchestrator:
                 )
                 self._bump_batch_counter(
                     user_id, batch_id, "failed_count",
-                    migrate_from="needs_review_count" if reentering_duplicate else None,
+                    migrate_from=migrate_from_field,
                 )
                 raise UploadBatchInfraError(f"ANALYSIS_FAILED: {exc}") from exc
             metrics["analysis_ms"] = int((time.time() - t_an) * 1000)
@@ -499,7 +540,7 @@ class UploadBatchOrchestrator:
             )
             self._bump_batch_counter(
                 user_id, batch_id, "rejected_count",
-                migrate_from="needs_review_count" if reentering_duplicate else None,
+                migrate_from=migrate_from_field,
             )
             metrics["total_item_ms"] = int((time.time() - t0) * 1000)
             return {"success": False, "status": "REJECTED", "reason": "no_item_detected", "metrics": metrics}
@@ -529,7 +570,7 @@ class UploadBatchOrchestrator:
             )
             self._bump_batch_counter(
                 user_id, batch_id, "needs_review_count",
-                migrate_from="needs_review_count" if reentering_duplicate else None,
+                migrate_from=migrate_from_field,
             )
             metrics["total_item_ms"] = int((time.time() - t0) * 1000)
             return {
@@ -549,7 +590,7 @@ class UploadBatchOrchestrator:
             )
             self._bump_batch_counter(
                 user_id, batch_id, "needs_review_count",
-                migrate_from="needs_review_count" if reentering_duplicate else None,
+                migrate_from=migrate_from_field,
             )
             metrics["total_item_ms"] = int((time.time() - t0) * 1000)
             return {"success": False, "status": "NEEDS_REVIEW", "reason": "not_auto_approved", "items": items, "metrics": metrics}
@@ -582,7 +623,7 @@ class UploadBatchOrchestrator:
             )
             self._bump_batch_counter(
                 user_id, batch_id, "failed_count",
-                migrate_from="needs_review_count" if reentering_duplicate else None,
+                migrate_from=migrate_from_field,
             )
             raise UploadBatchInfraError(f"PERSISTENCE_FAILED: {exc}") from exc
         metrics["persistence_ms"] = int((time.time() - t_persist) * 1000)
@@ -607,7 +648,7 @@ class UploadBatchOrchestrator:
             )
             self._bump_batch_counter(
                 user_id, batch_id, "failed_count",
-                migrate_from="needs_review_count" if reentering_duplicate else None,
+                migrate_from=migrate_from_field,
             )
             metrics["total_item_ms"] = int((time.time() - t0) * 1000)
             return {
@@ -626,7 +667,7 @@ class UploadBatchOrchestrator:
             )
             self._bump_batch_counter(
                 user_id, batch_id, "failed_count",
-                migrate_from="needs_review_count" if reentering_duplicate else None,
+                migrate_from=migrate_from_field,
             )
             raise UploadBatchInfraError("PERSISTENCE_FAILED: saved item missing an id")
 
@@ -636,7 +677,7 @@ class UploadBatchOrchestrator:
         )
         self._bump_batch_counter(
             user_id, batch_id, "added_count",
-            migrate_from="needs_review_count" if reentering_duplicate else None,
+            migrate_from=migrate_from_field,
         )
         metrics["total_item_ms"] = int((time.time() - t0) * 1000)
         logger.info(

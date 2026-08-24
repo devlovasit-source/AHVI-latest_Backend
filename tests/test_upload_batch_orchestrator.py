@@ -704,3 +704,262 @@ async def test_no_reviewed_item_falls_back_to_analyze_capture(orch, monkeypatch)
     assert analyze_calls["n"] == 1, "no reviewed_item -> must still exercise the analyze_capture fallback"
     assert persist_calls["n"] == 1
     assert res["status"] == "ADDED_TO_WARDROBE"
+
+
+# --------------------------------------------------------------------- #
+# FAILED-item retry semantics: FAILED is the one terminal status that IS
+# retryable - same batch_id/client_upload_item_id, attempt_count increments,
+# the normal process path actually re-runs. Every other terminal status
+# (ADDED_TO_WARDROBE, REJECTED, NEEDS_REVIEW without override) stays exactly
+# as before.
+# --------------------------------------------------------------------- #
+
+
+def _mock_persist_fail_then_succeed(monkeypatch, *, fail_times=1):
+    """First `fail_times` calls raise (simulating a persistence hiccup);
+    every call after that succeeds normally."""
+    calls = {"n": 0}
+
+    def _fake_persist(*, user_id, selected_item_ids, detected_items):
+        calls["n"] += 1
+        if calls["n"] <= fail_times:
+            raise RuntimeError(f"simulated persistence failure #{calls['n']}")
+        return {
+            "success": True,
+            "saved_count": len(detected_items),
+            "items": [{"$id": f"w_{i.get('item_id')}", **i} for i in detected_items],
+            "skipped": 0,
+            "errors": [],
+        }
+
+    monkeypatch.setattr(wardrobe_persistence_service, "persist_selected_items", _fake_persist)
+    return calls
+
+
+@pytest.mark.anyio
+async def test_failed_item_retry_reprocesses_and_can_succeed(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="rf1", client_batch_request_id="batch-rf1", total_items=1)
+    persist_calls = _mock_persist_fail_then_succeed(monkeypatch, fail_times=1)
+    doc_id = deterministic_appwrite_id("rf1", "upload-rf1")
+
+    with pytest.raises(UploadBatchInfraError, match="PERSISTENCE_FAILED"):
+        await orch.process_single_batch_item(
+            http_request=None, user_id="rf1", batch_id="batch-rf1",
+            client_upload_item_id="upload-rf1", image_base64="x" * 30,
+            reviewed_item=_valid_item("item-rf1"),
+        )
+    doc1 = orch._get_doc(orch.items_collection, doc_id)
+    assert doc1["status"] == "FAILED"
+    assert doc1["attempt_count"] == 1
+
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="rf1", batch_id="batch-rf1",
+        client_upload_item_id="upload-rf1", image_base64="x" * 30,
+        reviewed_item=_valid_item("item-rf1"),
+    )
+
+    assert persist_calls["n"] == 2, "retry must actually re-run persistence, not echo the stale failure"
+    assert res["status"] == "ADDED_TO_WARDROBE"
+    assert res["success"] is True
+
+    doc2 = orch._get_doc(orch.items_collection, doc_id)
+    assert doc2["status"] == "ADDED_TO_WARDROBE"
+    assert doc2["attempt_count"] == 2
+    assert not doc2.get("error_code"), "a stale error_code must not survive into the successful doc"
+
+    status = orch.get_batch_status("rf1", "batch-rf1")
+    assert status["added_count"] == 1
+    assert status["failed_count"] == 0, "must not be double-counted in both failed_count and added_count"
+
+
+@pytest.mark.anyio
+async def test_failed_item_retry_fails_again_increments_attempt_and_stores_newest_error(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="rf2", client_batch_request_id="batch-rf2", total_items=1)
+    persist_calls = _mock_persist_fail_then_succeed(monkeypatch, fail_times=2)
+    doc_id = deterministic_appwrite_id("rf2", "upload-rf2")
+
+    with pytest.raises(UploadBatchInfraError):
+        await orch.process_single_batch_item(
+            http_request=None, user_id="rf2", batch_id="batch-rf2",
+            client_upload_item_id="upload-rf2", image_base64="x" * 30,
+            reviewed_item=_valid_item("item-rf2"),
+        )
+    doc1 = orch._get_doc(orch.items_collection, doc_id)
+    assert doc1["attempt_count"] == 1
+
+    with pytest.raises(UploadBatchInfraError):
+        await orch.process_single_batch_item(
+            http_request=None, user_id="rf2", batch_id="batch-rf2",
+            client_upload_item_id="upload-rf2", image_base64="x" * 30,
+            reviewed_item=_valid_item("item-rf2"),
+        )
+
+    assert persist_calls["n"] == 2
+    doc2 = orch._get_doc(orch.items_collection, doc_id)
+    assert doc2["status"] == "FAILED"
+    assert doc2["attempt_count"] == 2, "attempt_count must increment on every retry, even a repeat failure"
+    assert doc2["error_code"] == "PERSISTENCE_FAILED"
+
+    status = orch.get_batch_status("rf2", "batch-rf2")
+    assert status["failed_count"] == 1, "re-affirming FAILED must never double-count the same item"
+
+
+@pytest.mark.anyio
+async def test_added_item_retry_stays_idempotent_after_the_failed_retry_patch(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="rf3", client_batch_request_id="batch-rf3", total_items=1)
+    persist_calls = _mock_persist(monkeypatch)
+
+    r1 = await orch.process_single_batch_item(
+        http_request=None, user_id="rf3", batch_id="batch-rf3",
+        client_upload_item_id="upload-rf3", image_base64="x" * 30,
+        reviewed_item=_valid_item("item-rf3"),
+    )
+    r2 = await orch.process_single_batch_item(
+        http_request=None, user_id="rf3", batch_id="batch-rf3",
+        client_upload_item_id="upload-rf3", image_base64="x" * 30,
+        reviewed_item=_valid_item("item-rf3"),
+    )
+
+    assert r1["status"] == r2["status"] == "ADDED_TO_WARDROBE"
+    assert r1["wardrobe_item_id"] == r2["wardrobe_item_id"]
+    assert r2["idempotent"] is True
+    assert persist_calls["n"] == 1, "ADDED_TO_WARDROBE must stay terminal - zero extra persistence calls"
+
+
+@pytest.mark.anyio
+async def test_ordinary_needs_review_retry_stays_terminal_no_reprocessing(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="rf4", client_batch_request_id="batch-rf4", total_items=1)
+    analyze_calls = _mock_analyze(monkeypatch, [])
+    persist_calls = _mock_persist(monkeypatch)
+
+    item = _valid_item("item-rf4")
+    item["validation_status"] = "needs_review"
+    first = await orch.process_single_batch_item(
+        http_request=None, user_id="rf4", batch_id="batch-rf4",
+        client_upload_item_id="upload-rf4", image_base64="x" * 30,
+        reviewed_item=item,
+    )
+    assert first["status"] == "NEEDS_REVIEW"
+    assert first["reason"] == "not_auto_approved"
+
+    retry = await orch.process_single_batch_item(
+        http_request=None, user_id="rf4", batch_id="batch-rf4",
+        client_upload_item_id="upload-rf4", image_base64="x" * 30,
+        reviewed_item=item,
+    )
+
+    assert retry["status"] == "NEEDS_REVIEW"
+    assert retry["idempotent"] is True
+    assert analyze_calls["n"] == 0
+    assert persist_calls["n"] == 0, "ordinary NEEDS_REVIEW must never re-run processing on a bare retry"
+
+
+@pytest.mark.anyio
+async def test_duplicate_needs_review_retry_without_override_stays_needs_review(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="rf5", client_batch_request_id="batch-rf5", total_items=1)
+    persist_calls = _mock_persist(monkeypatch)
+
+    item = _duplicate_item("item-rf5")
+    first = await orch.process_single_batch_item(
+        http_request=None, user_id="rf5", batch_id="batch-rf5",
+        client_upload_item_id="upload-rf5", image_base64="x" * 30,
+        reviewed_item=item,
+    )
+    assert first["status"] == "NEEDS_REVIEW"
+    assert first["reason"] == "duplicate_wardrobe_item"
+
+    retry = await orch.process_single_batch_item(
+        http_request=None, user_id="rf5", batch_id="batch-rf5",
+        client_upload_item_id="upload-rf5", image_base64="x" * 30,
+        reviewed_item=item,
+        override_duplicate=False,
+    )
+
+    assert retry["status"] == "NEEDS_REVIEW"
+    assert retry["idempotent"] is True
+    assert persist_calls["n"] == 0
+
+
+@pytest.mark.anyio
+async def test_duplicate_needs_review_retry_with_override_reenters_and_persists_once(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="rf6", client_batch_request_id="batch-rf6", total_items=1)
+    persist_calls = _mock_persist(monkeypatch)
+
+    item = _duplicate_item("item-rf6")
+    blocked = await orch.process_single_batch_item(
+        http_request=None, user_id="rf6", batch_id="batch-rf6",
+        client_upload_item_id="upload-rf6", image_base64="x" * 30,
+        reviewed_item=item,
+    )
+    assert blocked["status"] == "NEEDS_REVIEW"
+    assert persist_calls["n"] == 0
+
+    added = await orch.process_single_batch_item(
+        http_request=None, user_id="rf6", batch_id="batch-rf6",
+        client_upload_item_id="upload-rf6", image_base64="x" * 30,
+        reviewed_item=item,
+        override_duplicate=True,
+    )
+
+    assert added["status"] == "ADDED_TO_WARDROBE"
+    assert persist_calls["n"] == 1
+
+    status = orch.get_batch_status("rf6", "batch-rf6")
+    assert status["added_count"] == 1
+    assert status["needs_review_count"] == 0, "the duplicate's needs_review_count must migrate to added_count, not double-count"
+
+
+@pytest.mark.anyio
+async def test_rejected_item_retry_stays_terminal(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="rf7", client_batch_request_id="batch-rf7", total_items=1)
+    analyze_calls = _mock_analyze(monkeypatch, [])  # no items detected -> REJECTED
+    persist_calls = _mock_persist(monkeypatch)
+
+    first = await orch.process_single_batch_item(
+        http_request=None, user_id="rf7", batch_id="batch-rf7",
+        client_upload_item_id="upload-rf7", image_base64="x" * 30,
+    )
+    assert first["status"] == "REJECTED"
+
+    retry = await orch.process_single_batch_item(
+        http_request=None, user_id="rf7", batch_id="batch-rf7",
+        client_upload_item_id="upload-rf7", image_base64="x" * 30,
+    )
+
+    assert retry["status"] == "REJECTED"
+    assert retry["idempotent"] is True
+    assert analyze_calls["n"] == 1, "REJECTED must stay terminal - retry must not re-analyze"
+    assert persist_calls["n"] == 0
+
+    status = orch.get_batch_status("rf7", "batch-rf7")
+    assert status["rejected_count"] == 1, "must not be double-counted across the retry"
+
+
+@pytest.mark.anyio
+async def test_stale_processing_lease_is_reclaimed_and_retried(orch, monkeypatch):
+    """A crashed/abandoned attempt leaves a PROCESSING doc with no terminal
+    status - claim_item()'s existing last-write-wins reclaim must still
+    apply unchanged after the FAILED-retry patch."""
+    orch.create_or_resume_batch(user_id="rf8", client_batch_request_id="batch-rf8", total_items=1)
+    doc_id = deterministic_appwrite_id("rf8", "upload-rf8")
+    orch._memory_items[doc_id] = {
+        "user_id": "rf8",
+        "batch_id": "batch-rf8",
+        "client_upload_item_id": "upload-rf8",
+        "status": "PROCESSING",
+        "attempt_count": 1,
+        "created_at": "2020-01-01T00:00:00+00:00",
+        "updated_at": "2020-01-01T00:00:00+00:00",
+    }
+    persist_calls = _mock_persist(monkeypatch)
+
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="rf8", batch_id="batch-rf8",
+        client_upload_item_id="upload-rf8", image_base64="x" * 30,
+        reviewed_item=_valid_item("item-rf8"),
+    )
+
+    assert res["status"] == "ADDED_TO_WARDROBE"
+    assert persist_calls["n"] == 1
+    doc = orch._get_doc(orch.items_collection, doc_id)
+    assert doc["attempt_count"] == 2, "stale lease reclaim must still increment attempt_count"
