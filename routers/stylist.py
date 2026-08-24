@@ -9,9 +9,37 @@ from brain.personalization.style_dna_engine import style_dna_engine
 from services import ai_gateway
 from services.appwrite_proxy import AppwriteProxy
 from services.style_flow_service import build_style_flow_response, item_role
+from services.trend_context_service import TrendContextService
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.stylist")
+
+
+def annotate_board_with_trend(board_dict: dict, user_gender: str = None, occasion: str = None) -> dict:
+    """
+    Additive soft annotation. Modifies the board ONLY if a valid trend matches.
+    If no match or an error occurs, the board is returned unmodified.
+    """
+    try:
+        items = board_dict.get("items") or board_dict.get("garments") or []
+        trend_match = TrendContextService.match_board_trend(
+            board_items=items,
+            gender=user_gender,
+            occasion=occasion
+        )
+        
+        if trend_match:
+            board_dict["trend_label"] = trend_match["label"]
+            board_dict["trend_meta"] = {
+                "trend_id": trend_match["trend_id"],
+                "match_score": trend_match["match_score"]
+            }
+    except Exception:
+        # Failsafe: Trend service error must never crash the style flow
+        pass
+
+    return board_dict
+
 
 
 class ItemContextRequest(BaseModel):
@@ -99,12 +127,24 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
             upload_to_r2=bool(request.upload_style_boards_to_r2),
             cache_bypass=True,
         )
+        gender = (request.user_profile or {}).get("gender") or (request.user_profile or {}).get("style_gender")
+        if isinstance(response, dict):
+            for card in response.get("cards", []):
+                if isinstance(card, dict):
+                    annotate_board_with_trend(card, user_gender=gender, occasion=context.get("occasion"))
+            data_dict = response.get("data")
+            if isinstance(data_dict, dict):
+                for key in ("outfits", "rendered_boards"):
+                    for card in data_dict.get(key, []):
+                        if isinstance(card, dict):
+                            annotate_board_with_trend(card, user_gender=gender, occasion=context.get("occasion"))
         response["meta"] = {
             **_dict(response.get("meta")),
             "query": request.query,
             "analysis_source": "style_flow_service",
         }
         return response
+
     except Exception as exc:
         logger.exception(
             "stylist.pipeline failed user_id=%s error=%s", request.user_id, str(exc)
@@ -575,8 +615,11 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
     anchor = _resolve_anchor(request, item_id, wardrobe)
 
     try:
+        gender = request.user_profile.get("gender") or request.user_profile.get("style_gender")
         if mode == "style_this":
             directions = _lite_directions(anchor, wardrobe)
+            for d in directions:
+                annotate_board_with_trend(d, user_gender=gender, occasion=request.occasion)
             logger.info(
                 "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d",
                 item_id, len(directions), len(wardrobe),
@@ -584,11 +627,13 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
             return {"success": True, "mode": mode, "anchor_item": anchor, "style_directions": directions}
 
         outfit = _lite_build_outfit(anchor, wardrobe, request.occasion)
+        annotate_board_with_trend(outfit, user_gender=gender, occasion=request.occasion)
         logger.info(
             "stylist.item_style mode=build_outfit item_id=%s items=%d missing=%d wardrobe=%d",
             item_id, len(outfit["items"]), len(outfit["missing_items"]), len(wardrobe),
         )
         return {"success": True, "mode": mode, "anchor_item": anchor, "outfit": outfit}
+
     except Exception as exc:  # noqa: BLE001 - CTA must never dead-end the UI
         logger.exception("stylist.item_style failed item_id=%s mode=%s err=%s", item_id, mode, str(exc))
         return _style_fallback(mode, anchor)
