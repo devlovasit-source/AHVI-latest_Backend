@@ -2265,6 +2265,13 @@ def _try_upload_inline_images(
             if item.get("raw_url") or item.get("rawUrl")
             else "missing"
         )
+        if item["_save_image_source"] == "missing":
+            logger.warning(
+                "ahvi.capture.inline_image_upload_skipped_no_bytes item_id=%s has_raw_b64=%s has_masked_b64=%s",
+                item.get("item_id"),
+                bool(item.get("raw_image_base64")),
+                bool(item.get("masked_image_base64")),
+            )
         return item
 
     original_image_url = item.get("image_url") or item.get("imageUrl")
@@ -2307,6 +2314,12 @@ def _try_upload_inline_images(
     except Exception as exc:
         item["upload_error"] = str(exc)
         item["_save_image_source"] = "existing_url_after_inline_upload_failure"
+        logger.warning(
+            "ahvi.capture.inline_image_upload_failed item_id=%s exc_class=%s exc=%s",
+            item.get("item_id"),
+            exc.__class__.__name__,
+            str(exc)[:200],
+        )
     return item
 
 

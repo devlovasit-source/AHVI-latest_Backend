@@ -534,3 +534,173 @@ async def test_retry_already_added_item_no_second_persistence(orch, monkeypatch)
     assert r1["status"] == r2["status"] == "ADDED_TO_WARDROBE"
     assert r1["wardrobe_item_id"] == r2["wardrobe_item_id"]
     assert persist_calls["n"] == 1
+
+
+# --------------------------------------------------------------------- #
+# Reviewed-item save contract: persist the exact garment the user already
+# reviewed/approved in preview, instead of re-running analyze_capture() on
+# the source image bytes every save. See AHVI P0 upload save-contract fix.
+# --------------------------------------------------------------------- #
+
+
+def _mock_persist_empty(monkeypatch):
+    """Faithfully models persist_selected_items() silently dropping an item
+    with no raw_url/masked_url/normalized_url - a real success response
+    (no exception) that persisted nothing."""
+    calls = {"n": 0}
+
+    def _fake_persist(*, user_id, selected_item_ids, detected_items):
+        calls["n"] += 1
+        return {"success": True, "saved_count": 0, "items": [], "skipped": len(detected_items), "errors": ["missing url"]}
+
+    monkeypatch.setattr(wardrobe_persistence_service, "persist_selected_items", _fake_persist)
+    return calls
+
+
+@pytest.mark.anyio
+async def test_reviewed_item_skips_analyze_capture_and_persists(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="r1", client_batch_request_id="batch-r1", total_items=1)
+    analyze_calls = _mock_analyze(monkeypatch, [_valid_item("item-r1")])
+    persist_calls = _mock_persist(monkeypatch)
+
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="r1", batch_id="batch-r1",
+        client_upload_item_id="upload-r1", image_base64="x" * 30,
+        reviewed_item=_valid_item("item-r1"),
+    )
+
+    assert analyze_calls["n"] == 0, "reviewed_item must never trigger a fresh analyze_capture() call"
+    assert persist_calls["n"] == 1
+    assert res["status"] == "ADDED_TO_WARDROBE"
+    assert res["success"] is True
+
+
+@pytest.mark.anyio
+async def test_reviewed_item_multiple_items_from_one_source_persist_independently(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="r2", client_batch_request_id="batch-r2", total_items=2)
+    analyze_calls = _mock_analyze(monkeypatch, [])
+    persist_calls = _mock_persist(monkeypatch)
+
+    r_top = await orch.process_single_batch_item(
+        http_request=None, user_id="r2", batch_id="batch-r2",
+        client_upload_item_id="upload-r2-top", image_base64="x" * 30,
+        reviewed_item=_valid_item("item-r2-top", category="Tops"),
+    )
+    r_bottom = await orch.process_single_batch_item(
+        http_request=None, user_id="r2", batch_id="batch-r2",
+        client_upload_item_id="upload-r2-bottom", image_base64="x" * 30,
+        reviewed_item=_valid_item("item-r2-bottom", category="Bottoms"),
+    )
+
+    assert analyze_calls["n"] == 0
+    assert r_top["status"] == r_bottom["status"] == "ADDED_TO_WARDROBE"
+    assert persist_calls["n"] == 2
+    assert persist_calls["args"][0]["detected_items"][0]["item_id"] == "item-r2-top"
+    assert persist_calls["args"][1]["detected_items"][0]["item_id"] == "item-r2-bottom"
+
+
+@pytest.mark.anyio
+async def test_reviewed_item_duplicate_without_override_needs_review(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="r3", client_batch_request_id="batch-r3", total_items=1)
+    analyze_calls = _mock_analyze(monkeypatch, [])
+    persist_calls = _mock_persist(monkeypatch)
+
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="r3", batch_id="batch-r3",
+        client_upload_item_id="upload-r3", image_base64="x" * 30,
+        reviewed_item=_duplicate_item("item-r3"),
+    )
+
+    assert analyze_calls["n"] == 0
+    assert res["status"] == "NEEDS_REVIEW"
+    assert res["reason"] == "duplicate_wardrobe_item"
+    assert persist_calls["n"] == 0
+
+
+@pytest.mark.anyio
+async def test_reviewed_item_duplicate_with_override_persists_once(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="r4", client_batch_request_id="batch-r4", total_items=1)
+    analyze_calls = _mock_analyze(monkeypatch, [])
+    persist_calls = _mock_persist(monkeypatch)
+
+    blocked = await orch.process_single_batch_item(
+        http_request=None, user_id="r4", batch_id="batch-r4",
+        client_upload_item_id="upload-r4", image_base64="x" * 30,
+        reviewed_item=_duplicate_item("item-r4"),
+    )
+    assert blocked["status"] == "NEEDS_REVIEW"
+    assert persist_calls["n"] == 0
+
+    added = await orch.process_single_batch_item(
+        http_request=None, user_id="r4", batch_id="batch-r4",
+        client_upload_item_id="upload-r4", image_base64="x" * 30,
+        reviewed_item=_duplicate_item("item-r4"),
+        override_duplicate=True,
+    )
+    assert added["status"] == "ADDED_TO_WARDROBE"
+    assert persist_calls["n"] == 1
+    assert analyze_calls["n"] == 0
+
+
+@pytest.mark.anyio
+async def test_reviewed_item_retry_already_added_no_second_persistence(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="r5", client_batch_request_id="batch-r5", total_items=1)
+    _mock_analyze(monkeypatch, [])
+    persist_calls = _mock_persist(monkeypatch)
+
+    r1 = await orch.process_single_batch_item(
+        http_request=None, user_id="r5", batch_id="batch-r5",
+        client_upload_item_id="upload-r5", image_base64="x" * 30,
+        reviewed_item=_valid_item("item-r5"),
+    )
+    r2 = await orch.process_single_batch_item(
+        http_request=None, user_id="r5", batch_id="batch-r5",
+        client_upload_item_id="upload-r5", image_base64="x" * 30,
+        reviewed_item=_valid_item("item-r5"),
+    )
+
+    assert r1["status"] == r2["status"] == "ADDED_TO_WARDROBE"
+    assert r1["wardrobe_item_id"] == r2["wardrobe_item_id"]
+    assert persist_calls["n"] == 1
+
+
+@pytest.mark.anyio
+async def test_reviewed_item_persistence_returns_zero_is_explicit_failure(orch, monkeypatch, caplog):
+    orch.create_or_resume_batch(user_id="r6", client_batch_request_id="batch-r6", total_items=1)
+    analyze_calls = _mock_analyze(monkeypatch, [])
+    _mock_persist_empty(monkeypatch)
+
+    with caplog.at_level("WARNING"):
+        res = await orch.process_single_batch_item(
+            http_request=None, user_id="r6", batch_id="batch-r6",
+            client_upload_item_id="upload-r6", image_base64="x" * 30,
+            reviewed_item=_valid_item("item-r6"),
+        )
+
+    assert analyze_calls["n"] == 0
+    assert res["success"] is False
+    assert res["status"] == "FAILED"
+    assert res["error_code"] == "UPLOAD_ITEM_PERSISTENCE_FAILED"
+    assert "ahvi.upload_batch.persistence_returned_no_items" in caplog.text
+
+    doc = orch._get_doc(orch.items_collection, deterministic_appwrite_id("r6", "upload-r6"))
+    assert doc["status"] == "FAILED"
+    assert doc["error_code"] == "UPLOAD_ITEM_PERSISTENCE_FAILED"
+
+
+@pytest.mark.anyio
+async def test_no_reviewed_item_falls_back_to_analyze_capture(orch, monkeypatch):
+    """Backwards compatibility: older clients that don't send reviewed_item
+    still get the original re-analysis behavior."""
+    orch.create_or_resume_batch(user_id="r7", client_batch_request_id="batch-r7", total_items=1)
+    analyze_calls = _mock_analyze(monkeypatch, [_valid_item("item-r7")])
+    persist_calls = _mock_persist(monkeypatch)
+
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="r7", batch_id="batch-r7",
+        client_upload_item_id="upload-r7", image_base64="x" * 30,
+    )
+
+    assert analyze_calls["n"] == 1, "no reviewed_item -> must still exercise the analyze_capture fallback"
+    assert persist_calls["n"] == 1
+    assert res["status"] == "ADDED_TO_WARDROBE"

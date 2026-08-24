@@ -1009,6 +1009,10 @@ def persist_selected_items(
             if not raw_url and not masked_url and not normalized_url:
                 skipped += 1
                 errors.append(f"{file_id}: missing image_url/masked_url/normalized_url")
+                logger.warning(
+                    "ahvi.persist.skipped_missing_url item_id=%s has_raw_url=%s has_masked_url=%s has_normalized_url=%s",
+                    file_id, bool(raw_url), bool(masked_url), bool(normalized_url),
+                )
                 continue
 
             item = apply_metadata_guard(item, source="persist_selected_items")

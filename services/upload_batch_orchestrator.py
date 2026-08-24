@@ -353,11 +353,20 @@ class UploadBatchOrchestrator:
         image_base64: str,
         metadata: Optional[Dict[str, Any]] = None,
         override_duplicate: bool = False,
+        reviewed_item: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Canonical single-item processor: analyze ONE image, gate it with
-        the SAME approval rule save-selected already applies, persist ONE
-        item through the SAME persist_selected_items() the rest of the app
-        uses. No competing RMBG/catalog/persistence stack.
+        """Canonical single-item processor: persist the ONE garment the user
+        already reviewed and approved in preview, gate it with the SAME
+        approval rule save-selected already applies, persist it through the
+        SAME persist_selected_items() the rest of the app uses. No competing
+        RMBG/catalog/persistence stack.
+
+        reviewed_item, when supplied, IS that already-reviewed garment (the
+        same detected-item dict shape analyze_capture()/save-selected already
+        use) - it is used directly, WITHOUT calling analyze_capture() again,
+        since the garment was already detected and approved once during
+        preview. image_base64 is only re-analyzed as a backwards-compatible
+        fallback when reviewed_item is absent (older clients).
 
         override_duplicate is this ONE item's explicit "Add anyway" - it is
         scoped to exactly this call/doc_id and can never affect any other
@@ -436,30 +445,52 @@ class UploadBatchOrchestrator:
         # Import locally: routers.wardrobe_capture imports many services at
         # module scope, so importing it back from a service module at import
         # time risks a circular import. Deferred import breaks that cycle.
-        from routers.wardrobe_capture import CaptureAnalyzeRequest, analyze_capture, _is_preview_item_save_approved
+        from routers.wardrobe_capture import (
+            CaptureAnalyzeRequest,
+            analyze_capture,
+            _is_preview_item_save_approved,
+            _try_upload_inline_images,
+            _image_cache_enabled,
+            _image_cache_get_sync,
+        )
         from services.wardrobe_persistence_service import persist_selected_items
 
-        t_an = time.time()
-        try:
-            analyze_result = await analyze_capture(
-                http_request,
-                CaptureAnalyzeRequest(user_id=user_id, image_base64=image_base64, auto_save=False),
-            )
-        except Exception as exc:
+        if reviewed_item is not None:
+            # The exact garment already detected + approved during preview -
+            # reuse it as-is, never re-run detection on the source bytes.
+            items = [dict(reviewed_item)] if isinstance(reviewed_item, dict) else []
+            # WARDROBE_ANALYZE_IMAGE_CACHE: same restore save-selected already
+            # does - the preview may have sent an image_cache_token instead of
+            # inline base64 to avoid re-uploading ~MB payloads.
+            if items and _image_cache_enabled():
+                for _it in items:
+                    _tok = str(_it.get("image_cache_token") or "").strip()
+                    if _tok and not _it.get("raw_image_base64"):
+                        _cached_b64 = _image_cache_get_sync(_tok)
+                        if _cached_b64:
+                            _it["raw_image_base64"] = _cached_b64
+        else:
+            t_an = time.time()
+            try:
+                analyze_result = await analyze_capture(
+                    http_request,
+                    CaptureAnalyzeRequest(user_id=user_id, image_base64=image_base64, auto_save=False),
+                )
+            except Exception as exc:
+                metrics["analysis_ms"] = int((time.time() - t_an) * 1000)
+                self._update_doc(
+                    self.items_collection, doc_id,
+                    {"status": "FAILED", "error_code": "ANALYSIS_FAILED", "updated_at": _utcnow_iso()},
+                )
+                self._bump_batch_counter(
+                    user_id, batch_id, "failed_count",
+                    migrate_from="needs_review_count" if reentering_duplicate else None,
+                )
+                raise UploadBatchInfraError(f"ANALYSIS_FAILED: {exc}") from exc
             metrics["analysis_ms"] = int((time.time() - t_an) * 1000)
-            self._update_doc(
-                self.items_collection, doc_id,
-                {"status": "FAILED", "error_code": "ANALYSIS_FAILED", "updated_at": _utcnow_iso()},
-            )
-            self._bump_batch_counter(
-                user_id, batch_id, "failed_count",
-                migrate_from="needs_review_count" if reentering_duplicate else None,
-            )
-            raise UploadBatchInfraError(f"ANALYSIS_FAILED: {exc}") from exc
-        metrics["analysis_ms"] = int((time.time() - t_an) * 1000)
 
-        items = analyze_result.get("items") if isinstance(analyze_result, dict) else []
-        items = [i for i in (items or []) if isinstance(i, dict)]
+            items = analyze_result.get("items") if isinstance(analyze_result, dict) else []
+            items = [i for i in (items or []) if isinstance(i, dict)]
 
         if not items:
             self._update_doc(
@@ -523,6 +554,17 @@ class UploadBatchOrchestrator:
             metrics["total_item_ms"] = int((time.time() - t0) * 1000)
             return {"success": False, "status": "NEEDS_REVIEW", "reason": "not_auto_approved", "items": items, "metrics": metrics}
 
+        # Ensure raw_url/masked_url/normalized_url exist before persisting -
+        # SAME mechanism the canonical save-selected flow forces
+        # (allow_fast_mode_skip=False, prefer_inline=True). Without this,
+        # persist_selected_items() silently drops any item missing all three
+        # URL fields, which is exactly how a reviewed, already-approved item
+        # used to vanish with a bare HTTP 200 and no persisted wardrobe row.
+        approved = [
+            _try_upload_inline_images(item, allow_fast_mode_skip=False, prefer_inline=True)
+            for item in approved
+        ]
+
         approved_ids = [str(i.get("item_id") or "").strip() for i in approved if str(i.get("item_id") or "").strip()]
 
         t_persist = time.time()
@@ -551,16 +593,30 @@ class UploadBatchOrchestrator:
         if not saved_items:
             # ZERO synthetic wardrobe IDs: a save that persisted nothing is a
             # failure, never a fabricated success.
+            logger.warning(
+                "ahvi.upload_batch.persistence_returned_no_items batch_id=%s item_id=%s user_id=%s "
+                "has_raw_url=%s has_masked_url=%s has_normalized_url=%s",
+                batch_id, client_upload_item_id, user_id,
+                bool(approved[0].get("raw_url")) if approved else None,
+                bool(approved[0].get("masked_url")) if approved else None,
+                bool(approved[0].get("normalized_url")) if approved else None,
+            )
             self._update_doc(
                 self.items_collection, doc_id,
-                {"status": "FAILED", "error_code": "PERSISTENCE_FAILED", "updated_at": _utcnow_iso()},
+                {"status": "FAILED", "error_code": "UPLOAD_ITEM_PERSISTENCE_FAILED", "updated_at": _utcnow_iso()},
             )
             self._bump_batch_counter(
                 user_id, batch_id, "failed_count",
                 migrate_from="needs_review_count" if reentering_duplicate else None,
             )
             metrics["total_item_ms"] = int((time.time() - t0) * 1000)
-            return {"success": False, "status": "FAILED", "reason": "persistence_returned_no_items", "metrics": metrics}
+            return {
+                "success": False,
+                "status": "FAILED",
+                "error_code": "UPLOAD_ITEM_PERSISTENCE_FAILED",
+                "reason": "persistence_returned_no_items",
+                "metrics": metrics,
+            }
 
         wardrobe_item_id = str(saved_items[0].get("$id") or saved_items[0].get("id") or "").strip()
         if not wardrobe_item_id:

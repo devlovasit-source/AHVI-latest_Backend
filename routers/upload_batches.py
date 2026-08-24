@@ -39,6 +39,12 @@ class ProcessBatchItemRequest(BaseModel):
     # "Include Duplicate Item" for THIS specific image. Scoped by construction:
     # each call is one item, so this can never affect any other item's result.
     override_duplicate: bool = False
+    # The exact garment the user already reviewed/approved in preview - the
+    # same detected-item dict shape analyze_capture()/save-selected already
+    # use (item_id, category, name, duplicate, raw_image_base64/masked_image_base64,
+    # validation_status, etc). When present, save persists THIS item instead
+    # of re-running detection on image_base64 from scratch.
+    reviewed_item: Optional[Dict[str, Any]] = None
 
 
 def _infra_failure(exc: Exception) -> HTTPException:
@@ -90,6 +96,7 @@ async def process_batch_item(
             image_base64=request.image_base64,
             metadata=request.metadata or {},
             override_duplicate=request.override_duplicate,
+            reviewed_item=request.reviewed_item,
         )
     except UploadBatchInfraError as exc:
         raise _infra_failure(exc) from exc
