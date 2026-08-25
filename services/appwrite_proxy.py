@@ -162,6 +162,11 @@ class AppwriteProxy:
                 or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_NOTIFICATION_PREFERENCES", "")
                 or "notification_preferences"
             ),
+            "wear_events": (
+                os.getenv("APPWRITE_COLLECTION_WEAR_EVENTS", "")
+                or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_WEAR_EVENTS", "")
+                or "wear_events"
+            ),
         }
         self.resource_aliases = {
             "meal_planner": "meal_plans",
@@ -215,6 +220,7 @@ class AppwriteProxy:
             "jobs": "userId",
             "notification_devices": "userId",
             "notification_reminders": "userId",
+            "wear_events": "userId",
         }
 
         self.order_query_map = {
@@ -245,6 +251,7 @@ class AppwriteProxy:
                 "attribute": "updatedAtISO",
             },
             "notification_reminders": {"method": "orderAsc", "attribute": "sendAtISO"},
+            "wear_events": {"method": "orderDesc", "attribute": "occurredAtISO"},
         }
 
     def _normalize_resource(self, resource: str) -> str:

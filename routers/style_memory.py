@@ -9,8 +9,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from services.auth_helpers import enforce_owner
-from services.style_memory_service import record_wear
 from services.style_item_contract import canonical_item_id, canonical_item_role
+from services.wear_event_service import record_wear as record_canonical_wear
 
 logger = logging.getLogger("ahvi.routers.style_memory")
 
@@ -27,24 +27,36 @@ class WearTodayRequest(BaseModel):
 
 @router.post("/wear-today")
 def wear_today(req: Request, request: WearTodayRequest):
+    """Compatibility endpoint. Delegates to the same canonical
+    WearEventService as POST /api/wardrobe/items/{item_id}/wear, one call
+    per item, so there is exactly one wear implementation. Response shape
+    (recorded/item_ids/worn_at) is unchanged for existing callers."""
     user_id = enforce_owner(req, request.user_id)
     if not str(user_id or "").strip():
         raise HTTPException(status_code=400, detail="user_id is required")
-    item_ids = [str(x).strip() for x in (request.item_ids or []) if str(x).strip()]
+    # De-dup while preserving order, matching the previous record_wear contract.
+    item_ids = list(
+        dict.fromkeys(str(x).strip() for x in (request.item_ids or []) if str(x).strip())
+    )
     if not item_ids:
         raise HTTPException(status_code=400, detail="item_ids must be a non-empty list")
+    worn_at = str(request.worn_at or "").strip() or datetime.now(timezone.utc).isoformat()
+    recorded = 0
     try:
-        result = record_wear(
-            user_id=user_id,
-            item_ids=item_ids,
-            board_id=request.board_id,
-            occasion=request.occasion,
-            worn_at=request.worn_at,
-        )
+        for item_id in item_ids:
+            record_canonical_wear(
+                user_id=user_id,
+                item_id=item_id,
+                occurred_at_iso=worn_at,
+                source="style.wear_today",
+                board_id=request.board_id,
+                occasion=request.occasion,
+            )
+            recorded += 1
     except Exception as exc:  # noqa: BLE001
         logger.warning("style.wear_today_failed user_id=%s err=%s", user_id, str(exc)[:160])
         raise HTTPException(status_code=500, detail="Failed to record wear event")
-    return {"success": True, **result}
+    return {"success": True, "recorded": recorded, "item_ids": item_ids, "worn_at": worn_at}
 
 
 class ChangeItemRequest(BaseModel):

@@ -29,6 +29,7 @@ from services.image_fingerprint import compute_hash_from_base64, compute_hash_fr
 from services.qdrant_service import qdrant_service
 from services.r2_storage import R2Storage
 from services.wardrobe_persistence_service import (
+    _fetch_document,
     delete_wardrobe_item,
     persist_selected_items,
     update_item_labels,
@@ -226,6 +227,135 @@ def delete_wardrobe_item_route(item_id: str, http_request: Request):
             clean_item_id,
         )
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+def _verify_wardrobe_item_owner(user_id: str, item_id: str) -> tuple[Dict[str, Any], str, str]:
+    """Same ownership check delete_wardrobe_item uses: fetch the item and
+    compare its userId to the authenticated caller. Raises LookupError
+    (-> 404) when the item doesn't exist and PermissionError (-> 403) when
+    it belongs to someone else. Never trusts a client-supplied user_id.
+    Returns (item, collection_id, database_id) so a caller that needs to
+    write back can target the exact location the item was found in,
+    same as update_item_labels/delete_wardrobe_item already do."""
+    existing, collection_id, database_id = _fetch_document(item_id)
+    owner = str(existing.get("userId") or existing.get("user_id") or "").strip()
+    if not owner or owner != user_id:
+        raise PermissionError("Item does not belong to user.")
+    return existing, collection_id, database_id
+
+
+class WearRequest(BaseModel):
+    occurred_at: str = ""
+    board_id: str = ""
+    occasion: str = ""
+    source: str = "wardrobe_item_detail"
+
+
+@wardrobe_router.post("/{item_id}/wear")
+def wear_wardrobe_item(item_id: str, request: WearRequest, http_request: Request):
+    """Canonical wear endpoint. Delegates to WearEventService so this and
+    POST /api/style/wear-today can never drift into two implementations."""
+    user_id = _request_user_id(http_request)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    clean_item_id = str(item_id or "").strip()
+    if not clean_item_id:
+        raise HTTPException(status_code=400, detail="Missing item_id")
+
+    from services.wear_event_service import record_wear
+
+    try:
+        _verify_wardrobe_item_owner(user_id, clean_item_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    try:
+        result = record_wear(
+            user_id=user_id,
+            item_id=clean_item_id,
+            occurred_at_iso=request.occurred_at,
+            source=request.source,
+            board_id=request.board_id,
+            occasion=request.occasion,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        logger.exception("ahvi.wardrobe.wear.failed user_id=%s item_id=%s", user_id, clean_item_id)
+        raise HTTPException(status_code=500, detail="Failed to record wear")
+
+    return {
+        "success": True,
+        "item_id": clean_item_id,
+        "newly_created": result["newly_created"],
+        "event": result["event"],
+    }
+
+
+@wardrobe_router.get("/{item_id}/wear-history")
+def wardrobe_item_wear_history(item_id: str, http_request: Request):
+    user_id = _request_user_id(http_request)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    clean_item_id = str(item_id or "").strip()
+    if not clean_item_id:
+        raise HTTPException(status_code=400, detail="Missing item_id")
+
+    try:
+        _verify_wardrobe_item_owner(user_id, clean_item_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    from services.wear_event_service import get_wear_history
+
+    history = get_wear_history(user_id=user_id, item_id=clean_item_id)
+    return {"success": True, "item_id": clean_item_id, **history}
+
+
+class FavoriteRequest(BaseModel):
+    user_id: str = ""
+    item_id: str
+    is_liked: bool
+
+
+@wardrobe_router.post("/favorite")
+def set_wardrobe_item_favorite(request: FavoriteRequest, http_request: Request):
+    """Matches the existing frontend contract (BackendService.
+    toggleGarmentFavorite): body-scoped item_id rather than a path param.
+    Persists to the current schema's `liked` field only — no alias
+    attributes."""
+    user_id = _effective_user_id(http_request, request.user_id)
+    clean_item_id = str(request.item_id or "").strip()
+    if not clean_item_id:
+        raise HTTPException(status_code=400, detail="Missing item_id")
+
+    try:
+        _existing, collection_id, database_id = _verify_wardrobe_item_owner(user_id, clean_item_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    from services.wardrobe_persistence_service import _patch_document
+
+    try:
+        _patch_document(
+            clean_item_id,
+            {"liked": bool(request.is_liked)},
+            collection_id=collection_id,
+            database_id=database_id,
+        )
+    except Exception:
+        logger.exception(
+            "ahvi.wardrobe.favorite.failed user_id=%s item_id=%s", user_id, clean_item_id
+        )
+        raise HTTPException(status_code=502, detail="Failed to update favorite")
+
+    return {"success": True, "item_id": clean_item_id, "liked": bool(request.is_liked)}
 
 
 class CaptureAnalyzeRequest(BaseModel):

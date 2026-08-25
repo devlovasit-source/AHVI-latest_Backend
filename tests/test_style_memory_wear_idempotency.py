@@ -154,6 +154,36 @@ def _client(monkeypatch, fake):
     from routers import style_memory
 
     _patch_proxy(monkeypatch, fake)
+    # /api/style/wear-today now delegates to the canonical
+    # WearEventService, which owns its own wear_events proxy (separate
+    # from the legacy outfit_history proxy patched above). Route both
+    # through the same fake store's underlying data so the pre-existing
+    # assertions against `fake` (outfit_history rows) still hold — the
+    # canonical layer's own persistence is exercised by
+    # tests/test_wear_event_service.py and
+    # tests/test_wardrobe_wear_routes.py.
+    import services.wear_event_service as wear_event_service
+
+    class FakeWearEventsProxy:
+        def __init__(self):
+            self.docs = {}
+
+        def create_document(self, resource, data, document_id="unique()"):
+            from services.appwrite_proxy import AppwriteProxyError
+
+            if document_id in self.docs:
+                raise AppwriteProxyError("already exists", status_code=409)
+            doc = {"$id": document_id, **data}
+            self.docs[document_id] = doc
+            return doc
+
+        def get_document(self, resource, document_id):
+            return self.docs[document_id]
+
+        def list_documents(self, resource, user_id=None, **kwargs):
+            return [d for d in self.docs.values() if d.get("userId") == user_id]
+
+    monkeypatch.setattr(wear_event_service, "_proxy", lambda: FakeWearEventsProxy())
     app = FastAPI()
 
     @app.middleware("http")
