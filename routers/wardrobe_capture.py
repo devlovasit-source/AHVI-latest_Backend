@@ -2586,6 +2586,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                         "gemini_category": g.get("category") or "",
                         "gemini_sub_category": g.get("sub_category") or "",
                         "gemini_color": g.get("color") or "",
+                        "gemini_pattern": g.get("pattern") or "",
                         "gemini_needs_review": bool(g.get("needs_review") or False),
                         "gemini_review_reason": g.get("reason") or g.get("review_reason") or "",
                         "crop_source": "gemini",
@@ -2670,7 +2671,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                 "name": str(item.get("gemini_name") or raw_label),
                 "category": str(item.get("gemini_category") or ""),
                 "sub_category": str(item.get("gemini_sub_category") or ""),
-                "pattern": "plain",
+                "pattern": str(item.get("gemini_pattern") or "plain"),
                 "color_name": str(item.get("gemini_color") or ""),
                 "occasions": [],
                 "label_source": "vision:gemini_multi",
@@ -2704,6 +2705,8 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                 vision["sub_category"] = str(item["gemini_sub_category"])
             if item.get("gemini_color"):
                 vision["color_name"] = str(item["gemini_color"])
+            if item.get("gemini_pattern"):
+                vision["pattern"] = str(item["gemini_pattern"])
             vision["label_source"] = "vision:gemini_multi"
             vision["requires_manual_entry"] = False
             vision["confidence"] = float(item.get("score") or 0.8)

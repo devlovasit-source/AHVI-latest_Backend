@@ -1092,6 +1092,255 @@ def test_save_selected_reports_failure_when_nothing_is_saved(monkeypatch):
     assert "could not be saved" in str(result.get("message", "")).lower()
 
 
+# ---------- P0: name quality + pattern contract (wardrobe vision name/pattern fix) ----------
+
+PATTERNED_MULTI_RESULT = """
+[
+  {"name": "Navy Blue Striped Shirt", "category": "Tops", "sub_category": "Shirt", "color": "Navy Blue", "pattern": "striped", "confidence": 0.9, "bbox": [0.05, 0.05, 0.45, 0.5]},
+  {"name": "Beige Pleated Trousers", "category": "Bottoms", "sub_category": "Trousers", "color": "Beige", "pattern": "plain", "confidence": 0.88, "bbox": [0.1, 0.5, 0.5, 0.95]},
+  {"name": "Black Leather Loafers", "category": "Footwear", "sub_category": "Loafers", "color": "Black", "pattern": "plain", "confidence": 0.85, "bbox": [0.55, 0.8, 0.9, 0.98]},
+  {"name": "Red Floral Midi Dress", "category": "Dresses", "sub_category": "Midi Dress", "color": "Red", "pattern": "floral", "confidence": 0.92, "bbox": [0.5, 0.05, 0.9, 0.5]}
+]
+"""
+
+NO_PATTERN_FIELD_RESULT = """
+[
+  {"name": "Grey Wool Coat", "category": "Outerwear", "sub_category": "Coat", "color": "Grey", "confidence": 0.9, "bbox": [0.1, 0.1, 0.5, 0.7]}
+]
+"""
+
+NULL_PATTERN_RESULT = """
+[
+  {"name": "White Cotton Shirt", "category": "Tops", "sub_category": "Shirt", "color": "White", "pattern": null, "confidence": 0.9, "bbox": [0.1, 0.1, 0.5, 0.7]}
+]
+"""
+
+UNKNOWN_PATTERN_VALUE_RESULT = """
+[
+  {"name": "Green Paisley Scarf", "category": "Accessories", "sub_category": "Scarf", "color": "Green", "pattern": "Paisley Print", "confidence": 0.8, "bbox": [0.1, 0.1, 0.3, 0.3]}
+]
+"""
+
+SOLID_PATTERN_RESULT = """
+[
+  {"name": "Black T-Shirt", "category": "Tops", "sub_category": "T-Shirt", "color": "Black", "pattern": "solid", "confidence": 0.9, "bbox": [0.1, 0.1, 0.5, 0.7]}
+]
+"""
+
+
+def test_gemini_multi_prompt_forbids_bare_category_names():
+    prompt = gmg._build_prompt()
+    lowered = prompt.lower()
+    assert "bare category" in lowered or "bare taxonomy" in lowered
+    assert "color + pattern" in lowered or "color+pattern" in lowered.replace(" ", "")
+    # The naming rule must not demand invented detail.
+    assert "do not invent" in lowered
+
+
+def test_gemini_multi_prompt_requests_pattern_from_canonical_list():
+    prompt = gmg._build_prompt()
+    assert '"pattern"' in prompt
+    for value in gmg.PATTERN_VALUES:
+        assert value in prompt
+
+
+def test_gemini_multi_schema_requests_pattern_field():
+    item_schema = gmg._ITEM_SCHEMA["properties"]["items"]["items"]
+    assert item_schema["properties"]["pattern"] == {"type": "string"}
+    # Pattern stays optional/best-effort - never required, so a Gemini
+    # response omitting it is still valid and must not be rejected wholesale.
+    assert "pattern" not in item_schema["required"]
+
+
+def test_gemini_multi_pattern_survives_detector_parsing(monkeypatch):
+    monkeypatch.setenv("ENABLE_GEMINI_MULTI_GARMENT_PREVIEW", "true")
+    monkeypatch.setattr(
+        gmg, "_call_gemini_vision", lambda image_bytes, request_id="": PATTERNED_MULTI_RESULT
+    )
+    image, raw = _test_image()
+    items = _run(gmg.detect_and_crop(image, raw, request_id="pattern1"))
+
+    assert len(items) == 4
+    by_name = {i["name"]: i["pattern"] for i in items}
+    assert by_name["Navy Blue Striped Shirt"] == "striped"
+    assert by_name["Beige Pleated Trousers"] == "plain"
+    assert by_name["Black Leather Loafers"] == "plain"
+    assert by_name["Red Floral Midi Dress"] == "floral"
+
+
+def test_gemini_multi_missing_pattern_field_defaults_to_plain(monkeypatch):
+    monkeypatch.setenv("ENABLE_GEMINI_MULTI_GARMENT_PREVIEW", "true")
+    monkeypatch.setattr(
+        gmg, "_call_gemini_vision", lambda image_bytes, request_id="": NO_PATTERN_FIELD_RESULT
+    )
+    image, raw = _test_image()
+    items = _run(gmg.detect_and_crop(image, raw, request_id="pattern2"))
+
+    assert len(items) == 1
+    assert items[0]["pattern"] == "plain"
+
+
+def test_gemini_multi_null_pattern_defaults_to_plain(monkeypatch):
+    monkeypatch.setenv("ENABLE_GEMINI_MULTI_GARMENT_PREVIEW", "true")
+    monkeypatch.setattr(
+        gmg, "_call_gemini_vision", lambda image_bytes, request_id="": NULL_PATTERN_RESULT
+    )
+    image, raw = _test_image()
+    items = _run(gmg.detect_and_crop(image, raw, request_id="pattern3"))
+
+    assert len(items) == 1
+    assert items[0]["pattern"] == "plain"
+
+
+def test_gemini_multi_solid_pattern_normalizes_to_plain(monkeypatch):
+    # services/category_taxonomy.py already treats "plain" and "solid" as
+    # equivalent no-pattern signals - normalize at the source so only one
+    # canonical value is ever persisted.
+    monkeypatch.setenv("ENABLE_GEMINI_MULTI_GARMENT_PREVIEW", "true")
+    monkeypatch.setattr(
+        gmg, "_call_gemini_vision", lambda image_bytes, request_id="": SOLID_PATTERN_RESULT
+    )
+    image, raw = _test_image()
+    items = _run(gmg.detect_and_crop(image, raw, request_id="pattern4"))
+
+    assert items[0]["pattern"] == "plain"
+
+
+def test_gemini_multi_unrecognized_pattern_value_does_not_crash(monkeypatch):
+    monkeypatch.setenv("ENABLE_GEMINI_MULTI_GARMENT_PREVIEW", "true")
+    monkeypatch.setattr(
+        gmg, "_call_gemini_vision", lambda image_bytes, request_id="": UNKNOWN_PATTERN_VALUE_RESULT
+    )
+    image, raw = _test_image()
+    items = _run(gmg.detect_and_crop(image, raw, request_id="pattern5"))
+
+    assert len(items) == 1
+    # Not one of the canonical values, but safely normalized (lowercased,
+    # underscored, non-empty) rather than dropped or raising.
+    assert items[0]["pattern"] == "paisley_print"
+
+
+def test_normalize_pattern_helper_handles_all_edge_cases():
+    assert gmg._normalize_pattern(None) == "plain"
+    assert gmg._normalize_pattern("") == "plain"
+    assert gmg._normalize_pattern("null") == "plain"
+    assert gmg._normalize_pattern("unknown") == "plain"
+    assert gmg._normalize_pattern("SOLID") == "plain"
+    assert gmg._normalize_pattern("Striped") == "striped"
+    assert gmg._normalize_pattern("animal_print") == "animal_print"
+    assert gmg._normalize_pattern("Something Odd") == "something_odd"
+
+
+def test_gemini_multi_pattern_reaches_preview_response(monkeypatch):
+    """End-to-end: trusted-Gemini pattern must reach the preview item, not
+    the previously hardcoded 'plain' regardless of what Gemini returned."""
+    _wire_router_for_gemini(monkeypatch, PATTERNED_MULTI_RESULT)
+
+    http_request = _FakeHttpRequest()
+    result = _run(wc.analyze_capture(http_request, _capture_request()))
+
+    assert result["stage_trace"]["detection"] == "gemini_multi_garment"
+    by_name = {i["name"]: i["pattern"] for i in result["items"]}
+    assert by_name["Navy Blue Striped Shirt"] == "striped"
+    assert by_name["Red Floral Midi Dress"] == "floral"
+    assert by_name["Beige Pleated Trousers"] == "plain"
+
+
+def test_gemini_multi_descriptive_names_survive_end_to_end(monkeypatch):
+    _wire_router_for_gemini(monkeypatch, PATTERNED_MULTI_RESULT)
+
+    http_request = _FakeHttpRequest()
+    result = _run(wc.analyze_capture(http_request, _capture_request()))
+
+    names = {str(i.get("name") or "") for i in result["items"]}
+    assert names == {
+        "Navy Blue Striped Shirt", "Beige Pleated Trousers",
+        "Black Leather Loafers", "Red Floral Midi Dress",
+    }
+    # None of the names degraded to a bare taxonomy word.
+    bare_words = {"shirt", "trousers", "footwear", "dress", "item"}
+    for name in names:
+        assert name.lower() not in bare_words
+
+
+def test_gemini_multi_existing_category_subcategory_parsing_unchanged(monkeypatch):
+    # Control: the pattern/name work must not touch category/sub_category
+    # parsing at all - reuses the pre-existing GOOD_RESULT fixture/assertions.
+    _wire_router_for_gemini(monkeypatch, GOOD_RESULT)
+
+    http_request = _FakeHttpRequest()
+    result = _run(wc.analyze_capture(http_request, _capture_request()))
+
+    categories = {str(i.get("category") or "") for i in result["items"]}
+    assert {"Dresses", "Bags", "Accessories", "Footwear"} <= categories
+
+
+def test_gemini_single_garment_path_unaffected_by_pattern_field(monkeypatch):
+    # ONE_SHORTS_RESULT has no "pattern" key at all - single-garment Gemini
+    # path must keep working exactly as before.
+    _wire_router_for_gemini(monkeypatch, ONE_SHORTS_RESULT)
+
+    http_request = _FakeHttpRequest()
+    result = _run(wc.analyze_capture(http_request, _capture_request()))
+
+    assert result["stage_trace"]["detection"] == "gemini_single_garment"
+    assert result["count"] == 1
+    item = result["items"][0]
+    assert item["name"] == "Black Shorts"
+    assert item["category"] == "Bottoms"
+    assert item["pattern"] == "plain"
+
+
+def test_trusted_gemini_pattern_does_not_force_ollama_enrichment(monkeypatch):
+    """Regression guard for the strict-scope rule: obtaining pattern for a
+    trusted Gemini item must never trigger the Ollama single-garment
+    enrichment call."""
+    calls = {"count": 0}
+
+    def _tracking_vision_extract(*args, **kwargs):
+        calls["count"] += 1
+        return {
+            "name": "Item", "category": "", "sub_category": "", "pattern": "plain",
+            "color_name": "", "occasions": [], "label_source": "heuristic",
+            "requires_manual_entry": True,
+        }
+
+    monkeypatch.setattr(wc, "_vision_extract_attributes", _tracking_vision_extract)
+    _wire_router_for_gemini(monkeypatch, PATTERNED_MULTI_RESULT)
+
+    http_request = _FakeHttpRequest()
+    result = _run(wc.analyze_capture(http_request, _capture_request()))
+
+    assert result["stage_trace"]["detection"] == "gemini_multi_garment"
+    assert calls["count"] == 0, "trusted Gemini items must not call Ollama enrichment for pattern"
+    by_name = {i["name"]: i["pattern"] for i in result["items"]}
+    assert by_name["Navy Blue Striped Shirt"] == "striped"
+
+
+def test_gemini_multi_json_parsing_robust_with_mixed_pattern_presence(monkeypatch):
+    """Some items have pattern, some don't, one is null - parser must not
+    crash and must handle each independently."""
+    mixed_json = """
+    [
+      {"name": "Blue Striped Shirt", "category": "Tops", "sub_category": "Shirt", "color": "Blue", "pattern": "striped", "confidence": 0.9, "bbox": [0.05, 0.05, 0.4, 0.5]},
+      {"name": "Grey Trousers", "category": "Bottoms", "sub_category": "Trousers", "color": "Grey", "confidence": 0.85, "bbox": [0.1, 0.5, 0.5, 0.9]},
+      {"name": "White Sneakers", "category": "Footwear", "sub_category": "Sneakers", "color": "White", "pattern": null, "confidence": 0.8, "bbox": [0.5, 0.7, 0.9, 0.98]}
+    ]
+    """
+    monkeypatch.setenv("ENABLE_GEMINI_MULTI_GARMENT_PREVIEW", "true")
+    monkeypatch.setattr(
+        gmg, "_call_gemini_vision", lambda image_bytes, request_id="": mixed_json
+    )
+    image, raw = _test_image()
+    items = _run(gmg.detect_and_crop(image, raw, request_id="pattern-mixed"))
+
+    assert len(items) == 3
+    by_name = {i["name"]: i["pattern"] for i in items}
+    assert by_name["Blue Striped Shirt"] == "striped"
+    assert by_name["Grey Trousers"] == "plain"
+    assert by_name["White Sneakers"] == "plain"
+
+
 def test_save_selected_reports_partial_success_when_some_dropped(monkeypatch):
     _wire_save_selected(monkeypatch, _passthrough_bg)
 

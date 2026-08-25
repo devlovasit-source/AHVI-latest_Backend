@@ -94,6 +94,21 @@ EXCLUDED_ITEMS = [
     "person/body/face", "room", "mirror frame",
 ]
 
+# Canonical pattern vocabulary. Harmonized with the two existing pattern
+# usages in this codebase rather than invented fresh: "plain" matches
+# services/wardrobe_persistence_service.py's actual persisted default
+# (`_safe_text(item.get("pattern"), "plain")`), and
+# services/category_taxonomy.py's infer_style_attributes() already treats
+# "plain" and "solid" as equivalent no-pattern signals
+# (`pattern in {"", "plain", "solid"}`) - other values below reuse the terms
+# from brain/wardrobe/wardrobe_normalizer.py's existing pattern enum
+# (solid/striped/floral/geometric/animal/check/polka), pluralized/expanded
+# to read naturally inside a generated item name.
+PATTERN_VALUES = [
+    "plain", "striped", "checked", "floral", "polka_dot",
+    "animal_print", "geometric", "printed", "textured", "other",
+]
+
 
 def is_enabled() -> bool:
     return _env_enabled(ENABLE_FLAG, "false")
@@ -102,6 +117,7 @@ def is_enabled() -> bool:
 def _build_prompt() -> str:
     supported = ", ".join(SUPPORTED_ITEMS)
     excluded = ", ".join(EXCLUDED_ITEMS)
+    patterns = ", ".join(PATTERN_VALUES)
     return f"""
 You are a fashion item detector for a wardrobe app.
 
@@ -120,6 +136,25 @@ Rules:
   cannot confidently separate items), set "needs_review": true on the
   affected item(s).
 
+Naming rules for "name" (this matters even when detecting several items in
+one image - do not shorten to a bare category word just because there are
+many items):
+- Never return just a bare category/taxonomy word ("Shirt", "Trousers",
+  "Footwear", "Dress") when any visible descriptive detail is available.
+- Prefer: color + pattern/style/detail + garment type, e.g. "Blue Striped
+  Shirt", "Beige Pleated Trousers", "Black Leather Loafers", "Red Floral
+  Midi Dress".
+- Use ONLY attributes you can actually see. Do not invent fabric/material,
+  brand, or occasion. Do not pad the name with extra words that add no real
+  information.
+- If the item genuinely has no distinguishing visible detail (e.g. a plain
+  solid-color basic), a simpler name is fine - do not fabricate a detail
+  that isn't there just to lengthen the name.
+
+Pattern: set "pattern" to the single best-matching value from this fixed
+list: {patterns}. Use "plain" for a solid color with no visible pattern.
+Use "other" only if a pattern is visible but doesn't fit any listed value.
+
 Return exactly one JSON object, no markdown, no commentary, no prose, in this
 exact shape:
 {{
@@ -129,6 +164,7 @@ exact shape:
       "category": "Dresses",
       "sub_category": "Mini Dress",
       "color": "Red",
+      "pattern": "floral",
       "confidence": 0.9,
       "bbox": [0.10, 0.05, 0.55, 0.95],
       "needs_review": false,
@@ -156,6 +192,7 @@ _ITEM_SCHEMA: Dict[str, Any] = {
                     "category": {"type": "string"},
                     "sub_category": {"type": "string"},
                     "color": {"type": "string"},
+                    "pattern": {"type": "string"},
                     "confidence": {"type": "number"},
                     "bbox": {
                         "type": "array",
@@ -486,6 +523,27 @@ def _validate_bbox(raw: Any) -> Optional[Tuple[float, float, float, float]]:
     return (xmin, ymin, xmax, ymax)
 
 
+def _normalize_pattern(value: Any) -> str:
+    """Safely map a raw Gemini pattern value onto our vocabulary.
+
+    Missing/null/blank -> "plain" (matches the existing persisted default in
+    services/wardrobe_persistence_service.py). A recognized value is
+    normalized to its canonical form. An unrecognized-but-present value is
+    kept as-is (lowercased/underscored) rather than discarded - the
+    persistence layer already accepts free-text pattern strings with no enum
+    validation, so silently downgrading an unexpected-but-real value to
+    "plain" would throw away real information instead of playing safe.
+    """
+    text = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not text or text in {"none", "null", "unknown", "n/a"}:
+        return "plain"
+    if text == "solid":
+        return "plain"
+    if text in PATTERN_VALUES:
+        return text
+    return text
+
+
 def _validate_item(raw: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(raw, dict):
         return None
@@ -505,6 +563,7 @@ def _validate_item(raw: Any) -> Optional[Dict[str, Any]]:
         "category": str(raw.get("category") or "").strip(),
         "sub_category": str(raw.get("sub_category") or "").strip(),
         "color": str(raw.get("color") or "").strip(),
+        "pattern": _normalize_pattern(raw.get("pattern")),
         "confidence": confidence,
         "bbox": list(bbox),
         "needs_review": bool(raw.get("needs_review") or False),
@@ -742,6 +801,7 @@ __all__ = [
     "MIN_VALID_ITEMS",
     "SUPPORTED_ITEMS",
     "EXCLUDED_ITEMS",
+    "PATTERN_VALUES",
     "is_enabled",
     "detect_and_crop",
 ]
