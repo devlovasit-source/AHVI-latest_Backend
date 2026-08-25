@@ -1,12 +1,73 @@
-"""
-services/trend_context_service.py
-Deterministic matching and scoring service for AHVI MVP Trend Intelligence V1.
-"""
+import logging
+import re
 from datetime import datetime, date
 from typing import Any, Dict, List, Optional
 from services.style_trend_registry import get_trend_registry
 
 MIN_BOARD_TREND_THRESHOLD = 0.55
+logger = logging.getLogger("ahvi.services.trend_context")
+
+_CANONICAL_OCCASION_MAP = {
+    "office": "office", "work": "office", "workwear": "workwear", "business": "office",
+    "corporate": "office", "meeting": "office", "presentation": "office",
+    "dinner": "dinner", "date": "dinner", "date_night": "dinner", "evening": "evening",
+    "casual": "casual", "daily": "casual", "everyday": "casual", "lounge": "casual",
+    "smart_casual": "smart_casual", "polished": "smart_casual",
+    "weekend": "weekend", "brunch": "brunch", "outing": "weekend",
+    "wedding": "wedding", "sangeet": "wedding", "reception": "wedding", "marriage": "wedding",
+    "festive": "festive", "diwali": "festive", "eid": "festive", "holi": "festive",
+    "party": "party", "club": "party", "cocktail": "party", "night_out": "party",
+    "travel": "travel", "vacation": "travel", "flight": "travel", "airport": "travel",
+    "workout": "casual", "gym": "casual", "sport": "casual", "beach": "travel", "beach_party": "party",
+}
+
+
+def _canonicalize_occasion(occasion: Optional[str]) -> Optional[str]:
+    if not occasion:
+        return None
+    raw = str(occasion).lower().strip().replace(" ", "_").replace("-", "_")
+    if not raw:
+        return None
+    if raw in _CANONICAL_OCCASION_MAP:
+        return _CANONICAL_OCCASION_MAP[raw]
+    # K12: Longest-keyword matching so 'workout_session' matches 'workout' before 'work'
+    sorted_keys = sorted(_CANONICAL_OCCASION_MAP.keys(), key=len, reverse=True)
+    for key in sorted_keys:
+        if re.search(r'\b' + re.escape(key) + r'\b', raw) or key in raw:
+            return _CANONICAL_OCCASION_MAP[key]
+    return None
+
+
+def annotate_board_with_trend(
+    board_dict: dict, user_gender: Optional[str] = None, occasion: Optional[str] = None
+) -> dict:
+    """
+    Additive soft annotation. Modifies the board ONLY if a valid trend matches.
+    If no match or an error occurs, stale trend annotations are cleared and the board is returned unmodified.
+    """
+    if not isinstance(board_dict, dict):
+        return board_dict
+    try:
+        items = board_dict.get("items") or board_dict.get("garments") or []
+        trend_match = TrendContextService.match_board_trend(
+            board_items=items,
+            gender=user_gender,
+            occasion=occasion
+        )
+        if trend_match:
+            board_dict["trend_label"] = trend_match["label"]
+            board_dict["trend_meta"] = {
+                "trend_id": trend_match["trend_id"],
+                "match_score": trend_match["match_score"]
+            }
+        else:
+            # K14: Stale trend annotation cleanup when re-evaluated
+            board_dict.pop("trend_label", None)
+            board_dict.pop("trend_meta", None)
+    except Exception as exc:
+        logger.warning("trend_annotation.failed occasion=%s err=%s", occasion, exc, exc_info=False)
+
+    return board_dict
 
 
 class TrendContextService:
@@ -30,10 +91,11 @@ class TrendContextService:
         gender: Optional[str] = None,
         occasion: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Filter registry by date, gender, and strict occasion."""
+        """Filter registry by date, gender, and canonical occasion."""
         current_d = cls._parse_date(target_date)
         all_trends = get_trend_registry()
         active = []
+        canonical_occ = _canonicalize_occasion(occasion)
 
         for trend in all_trends:
             v_from = cls._parse_date(trend.get("valid_from", "1970-01-01"))
@@ -50,11 +112,10 @@ class TrendContextService:
                 if g_norm not in t_genders and "unisex" not in t_genders:
                     continue
 
-            # 3. Strict Occasion filter (NO fallback for 'casual')
-            if occasion:
-                occ_norm = occasion.lower().strip().replace(" ", "_")
+            # 3. Canonical Occasion filter
+            if canonical_occ:
                 t_occs = [o.lower().strip().replace(" ", "_") for o in trend.get("occasions", [])]
-                if occ_norm not in t_occs:
+                if canonical_occ not in t_occs:
                     continue
 
             active.append(trend)
@@ -78,6 +139,7 @@ class TrendContextService:
         trend_colors = [c.lower() for c in trend.get("colors", [])]
         trend_keywords = [k.lower() for k in trend.get("keywords", [])]
 
+        matched_item_count = 0
         matched_item_ids = []
         matched_reasons = set()
         total_item_points = 0.0
@@ -91,45 +153,37 @@ class TrendContextService:
             raw_tags = item.get("tags") or item.get("style_tags") or []
             item_tags = [str(t).lower() for t in (raw_tags if isinstance(raw_tags, list) else [])]
             
-            # Construct a searchable string for keywords
             item_text = f"{item_name} {item_subcat} {' '.join(item_tags)}".lower()
 
-
-            # STRONG SIGNAL CHECK (Must match keyword, tag, or subcategory)
             matched_keywords = [kw for kw in trend_keywords if kw in item_text]
             has_strong_signal = len(matched_keywords) > 0
 
             if not has_strong_signal:
                 continue
 
-            # It's a match. Calculate item points.
             item_score = 2.0  # Base points for strong signal
             
-            # Supporting signal: Color (+1.0)
             if any(c in item_color or c in item_name for c in trend_colors):
                 item_score += 1.0
                 
-            # Supporting signal: Broad Category (+0.5)
             if any(tc in item_cat for tc in trend_categories):
                 item_score += 0.5
 
             total_item_points += item_score
             matched_reasons.update(matched_keywords)
+            matched_item_count += 1
             if item_id:
                 matched_item_ids.append(item_id)
 
-        # Board Aggregation
-        if not matched_item_ids:
+        # K13: Score accounting uses matched_item_count separately from matched_item_ids
+        if matched_item_count == 0:
             return None
 
-        # Max possible points per matched item is 3.5
-        avg_item_score = total_item_points / len(matched_item_ids)
-        coverage = len(matched_item_ids) / len(board_items)
+        avg_item_score = total_item_points / matched_item_count
+        coverage = matched_item_count / len(board_items)
         
-        # Final score relies heavily on coverage (how much of the outfit fits the trend)
         normalized_score = (avg_item_score / 3.5) * coverage
         
-        # CONSERVATIVE FIX: Minor boost if coverage is exceptionally high (e.g., >= 50%)
         if coverage >= 0.5:
             normalized_score = min(normalized_score + 0.1, 1.0)
 
@@ -166,6 +220,5 @@ class TrendContextService:
         if not scored_trends:
             return None
 
-        # Sort by match_score descending
         scored_trends.sort(key=lambda x: x["match_score"], reverse=True)
         return scored_trends[0]

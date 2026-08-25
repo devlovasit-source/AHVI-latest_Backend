@@ -8,37 +8,12 @@ from pydantic import BaseModel, Field
 from brain.personalization.style_dna_engine import style_dna_engine
 from services import ai_gateway
 from services.appwrite_proxy import AppwriteProxy
+from services.item_compatibility_engine import ItemCompatibilityEngine
 from services.style_flow_service import build_style_flow_response, item_role
-from services.trend_context_service import TrendContextService
+from services.trend_context_service import TrendContextService, annotate_board_with_trend
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.stylist")
-
-
-def annotate_board_with_trend(board_dict: dict, user_gender: str = None, occasion: str = None) -> dict:
-    """
-    Additive soft annotation. Modifies the board ONLY if a valid trend matches.
-    If no match or an error occurs, the board is returned unmodified.
-    """
-    try:
-        items = board_dict.get("items") or board_dict.get("garments") or []
-        trend_match = TrendContextService.match_board_trend(
-            board_items=items,
-            gender=user_gender,
-            occasion=occasion
-        )
-        
-        if trend_match:
-            board_dict["trend_label"] = trend_match["label"]
-            board_dict["trend_meta"] = {
-                "trend_id": trend_match["trend_id"],
-                "match_score": trend_match["match_score"]
-            }
-    except Exception:
-        # Failsafe: Trend service error must never crash the style flow
-        pass
-
-    return board_dict
 
 
 
@@ -127,17 +102,6 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
             upload_to_r2=bool(request.upload_style_boards_to_r2),
             cache_bypass=True,
         )
-        gender = (request.user_profile or {}).get("gender") or (request.user_profile or {}).get("style_gender")
-        if isinstance(response, dict):
-            for card in response.get("cards", []):
-                if isinstance(card, dict):
-                    annotate_board_with_trend(card, user_gender=gender, occasion=context.get("occasion"))
-            data_dict = response.get("data")
-            if isinstance(data_dict, dict):
-                for key in ("outfits", "rendered_boards"):
-                    for card in data_dict.get(key, []):
-                        if isinstance(card, dict):
-                            annotate_board_with_trend(card, user_gender=gender, occasion=context.get("occasion"))
         response["meta"] = {
             **_dict(response.get("meta")),
             "query": request.query,
@@ -600,6 +564,47 @@ def _lite_directions(anchor: Dict[str, Any], wardrobe: List[Dict[str, Any]]) -> 
     return directions
 
 
+@router.api_route("/items/{item_id}/compatibility", methods=["GET", "POST"])
+def get_item_compatibility(item_id: str, request: Optional[ItemStyleRequest] = None) -> Dict[str, Any]:
+    """Lightweight, fast, deterministic Works Well With endpoint.
+
+    No LLM, no Gemini, no Qdrant, no style board rendering.
+    Operates on user's authoritative wardrobe item and stored inventory.
+    """
+    req = request or ItemStyleRequest(user_id="anonymous", anchor_item={"item_id": item_id})
+    wardrobe = _resolve_wardrobe(req)
+    anchor = _resolve_anchor(req, item_id, wardrobe)
+
+    try:
+        results = ItemCompatibilityEngine.rank(
+            anchor=anchor,
+            wardrobe=wardrobe,
+            occasion=req.occasion,
+            max_results=5,
+        )
+        return {
+            "success": True,
+            "anchor_item_id": _item_id_of(anchor) or item_id,
+            "works_well_with": results,
+            "meta": {
+                "count": len(results),
+                "engine": "item_compatibility_v1",
+            },
+        }
+    except Exception as exc:
+        logger.warning("stylist.compatibility_endpoint_failed item_id=%s err=%s", item_id, str(exc))
+        return {
+            "success": False,
+            "anchor_item_id": item_id,
+            "works_well_with": [],
+            "meta": {
+                "count": 0,
+                "engine": "item_compatibility_v1",
+                "error": "compatibility_failed",
+            },
+        }
+
+
 @router.post("/items/{item_id}/style")
 def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, Any]:
     """Power the item-detail CTAs (fast lite-pairing path).
@@ -614,6 +619,18 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
     wardrobe = _resolve_wardrobe(request)
     anchor = _resolve_anchor(request, item_id, wardrobe)
 
+    # K11: Failure isolation — compatibility failure must NEVER break Style This / Build Outfit
+    works_well_with = []
+    try:
+        works_well_with = ItemCompatibilityEngine.rank(
+            anchor=anchor,
+            wardrobe=wardrobe,
+            occasion=request.occasion,
+            max_results=5,
+        )
+    except Exception as exc:
+        logger.warning("stylist.works_well_with_isolated_failed item_id=%s err=%s", item_id, str(exc))
+
     try:
         gender = request.user_profile.get("gender") or request.user_profile.get("style_gender")
         if mode == "style_this":
@@ -621,18 +638,30 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
             for d in directions:
                 annotate_board_with_trend(d, user_gender=gender, occasion=request.occasion)
             logger.info(
-                "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d",
-                item_id, len(directions), len(wardrobe),
+                "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d works_well_with=%d",
+                item_id, len(directions), len(wardrobe), len(works_well_with),
             )
-            return {"success": True, "mode": mode, "anchor_item": anchor, "style_directions": directions}
+            return {
+                "success": True,
+                "mode": mode,
+                "anchor_item": anchor,
+                "style_directions": directions,
+                "works_well_with": works_well_with,
+            }
 
         outfit = _lite_build_outfit(anchor, wardrobe, request.occasion)
         annotate_board_with_trend(outfit, user_gender=gender, occasion=request.occasion)
         logger.info(
-            "stylist.item_style mode=build_outfit item_id=%s items=%d missing=%d wardrobe=%d",
-            item_id, len(outfit["items"]), len(outfit["missing_items"]), len(wardrobe),
+            "stylist.item_style mode=build_outfit item_id=%s items=%d missing=%d wardrobe=%d works_well_with=%d",
+            item_id, len(outfit["items"]), len(outfit["missing_items"]), len(wardrobe), len(works_well_with),
         )
-        return {"success": True, "mode": mode, "anchor_item": anchor, "outfit": outfit}
+        return {
+            "success": True,
+            "mode": mode,
+            "anchor_item": anchor,
+            "outfit": outfit,
+            "works_well_with": works_well_with,
+        }
 
     except Exception as exc:  # noqa: BLE001 - CTA must never dead-end the UI
         logger.exception("stylist.item_style failed item_id=%s mode=%s err=%s", item_id, mode, str(exc))
