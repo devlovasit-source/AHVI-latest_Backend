@@ -40,6 +40,7 @@ worktree for the original. Two things were deliberately NOT ported:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -615,8 +616,20 @@ class UploadBatchOrchestrator:
         # then ONLY come from here. Never raises; a failure just leaves the
         # item without a URL, which persist_selected_items/the check below
         # already turns into an explicit UPLOAD_ITEM_PERSISTENCE_FAILED.
+        #
+        # MUST run off this coroutine's own thread: _maybe_generate_catalog_image
+        # eventually reaches a synchronous helper (services/bg_service.py) that
+        # calls asyncio.run(...) internally, which is only legal when NO event
+        # loop is already running on the calling thread. Canonical save-selected
+        # gets this "for free" because it's a plain `def` route calling the same
+        # helper from a ThreadPoolExecutor worker thread - process_single_batch_item
+        # is `async def`, already running ON FastAPI's event loop, so a direct
+        # call here raises "asyncio.run() cannot be called from a running event
+        # loop" deep inside the transparency step. asyncio.to_thread() gives it
+        # a plain thread with no event loop, matching that same precondition -
+        # one item, so no ThreadPoolExecutor/parallelism is needed here.
         for item in approved:
-            _maybe_generate_catalog_image(item)
+            await asyncio.to_thread(_maybe_generate_catalog_image, item)
 
         approved_ids = [str(i.get("item_id") or "").strip() for i in approved if str(i.get("item_id") or "").strip()]
 

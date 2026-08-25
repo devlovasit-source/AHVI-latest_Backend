@@ -9,7 +9,9 @@ real vision/persistence pipelines those already have their own tests for.
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import threading
 
 import pytest
 
@@ -1244,3 +1246,69 @@ async def test_added_retry_remains_idempotent_with_catalog_mirror(orch, monkeypa
     assert r1["wardrobe_item_id"] == r2["wardrobe_item_id"]
     assert catalog_calls["n"] == 1, "idempotent ADDED retry must not re-run catalog generation"
     assert persist_calls["n"] == 1
+
+
+# --------------------------------------------------------------------- #
+# Execution context: _maybe_generate_catalog_image() eventually reaches a
+# synchronous helper (services/bg_service.py) that calls asyncio.run(...)
+# internally - legal only when NO event loop is already running on the
+# calling thread. process_single_batch_item is async def, already running
+# ON FastAPI's event loop, so a direct call crashes with "asyncio.run()
+# cannot be called from a running event loop". The orchestrator must run
+# catalog generation via asyncio.to_thread() to give it a plain thread with
+# no event loop - physically proven on-device: the Nano Banana call itself
+# succeeded (HTTP 200) but the transparency step crashed until this fix.
+# --------------------------------------------------------------------- #
+
+
+def _mock_catalog_image_thread_check(monkeypatch, *, normalized_url="https://cdn.test/catalog-thread.png"):
+    """A fake catalog step that reproduces the REAL bug's exact trigger: a
+    synchronous helper calling asyncio.run() internally. Records which
+    thread it ran on and whether that asyncio.run() call actually succeeded
+    - the same call that crashes when made directly from the event-loop
+    thread and succeeds when run via asyncio.to_thread()."""
+    results = {"n": 0, "thread_name": None, "is_main_thread": None, "asyncio_run_succeeded": None}
+
+    def _fake(item):
+        results["n"] += 1
+        results["thread_name"] = threading.current_thread().name
+        results["is_main_thread"] = threading.current_thread() is threading.main_thread()
+        try:
+            asyncio.run(asyncio.sleep(0))
+            results["asyncio_run_succeeded"] = True
+        except RuntimeError:
+            results["asyncio_run_succeeded"] = False
+        item["normalized_url"] = normalized_url
+        item["normalizedUrl"] = normalized_url
+        item["catalogStatus"] = "catalog_ready"
+        item["_catalog_done"] = True
+
+    monkeypatch.setattr(wardrobe_capture, "_maybe_generate_catalog_image", _fake)
+    return results
+
+
+@pytest.mark.anyio
+async def test_catalog_generation_runs_off_the_event_loop_thread(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="thr1", client_batch_request_id="batch-thr1", total_items=1)
+    results = _mock_catalog_image_thread_check(monkeypatch)
+    persist_calls = _mock_persist_realistic(monkeypatch)
+
+    item = _face_risk_item_with_bytes("item-thr1", category="Tops")
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="thr1", batch_id="batch-thr1",
+        client_upload_item_id="upload-thr1", image_base64="x" * 30,
+        reviewed_item=item,
+    )
+
+    assert results["n"] == 1
+    assert results["is_main_thread"] is False, "catalog generation must not run on the event-loop thread"
+    assert results["asyncio_run_succeeded"] is True, (
+        "the synchronous catalog helper's internal asyncio.run() must succeed - "
+        "this is the exact call that raised 'asyncio.run() cannot be called "
+        "from a running event loop' when invoked directly from async def "
+        "process_single_batch_item"
+    )
+    assert persist_calls["n"] == 1
+    passed_item = persist_calls["args"][0]["detected_items"][0]
+    assert passed_item.get("normalized_url") == "https://cdn.test/catalog-thread.png"
+    assert res["status"] == "ADDED_TO_WARDROBE"
