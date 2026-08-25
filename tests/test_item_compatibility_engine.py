@@ -402,13 +402,16 @@ def test_authoritative_anchor_metadata_beats_minimal_client_anchor():
 def test_dedicated_compatibility_endpoint_response_contract():
     """K16.12: Dedicated endpoint GET/POST /items/{item_id}/compatibility contract."""
     anchor = item("s1", "Grey Shirt", "tops", "grey", formality="smart_casual")
-    wardrobe = [item("b1", "Beige Trousers", "bottoms", "beige", formality="smart_casual")]
+    wardrobe = [anchor, item("b1", "Beige Trousers", "bottoms", "beige", formality="smart_casual")]
     req = ItemStyleRequest(user_id="u1", anchor_item=anchor, wardrobe=wardrobe)
-    res = get_item_compatibility("s1", req)
-    assert res["success"] is True
-    assert res["anchor_item_id"] == "s1"
-    assert "works_well_with" in res
-    assert res["meta"]["engine"] == "item_compatibility_v1"
+    with patch("routers.stylist.AppwriteProxy") as mock_proxy_cls:
+        mock_proxy = mock_proxy_cls.return_value
+        mock_proxy.list_documents.return_value = wardrobe
+        res = get_item_compatibility("s1", req, x_user_id="u1")
+        assert res["success"] is True
+        assert res["anchor_item_id"] == "s1"
+        assert "works_well_with" in res
+        assert res["meta"]["engine"] == "item_compatibility_v1"
 
 
 def test_first_three_recommendations_have_multiple_roles_when_inventory_allows():
@@ -423,3 +426,100 @@ def test_first_three_recommendations_have_multiple_roles_when_inventory_allows()
     assert len(result[:3]) >= 2
     roles_in_top3 = {x["role"] for x in result[:3]}
     assert len(roles_in_top3) >= 2
+
+
+def test_route_security_missing_auth_identity_returns_401():
+    """Route Security 0: Missing auth header (x-user-id / x-authenticated-user) returns 401 Unauthorized."""
+    import pytest
+    from fastapi import HTTPException
+    req = ItemStyleRequest(user_id="attacker")
+    with pytest.raises(HTTPException) as exc_info:
+        get_item_compatibility("item_A", req)
+    assert exc_info.value.status_code == 401
+
+
+def test_route_security_user_a_accesses_own_item_returns_200():
+    """Route Security 1: User A requesting User A's owned item returns 200 OK."""
+    with patch("routers.stylist.AppwriteProxy") as mock_proxy_cls:
+        mock_proxy = mock_proxy_cls.return_value
+        mock_proxy.list_documents.return_value = [
+            item("item_A", "User A Shirt", "tops", "grey", formality="smart_casual"),
+            item("item_B", "User A Pants", "bottoms", "beige", formality="smart_casual"),
+        ]
+
+        res = get_item_compatibility("item_A", x_user_id="user_A")
+        assert res["success"] is True
+        assert res["anchor_item_id"] == "item_A"
+        assert len(res["works_well_with"]) == 1
+        assert res["works_well_with"][0]["item_id"] == "item_B"
+
+
+def test_route_security_user_b_accesses_user_a_item_raises_403():
+    """Route Security 2: User B requesting User A's item raises 403 Forbidden."""
+    import pytest
+    from fastapi import HTTPException
+    with patch("routers.stylist.AppwriteProxy") as mock_proxy_cls:
+        mock_proxy = mock_proxy_cls.return_value
+        mock_proxy.list_documents.side_effect = lambda collection, user_id: (
+            [item("item_A", "User A Shirt", "tops", "blue")] if user_id == "user_A" else []
+        )
+
+        # User B authenticated via header attempts to access User A's item -> HTTP 403
+        with pytest.raises(HTTPException) as exc_info:
+            get_item_compatibility("item_A", x_user_id="user_B")
+        assert exc_info.value.status_code == 403
+
+
+def test_route_security_body_user_id_is_ignored_for_authorization():
+    """Route Security 3: Body user_id = User B is ignored; header user_id = User A wins."""
+    import pytest
+    from fastapi import HTTPException
+    with patch("routers.stylist.AppwriteProxy") as mock_proxy_cls:
+        mock_proxy = mock_proxy_cls.return_value
+        mock_proxy.list_documents.side_effect = lambda collection, user_id: (
+            [item("item_A", "User A Shirt", "tops", "blue")] if user_id == "user_A" else []
+        )
+
+        req = ItemStyleRequest(user_id="user_B")  # Spoofed user_B in request body
+        # Authenticated as user_A via header -> tries accessing item_B (doesn't exist in user_A wardrobe) -> HTTP 403
+        with pytest.raises(HTTPException) as exc_info:
+            get_item_compatibility("item_B", req, x_user_id="user_A")
+        assert exc_info.value.status_code == 403
+
+
+def test_route_security_fake_body_wardrobe_is_ignored():
+    """Route Security 4: Fake body wardrobe is ignored; server DB wardrobe wins."""
+    with patch("routers.stylist.AppwriteProxy") as mock_proxy_cls:
+        mock_proxy = mock_proxy_cls.return_value
+        mock_proxy.list_documents.return_value = [
+            item("s1", "Stored Shirt", "tops", "grey", formality="smart_casual"),
+            item("b1", "Stored Trousers", "bottoms", "beige", formality="smart_casual"),
+        ]
+
+        fake_client_wardrobe = [item("fake_b2", "Fake Trousers", "bottoms", "red", formality="smart_casual")]
+        req = ItemStyleRequest(user_id="u1", wardrobe=fake_client_wardrobe)
+
+        res = get_item_compatibility("s1", req, x_user_id="u1")
+        assert res["success"] is True
+        rec_ids = [x["item_id"] for x in res["works_well_with"]]
+        assert "b1" in rec_ids
+        assert "fake_b2" not in rec_ids
+
+
+def test_route_security_fake_body_anchor_is_ignored():
+    """Route Security 5: Fake body anchor_item is ignored; server DB anchor lookup wins."""
+    import pytest
+    from fastapi import HTTPException
+    with patch("routers.stylist.AppwriteProxy") as mock_proxy_cls:
+        mock_proxy = mock_proxy_cls.return_value
+        mock_proxy.list_documents.return_value = [
+            item("s1", "Stored Shirt", "tops", "grey", formality="smart_casual")
+        ]
+
+        fake_anchor = item("unowned_item", "Fake Anchor Shirt", "tops", "blue")
+        req = ItemStyleRequest(user_id="u1", anchor_item=fake_anchor)
+
+        # Unowned item_id requested -> HTTP 403 Forbidden even if fake anchor passed in body!
+        with pytest.raises(HTTPException) as exc_info:
+            get_item_compatibility("unowned_item", req, x_user_id="u1")
+        assert exc_info.value.status_code == 403

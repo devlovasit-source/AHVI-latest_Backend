@@ -2,7 +2,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from brain.personalization.style_dna_engine import style_dna_engine
@@ -564,16 +564,80 @@ def _lite_directions(anchor: Dict[str, Any], wardrobe: List[Dict[str, Any]]) -> 
     return directions
 
 
-@router.api_route("/items/{item_id}/compatibility", methods=["GET", "POST"])
-def get_item_compatibility(item_id: str, request: Optional[ItemStyleRequest] = None) -> Dict[str, Any]:
-    """Lightweight, fast, deterministic Works Well With endpoint.
+def _resolve_anchor(
+    request: ItemStyleRequest, item_id: str, wardrobe: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+    stored = None
+    target_id = _txt(item_id or (request.anchor_item.get("item_id") if isinstance(request.anchor_item, dict) else ""))
+    for item in wardrobe:
+        if _item_id_of(item) == target_id:
+            stored = dict(item)
+            break
 
-    No LLM, no Gemini, no Qdrant, no style board rendering.
-    Operates on user's authoritative wardrobe item and stored inventory.
+    if isinstance(request.anchor_item, dict) and request.anchor_item:
+        client_anchor = dict(request.anchor_item)
+        client_anchor.setdefault("item_id", target_id)
+        # Authoritative precedence: stored canonical wardrobe metadata OVERRIDES client anchor
+        return {**client_anchor, **(stored or {})}
+    
+    return stored or {"item_id": target_id}
+
+
+@router.api_route("/items/{item_id}/compatibility", methods=["GET", "POST"])
+def get_item_compatibility(
+    item_id: str,
+    request: Optional[ItemStyleRequest] = None,
+    x_user_id: Optional[str] = Header(None, alias="x-user-id"),
+    x_authenticated_user: Optional[str] = Header(None, alias="x-authenticated-user"),
+) -> Dict[str, Any]:
+    """Production P0 Authenticated Works Well With Endpoint.
+
+    1. Resolves authenticated user identity ONLY from auth headers (x-authenticated-user / x-user-id).
+       NEVER uses request body user_id as authorization.
+    2. Loads wardrobe SERVER-SIDE ONLY from Appwrite database for auth user.
+       NEVER uses client-supplied body wardrobe.
+    3. Resolves anchor item SERVER-SIDE ONLY from user's stored database wardrobe.
+       NEVER uses client-supplied body anchor_item.
+    4. Enforces strict ownership: cross-user / unowned item request -> HTTP 403 Forbidden.
     """
     req = request or ItemStyleRequest(user_id="anonymous", anchor_item={"item_id": item_id})
-    wardrobe = _resolve_wardrobe(req)
-    anchor = _resolve_anchor(req, item_id, wardrobe)
+    
+    # P0 Fix 1: Resolve authenticated user ONLY from headers (x-authenticated-user / x-user-id).
+    # NEVER fall back to request body user_id. If missing -> HTTP 401 Unauthorized.
+    def _extract_header_user(val: Any) -> Optional[str]:
+        if isinstance(val, str) and val.strip() and not val.startswith("Header("):
+            return val.strip()
+        return None
+
+    header_user = _extract_header_user(x_authenticated_user) or _extract_header_user(x_user_id)
+    if not header_user:
+        raise HTTPException(
+            status_code=401,
+            detail="Authenticated user identity required.",
+        )
+
+    auth_user_id = header_user
+
+    # P0 Fix 2: Server-side ONLY wardrobe loading from database for authenticated user
+    try:
+        wardrobe = AppwriteProxy().list_documents("outfits", user_id=auth_user_id) or []
+    except Exception:
+        wardrobe = []
+
+    # P0 Fix 3: Find canonical anchor item in user's stored DB wardrobe ONLY (no client anchor fallback)
+    anchor = None
+    target_id = _txt(item_id).strip()
+    for w in wardrobe:
+        if isinstance(w, dict) and _item_id_of(w) == target_id:
+            anchor = dict(w)
+            break
+
+    # P0 Security Check: If item_id is NOT in authenticated user's stored DB wardrobe -> HTTP 403 Forbidden
+    if not anchor:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not authorized to access item '{item_id}' for authenticated user '{auth_user_id}'."
+        )
 
     try:
         results = ItemCompatibilityEngine.rank(
@@ -584,7 +648,7 @@ def get_item_compatibility(item_id: str, request: Optional[ItemStyleRequest] = N
         )
         return {
             "success": True,
-            "anchor_item_id": _item_id_of(anchor) or item_id,
+            "anchor_item_id": target_id,
             "works_well_with": results,
             "meta": {
                 "count": len(results),

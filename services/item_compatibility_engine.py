@@ -119,6 +119,15 @@ def _text(item: Dict[str, Any]) -> str:
     return " ".join(parts).lower().strip()
 
 
+from services.style_flow_service import item_role
+
+# Role Priority Index for Deterministic Tie-Breaking
+ROLE_PRIORITY_INDEX = {
+    "bottom": 0, "top": 1, "footwear": 2, "outerwear": 3,
+    "dress": 4, "ethnicwear": 5, "accessory": 6, "bag": 7, "jewellery": 8
+}
+
+
 def _is_non_fashion(blob: str) -> bool:
     """Token-safe matching: rejects 'laptop charger', 'cardboard box' but keeps 'boxy shirt' and 'box pleat skirt'."""
     low = blob.lower()
@@ -138,43 +147,13 @@ def _is_sport_swim(blob: str) -> bool:
 
 
 def canonical_role(item: Dict[str, Any]) -> str:
-    """Detect canonical role for item."""
+    """Single unified canonical item_role taxonomy (delegates directly to services.style_flow_service.item_role)."""
     if not isinstance(item, dict):
         return "unknown"
-    
-    assigned = str(item.get("role") or "").lower().strip()
-    if assigned in PREFERRED_COMPLEMENTS:
-        return assigned
-
     blob = _text(item)
-    if not blob:
+    if _is_non_fashion(blob) or _is_sport_swim(blob):
         return "unknown"
-
-    if _is_non_fashion(blob):
-        return "unknown"
-    if _is_sport_swim(blob):
-        return "unknown"
-
-    if any(t in blob for t in ("saree", "sari", "lehenga", "sherwani", "kurta", "kurti", "anarkali", "dupatta", "indo-western", "ethnicwear", "ethnic")):
-        return "ethnicwear"
-    if any(t in blob for t in ("dress", "gown", "frock", "jumpsuit", "one-piece", "one piece", "kaftan")):
-        return "dress"
-    if any(t in blob for t in ("jewellery", "jewelry", "ring", "necklace", "bracelet", "earring", "pendant", "bangle")):
-        return "jewellery"
-    if any(t in blob for t in ("bag", "tote", "clutch", "handbag", "purse", "backpack", "crossbody")):
-        return "bag"
-    if any(t in blob for t in ("watch", "belt", "sunglasses", "sunglass", "scarf", "hat", "cap", "accessory", "accessories")):
-        return "accessory"
-    if any(t in blob for t in ("shoe", "shoes", "sneaker", "sneakers", "loafer", "loafers", "boot", "boots", "sandal", "sandals", "heel", "heels", "flat", "flats", "jutti", "juttis", "footwear", "oxford", "derby", "mule", "pump")):
-        return "footwear"
-    if any(t in blob for t in ("bottom", "bottoms", "trouser", "trousers", "pant", "pants", "jean", "jeans", "chino", "chinos", "short", "shorts", "skirt", "skirts", "legging", "leggings")):
-        return "bottom"
-    if any(t in blob for t in ("outerwear", "blazer", "jacket", "coat", "overcoat", "cardigan", "trench", "suit")):
-        return "outerwear"
-    if any(t in blob for t in ("top", "tops", "shirt", "shirts", "tee", "tshirt", "t-shirt", "polo", "blouse", "hoodie", "sweater", "knit", "overshirt")):
-        return "top"
-
-    return "unknown"
+    return item_role(item)
 
 
 def _item_id(item: Dict[str, Any]) -> str:
@@ -316,12 +295,12 @@ class ItemCompatibilityEngine:
         if not anchor or not wardrobe:
             return []
 
-        # K4: Authoritative anchor resolution from backend wardrobe if anchor lacks full metadata
+        # K4: Authoritative anchor resolution — stored canonical wardrobe record OVERRIDES client anchor payload
         aid = _item_id(anchor)
         if aid:
             for w in wardrobe:
                 if isinstance(w, dict) and _item_id(w) == aid:
-                    anchor = {**w, **anchor}
+                    anchor = {**anchor, **w}
                     break
 
         anchor_role = canonical_role(anchor)
@@ -457,7 +436,15 @@ class ItemCompatibilityEngine:
 
         # --- K9 Enhanced Role-Diversity Selection Pass (MAX_PER_ROLE = 2) ---
         by_role: Dict[str, List[Dict[str, Any]]] = {}
-        for cand in sorted(scored_candidates, key=lambda x: x["match_score"], reverse=True):
+        sorted_candidates = sorted(
+            scored_candidates,
+            key=lambda x: (
+                -x["match_score"],
+                ROLE_PRIORITY_INDEX.get(x["role"], 99),
+                x["item_id"],
+            ),
+        )
+        for cand in sorted_candidates:
             by_role.setdefault(cand["role"], []).append(cand)
 
         reranked = []

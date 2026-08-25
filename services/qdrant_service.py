@@ -4,15 +4,21 @@ import time
 import uuid
 from dotenv import load_dotenv
 
-from qdrant_client import QdrantClient
-from qdrant_client.models import (
-    PointStruct,
-    Distance,
-    VectorParams,
-    Filter,
-    FieldCondition,
-    MatchValue,
-)
+try:
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import (
+        PointStruct,
+        Distance,
+        VectorParams,
+        Filter,
+        FieldCondition,
+        MatchValue,
+    )
+    HAS_QDRANT_CLIENT = True
+except ImportError:  # pragma: no cover
+    HAS_QDRANT_CLIENT = False
+    QdrantClient = None
+    PointStruct = Distance = VectorParams = Filter = FieldCondition = MatchValue = None
 
 from services.image_fingerprint import hamming_distance_hex
 
@@ -44,7 +50,7 @@ class QdrantService:
         self.client = None
         self._initialized = False
 
-        if self.url:
+        if self.url and HAS_QDRANT_CLIENT:
             try:
                 # Critical: enforce low default timeouts so app startup never hangs
                 # when Qdrant is misconfigured or unreachable.
