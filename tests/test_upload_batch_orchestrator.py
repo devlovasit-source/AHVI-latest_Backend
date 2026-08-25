@@ -9,6 +9,8 @@ real vision/persistence pipelines those already have their own tests for.
 
 from __future__ import annotations
 
+import base64
+
 import pytest
 
 import routers.wardrobe_capture as wardrobe_capture
@@ -963,3 +965,282 @@ async def test_stale_processing_lease_is_reclaimed_and_retried(orch, monkeypatch
     assert persist_calls["n"] == 1
     doc = orch._get_doc(orch.items_collection, doc_id)
     assert doc["attempt_count"] == 2, "stale lease reclaim must still increment attempt_count"
+
+
+# --------------------------------------------------------------------- #
+# Catalog-generation mirror: WARDROBE_PRIVACY_CATALOG_ONLY=true makes
+# _try_upload_inline_images() intentionally refuse the raw/masked crop for
+# face-risk garments - normalized_url can then ONLY come from
+# _maybe_generate_catalog_image(), the same canonical step save-selected's
+# own Phase 2 already runs. These tests verify the orchestrator now mirrors
+# that step instead of leaving the item structurally unable to persist.
+# --------------------------------------------------------------------- #
+
+
+def _face_risk_item_with_bytes(item_id: str, category: str = "Tops") -> dict:
+    """A reviewed item carrying real inline bytes but NO pre-existing URL
+    fields - the shape a fresh gemini-detected garment actually has, so
+    _try_upload_inline_images (the REAL function, not mocked) exercises its
+    genuine privacy/face-risk gate."""
+    raw_b64 = "data:image/png;base64," + base64.b64encode(b"fake-raw-bytes").decode()
+    masked_b64 = "data:image/png;base64," + base64.b64encode(b"fake-masked-bytes").decode()
+    return {
+        "item_id": item_id,
+        "category": category,
+        "name": "Blue Shirt",
+        "validation_status": "ok",
+        "raw_image_base64": raw_b64,
+        "masked_image_base64": masked_b64,
+    }
+
+
+def _mock_catalog_image_success(monkeypatch, *, normalized_url="https://cdn.test/catalog.png"):
+    calls = {"n": 0, "items": []}
+
+    def _fake(item):
+        calls["n"] += 1
+        calls["items"].append(dict(item))
+        item["catalogStatus"] = "catalog_ready"
+        item["catalog_status"] = "catalog_ready"
+        item["normalized_url"] = normalized_url
+        item["normalizedUrl"] = normalized_url
+        item["_catalog_done"] = True
+
+    monkeypatch.setattr(wardrobe_capture, "_maybe_generate_catalog_image", _fake)
+    return calls
+
+
+def _mock_catalog_image_failure(monkeypatch):
+    calls = {"n": 0}
+
+    def _fake(item):
+        calls["n"] += 1
+        item["catalogStatus"] = "catalog_failed"
+        item["catalog_status"] = "catalog_failed"
+        item["_catalog_done"] = True
+        # Deliberately leaves normalized_url/raw_url/masked_url unset - a
+        # real catalog-generation failure (provider error, quality gate,
+        # etc). _maybe_generate_catalog_image() never raises for this.
+
+    monkeypatch.setattr(wardrobe_capture, "_maybe_generate_catalog_image", _fake)
+    return calls
+
+
+def _mock_persist_realistic(monkeypatch):
+    """Models persist_selected_items()'s REAL missing-url skip (unlike
+    _mock_persist(), which echoes every item back unconditionally) so these
+    tests prove catalog generation is what actually bridges the gap, not an
+    artifact of a too-permissive fake."""
+    calls = {"n": 0, "args": []}
+
+    def _fake_persist(*, user_id, selected_item_ids, detected_items):
+        calls["n"] += 1
+        calls["args"].append(
+            {"user_id": user_id, "selected_item_ids": list(selected_item_ids), "detected_items": [dict(i) for i in detected_items]}
+        )
+        saved = [
+            {"$id": f"w_{i.get('item_id')}", **i}
+            for i in detected_items
+            if i.get("raw_url") or i.get("masked_url") or i.get("normalized_url")
+        ]
+        return {"success": True, "saved_count": len(saved), "items": saved, "skipped": len(detected_items) - len(saved), "errors": []}
+
+    monkeypatch.setattr(wardrobe_persistence_service, "persist_selected_items", _fake_persist)
+    return calls
+
+
+@pytest.mark.anyio
+async def test_privacy_catalog_only_face_risk_uses_catalog_generation(orch, monkeypatch):
+    monkeypatch.setenv("WARDROBE_PRIVACY_CATALOG_ONLY", "true")
+    orch.create_or_resume_batch(user_id="cat1", client_batch_request_id="batch-cat1", total_items=1)
+    catalog_calls = _mock_catalog_image_success(monkeypatch)
+    persist_calls = _mock_persist_realistic(monkeypatch)
+
+    item = _face_risk_item_with_bytes("item-cat1", category="Tops")
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="cat1", batch_id="batch-cat1",
+        client_upload_item_id="upload-cat1", image_base64="x" * 30,
+        reviewed_item=item,
+    )
+
+    assert catalog_calls["n"] == 1, "_maybe_generate_catalog_image must be invoked"
+    passed_item = persist_calls["args"][0]["detected_items"][0]
+    assert not passed_item.get("raw_url"), "the original face-risk crop must never be persisted as raw_url"
+    assert not passed_item.get("masked_url"), "the original face-risk crop must never be persisted as masked_url"
+    assert passed_item.get("normalized_url") == "https://cdn.test/catalog.png"
+    assert persist_calls["n"] == 1
+    assert res["success"] is True
+    assert res["status"] == "ADDED_TO_WARDROBE"
+
+
+@pytest.mark.anyio
+async def test_privacy_catalog_only_catalog_failure_is_explicit_failed(orch, monkeypatch, caplog):
+    monkeypatch.setenv("WARDROBE_PRIVACY_CATALOG_ONLY", "true")
+    orch.create_or_resume_batch(user_id="cat2", client_batch_request_id="batch-cat2", total_items=1)
+    catalog_calls = _mock_catalog_image_failure(monkeypatch)
+    persist_calls = _mock_persist_realistic(monkeypatch)
+
+    item = _face_risk_item_with_bytes("item-cat2", category="Tops")
+    with caplog.at_level("WARNING"):
+        res = await orch.process_single_batch_item(
+            http_request=None, user_id="cat2", batch_id="batch-cat2",
+            client_upload_item_id="upload-cat2", image_base64="x" * 30,
+            reviewed_item=item,
+        )
+
+    assert catalog_calls["n"] == 1
+    assert persist_calls["n"] == 1, "persist is still attempted - it is the one that catches the missing url"
+    assert res["success"] is False
+    assert res["status"] == "FAILED"
+    assert res["error_code"] == "UPLOAD_ITEM_PERSISTENCE_FAILED"
+    assert "ahvi.upload_batch.persistence_returned_no_items" in caplog.text
+
+
+@pytest.mark.anyio
+async def test_non_face_risk_item_unaffected_by_catalog_mirror(orch, monkeypatch):
+    monkeypatch.setenv("WARDROBE_PRIVACY_CATALOG_ONLY", "true")
+    orch.create_or_resume_batch(user_id="cat3", client_batch_request_id="batch-cat3", total_items=1)
+    catalog_calls = _mock_catalog_image_success(monkeypatch, normalized_url="https://cdn.test/unused.png")
+    persist_calls = _mock_persist(monkeypatch)
+
+    item = _valid_item("item-cat3", category="Footwear")  # not face-risk - already has usable URLs
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="cat3", batch_id="batch-cat3",
+        client_upload_item_id="upload-cat3", image_base64="x" * 30,
+        reviewed_item=item,
+    )
+
+    # _maybe_generate_catalog_image is still called - it's an unconditional
+    # step in canonical save-selected too - but a footwear item already
+    # carrying valid inline URLs persists on those, matching canonical's
+    # own never-blocking, idempotent design (no forced regression).
+    assert catalog_calls["n"] == 1
+    assert res["status"] == "ADDED_TO_WARDROBE"
+    passed_item = persist_calls["args"][0]["detected_items"][0]
+    assert passed_item["image_url"] == item["image_url"]
+
+
+@pytest.mark.anyio
+async def test_catalog_mirror_reviewed_item_still_skips_analyze_capture(orch, monkeypatch):
+    monkeypatch.setenv("WARDROBE_PRIVACY_CATALOG_ONLY", "true")
+    orch.create_or_resume_batch(user_id="cat4", client_batch_request_id="batch-cat4", total_items=1)
+    analyze_calls = _mock_analyze(monkeypatch, [])
+    _mock_catalog_image_success(monkeypatch)
+    persist_calls = _mock_persist_realistic(monkeypatch)
+
+    item = _face_risk_item_with_bytes("item-cat4", category="Tops")
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="cat4", batch_id="batch-cat4",
+        client_upload_item_id="upload-cat4", image_base64="x" * 30,
+        reviewed_item=item,
+    )
+
+    assert analyze_calls["n"] == 0, "catalog generation must never trigger a fresh analyze_capture() call"
+    assert persist_calls["n"] == 1
+    assert res["status"] == "ADDED_TO_WARDROBE"
+
+
+@pytest.mark.anyio
+async def test_duplicate_without_override_skips_catalog_and_persistence(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="cat5", client_batch_request_id="batch-cat5", total_items=1)
+    catalog_calls = _mock_catalog_image_success(monkeypatch)
+    persist_calls = _mock_persist(monkeypatch)
+
+    res = await orch.process_single_batch_item(
+        http_request=None, user_id="cat5", batch_id="batch-cat5",
+        client_upload_item_id="upload-cat5", image_base64="x" * 30,
+        reviewed_item=_duplicate_item("item-cat5"),
+    )
+
+    assert res["status"] == "NEEDS_REVIEW"
+    assert catalog_calls["n"] == 0, "a duplicate blocked without override must never reach catalog generation"
+    assert persist_calls["n"] == 0
+
+
+@pytest.mark.anyio
+async def test_duplicate_add_anyway_runs_catalog_then_persists_once(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="cat6", client_batch_request_id="batch-cat6", total_items=1)
+    catalog_calls = _mock_catalog_image_success(monkeypatch)
+    persist_calls = _mock_persist(monkeypatch)
+
+    item = _duplicate_item("item-cat6")
+    blocked = await orch.process_single_batch_item(
+        http_request=None, user_id="cat6", batch_id="batch-cat6",
+        client_upload_item_id="upload-cat6", image_base64="x" * 30,
+        reviewed_item=item,
+    )
+    assert blocked["status"] == "NEEDS_REVIEW"
+    assert catalog_calls["n"] == 0
+
+    added = await orch.process_single_batch_item(
+        http_request=None, user_id="cat6", batch_id="batch-cat6",
+        client_upload_item_id="upload-cat6", image_base64="x" * 30,
+        reviewed_item=item,
+        override_duplicate=True,
+    )
+    assert added["status"] == "ADDED_TO_WARDROBE"
+    assert catalog_calls["n"] == 1
+    assert persist_calls["n"] == 1
+
+
+@pytest.mark.anyio
+async def test_failed_retry_reruns_catalog_and_can_succeed(orch, monkeypatch):
+    monkeypatch.setenv("WARDROBE_PRIVACY_CATALOG_ONLY", "true")
+    orch.create_or_resume_batch(user_id="cat7", client_batch_request_id="batch-cat7", total_items=1)
+    catalog_state = {"n": 0}
+
+    def _fake_catalog(item):
+        catalog_state["n"] += 1
+        if catalog_state["n"] == 1:
+            item["catalogStatus"] = "catalog_failed"
+            item["_catalog_done"] = True
+        else:
+            item["normalized_url"] = "https://cdn.test/catalog-retry.png"
+            item["catalogStatus"] = "catalog_ready"
+            item["_catalog_done"] = True
+
+    monkeypatch.setattr(wardrobe_capture, "_maybe_generate_catalog_image", _fake_catalog)
+    persist_calls = _mock_persist_realistic(monkeypatch)
+
+    item = _face_risk_item_with_bytes("item-cat7", category="Tops")
+    first = await orch.process_single_batch_item(
+        http_request=None, user_id="cat7", batch_id="batch-cat7",
+        client_upload_item_id="upload-cat7", image_base64="x" * 30,
+        reviewed_item=item,
+    )
+    assert first["status"] == "FAILED"
+    assert catalog_state["n"] == 1
+
+    second = await orch.process_single_batch_item(
+        http_request=None, user_id="cat7", batch_id="batch-cat7",
+        client_upload_item_id="upload-cat7", image_base64="x" * 30,
+        reviewed_item=item,
+    )
+    assert catalog_state["n"] == 2, "retry must actually re-run catalog generation, not echo the stale failure"
+    assert second["status"] == "ADDED_TO_WARDROBE"
+    assert persist_calls["n"] == 2
+
+
+@pytest.mark.anyio
+async def test_added_retry_remains_idempotent_with_catalog_mirror(orch, monkeypatch):
+    monkeypatch.setenv("WARDROBE_PRIVACY_CATALOG_ONLY", "true")
+    orch.create_or_resume_batch(user_id="cat8", client_batch_request_id="batch-cat8", total_items=1)
+    catalog_calls = _mock_catalog_image_success(monkeypatch)
+    persist_calls = _mock_persist_realistic(monkeypatch)
+
+    item = _face_risk_item_with_bytes("item-cat8", category="Tops")
+    r1 = await orch.process_single_batch_item(
+        http_request=None, user_id="cat8", batch_id="batch-cat8",
+        client_upload_item_id="upload-cat8", image_base64="x" * 30,
+        reviewed_item=item,
+    )
+    r2 = await orch.process_single_batch_item(
+        http_request=None, user_id="cat8", batch_id="batch-cat8",
+        client_upload_item_id="upload-cat8", image_base64="x" * 30,
+        reviewed_item=item,
+    )
+
+    assert r1["status"] == r2["status"] == "ADDED_TO_WARDROBE"
+    assert r1["wardrobe_item_id"] == r2["wardrobe_item_id"]
+    assert catalog_calls["n"] == 1, "idempotent ADDED retry must not re-run catalog generation"
+    assert persist_calls["n"] == 1

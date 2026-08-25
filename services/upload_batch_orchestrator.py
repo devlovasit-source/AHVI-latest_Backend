@@ -491,6 +491,7 @@ class UploadBatchOrchestrator:
             analyze_capture,
             _is_preview_item_save_approved,
             _try_upload_inline_images,
+            _maybe_generate_catalog_image,
             _image_cache_enabled,
             _image_cache_get_sync,
         )
@@ -605,6 +606,17 @@ class UploadBatchOrchestrator:
             _try_upload_inline_images(item, allow_fast_mode_skip=False, prefer_inline=True)
             for item in approved
         ]
+
+        # Same canonical step save-selected's own Phase 2 runs on every
+        # prepared item, unconditionally - the function itself decides
+        # whether anything happens (catalog flags, category, crop source).
+        # Required whenever WARDROBE_PRIVACY_CATALOG_ONLY blocks the inline
+        # raw/masked upload above for a face-risk garment: normalized_url can
+        # then ONLY come from here. Never raises; a failure just leaves the
+        # item without a URL, which persist_selected_items/the check below
+        # already turns into an explicit UPLOAD_ITEM_PERSISTENCE_FAILED.
+        for item in approved:
+            _maybe_generate_catalog_image(item)
 
         approved_ids = [str(i.get("item_id") or "").strip() for i in approved if str(i.get("item_id") or "").strip()]
 
