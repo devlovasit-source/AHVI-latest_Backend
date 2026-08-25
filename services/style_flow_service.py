@@ -5205,10 +5205,34 @@ def build_style_flow_response(
             target_gender=target_gender,
             context=normalized_occasion or query,
         )
+        try:
+            from routers.stylist import annotate_board_with_trend
+            occ = normalized_occasion or query
+            for card in guarded_payload.get("cards", []):
+                if isinstance(card, dict):
+                    annotate_board_with_trend(card, user_gender=target_gender, occasion=occ)
+            data_dict = guarded_payload.get("data")
+            if isinstance(data_dict, dict):
+                for key in ("outfits", "rendered_boards"):
+                    for card in data_dict.get(key, []):
+                        if isinstance(card, dict):
+                            annotate_board_with_trend(card, user_gender=target_gender, occasion=occ)
+        except Exception:
+            logger.debug("style_flow.trend_annotation_failed", exc_info=True)
         return guarded_payload
     except Exception:
         logger.warning("style_flow.gender_guard_failed", exc_info=True)
+        try:
+            from routers.stylist import annotate_board_with_trend
+            occ = normalized_occasion or query
+            target_gender = _resolve_asset_gender(query=query, user_profile=profile_for_gender)
+            for card in response_payload.get("cards", []):
+                if isinstance(card, dict):
+                    annotate_board_with_trend(card, user_gender=target_gender, occasion=occ)
+        except Exception:
+            pass
         return response_payload
+
 
 
 # ============================================================================

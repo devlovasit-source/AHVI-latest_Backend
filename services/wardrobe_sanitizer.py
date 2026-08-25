@@ -30,14 +30,13 @@ BLOCKED_CATEGORIES: frozenset[str] = frozenset(
         "unknown",
         "travel_accessory",
         "travel-accessory",
-        "grooming",
-        "skincare",
-        "toiletries",
         "stationery",
         "medicine",
         "supplement",
         "food",
         "drink",
+        "skincare",
+        "grooming",
     }
 )
 
@@ -59,14 +58,6 @@ BLOCKED_NAME_TOKENS: tuple[str, ...] = (
     "laptop stand",
     "mouse",
     "keyboard",
-    "moisturizer",
-    "moisturiser",
-    "skincare",
-    "serum",
-    "sunscreen",
-    "cleanser",
-    "face wash",
-    "facewash",
     "razor",
     "shaver",
     "trimmer",
@@ -75,9 +66,6 @@ BLOCKED_NAME_TOKENS: tuple[str, ...] = (
     "toothpaste",
     "deodorant",
     "perfume bottle",
-    "shampoo",
-    "conditioner",
-    "lotion",
     "bottle",
     "tumbler",
     "flask",
@@ -104,10 +92,10 @@ BLOCKED_NAME_TOKENS: tuple[str, ...] = (
     "sanitizer",
 )
 
-# Short tokens that only count as a match when they equal a whole word —
-# substring matching would false-positive ("cap" in "escape", "comb" in
-# "combat boots").
-_EXACT_WORD_TOKENS: frozenset[str] = frozenset({"comb", "pen", "mask"})
+# Short or ambiguous tokens that only count as a match when they equal a whole word
+# or when no fashion token is present — substring matching would false-positive
+# ("bottle" in "Water Bottle Bag", "cap" in "escape", "comb" in "combat boots").
+_EXACT_WORD_TOKENS: frozenset[str] = frozenset({"comb", "pen", "mask", "bottle", "sanitizer", "vitamin"})
 
 # Positive fashion signals. An item whose blob hits one of these survives
 # even when its category field is junk ("misc", empty, etc.).
@@ -136,6 +124,9 @@ FASHION_TOKENS: tuple[str, ...] = (
     # jewellery
     "necklace", "bracelet", "earring", "ring", "bangle", "chain", "pendant",
     "brooch", "anklet", "jewellery", "jewelry",
+    # skincare / grooming
+    "skincare", "skin care", "moisturizer", "moisturiser", "serum", "sunscreen",
+    "cleanser", "face wash", "facewash", "lotion", "toner", "grooming", "toiletries",
 )
 
 # Category labels that are explicitly fashion. Items with these categories
@@ -148,7 +139,7 @@ FASHION_CATEGORIES: frozenset[str] = frozenset(
         "accessories", "bag", "bags", "watch", "watches", "jewellery",
         "jewelry", "shirt", "tshirt", "t-shirt", "trouser", "trousers",
         "jeans", "jacket", "blazer", "kurta", "saree", "festive",
-        "loungewear", "activewear", "innerwear",
+        "loungewear", "activewear", "innerwear", "skincare", "grooming", "toiletries",
     }
 )
 
@@ -164,14 +155,25 @@ def _blob(item: Dict[str, Any]) -> str:
     return " ".join(parts).lower()
 
 
-def _has_blocked_token(blob: str) -> bool:
+def _has_blocked_token(blob: str, category: str = "") -> bool:
     words = set(re.findall(r"[a-z]+", blob))
+    # If the item has an explicit fashion category or fashion token (e.g. "bag", "tote", "shoe", "boot"),
+    # ambiguous tokens like "bottle" should not false-positive block valid fashion accessories.
+    has_fashion_signal = (
+        category.strip().lower() in FASHION_CATEGORIES
+        or any(ft in blob for ft in FASHION_TOKENS)
+    )
+
     for token in BLOCKED_NAME_TOKENS:
         cleaned = token.strip()
         if cleaned in _EXACT_WORD_TOKENS:
-            if cleaned in words:
+            if cleaned in words and not has_fashion_signal:
                 return True
         elif token in blob:
+            # If the blob contains a strong fashion token (e.g., "bag", "shoe"), do not block
+            # unless the category itself is non-fashion.
+            if has_fashion_signal and any(ft in blob for ft in ("bag", "tote", "backpack", "clutch", "shoe", "boot", "sneaker", "sandal", "heel")):
+                continue
             return True
     return False
 
@@ -189,7 +191,7 @@ def is_fashion_item(item: Any) -> bool:
     # even when the name sounds garment-ish.
     if category in BLOCKED_CATEGORIES:
         return False
-    if _has_blocked_token(blob):
+    if _has_blocked_token(blob, category):
         return False
     # Positive signals: explicit fashion category, or a garment token in
     # the name/tags blob.

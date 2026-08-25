@@ -375,8 +375,7 @@ def _workout(user_id: str) -> Dict[str, Any]:
     summary = "No workout is planned yet. I can build a home or gym session for today."
     today = None
     try:
-        # Lazy import — the workouts router knows how to assemble a card.
-        from routers.workouts import _recommendations  # type: ignore
+        # Service-level workout context builder
         from services.workout_context_service import build_workout_context  # type: ignore
 
         context = build_workout_context(
@@ -501,6 +500,114 @@ def _skincare(user_id: str) -> Dict[str, Any]:
     )
 
 
+def build_complete_app_data_summary(user_id: str) -> Dict[str, Any]:
+    """Return a combined summary across all life modules for `user_id`."""
+    if not _txt(user_id):
+        return {}
+    
+    meds_card = _medicines(user_id)
+    bills_card = _bills(user_id)
+    events_card = _events_upcoming(user_id)
+    meals_card = _meals(user_id)
+    workout_card = _workout(user_id)
+    skincare_card = _skincare(user_id)
+
+    wardrobe_items = _docs("outfits", user_id)
+    contacts_docs = _docs("contacts", user_id)
+
+    rows: List[Dict[str, Any]] = [
+        {"done": True, "main": f"Wardrobe: {len(wardrobe_items)} items saved", "sub": "Style & Apparel", "tag": f"{len(wardrobe_items)} items"},
+        {"done": True, "main": f"Events: {events_card.get('card', {}).get('summary', '0 events')}", "sub": "Calendar", "tag": "Calendar"},
+        {"done": True, "main": f"Medicines: {meds_card.get('card', {}).get('summary', '0 meds')}", "sub": "Health", "tag": "Medi"},
+        {"done": True, "main": f"Bills: {bills_card.get('card', {}).get('summary', '0 bills')}", "sub": "Finance", "tag": "Bills"},
+        {"done": True, "main": f"Meals: {meals_card.get('card', {}).get('summary', '0 plans')}", "sub": "Diet", "tag": "Diet"},
+        {"done": True, "main": f"Fitness: {workout_card.get('card', {}).get('summary', '0 workouts')}", "sub": "Workouts", "tag": "Fitness"},
+        {"done": True, "main": f"Skincare: {skincare_card.get('card', {}).get('summary', 'No routine')}", "sub": "Routine", "tag": "Skincare"},
+        {"done": True, "main": f"Contacts: {len(contacts_docs)} saved contacts", "sub": "People", "tag": "Contacts"},
+    ]
+
+    total_modules = 8
+    summary_text = (
+        f"App Data Summary: {len(wardrobe_items)} wardrobe items, "
+        f"{events_card.get('card', {}).get('count_total', 0)} upcoming events, "
+        f"{meds_card.get('card', {}).get('count_total', 0)} medicines tracked, "
+        f"{bills_card.get('card', {}).get('count_total', 0)} unpaid bills, "
+        f"{meals_card.get('card', {}).get('count_total', 0)} meal plans, "
+        f"{workout_card.get('card', {}).get('count_total', 0)} workout items, "
+        f"{skincare_card.get('card', {}).get('count_total', 0)} skincare steps, and "
+        f"{len(contacts_docs)} contacts."
+    )
+
+    return {
+        "success": True,
+        "type": "module_card",
+        "response_type": "module_card",
+        "module": "complete_app_data",
+        "domain": "complete_app_data",
+        "intent": "complete_app_data",
+        "card": {
+            "title": "Complete App Data Summary",
+            "icon": "analytics",
+            "summary": summary_text,
+            "count_done": total_modules,
+            "count_total": total_modules,
+            "rows": rows,
+            "open_key": "chat",
+            "quick_actions": ["Analyze my schedule", "Style an outfit", "View my wardrobe", "Check my bills"],
+        },
+        "message": summary_text,
+        "message_text": summary_text,
+        "response": summary_text,
+        "cards": [],
+        "style_boards": [],
+        "chips": ["Analyze my schedule", "Style an outfit", "View my wardrobe", "Check my bills"],
+        "quick_actions": ["Analyze my schedule", "Style an outfit", "View my wardrobe", "Check my bills"],
+        "data": {
+            "module": "complete_app_data",
+            "intent": "complete_app_data",
+            "summary": summary_text,
+            "details": {
+                "wardrobe_count": len(wardrobe_items),
+                "events": events_card.get("card", {}).get("rows", []),
+                "medicines": meds_card.get("card", {}).get("rows", []),
+                "bills": bills_card.get("card", {}).get("rows", []),
+                "meals": meals_card.get("card", {}).get("rows", []),
+                "workouts": workout_card.get("card", {}).get("rows", []),
+                "skincare": skincare_card.get("card", {}).get("rows", []),
+                "contacts_count": len(contacts_docs),
+            },
+        },
+        "meta": {"mode": "module_card", "module": "complete_app_data"},
+    }
+
+
+def get_user_complete_app_data_dict(user_id: str) -> Dict[str, Any]:
+    """Retrieve full app data dictionary across all user modules for LLM context."""
+    if not _txt(user_id):
+        return {}
+    
+    meds = _docs("meds", user_id)
+    bills = _docs("bills", user_id)
+    events = _docs("events", user_id)
+    meals = _docs("meal_plans", user_id)
+    workouts = _docs("workout_outfits", user_id)
+    skincare = _docs("skincare", user_id)
+    wardrobe = _docs("outfits", user_id)
+    contacts = _docs("contacts", user_id)
+
+    return {
+        "wardrobe": [{"name": d.get("name"), "category": d.get("category"), "color": d.get("color")} for d in wardrobe[:50]],
+        "wardrobe_total_count": len(wardrobe),
+        "events": [{"title": d.get("title"), "date": d.get("date") or d.get("startDate")} for d in events[:20]],
+        "medicines": [{"name": d.get("name"), "dose": d.get("dose"), "freq": d.get("freq")} for d in meds[:20]],
+        "bills": [{"store": d.get("store") or d.get("name"), "amount": d.get("amount"), "date": d.get("date")} for d in bills[:20]],
+        "meals": [{"name": d.get("name") or d.get("title")} for d in meals[:20]],
+        "workouts": [{"title": d.get("title")} for d in workouts[:20]],
+        "skincare": skincare[:5],
+        "contacts": [{"name": d.get("name")} for d in contacts[:20]],
+    }
+
+
 # =========================
 # DISPATCH
 # =========================
@@ -512,6 +619,8 @@ _BUILDERS = {
     "meals": _meals,
     "workout": _workout,
     "skincare": _skincare,
+    "complete_app_data": build_complete_app_data_summary,
+    "all_data": build_complete_app_data_summary,
 }
 
 
@@ -521,3 +630,4 @@ def build_module_summary(module: str, user_id: str) -> Dict[str, Any]:
     if not builder or not _txt(user_id):
         return {}
     return builder(user_id)
+
