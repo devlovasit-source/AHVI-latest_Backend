@@ -53,7 +53,30 @@ class FakeProxy:
         ]
 
     def list_documents(self, resource, **kwargs):
-        return list(self.rows)
+        if not kwargs.get("return_meta"):
+            return list(self.rows)
+
+        # Paginated simulation, used only by callers that ask for it
+        # (list_due_reminders) - mirrors AppwriteProxy.list_documents'
+        # ascending-sendAtISO order_query for notification_reminders so
+        # pagination/early-stop logic can be tested realistically against
+        # 100+ row collections without a real Appwrite backend.
+        rows = sorted(self.rows, key=lambda r: str((r or {}).get("sendAtISO") or ""))
+        total = len(rows)
+        limit = int(kwargs.get("limit") or total or 1)
+        offset = int(kwargs.get("offset") or 0)
+        docs = rows[offset : offset + limit]
+        has_more = (offset + len(docs)) < total
+        return {
+            "documents": docs,
+            "meta": {
+                "limit": limit,
+                "offset": offset,
+                "has_more": has_more,
+                "next_offset": offset + len(docs) if has_more else None,
+                "total": total,
+            },
+        }
 
     def get_document(self, resource, document_id):
         for row in self.rows:
@@ -748,6 +771,101 @@ class DocumentIdLengthConstraintTests(unittest.TestCase):
 
         self.assertTrue(second["claimed"])
         self.assertEqual(second["reason"], "reclaimed_expired")
+
+
+class DueReminderPaginationTests(unittest.TestCase):
+    """
+    Regression coverage for the P0 bug: list_due_reminders() used to call
+    list_documents() once, which AppwriteProxy silently clamps to a single
+    page (historically APPWRITE_PAGE_MAX=100) - a newly due reminder sorted
+    (ascending sendAtISO) behind 100+ older rows was never scanned, so
+    dispatch never saw it no matter how large window_seconds was.
+    """
+
+    def _old_row(self, i):
+        # Old, already-terminal rows that sort ahead of our due reminder in
+        # ascending-sendAtISO order but must never block it from being found.
+        return {
+            "$id": f"old_{i}",
+            "userId": "user_1",
+            "status": "sent",
+            "sendAtISO": f"2020-01-01T00:{i:02d}:00+00:00",
+            "source": "medi",
+            "message": "old",
+        }
+
+    def _due_row(self, doc_id="rem_due_now", minutes_ago=1):
+        from datetime import datetime, timedelta, timezone
+
+        send_at = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+        return {
+            "$id": doc_id,
+            "userId": "user_1",
+            "status": "scheduled",
+            "sendAtISO": send_at.isoformat(),
+            "source": "medi",
+            "message": "Time to take AHVI Test Reminder.",
+        }
+
+    def test_a_more_than_100_historical_rows_exist(self):
+        proxy = FakeProxy()
+        proxy.rows = [self._old_row(i) for i in range(120)]
+        self.assertGreater(len(proxy.rows), 100)
+
+    def test_b_and_c_due_reminder_beyond_page_one_is_still_found(self):
+        proxy = FakeProxy()
+        # 150 stale "scheduled" rows (never resolved, but sorted first by
+        # sendAtISO since they're dated in the past) ahead of one genuinely
+        # due reminder - the exact shape of the shared dev database.
+        stale = [
+            {**self._old_row(i), "status": "scheduled"} for i in range(150)
+        ]
+        proxy.rows = stale + [self._due_row()]
+
+        with patch("services.notification_store.AppwriteProxy", return_value=proxy):
+            from services.notification_store import NotificationStore
+
+            store = NotificationStore()
+            due = store.list_due_reminders(window_seconds=60)
+
+        due_ids = {r["$id"] for r in due}
+        self.assertIn(
+            "rem_due_now",
+            due_ids,
+            "due reminder sitting behind 150 older rows must still be found",
+        )
+
+    def test_f_terminal_historical_rows_do_not_block_discovery(self):
+        proxy = FakeProxy()
+        # 150 OLD rows that are already "sent"/"suppressed" (terminal, not
+        # "scheduled") must be skipped without preventing pagination from
+        # reaching the genuinely due row further down the ascending order.
+        terminal = [self._old_row(i) for i in range(150)]  # status="sent"
+        proxy.rows = terminal + [self._due_row("rem_after_terminal")]
+
+        with patch("services.notification_store.AppwriteProxy", return_value=proxy):
+            from services.notification_store import NotificationStore
+
+            store = NotificationStore()
+            due = store.list_due_reminders(window_seconds=60)
+
+        self.assertIn("rem_after_terminal", {r["$id"] for r in due})
+        # None of the terminal rows should be returned as due.
+        self.assertFalse(any(r["$id"].startswith("old_") for r in due))
+
+    def test_not_yet_due_reminder_past_the_page_boundary_is_excluded(self):
+        proxy = FakeProxy()
+        stale = [{**self._old_row(i), "status": "scheduled"} for i in range(120)]
+        future = self._due_row("rem_future", minutes_ago=-30)  # 30 min ahead
+        proxy.rows = stale + [future]
+
+        with patch("services.notification_store.AppwriteProxy", return_value=proxy):
+            from services.notification_store import NotificationStore
+
+            store = NotificationStore()
+            due = store.list_due_reminders(window_seconds=60)
+
+        self.assertNotIn("rem_future", {r["$id"] for r in due})
 
 
 if __name__ == "__main__":

@@ -369,31 +369,63 @@ class NotificationStore:
     def list_due_reminders(
         self, *, now: Optional[datetime] = None, window_seconds: int = 60
     ) -> List[Dict[str, Any]]:
+        """
+        Paginates across notification_reminders instead of a single
+        list_documents() call, which silently clamps to AppwriteProxy's
+        single-page limit (APPWRITE_PAGE_MAX, historically 100) - a newly
+        due reminder sitting past that many older rows was invisible to
+        dispatch. notification_reminders is registered (order_query_map)
+        ascending by sendAtISO, and list_documents() always applies that
+        order_query on every code path it has, so once a page contains a
+        row past the due cutoff every later row is also past it - safe to
+        stop paginating right there instead of always exhausting max_scan.
+        """
         now_dt = now or _utcnow()
         cutoff = now_dt.timestamp() + float(max(5, int(window_seconds)))
 
-        # MVP: scan recent scheduled reminders per user on demand.
-        # For scale, use a real indexed query (or store reminders in Redis sorted sets).
-        try:
-            rows = self._appwrite.list_documents(
-                self.reminders_resource, limit=self.max_scan
-            )
-        except Exception:
-            return []
-
         due: List[Dict[str, Any]] = []
-        for r in rows or []:
-            if not isinstance(r, dict):
-                continue
-            if str(r.get("status") or "").lower() != "scheduled":
-                continue
-            send_at = _safe_text(r.get("sendAtISO") or "")
+        page_size = 100
+        offset = 0
+        scanned = 0
+
+        while scanned < self.max_scan:
             try:
-                send_dt = datetime.fromisoformat(send_at.replace("Z", "+00:00"))
+                page = self._appwrite.list_documents(
+                    self.reminders_resource,
+                    limit=min(page_size, self.max_scan - scanned),
+                    offset=offset,
+                    return_meta=True,
+                )
             except Exception:
-                continue
-            if send_dt.timestamp() <= cutoff:
+                break
+
+            docs = (page or {}).get("documents") or []
+            if not docs:
+                break
+
+            stop = False
+            for r in docs:
+                if not isinstance(r, dict):
+                    continue
+                if str(r.get("status") or "").lower() != "scheduled":
+                    continue
+                send_at = _safe_text(r.get("sendAtISO") or "")
+                try:
+                    send_dt = datetime.fromisoformat(send_at.replace("Z", "+00:00"))
+                except Exception:
+                    continue
+                if send_dt.timestamp() > cutoff:
+                    stop = True
+                    break
                 due.append(r)
+
+            scanned += len(docs)
+            meta = (page or {}).get("meta") or {}
+            next_offset = meta.get("next_offset")
+            if stop or not meta.get("has_more") or next_offset is None:
+                break
+            offset = int(next_offset)
+
         return due
 
     def mark_reminder(
