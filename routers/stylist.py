@@ -729,7 +729,13 @@ def _lite_needed_slots(anchor_role: str) -> List[str]:
         # A jacket/blazer/coat/cardigan/overshirt/shacket anchor is a layer,
         # not a top-slot substitute - it needs the same separates a top
         # anchor would (never the accessory-anchor dress fallback below).
-        return ["top", "bottom", "footwear", "accessory"]
+        # Deliberately NOT "accessory" (unlike top/bottom/footwear above):
+        # outerwear + top + bottom + footwear is already a complete
+        # four-piece layered look, and requiring a fifth accessory slot on
+        # top of that surfaced irrelevant picks (e.g. a backpack) in live
+        # testing. Narrow, outerwear-only MVP decision - other anchor roles'
+        # accessory requirement is unchanged.
+        return ["top", "bottom", "footwear"]
     return ["dress", "footwear"]  # accessory anchor fallback default (see _lite_accessory_needed_slots)
 
 

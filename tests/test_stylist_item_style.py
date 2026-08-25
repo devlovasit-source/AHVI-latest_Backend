@@ -437,13 +437,14 @@ def test_non_accessory_anchors_are_unaffected_by_the_accessory_fallback():
 
 
 def test_lite_needed_slots_outerwear_anchor():
-    # The requested slots must be separates (top/bottom/footwear/accessory),
-    # matching the "top" contract shape plus bottom - never a dress, and
-    # never a second "outerwear" slot (so the fix can't force a second
+    # Outerwear-only MVP decision: top/bottom/footwear only, no accessory.
+    # An outerwear anchor + top + bottom + footwear is already a complete
+    # four-piece layered look; a required fifth accessory slot surfaced
+    # irrelevant picks (e.g. a backpack) in live testing. Never a dress,
+    # and never a second "outerwear" slot (so the fix can't force a second
     # outerwear item into the board by construction).
-    assert stylist._lite_needed_slots("outerwear") == [
-        "top", "bottom", "footwear", "accessory",
-    ]
+    assert stylist._lite_needed_slots("outerwear") == ["top", "bottom", "footwear"]
+    assert "accessory" not in stylist._lite_needed_slots("outerwear")
     assert "outerwear" not in stylist._lite_needed_slots("outerwear")
     assert "dress" not in stylist._lite_needed_slots("outerwear")
 
@@ -478,6 +479,41 @@ def test_outerwear_anchor_style_this_succeeds_without_dress():
         # No second outerwear item was in this wardrobe, so this also
         # proves the board doesn't fabricate/require a second layer.
         assert len(ids) == 4
+
+
+def test_outerwear_anchor_does_not_pull_in_accessory_even_when_available():
+    # An available, otherwise-eligible accessory must NOT be added to an
+    # outerwear board - regression test for the live "why is a backpack
+    # coming?" observation. The board must still register as complete with
+    # exactly 4 items (anchor + top + bottom + footwear), no accessory slot.
+    jacket = _it("jacket-6", "Cheetah Print Waistcoat", "Outerwear")
+    wardrobe = [
+        jacket,
+        _it("shirt-1", "White Shirt", "Tops"),
+        _it("trouser-1", "Black Trousers", "Bottoms"),
+        _it("loafer-1", "Brown Loafers", "Footwear"),
+        _it("backpack-1", "Canvas Backpack", "Bags"),
+        _it("watch-1", "Silver Watch", "Accessories"),
+    ]
+    result = stylist.style_wardrobe_item(
+        "jacket-6", _req(wardrobe, mode="style_this", anchor=jacket)
+    )
+
+    assert result["success"] is True
+    dirs = result["style_directions"]
+    assert len(dirs) == 3
+    for d in dirs:
+        ids = {i["item_id"] for i in d["items"]}
+        assert ids == {"jacket-6", "shirt-1", "trouser-1", "loafer-1"}, (
+            "outerwear board must be exactly anchor+top+bottom+footwear - "
+            "no accessory (backpack/watch) pulled in"
+        )
+        assert "backpack-1" not in ids
+        assert "watch-1" not in ids
+        missing_labels = {m["label"] for m in d["missing_items"]}
+        assert "A small bag or jewelry" not in missing_labels, (
+            "must not report a missing accessory for an outerwear anchor"
+        )
 
 
 def test_outerwear_anchor_does_not_require_dress():
