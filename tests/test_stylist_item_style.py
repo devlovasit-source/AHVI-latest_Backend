@@ -427,6 +427,172 @@ def test_non_accessory_anchors_are_unaffected_by_the_accessory_fallback():
     assert stylist._lite_needed_slots("footwear") == ["top", "bottom", "accessory"]
 
 
+# ---------------------------------------------------------------------------
+# Outerwear-anchor Style This (P0 fix: routers/stylist.py _lite_needed_slots
+# had no "outerwear" branch, so a jacket/blazer/coat anchor fell into the
+# accessory-anchor catch-all and requested ["dress", "footwear"] - a
+# menswear-typical wardrobe with no dress returned INSUFFICIENT_WARDROBE
+# even with a complete top+bottom+footwear on hand.)
+# ---------------------------------------------------------------------------
+
+
+def test_lite_needed_slots_outerwear_anchor():
+    # The requested slots must be separates (top/bottom/footwear/accessory),
+    # matching the "top" contract shape plus bottom - never a dress, and
+    # never a second "outerwear" slot (so the fix can't force a second
+    # outerwear item into the board by construction).
+    assert stylist._lite_needed_slots("outerwear") == [
+        "top", "bottom", "footwear", "accessory",
+    ]
+    assert "outerwear" not in stylist._lite_needed_slots("outerwear")
+    assert "dress" not in stylist._lite_needed_slots("outerwear")
+
+
+def test_outerwear_anchor_style_this_succeeds_without_dress():
+    jacket = _it("jacket-1", "Navy Wool Blazer", "Outerwear")
+    wardrobe = [
+        jacket,
+        # Not "Oxford Shirt" - "oxford" is also a _LITE_FOOTWEAR token (Oxford
+        # shoes), a pre-existing, unrelated name-token collision in
+        # _lite_role() that would misclassify this as footwear.
+        _it("shirt-1", "White Cotton Shirt", "Tops"),
+        _it("trouser-1", "Grey Wool Trousers", "Bottoms"),
+        _it("loafer-1", "Brown Leather Loafers", "Footwear"),
+    ]
+    result = stylist.style_wardrobe_item(
+        "jacket-1", _req(wardrobe, mode="style_this", anchor=jacket)
+    )
+
+    assert result["success"] is True
+    assert result.get("error") is None
+    dirs = result["style_directions"]
+    assert len(dirs) == 3
+    for d in dirs:
+        ids = {i["item_id"] for i in d["items"]}
+        roles = {i["item_id"]: i["role"] for i in d["items"]}
+        assert "jacket-1" in ids, "outerwear anchor must remain on the board"
+        assert "shirt-1" in ids, "a real top must be paired, not a dress"
+        assert "trouser-1" in ids, "a real bottom must be paired"
+        assert "loafer-1" in ids, "footwear must be paired"
+        assert roles["jacket-1"] == "outerwear"
+        # No second outerwear item was in this wardrobe, so this also
+        # proves the board doesn't fabricate/require a second layer.
+        assert len(ids) == 4
+
+
+def test_outerwear_anchor_does_not_require_dress():
+    jacket = _it("jacket-2", "Black Denim Jacket", "Outerwear")
+    wardrobe = [
+        jacket,
+        _it("shirt-1", "White T-Shirt", "Tops"),
+        _it("jeans-1", "Blue Jeans", "Bottoms"),
+        _it("sneak-1", "White Sneakers", "Footwear"),
+    ]
+    result = stylist.style_wardrobe_item(
+        "jacket-2", _req(wardrobe, mode="style_this", anchor=jacket)
+    )
+
+    assert result["success"] is True
+    for d in result["style_directions"]:
+        missing_labels = {m["label"] for m in d["missing_items"]}
+        assert "A standout dress" not in missing_labels, (
+            "an outerwear anchor must never surface a missing-dress prompt"
+        )
+        ids = {i["item_id"] for i in d["items"]}
+        assert "dress" not in " ".join(i["category"].lower() for i in d["items"])
+        assert ids <= {"jacket-2", "shirt-1", "jeans-1", "sneak-1"}
+
+
+def test_outerwear_anchor_does_not_force_a_second_outerwear_item():
+    jacket = _it("jacket-3", "Camel Overcoat", "Outerwear")
+    second_layer = _it("cardigan-1", "Grey Cardigan", "Outerwear")
+    wardrobe = [
+        jacket,
+        second_layer,
+        _it("shirt-1", "White Shirt", "Tops"),
+        _it("trouser-1", "Navy Trousers", "Bottoms"),
+        _it("boot-1", "Black Boots", "Footwear"),
+    ]
+    result = stylist.style_wardrobe_item(
+        "jacket-3", _req(wardrobe, mode="style_this", anchor=jacket)
+    )
+
+    assert result["success"] is True
+    for d in result["style_directions"]:
+        ids = {i["item_id"] for i in d["items"]}
+        assert "jacket-3" in ids
+        # needed_slots for "outerwear" never asks for a second "outerwear"
+        # slot, so the second layer piece must not appear as a forced
+        # duplicate role - it may only appear if it ever wins the "top"
+        # bucket, never as a dedicated second outerwear slot.
+        assert not (
+            "jacket-3" in ids and "cardigan-1" in ids and len(ids) == 5
+        ), "must not force both outerwear pieces plus a full separates set"
+
+
+def test_outerwear_anchor_regression_no_insufficient_wardrobe():
+    # The exact old-failure repro: outerwear anchor + valid top/bottom/
+    # footwear + NO dress in the wardrobe used to return
+    # INSUFFICIENT_WARDROBE. It must now succeed.
+    jacket = _it("jacket-4", "Tan Suede Jacket", "Outerwear")
+    wardrobe = [
+        jacket,
+        _it("shirt-1", "Light Blue Shirt", "Tops"),
+        _it("chino-1", "Beige Chinos", "Bottoms"),
+        _it("shoe-1", "White Leather Sneakers", "Footwear"),
+    ]
+    assert not any(
+        stylist._lite_role(item) == "dress" for item in wardrobe
+    ), "test wardrobe must genuinely contain no dress"
+
+    result = stylist.style_wardrobe_item(
+        "jacket-4", _req(wardrobe, mode="style_this", anchor=jacket)
+    )
+
+    assert result["success"] is True
+    assert result.get("error") != {
+        "code": "INSUFFICIENT_WARDROBE",
+        "message": "The available wardrobe cannot form a complete Style This look.",
+    }
+
+
+def test_build_outfit_legacy_mode_unaffected_by_outerwear_fix():
+    # routers/stylist.py:1201's legacy build_outfit call site never passes
+    # identity_role, so anchor_role there is resolved by _lite_role() (name/
+    # category token matching), which already classifies jacket/blazer/coat/
+    # cardigan/overshirt names as "top" - it can never reach the new
+    # "outerwear" branch in _lite_needed_slots. This proves that directly:
+    # legacy build_outfit behavior for a jacket anchor is unchanged.
+    jacket = _it("jacket-5", "Navy Blazer", "Outerwear")
+    assert stylist._lite_role(jacket) == "top", (
+        "legacy path classification of a blazer must remain 'top', not "
+        "'outerwear' - otherwise this fix would change build_outfit mode too"
+    )
+    wardrobe = [
+        jacket,
+        _it("trouser-1", "Charcoal Trousers", "Bottoms"),
+        _it("loafer-1", "Brown Loafers", "Footwear"),
+    ]
+    result = stylist.style_wardrobe_item(
+        "jacket-5", _req(wardrobe, mode="build_outfit", anchor=jacket)
+    )
+    ids = {i["item_id"] for i in result["outfit"]["items"]}
+    assert "jacket-5" in ids and "trouser-1" in ids and "loafer-1" in ids
+
+
+def test_dress_top_bottom_footwear_accessory_anchors_still_unchanged():
+    # Existing control coverage (unchanged branches) stays green - explicit
+    # re-assertion here as part of the P0 outerwear fix's required
+    # regression proof, independent of the pre-existing test above.
+    assert stylist._lite_needed_slots("dress") == ["footwear", "accessory"]
+    assert stylist._lite_needed_slots("top") == ["bottom", "footwear", "accessory"]
+    assert stylist._lite_needed_slots("bottom") == ["top", "footwear", "accessory"]
+    assert stylist._lite_needed_slots("footwear") == ["top", "bottom", "accessory"]
+    assert stylist._lite_needed_slots("accessory-or-anything-unmapped") == [
+        "dress", "footwear",
+    ]
+
+
 def test_footwear_anchor_control_case_unchanged():
     sneaker = _it("sneak-2", "White Sneakers", "Footwear")
     wardrobe = [

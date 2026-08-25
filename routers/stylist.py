@@ -725,6 +725,11 @@ def _lite_needed_slots(anchor_role: str) -> List[str]:
         return ["top", "footwear", "accessory"]
     if anchor_role == "footwear":
         return ["top", "bottom", "accessory"]
+    if anchor_role == "outerwear":
+        # A jacket/blazer/coat/cardigan/overshirt/shacket anchor is a layer,
+        # not a top-slot substitute - it needs the same separates a top
+        # anchor would (never the accessory-anchor dress fallback below).
+        return ["top", "bottom", "footwear", "accessory"]
     return ["dress", "footwear"]  # accessory anchor fallback default (see _lite_accessory_needed_slots)
 
 
