@@ -138,7 +138,6 @@ def generate_text(
             timeout_seconds=timeout_seconds or p.timeout_seconds,
             usecase=case,
             request_id=rid,
-            user_id=(signals or {}).get("user_id"),
         )
         _breaker_mark_success(op_key)
         _trace(
@@ -190,7 +189,6 @@ def chat_completion(
             timeout_seconds=timeout_seconds or p.timeout_seconds,
             usecase=case,
             request_id=rid,
-            user_id=(signals or {}).get("user_id"),
         )
         _breaker_mark_success(op_key)
         _trace(

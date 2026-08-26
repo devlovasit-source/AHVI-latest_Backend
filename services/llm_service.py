@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -24,7 +25,7 @@ from brain.response_validator import (
     validate_final_text,
 )
 from prompts.core_prompts import AHVI_SYSTEM_PROMPT
-from services.request_context import get_request_id
+from services.request_context import get_authenticated_user_id, get_request_id
 from services.beta_ops_telemetry import new_operation_id, record_llm_attempt
 
 logger = logging.getLogger("ahvi.llm_service")
@@ -36,6 +37,9 @@ def _provider_error_code(exc: Exception) -> str:
     if isinstance(exc, requests.exceptions.ConnectionError):
         return "connection_error"
     status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    if status_code is None:
+        match = re.search(r"\bhttp_(\d{3})\b", str(exc))
+        status_code = int(match.group(1)) if match else None
     if isinstance(status_code, int):
         if 400 <= status_code < 500:
             return "http_4xx"
@@ -503,7 +507,7 @@ def generate_text(
     )
     operation_id = str(kwargs.get("operation_id") or new_operation_id())
     meter_state: Dict[str, int] = {"attempt": 0}
-    user_id = kwargs.get("user_id") or (signals or {}).get("user_id")
+    user_id = get_authenticated_user_id()
     request_id = str(kwargs.get("request_id") or get_request_id() or "")
 
     if _gemini_enabled():
@@ -632,7 +636,6 @@ def chat_completion(
         timeout_seconds=timeout_seconds,
         options=options,
         usecase=usecase,
-        user_id=kwargs.get("user_id"),
         request_id=kwargs.get("request_id"),
         operation_id=kwargs.get("operation_id"),
     )

@@ -35,7 +35,11 @@ from services.security_limits import (
 from services.settings import settings
 from middleware.auth_middleware import get_current_user
 from services.job_tracker import job_tracker
-from services.request_context import set_request_id
+from services.request_context import (
+    reset_authenticated_user_id,
+    set_authenticated_user_id,
+    set_request_id,
+)
 
 _LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -589,7 +593,20 @@ async def auth_guard_middleware(request: Request, call_next):
                 "error": {"code": code, "message": str(exc.detail or code)},
             },
         )
-    return await call_next(request)
+    authenticated_user = getattr(request.state, "user", None)
+    authenticated_user_id = ""
+    if isinstance(authenticated_user, dict):
+        authenticated_user_id = str(
+            authenticated_user.get("user_id")
+            or authenticated_user.get("$id")
+            or authenticated_user.get("id")
+            or ""
+        ).strip()
+    user_token = set_authenticated_user_id(authenticated_user_id)
+    try:
+        return await call_next(request)
+    finally:
+        reset_authenticated_user_id(user_token)
 
 
 @app.middleware("http")
