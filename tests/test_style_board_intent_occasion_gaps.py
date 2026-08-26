@@ -57,3 +57,65 @@ def test_style_advice_questions_stay_text_only():
             assert pre.get("response_mode") == "text_only", (text, pre)
         else:
             assert not _is_explicit_style_request(text, "style"), text
+
+
+def _routes_to_board(text: str, module: str = "style") -> bool:
+    pre = classify_message(text)
+    if pre is not None:
+        return pre.get("response_mode") not in ("text_only", "clarification", "calendar_navigation")
+    return _is_explicit_style_request(text, module)
+
+
+def test_first_person_and_direct_request_phrases_authorize_board():
+    """Follow-up to 0c6f524: subject-qualified event participation ("I'm
+    attending") and direct request verbs ("give me", "dress me") paired
+    with an occasion/casual word - not bare occasion mentions - are what
+    should authorize a board."""
+    for text in (
+        "I am attending an Indian wedding",
+        "I'm going to a wedding",
+        "What should I wear to a wedding?",
+        "Give me a wedding outfit",
+        "Give me something casual but polished",
+        "Something casual for tonight",
+        "Show me a casual outfit",
+        "I need a casual outfit",
+        "Dress me for brunch",
+        "I have a client meeting",
+    ):
+        assert _routes_to_board(text), text
+
+
+def test_third_person_and_informational_mentions_stay_text_only():
+    """0c6f524's vocabulary expansion ("casual" keyword, "attending" setup
+    phrase) over-matched: third-person subjects and pure information
+    questions must not authorize a board just because they contain a
+    styled-adjacent word."""
+    for text in (
+        "My friend is attending a wedding",
+        "She is attending an Indian wedding",
+        "Tell me what people wear to Indian weddings",
+        "Are weddings usually formal?",
+        "What happens at an Indian wedding?",
+        "I love casual clothes",
+        "I usually dress casual",
+        "What does casual mean?",
+        "Is casual the same as smart casual?",
+        "How can I look taller?",
+        "How do I style oversized shirts?",
+        "What colors work with beige trousers?",
+    ):
+        assert not _routes_to_board(text), text
+
+
+def test_routing_decision_is_stateless_per_turn():
+    """_is_explicit_style_request/classify_message take only the current
+    message text - no history/conversation_id parameter exists - so a prior
+    text_only turn can't suppress a later board-eligible turn, or vice versa."""
+    turns = [
+        ("How can I look taller?", False),
+        ("Give me something casual but polished", True),
+        ("I'm attending an Indian wedding this weekend", True),
+    ]
+    for text, expect_board in turns:
+        assert _routes_to_board(text) is expect_board, text

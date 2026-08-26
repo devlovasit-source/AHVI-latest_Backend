@@ -3164,6 +3164,11 @@ def _demo_style_board_payload(
 # ================= AHVI CLEAN CHAT STYLE V2 END =================
 
 
+_FIRST_PERSON_EVENT_RE = re.compile(
+    r"\b(?:i|i'm|im|we|we're|were)\s+(?:am\s+|are\s+)?(?:attending|going)\b"
+)
+
+
 def _is_explicit_style_request(text: str, module_context: str | None = None) -> bool:
     """
     True only when user is clearly asking AHVI to build/style an outfit board.
@@ -3197,7 +3202,6 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
     if module in {"style", "wardrobe"} and any(
         k in q
         for k in [
-            "wear",
             "outfit",
             "look",
             "style me",
@@ -3208,7 +3212,6 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
             "party outfit",
             "build a board",
             "style board",
-            "casual",
         ]
     ):
         return True
@@ -3227,7 +3230,20 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
         "travel",
         "trip",
         "brunch",
+        "casual",
     ]
+
+    # "casual"/an occasion word said WITH a direct request verb ("give me",
+    # "dress me"...) authorizes a board without needing a time-setup word.
+    # Bare mentions ("I love casual clothes", "my friend is attending a
+    # wedding") must not - hence requiring one of these specific verbs
+    # rather than a generic "i"/"me"/"my" substring check.
+    if any(
+        v in q
+        for v in ("give me", "dress me", "find me", "show me", "i need", "make me")
+    ) and any(o in q for o in occasion_setup_words):
+        return True
+
     setup_phrases = [
         "i have",
         "ive got",
@@ -3238,12 +3254,17 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
         "this weekend",
         "next week",
         "need to go",
-        "going to",
-        "attending",
     ]
     if any(o in q for o in occasion_setup_words) and any(
         p in q for p in setup_phrases
     ):
+        return True
+
+    # First-person event participation ("I'm attending", "we're going to").
+    # Anchored to the i/we subject + am/are/contraction so third-person
+    # ("my friend IS attending", "she IS attending") never matches - English
+    # third-person singular always takes "is", never "am"/"are"/"i'm"/"we're".
+    if any(o in q for o in occasion_setup_words) and _FIRST_PERSON_EVENT_RE.search(q):
         return True
 
     if any(
@@ -3309,9 +3330,12 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
     if q in occasion_only:
         return True
 
-    # "I have a date tonight..." is outfit intent only when paired with wear/outfit/look.
+    # "I have a date tonight..." is outfit intent only when paired with outfit/look.
+    # ("wear" deliberately excluded - bare "wear" + occasion word also matches
+    # third-person/informational phrasing like "what people wear to weddings";
+    # "what should i wear"/"wear for "-style requests are already covered above.)
     occasion_words = ["date", "dinner", "party", "office", "meeting", "wedding", "travel", "brunch"]
-    wardrobe_words = ["wear", "outfit", "look", "clothes", "dress up", "style board"]
+    wardrobe_words = ["outfit", "look", "clothes", "dress up", "style board"]
     if any(o in q for o in occasion_words) and any(w in q for w in wardrobe_words):
         return True
 
