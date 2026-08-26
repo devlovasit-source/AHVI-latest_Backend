@@ -375,6 +375,7 @@ def _call_ollama(
     operation_id = operation_id or new_operation_id()
     models = [payload.get("model") or DEFAULT_MODEL, *MODEL_FALLBACKS]
     seen = set()
+    attempt_state = meter_state if meter_state is not None else {"attempt": 0}
 
     for model in models:
         if not model or model in seen:
@@ -395,7 +396,6 @@ def _call_ollama(
             options.setdefault("temperature", DEFAULT_TEMPERATURE)
             current["options"] = options
 
-            attempt_state = meter_state if meter_state is not None else {"attempt": 0}
             attempt_state["attempt"] = int(attempt_state.get("attempt") or 0) + 1
             attempt = attempt_state["attempt"]
             started = time.perf_counter()

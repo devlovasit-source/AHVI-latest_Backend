@@ -229,6 +229,7 @@ def test_missing_authenticated_user_is_not_fabricated(monkeypatch):
         class Session:
             def post(self, *args, **kwargs): return Response()
         monkeypatch.setattr(llm_service, "session", Session())
+        monkeypatch.setattr(llm_service, "MODEL_FALLBACKS", [])
         monkeypatch.setattr(llm_service, "record_llm_attempt", lambda **kwargs: events.append(kwargs))
         assert llm_service._call_ollama(
             {"model": "model-a"}, operation_id="op1", request_id="r1", user_id=None

@@ -477,8 +477,8 @@ def ollama_vision_json(
                     logger.warning("ahvi.llm.telemetry_failed provider=ollama")
                 provider_recorded = True
                 raise
-            raw = usage.get("response", "{}")
-            parsed = parse_json_object(raw)
+            if not isinstance(usage, dict):
+                usage = {}
             try:
                 record_llm_attempt(
                     user_id=user_id,
@@ -497,6 +497,8 @@ def ollama_vision_json(
             except Exception:
                 logger.warning("ahvi.llm.telemetry_failed provider=ollama")
             provider_recorded = True
+            raw = usage.get("response", "{}")
+            parsed = parse_json_object(raw)
             _trace(
                 "success",
                 request_id=rid,
