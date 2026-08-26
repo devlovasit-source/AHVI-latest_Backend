@@ -1,4 +1,4 @@
-﻿node_modules/
+node_modules/
 .env
 .env.*
 *.pem
@@ -33,3 +33,4 @@ local_backend.err
 env.yaml
 *.log
 data/mens_assets_import/
+.ideavo/project
