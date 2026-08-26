@@ -55,7 +55,7 @@ def _ai_key(url: str):
     return "ai:" + hashlib.md5(url.encode()).hexdigest()
 
 
-async def _get_ai(masked_url: str):
+async def _get_ai(masked_url: str, user_id: str = ""):
     redis = await get_redis_client()
     key = _ai_key(masked_url)
 
@@ -76,6 +76,7 @@ async def _get_ai(masked_url: str):
                 prompt="Describe fashion attributes",
                 image_base64=masked_url,
                 usecase="vision",
+                user_id=user_id or None,
             ),
         )
     except Exception:
@@ -164,7 +165,7 @@ async def process_items(image: Image.Image, user_id: str):
     # 🔴 AI (parallel + cached)
     async def enrich(item):
         if item["category"] not in ["ring", "earring", "bracelet"]:
-            ai = await _get_ai(item["masked_url"])
+            ai = await _get_ai(item["masked_url"], user_id=user_id)
             item.update(
                 {
                     "pattern": ai.get("pattern"),

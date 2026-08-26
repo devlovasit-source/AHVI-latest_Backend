@@ -12,6 +12,7 @@ import requests
 
 from services import llm_service
 from services.request_context import get_request_id
+from services.beta_ops_telemetry import new_operation_id, record_llm_attempt
 
 logger = logging.getLogger("ahvi.ai_gateway")
 
@@ -136,6 +137,8 @@ def generate_text(
             model=model or p.model,
             timeout_seconds=timeout_seconds or p.timeout_seconds,
             usecase=case,
+            request_id=rid,
+            user_id=(signals or {}).get("user_id"),
         )
         _breaker_mark_success(op_key)
         _trace(
@@ -186,6 +189,8 @@ def chat_completion(
             signals=signals,
             timeout_seconds=timeout_seconds or p.timeout_seconds,
             usecase=case,
+            request_id=rid,
+            user_id=(signals or {}).get("user_id"),
         )
         _breaker_mark_success(op_key)
         _trace(
@@ -399,6 +404,7 @@ def ollama_vision_json(
     timeout_seconds: int | None = None,
     request_id: str | None = None,
     usecase: str | None = "vision",
+    user_id: str | None = None,
 ) -> Tuple[Dict[str, Any], str]:
     rid = str(request_id or get_request_id() or "")
     case = str(usecase or "vision")
@@ -430,8 +436,12 @@ def ollama_vision_json(
 
     last_error: Exception | None = None
     started = time.perf_counter()
+    operation_id = new_operation_id()
+    attempt = 0
     for model in _vision_model_candidates():
         try:
+            attempt += 1
+            attempt_started = time.perf_counter()
             response = requests.post(
                 _ollama_generate_url(),
                 json={**payload, "model": model},
@@ -443,8 +453,26 @@ def ollama_vision_json(
                 raise RuntimeError(
                     f"Ollama vision request failed model={model} status={response.status_code} body={body}"
                 )
-            raw = response.json().get("response", "{}")
+            usage = response.json()
+            raw = usage.get("response", "{}")
             parsed = parse_json_object(raw)
+            try:
+                record_llm_attempt(
+                    user_id=user_id,
+                    request_id=rid,
+                    operation_id=operation_id,
+                    attempt=attempt,
+                    provider="ollama",
+                    model=model,
+                    usecase=case,
+                    status="success",
+                    duration_ms=round((time.perf_counter() - attempt_started) * 1000),
+                    input_tokens=usage.get("prompt_eval_count", usage.get("prompt_tokens")),
+                    output_tokens=usage.get("eval_count", usage.get("completion_tokens")),
+                    cached_tokens=usage.get("cached_tokens"),
+                )
+            except Exception:
+                logger.warning("ahvi.llm.telemetry_failed provider=ollama")
             _trace(
                 "success",
                 request_id=rid,
@@ -458,6 +486,26 @@ def ollama_vision_json(
             _breaker_mark_success(op_key)
             return parsed, model
         except Exception as exc:
+            if attempt:
+                try:
+                    record_llm_attempt(
+                        user_id=user_id,
+                        request_id=rid,
+                        operation_id=operation_id,
+                        attempt=attempt,
+                        provider="ollama",
+                        model=model,
+                        usecase=case,
+                        status="failed",
+                        duration_ms=round((time.perf_counter() - attempt_started) * 1000),
+                        error_code=(
+                            "timeout" if isinstance(exc, requests.Timeout)
+                            else "connection_error" if isinstance(exc, requests.exceptions.ConnectionError)
+                            else "provider_error"
+                        ),
+                    )
+                except Exception:
+                    logger.warning("ahvi.llm.telemetry_failed provider=ollama")
             last_error = exc
             continue
 

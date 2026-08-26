@@ -1701,6 +1701,7 @@ def _vision_extract_attributes(
                 )
             ),
             usecase="vision",
+            user_id=user_id,
         )
         if isinstance(ai_json, dict):
             ai_item = _extract_first_vision_item(ai_json)
@@ -2763,7 +2764,10 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
     if _gemini_multi.is_enabled():
         try:
             gemini_multi_items = await _gemini_multi.detect_and_crop(
-                image, corrected_source_bytes, request_id=request_id
+                image,
+                corrected_source_bytes,
+                request_id=request_id,
+                user_id=user_id,
             )
         except Exception as exc:
             logger.info(

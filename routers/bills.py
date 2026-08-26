@@ -84,6 +84,7 @@ def scan_bill(request: Request, body: BillScanRequest) -> Dict[str, Any]:
             image_base64=body.image_base64,
             timeout_seconds=60,
             usecase="bill_scan",
+            user_id=user_id,
         )
     except Exception as exc:
         logger.warning("bill_scan failed user_id=%s error=%s", user_id, exc)

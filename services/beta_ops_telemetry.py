@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import re
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -234,6 +235,47 @@ def event_document_id(event: Mapping[str, Any], idempotency_key: str = "") -> st
     return deterministic_appwrite_id("beta_ops", key)
 
 
+def new_operation_id() -> str:
+    """Create one opaque identifier for one logical provider operation."""
+    return uuid.uuid4().hex
+
+
+def record_llm_attempt(
+    *,
+    user_id: Optional[str],
+    request_id: Optional[str],
+    operation_id: str,
+    attempt: int,
+    provider: str,
+    model: str,
+    usecase: Optional[str],
+    status: str,
+    duration_ms: int,
+    input_tokens: Optional[int] = None,
+    output_tokens: Optional[int] = None,
+    cached_tokens: Optional[int] = None,
+    error_code: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Persist one provider attempt using the Phase 1 observational boundary."""
+    return record_event(
+        event_type="llm.usage_attempt",
+        user_id=user_id or "",
+        request_id=request_id or None,
+        operation_id=operation_id,
+        attempt=attempt,
+        provider=provider,
+        model=model,
+        usecase=usecase,
+        status=status,
+        duration_ms=max(0, int(duration_ms)),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cached_tokens=cached_tokens,
+        error_code=error_code,
+        idempotency_key=f"{operation_id}|{attempt}|{provider}|{model}",
+    )
+
+
 def record_event(
     *,
     idempotency_key: str = "",
@@ -349,5 +391,7 @@ __all__ = [
     "normalize_datetime",
     "normalize_event",
     "normalize_metadata",
+    "new_operation_id",
+    "record_llm_attempt",
     "record_event",
 ]

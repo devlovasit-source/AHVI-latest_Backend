@@ -29,9 +29,12 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image
+from services.beta_ops_telemetry import new_operation_id, record_llm_attempt
+from services.request_context import get_request_id
 
 try:  # google-genai may be absent in local/dev until requirements are installed
     from google import genai
@@ -306,11 +309,78 @@ def _log_gemini_diagnostics(response: Any, request_id: str = "") -> None:
         )
 
 
-def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional[str]:
+def _metered_gemini_request(
+    client: Any,
+    *,
+    model: str,
+    contents: Any,
+    config: Any,
+    user_id: Optional[str],
+    request_id: str,
+    operation_id: str,
+    meter_state: Dict[str, int],
+) -> Any:
+    meter_state["attempt"] = int(meter_state.get("attempt") or 0) + 1
+    attempt = meter_state["attempt"]
+    started = time.perf_counter()
+    try:
+        response = client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=config,
+        )
+    except Exception as exc:
+        try:
+            record_llm_attempt(
+                user_id=user_id,
+                request_id=request_id,
+                operation_id=operation_id,
+                attempt=attempt,
+                provider="gemini",
+                model=model,
+                usecase="wardrobe_capture.gemini_multi",
+                status="failed",
+                duration_ms=round((time.perf_counter() - started) * 1000),
+                error_code="provider_error",
+            )
+        except Exception:
+            logger.warning("ahvi.llm.telemetry_failed provider=gemini")
+        raise
+    usage = getattr(response, "usage_metadata", None)
+    try:
+        record_llm_attempt(
+            user_id=user_id,
+            request_id=request_id,
+            operation_id=operation_id,
+            attempt=attempt,
+            provider="gemini",
+            model=model,
+            usecase="wardrobe_capture.gemini_multi",
+            status="success",
+            duration_ms=round((time.perf_counter() - started) * 1000),
+            input_tokens=getattr(usage, "prompt_token_count", None),
+            output_tokens=getattr(usage, "candidates_token_count", None),
+            cached_tokens=getattr(usage, "cached_content_token_count", None),
+        )
+    except Exception:
+        logger.warning("ahvi.llm.telemetry_failed provider=gemini")
+    return response
+
+
+def _call_gemini_vision(
+    image_bytes: bytes,
+    *,
+    request_id: str = "",
+    user_id: Optional[str] = None,
+    operation_id: str = "",
+) -> Optional[str]:
     """Synchronous Gemini Vision call. Run via asyncio.to_thread by callers."""
     client = _get_gemini_client()
     if client is None:
         return None
+    request_id = request_id or get_request_id()
+    operation_id = operation_id or new_operation_id()
+    meter_state: Dict[str, int] = {"attempt": 0}
     try:
         image_part = types.Part.from_bytes(data=image_bytes, mime_type="image/png")
         # Live config: NO response_schema. The SDK fails converting our schema
@@ -354,10 +424,15 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
                 config_kwargs.pop("thinking_config", None)
                 config = types.GenerateContentConfig(**config_kwargs)
         try:
-            response = client.models.generate_content(
+            response = _metered_gemini_request(
+                client,
                 model=GEMINI_MULTI_GARMENT_MODEL,
                 contents=[image_part, _build_prompt()],
                 config=config,
+                user_id=user_id,
+                request_id=request_id,
+                operation_id=operation_id,
+                meter_state=meter_state,
             )
         except Exception as exc:
             # Defensive seed retry (drop seed on INVALID_ARGUMENT).
@@ -369,10 +444,15 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
                 )
                 config_kwargs.pop("seed", None)
                 retry_config = types.GenerateContentConfig(**config_kwargs)
-                response = client.models.generate_content(
+                response = _metered_gemini_request(
+                    client,
                     model=GEMINI_MULTI_GARMENT_MODEL,
                     contents=[image_part, _build_prompt()],
                     config=retry_config,
+                    user_id=user_id,
+                    request_id=request_id,
+                    operation_id=operation_id,
+                    meter_state=meter_state,
                 )
             # Defensive schema retry: live config has no response_schema, but if
             # one is ever reintroduced and the SDK fails converting it, strip it
@@ -385,10 +465,15 @@ def _call_gemini_vision(image_bytes: bytes, *, request_id: str = "") -> Optional
                 )
                 config_kwargs.pop("response_schema", None)
                 retry_config = types.GenerateContentConfig(**config_kwargs)
-                response = client.models.generate_content(
+                response = _metered_gemini_request(
+                    client,
                     model=GEMINI_MULTI_GARMENT_MODEL,
                     contents=[image_part, _build_prompt()],
                     config=retry_config,
+                    user_id=user_id,
+                    request_id=request_id,
+                    operation_id=operation_id,
+                    meter_state=meter_state,
                 )
             else:
                 raise
@@ -686,6 +771,7 @@ async def detect_and_crop(
     image_bytes: bytes = b"",
     *,
     request_id: str = "",
+    user_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Detect + crop up to MAX_ITEMS fashion items from ``image``.
 
@@ -716,7 +802,12 @@ async def detect_and_crop(
 
     try:
         raw_text = await asyncio.wait_for(
-            asyncio.to_thread(_call_gemini_vision, payload_bytes, request_id=request_id),
+            asyncio.to_thread(
+                _call_gemini_vision,
+                payload_bytes,
+                request_id=request_id,
+                user_id=user_id,
+            ),
             timeout=GEMINI_MULTI_GARMENT_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:

@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -23,8 +24,67 @@ from brain.response_validator import (
     validate_final_text,
 )
 from prompts.core_prompts import AHVI_SYSTEM_PROMPT
+from services.request_context import get_request_id
+from services.beta_ops_telemetry import new_operation_id, record_llm_attempt
 
 logger = logging.getLogger("ahvi.llm_service")
+
+
+def _provider_error_code(exc: Exception) -> str:
+    if isinstance(exc, (TimeoutError, requests.Timeout)):
+        return "timeout"
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return "connection_error"
+    status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(status_code, int):
+        if 400 <= status_code < 500:
+            return "http_4xx"
+        if status_code >= 500:
+            return "http_5xx"
+    return "provider_error"
+
+
+def _meter_attempt(
+    *,
+    user_id: Optional[str],
+    request_id: str,
+    operation_id: str,
+    attempt: int,
+    provider: str,
+    model: str,
+    usecase: Optional[str],
+    started: float,
+    status: str,
+    response: Any = None,
+    error: Optional[Exception] = None,
+) -> None:
+    usage = getattr(response, "usage_metadata", None)
+    if isinstance(response, dict):
+        input_tokens = response.get("prompt_eval_count", response.get("prompt_tokens"))
+        output_tokens = response.get("eval_count", response.get("completion_tokens"))
+        cached_tokens = response.get("cached_tokens")
+    else:
+        input_tokens = getattr(usage, "prompt_token_count", None)
+        output_tokens = getattr(usage, "candidates_token_count", None)
+        cached_tokens = getattr(usage, "cached_content_token_count", None)
+    try:
+        record_llm_attempt(
+            user_id=user_id,
+            request_id=request_id,
+            operation_id=operation_id,
+            attempt=attempt,
+            provider=provider,
+            model=model,
+            usecase=usecase,
+            status=status,
+            duration_ms=round((time.perf_counter() - started) * 1000),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_tokens=cached_tokens,
+            error_code=_provider_error_code(error) if error else None,
+        )
+    except Exception:
+        logger.warning("ahvi.llm.telemetry_failed provider=%s", provider)
 
 # =========================
 # CONFIG
@@ -199,10 +259,16 @@ def _call_gemini_text(
     max_output_tokens: int = 700,
     system_instruction: Optional[str] = None,
     timeout_seconds: Optional[int] = None,
+    user_id: Optional[str] = None,
+    request_id: str = "",
+    operation_id: str = "",
+    meter_state: Optional[Dict[str, int]] = None,
+    usecase: Optional[str] = None,
 ) -> Optional[str]:
     client = _get_gemini_client(timeout_seconds)
     if client is None:
         return None
+    operation_id = operation_id or new_operation_id()
 
     tone = tone_engine.build_prompt_tone(user_profile, signals)
 
@@ -238,10 +304,41 @@ Task:
             config_kwargs["thinking_config"] = thinking_cfg
         config = types.GenerateContentConfig(**config_kwargs)
 
-        response = client.models.generate_content(
+        attempt_state = meter_state if meter_state is not None else {"attempt": 0}
+        attempt_state["attempt"] = int(attempt_state.get("attempt") or 0) + 1
+        attempt = attempt_state["attempt"]
+        started = time.perf_counter()
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=full_prompt,
+                config=config,
+            )
+        except Exception as exc:
+            _meter_attempt(
+                user_id=user_id,
+                request_id=request_id or get_request_id(),
+                operation_id=operation_id,
+                attempt=attempt,
+                provider="gemini",
+                model=GEMINI_MODEL,
+                usecase=usecase,
+                started=started,
+                status="failed",
+                error=exc,
+            )
+            raise
+        _meter_attempt(
+            user_id=user_id,
+            request_id=request_id or get_request_id(),
+            operation_id=operation_id,
+            attempt=attempt,
+            provider="gemini",
             model=GEMINI_MODEL,
-            contents=full_prompt,
-            config=config,
+            usecase=usecase,
+            started=started,
+            status="success",
+            response=response,
         )
 
         text = (response.text or "").strip()
@@ -267,8 +364,11 @@ Task:
 
 
 def _call_ollama(
-    payload: Dict[str, Any], timeout: int = 30
+    payload: Dict[str, Any], timeout: int = 30, *, user_id: Optional[str] = None,
+    request_id: str = "", operation_id: str = "", usecase: Optional[str] = None,
+    meter_state: Optional[Dict[str, int]] = None,
 ) -> Optional[Dict[str, Any]]:
+    operation_id = operation_id or new_operation_id()
     models = [payload.get("model") or DEFAULT_MODEL, *MODEL_FALLBACKS]
     seen = set()
 
@@ -287,9 +387,38 @@ def _call_ollama(
             options.setdefault("temperature", DEFAULT_TEMPERATURE)
             current["options"] = options
 
+            attempt_state = meter_state if meter_state is not None else {"attempt": 0}
+            attempt_state["attempt"] = int(attempt_state.get("attempt") or 0) + 1
+            attempt = attempt_state["attempt"]
+            started = time.perf_counter()
             res = session.post(f"{OLLAMA_URL}/generate", json=current, timeout=timeout)
             if res.status_code == 200:
-                return res.json()
+                data = res.json()
+                _meter_attempt(
+                    user_id=user_id,
+                    request_id=request_id or get_request_id(),
+                    operation_id=operation_id,
+                    attempt=attempt,
+                    provider="ollama",
+                    model=model,
+                    usecase=usecase,
+                    started=started,
+                    status="success",
+                    response=data,
+                )
+                return data
+            _meter_attempt(
+                user_id=user_id,
+                request_id=request_id or get_request_id(),
+                operation_id=operation_id,
+                attempt=attempt,
+                provider="ollama",
+                model=model,
+                usecase=usecase,
+                started=started,
+                status="failed",
+                error=RuntimeError(f"http_{res.status_code}"),
+            )
             logger.warning(
                 "Ollama call failed status=%s model=%s body=%s",
                 res.status_code,
@@ -297,6 +426,19 @@ def _call_ollama(
                 res.text[:200],
             )
         except Exception as exc:
+            if "attempt" in locals() and "started" in locals():
+                _meter_attempt(
+                    user_id=user_id,
+                    request_id=request_id or get_request_id(),
+                    operation_id=operation_id,
+                    attempt=attempt,
+                    provider="ollama",
+                    model=model,
+                    usecase=usecase,
+                    started=started,
+                    status="failed",
+                    error=exc,
+                )
             logger.warning("Ollama call exception model=%s error=%s", model, exc)
 
     return None
@@ -359,6 +501,10 @@ def generate_text(
         usecase,
         requested_tokens,
     )
+    operation_id = str(kwargs.get("operation_id") or new_operation_id())
+    meter_state: Dict[str, int] = {"attempt": 0}
+    user_id = kwargs.get("user_id") or (signals or {}).get("user_id")
+    request_id = str(kwargs.get("request_id") or get_request_id() or "")
 
     if _gemini_enabled():
         gemini_text = _call_gemini_text(
@@ -368,6 +514,11 @@ def generate_text(
             temperature=float((options or {}).get("temperature", 0.35)),
             max_output_tokens=requested_tokens,
             timeout_seconds=timeout_seconds,
+            user_id=str(user_id).strip() if user_id else None,
+            request_id=request_id,
+            operation_id=operation_id,
+            usecase=usecase,
+            meter_state=meter_state,
         )
         if gemini_text:
             logger.info("llm.generate_text provider=gemini model=%s usecase=%s", GEMINI_MODEL, usecase)
@@ -386,6 +537,11 @@ def generate_text(
                     temperature=float((options or {}).get("temperature", 0.35)),
                     max_output_tokens=retry_tokens,
                     timeout_seconds=timeout_seconds,
+                    user_id=str(user_id).strip() if user_id else None,
+                    request_id=request_id,
+                    operation_id=operation_id,
+                    usecase=usecase,
+                    meter_state=meter_state,
                 )
                 if retry_text:
                     return _guard_truncation(retry_text, usecase=usecase)
@@ -423,7 +579,15 @@ STRICT RULES:
     if "num_predict" not in payload["options"]:
         payload["options"]["num_predict"] = requested_tokens
 
-    data = _call_ollama(payload, timeout=timeout_seconds)
+    data = _call_ollama(
+        payload,
+        timeout=timeout_seconds,
+        user_id=str(user_id).strip() if user_id else None,
+        request_id=request_id,
+        operation_id=operation_id,
+        usecase=usecase,
+        meter_state=meter_state,
+    )
     if not data:
         logger.warning("llm.generate_text provider=ollama_unavailable usecase=%s", usecase)
         return "This looks well put together and balanced."
@@ -468,6 +632,9 @@ def chat_completion(
         timeout_seconds=timeout_seconds,
         options=options,
         usecase=usecase,
+        user_id=kwargs.get("user_id"),
+        request_id=kwargs.get("request_id"),
+        operation_id=kwargs.get("operation_id"),
     )
 
 
