@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -8,10 +9,16 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from brain.engines.outfit_quality_guard import is_complete_board
+from brain.engines.style_compatibility_rules import (
+    evaluate_outfit as _evaluate_style_compat,
+    SEVERITY_HARD as _COMPAT_HARD,
+    SEVERITY_STRONG as _COMPAT_STRONG,
+)
 from brain.personalization.style_dna_engine import style_dna_engine
 from services import ai_gateway
 from services.appwrite_proxy import AppwriteProxy
 from services.auth_helpers import enforce_owner
+from services.constrained_outfit_builder import constrained_outfit_builder
 from services.style_flow_service import build_style_flow_response, item_role
 from services.location_weather_context import resolve_location_weather_context
 from services.style_board_image_readiness import is_board_renderable, project_board_image_fields
@@ -843,6 +850,96 @@ def _lite_directions(
     return directions
 
 
+def _p0_negative_compat_enabled() -> bool:
+    return os.getenv("ENABLE_NEGATIVE_COMPATIBILITY_P0", "true").strip().lower() not in {"0", "false", "no"}
+
+
+def _p0_negative_compat_shadow_mode() -> bool:
+    return os.getenv("NEGATIVE_COMPATIBILITY_SHADOW_MODE", "true").strip().lower() not in {"0", "false", "no"}
+
+
+def _style_this_compat_repair(
+    direction: Dict[str, Any],
+    *,
+    anchor: Dict[str, Any],
+    wardrobe: List[Dict[str, Any]],
+    occasion: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    """Validate a Style This direction against the P0 compatibility gate and
+    attempt a targeted, anchor-preserving repair via ConstrainedOutfitBuilder.
+
+    Returns the (possibly repaired) direction, or None if the caller must
+    drop it (unrepairable hard violation, or repair would touch the anchor /
+    leave the wardrobe-only contract). Shadow mode: evaluate + log only,
+    never mutates or drops a direction.
+    """
+    if not _p0_negative_compat_enabled():
+        return direction
+    shadow_mode = _p0_negative_compat_shadow_mode()
+    anchor_id = canonical_item_id(anchor)
+    items = [i for i in (direction.get("items") or []) if isinstance(i, dict)]
+    if not items:
+        return direction
+
+    for attempt in range(3):  # initial validation + up to 2 repair attempts
+        try:
+            violations = _evaluate_style_compat(items, occasion=str(occasion or ""), query="")
+        except Exception:
+            logger.warning("STYLE_COMPAT_EVALUATION_FAILED stage=style_this", exc_info=True)
+            violations = []
+        # HARD and STRONG both must be repaired-or-dropped; SOFT is minor
+        # styling tension and passes through unrepaired (logged only).
+        blocking = [v for v in violations if v.severity in (_COMPAT_HARD, _COMPAT_STRONG)]
+
+        if violations:
+            logger.info(
+                "STYLE_COMPAT_SHADOW_STYLE_THIS anchor_item_id=%s attempt=%d blocking=%d "
+                "total=%d shadow_mode=%s",
+                anchor_id, attempt, len(blocking), len(violations), shadow_mode,
+            )
+        if not blocking:
+            if not shadow_mode:
+                direction = dict(direction)
+                direction["items"] = items
+            return direction
+        if shadow_mode:
+            # Evaluate + log only - never mutate or drop in shadow mode.
+            return direction
+        if attempt >= 2:
+            return None  # exhausted repair attempts
+
+        offending_ids = {iid for v in blocking for iid in v.offending_item_ids}
+        offending_ids.discard(anchor_id)  # the Style This anchor is never replaced
+        if not offending_ids or not all(v.repairable for v in blocking):
+            return None
+        offending_roles = {
+            canonical_item_role(i) for i in items
+            if canonical_item_id(i) in offending_ids
+        }
+        offending_roles.discard("")
+        if not offending_roles:
+            return None
+
+        fixed_items = [i for i in items if canonical_item_id(i) not in offending_ids]
+        result = constrained_outfit_builder.generate(
+            scenario="style_this",
+            fixed_items=fixed_items,
+            replaceable_slots=list(offending_roles),
+            exclude_item_ids=list(offending_ids),
+            source_policy={"allowed_completion_sources": ["wardrobe"]},
+            context={"occasion": occasion},
+            wardrobe=wardrobe,
+        )
+        if not result.get("success"):
+            return None
+        new_items = result.get("items") or []
+        if anchor_id not in {canonical_item_id(i) for i in new_items}:
+            return None  # anchor lost during repair - never allowed
+        items = new_items
+
+    return None
+
+
 def _style_this_registration_error(code: str, message: str) -> Dict[str, str]:
     return {"code": code, "message": message}
 
@@ -1170,6 +1267,22 @@ def style_wardrobe_item(
                     anchor,
                     "INSUFFICIENT_WARDROBE",
                     "The available wardrobe cannot form a complete Style This look.",
+                )
+            directions = [
+                repaired
+                for repaired in (
+                    _style_this_compat_repair(
+                        direction, anchor=anchor, wardrobe=wardrobe, occasion=request.occasion,
+                    )
+                    for direction in directions
+                )
+                if repaired is not None
+            ]
+            if not directions:
+                return _style_this_failure(
+                    anchor,
+                    "INSUFFICIENT_WARDROBE",
+                    "The available wardrobe cannot form a complete, compatible Style This look.",
                 )
             directions = [
                 _register_style_this_direction(

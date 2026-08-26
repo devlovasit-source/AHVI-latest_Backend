@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import logging
+import os
 import re
 from collections import Counter
 from typing import Any, Dict, List, Tuple
@@ -19,6 +20,24 @@ try:
     from services.agent_metadata_validator import item_metadata_v2_reject_reason
 except Exception:  # pragma: no cover
     item_metadata_v2_reject_reason = None  # type: ignore
+
+try:
+    from brain.engines.style_compatibility_rules import (
+        evaluate_outfit as _evaluate_style_compat,
+        SEVERITY_HARD as _COMPAT_HARD,
+        SEVERITY_STRONG as _COMPAT_STRONG,
+        SEVERITY_SOFT as _COMPAT_SOFT,
+    )
+except Exception:  # pragma: no cover
+    _evaluate_style_compat = None  # type: ignore
+
+
+def _p0_negative_compat_enabled() -> bool:
+    return os.getenv("ENABLE_NEGATIVE_COMPATIBILITY_P0", "true").strip().lower() not in {"0", "false", "no"}
+
+
+def _p0_negative_compat_shadow_mode() -> bool:
+    return os.getenv("NEGATIVE_COMPATIBILITY_SHADOW_MODE", "true").strip().lower() not in {"0", "false", "no"}
 
 LOUD_COLORS = {"yellow", "orange", "neon", "fluorescent", "bright yellow", "bright orange", "lime"}
 
@@ -1262,6 +1281,62 @@ def guard_outfit(
     if accessories:
         fixed["accessories"] = _dedupe_accessories(accessories)
 
+    # ---- P0 negative-compatibility knowledge (Meghna pack) ----
+    # Additional pairwise/contextual evidence layered on top of every
+    # existing check above, never replacing them. Reached only for outfits
+    # that already passed every prior hard gate, so a HARD compatibility
+    # violation here can never double-count against an existing hard reject.
+    if _evaluate_style_compat is not None and _p0_negative_compat_enabled():
+        try:
+            def _stamp_role(item: Dict[str, Any], role: str) -> Dict[str, Any]:
+                if not isinstance(item, dict) or not item:
+                    return {}
+                out = dict(item)
+                out.setdefault("role", role)
+                return out
+
+            compat_items = [
+                _stamp_role(top, "top"),
+                _stamp_role(bottom, "bottom"),
+                _stamp_role(footwear, "footwear"),
+                *[_stamp_role(a, "accessory") for a in accessories or []],
+            ]
+            compat_items = [i for i in compat_items if i]
+            violations = _evaluate_style_compat(compat_items, occasion=occasion_text, query=query)
+            shadow_mode = _p0_negative_compat_shadow_mode()
+            hard = [v for v in violations if v.severity == _COMPAT_HARD]
+            fixed["_quality_guard_meta"] = {
+                "violations": [
+                    {
+                        "rule_id": v.rule_id,
+                        "family": v.family,
+                        "severity": v.severity,
+                        "reason": v.reason,
+                        "offending_item_ids": v.offending_item_ids,
+                        "offending_roles": v.offending_roles,
+                        "repairable": v.repairable,
+                        "exception_applied": v.exception_applied,
+                    }
+                    for v in violations
+                ],
+                "hard_invalid": bool(hard) and not shadow_mode,
+                "repairable": all(v.repairable for v in hard) if hard else True,
+                "shadow_mode": shadow_mode,
+            }
+            if violations and not shadow_mode:
+                if hard:
+                    return (
+                        False, -100,
+                        [f"style_compat:{v.rule_id}:{v.reason}" for v in hard],
+                        fixed,
+                    )
+                strong_count = sum(1 for v in violations if v.severity == _COMPAT_STRONG)
+                soft_count = sum(1 for v in violations if v.severity == _COMPAT_SOFT)
+                penalty -= 30 * strong_count + 10 * soft_count
+                reasons.extend(f"style_compat:{v.rule_id}" for v in violations)
+        except Exception:
+            logger.warning("STYLE_COMPAT_EVALUATION_FAILED stage=guard_integration", exc_info=True)
+
     allowed = penalty > -70
     return allowed, penalty, reasons, fixed
 
@@ -1560,6 +1635,20 @@ def filter_and_guard_outfits(
             intent=intent,
             query=query,
         )
+
+        # Tag the ORIGINAL outfit dict in-place (same object the caller's
+        # pre-guard candidate list still holds a reference to) so a
+        # certainly-wrong outfit can never later be resurrected as a
+        # "closest option" - every early hard-return in guard_outfit uses
+        # penalty=-100 exactly; the accumulated soft-penalty path essentially
+        # never lands on that exact value, so this generically distinguishes
+        # hard (structural/certain) from soft (accumulated-penalty) rejects
+        # without requiring every hard-return site to self-report.
+        if isinstance(outfit, dict):
+            outfit["_quality_guard_meta"] = {
+                **(fixed.get("_quality_guard_meta") or {}),
+                "hard_invalid": (not allowed) and penalty <= -100,
+            }
 
         if not allowed:
             for reason in list(reasons or [])[:5]:

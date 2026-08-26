@@ -1,0 +1,810 @@
+{
+  "file": "occasion_based_exceptions.json",
+  "version": "1.0",
+  "description": "Occasion- and aesthetic-aware exceptions that reduce or override negative styling penalties when a combination is intentionally appropriate for the requested context.",
+
+  "override_logic": {
+    "priority": 1,
+    "principle": "Occasion and aesthetic context may reduce a negative combination penalty but should not automatically override hard garment-construction incompatibilities.",
+    "hard_incompatibility_override": false,
+    "soft_negative_override": true,
+    "maximum_penalty_reduction": 100
+  },
+
+  "exception_strength": {
+    "full_override": "Remove the negative penalty when the context explicitly supports the combination.",
+    "strong_reduction": "Reduce the negative penalty substantially.",
+    "moderate_reduction": "Reduce the negative penalty partially.",
+    "minor_reduction": "Slightly reduce the negative penalty."
+  },
+
+  "occasion_categories": [
+    "formal_business",
+    "business_casual",
+    "smart_casual",
+    "casual",
+    "weekend",
+    "travel",
+    "brunch",
+    "date_night",
+    "dinner",
+    "cocktail",
+    "party",
+    "wedding_guest",
+    "festive",
+    "traditional_festive",
+    "beach",
+    "resort",
+    "vacation",
+    "streetwear",
+    "concert",
+    "festival",
+    "creative_work",
+    "fashion_event",
+    "red_carpet",
+    "black_tie",
+    "lounge",
+    "athleisure"
+  ],
+
+  "aesthetic_categories": [
+    "minimalist",
+    "classic",
+    "elegant",
+    "quiet_luxury",
+    "old_money",
+    "preppy",
+    "romantic",
+    "bohemian",
+    "streetwear",
+    "edgy",
+    "grunge",
+    "sporty",
+    "relaxed",
+    "oversized",
+    "maximalist",
+    "dramatic",
+    "avant_garde",
+    "experimental",
+    "feminine",
+    "masculine",
+    "androgynous",
+    "contemporary",
+    "retro",
+    "y2k",
+    "western",
+    "resort",
+    "monochromatic"
+  ],
+
+  "exceptions": [
+
+    {
+      "exception_id": "OBE_001",
+      "trigger": {
+        "occasion": [
+          "streetwear",
+          "concert",
+          "festival"
+        ],
+        "aesthetic": [
+          "streetwear",
+          "oversized",
+          "edgy"
+        ]
+      },
+      "applies_to": [
+        "very_oversized_upper + very_oversized_lower",
+        "oversized_upper + wide_leg_lower",
+        "boxy_upper + wide_leg_lower"
+      ],
+      "override": "full_override",
+      "reason": "Intentional oversized proportions are characteristic of contemporary streetwear and can be treated as deliberate rather than proportionally conflicting."
+    },
+
+    {
+      "exception_id": "OBE_002",
+      "trigger": {
+        "occasion": [
+          "fashion_event",
+          "concert",
+          "festival"
+        ],
+        "aesthetic": [
+          "avant_garde",
+          "experimental",
+          "dramatic"
+        ]
+      },
+      "applies_to": [
+        "very_oversized + balloon",
+        "balloon + balloon",
+        "asymmetric + asymmetric",
+        "flare + flare"
+      ],
+      "override": "full_override",
+      "reason": "Extreme volume and unconventional silhouette combinations may be intentional expressions of fashion-forward styling."
+    },
+
+    {
+      "exception_id": "OBE_003",
+      "trigger": {
+        "occasion": [
+          "formal_business",
+          "business_casual"
+        ],
+        "aesthetic": [
+          "classic",
+          "quiet_luxury",
+          "minimalist"
+        ]
+      },
+      "applies_to": [
+        "oversized_blazer + tapered_trousers",
+        "structured_jacket + straight_leg_trousers",
+        "longline_blazer + tapered_trousers"
+      ],
+      "override": "full_override",
+      "reason": "Controlled tailoring combinations maintain professional structure despite relaxed proportions."
+    },
+
+    {
+      "exception_id": "OBE_004",
+      "trigger": {
+        "occasion": [
+          "business_casual",
+          "smart_casual"
+        ],
+        "aesthetic": [
+          "contemporary",
+          "minimalist"
+        ]
+      },
+      "applies_to": [
+        "oversized_blazer + wide_leg_trousers"
+      ],
+      "override": "strong_reduction",
+      "reason": "Relaxed tailoring can be appropriate when the rest of the look remains polished and intentional."
+    },
+
+    {
+      "exception_id": "OBE_005",
+      "trigger": {
+        "occasion": [
+          "smart_casual",
+          "casual",
+          "weekend"
+        ],
+        "aesthetic": [
+          "relaxed",
+          "minimalist",
+          "contemporary"
+        ]
+      },
+      "applies_to": [
+        "oversized_top + wide_leg_bottom",
+        "boxy_top + wide_leg_bottom",
+        "longline_top + wide_leg_bottom"
+      ],
+      "override": "strong_reduction",
+      "reason": "Relaxed proportions are appropriate when a deliberately loose silhouette is desired."
+    },
+
+    {
+      "exception_id": "OBE_006",
+      "trigger": {
+        "occasion": [
+          "casual",
+          "weekend",
+          "streetwear",
+          "festival"
+        ],
+        "aesthetic": [
+          "oversized",
+          "streetwear",
+          "edgy"
+        ]
+      },
+      "applies_to": [
+        "oversized_upper + mini",
+        "very_oversized_upper + mini"
+      ],
+      "override": "full_override",
+      "reason": "Oversized upper volume with a short lower silhouette is an established casual and streetwear proportion."
+    },
+
+    {
+      "exception_id": "OBE_007",
+      "trigger": {
+        "occasion": [
+          "party",
+          "date_night",
+          "cocktail",
+          "concert"
+        ],
+        "aesthetic": [
+          "edgy",
+          "dramatic",
+          "feminine"
+        ]
+      },
+      "applies_to": [
+        "very_fitted_upper + very_fitted_lower",
+        "bodycon_upper + bodycon_lower",
+        "very_fitted + mini"
+      ],
+      "override": "strong_reduction",
+      "reason": "Body-conscious proportions may be intentional and appropriate for evening or party dressing."
+    },
+
+    {
+      "exception_id": "OBE_008",
+      "trigger": {
+        "occasion": [
+          "party",
+          "cocktail",
+          "date_night"
+        ],
+        "aesthetic": [
+          "dramatic",
+          "feminine",
+          "glamorous"
+        ]
+      },
+      "applies_to": [
+        "bodycon_dress + bodycon_silhouette",
+        "fitted_dress + bodycon_silhouette"
+      ],
+      "override": "full_override",
+      "reason": "A fitted or body-conscious dress can be an intentional eveningwear choice."
+    },
+
+    {
+      "exception_id": "OBE_009",
+      "trigger": {
+        "occasion": [
+          "black_tie",
+          "red_carpet",
+          "formal_gala"
+        ],
+        "aesthetic": [
+          "dramatic",
+          "elegant",
+          "glamorous"
+        ]
+      },
+      "applies_to": [
+        "floor_length + floor_length",
+        "maxi + maxi",
+        "very_oversized_gown",
+        "balloon_gown"
+      ],
+      "override": "strong_reduction",
+      "reason": "Long and dramatic proportions are expected in high-formality evening dressing."
+    },
+
+    {
+      "exception_id": "OBE_010",
+      "trigger": {
+        "occasion": [
+          "black_tie",
+          "red_carpet",
+          "fashion_event"
+        ],
+        "aesthetic": [
+          "dramatic",
+          "avant_garde",
+          "experimental"
+        ]
+      },
+      "applies_to": [
+        "balloon + floor_length",
+        "asymmetric + asymmetric",
+        "highly_structured + highly_structured",
+        "very_oversized + floor_length"
+      ],
+      "override": "full_override",
+      "reason": "Dramatic silhouette construction is intentionally accepted in editorial and high-fashion contexts."
+    },
+
+    {
+      "exception_id": "OBE_011",
+      "trigger": {
+        "occasion": [
+          "resort",
+          "vacation",
+          "beach"
+        ],
+        "aesthetic": [
+          "resort",
+          "bohemian",
+          "relaxed"
+        ]
+      },
+      "applies_to": [
+        "oversized + maxi",
+        "fluid + fluid",
+        "wide_leg + oversized"
+      ],
+      "override": "strong_reduction",
+      "reason": "Relaxed flowing proportions are appropriate for resort and vacation dressing."
+    },
+
+    {
+      "exception_id": "OBE_012",
+      "trigger": {
+        "occasion": [
+          "resort",
+          "vacation",
+          "beach"
+        ],
+        "aesthetic": [
+          "bohemian",
+          "resort",
+          "romantic"
+        ]
+      },
+      "applies_to": [
+        "maxi + maxi",
+        "fluid + fluid",
+        "wide_leg + wide_leg"
+      ],
+      "override": "strong_reduction",
+      "reason": "Flowing layered silhouettes are characteristic of relaxed resort dressing."
+    },
+
+    {
+      "exception_id": "OBE_013",
+      "trigger": {
+        "occasion": [
+          "festive",
+          "traditional_festive",
+          "wedding_guest"
+        ],
+        "aesthetic": [
+          "dramatic",
+          "elegant",
+          "romantic"
+        ]
+      },
+      "applies_to": [
+        "a_line + a_line",
+        "fit_and_flare + wide_leg",
+        "structured + fluid",
+        "highly_structured + fluid"
+      ],
+      "override": "strong_reduction",
+      "reason": "Festive dressing can intentionally use volume, drape and layered silhouettes."
+    },
+
+    {
+      "exception_id": "OBE_014",
+      "trigger": {
+        "occasion": [
+          "traditional_festive",
+          "wedding_guest"
+        ],
+        "aesthetic": [
+          "traditional",
+          "elegant",
+          "dramatic"
+        ]
+      },
+      "applies_to": [
+        "longline + maxi",
+        "floor_length + floor_length",
+        "voluminous + voluminous"
+      ],
+      "override": "strong_reduction",
+      "reason": "Traditional occasionwear can intentionally use substantial fabric volume and layered lengths."
+    },
+
+    {
+      "exception_id": "OBE_015",
+      "trigger": {
+        "occasion": [
+          "athleisure",
+          "casual",
+          "travel"
+        ],
+        "aesthetic": [
+          "sporty",
+          "relaxed"
+        ]
+      },
+      "applies_to": [
+        "oversized + oversized",
+        "oversized + tapered",
+        "very_oversized + tapered"
+      ],
+      "override": "full_override",
+      "reason": "Relaxed athletic styling frequently combines oversized upper layers with relaxed or tapered bottoms."
+    },
+
+    {
+      "exception_id": "OBE_016",
+      "trigger": {
+        "occasion": [
+          "travel",
+          "casual",
+          "weekend"
+        ],
+        "aesthetic": [
+          "relaxed",
+          "minimalist",
+          "sporty"
+        ]
+      },
+      "applies_to": [
+        "oversized + wide_leg",
+        "fluid + fluid",
+        "longline + relaxed"
+      ],
+      "override": "strong_reduction",
+      "reason": "Comfort-driven dressing can intentionally prioritize relaxed volume over traditional proportion rules."
+    },
+
+    {
+      "exception_id": "OBE_017",
+      "trigger": {
+        "occasion": [
+          "creative_work",
+          "fashion_event"
+        ],
+        "aesthetic": [
+          "experimental",
+          "avant_garde",
+          "contemporary"
+        ]
+      },
+      "applies_to": [
+        "asymmetric + asymmetric",
+        "oversized + oversized",
+        "balloon + balloon",
+        "structured + fluid",
+        "highly_structured + fluid"
+      ],
+      "override": "full_override",
+      "reason": "Creative and fashion-oriented contexts allow deliberate silhouette tension."
+    },
+
+    {
+      "exception_id": "OBE_018",
+      "trigger": {
+        "occasion": [
+          "streetwear",
+          "concert",
+          "festival"
+        ],
+        "aesthetic": [
+          "y2k",
+          "streetwear",
+          "edgy"
+        ]
+      },
+      "applies_to": [
+        "cropped + low_rise",
+        "cropped + wide_leg",
+        "bodycon + oversized"
+      ],
+      "override": "full_override",
+      "reason": "These combinations are established styling conventions within Y2K and streetwear aesthetics."
+    },
+
+    {
+      "exception_id": "OBE_019",
+      "trigger": {
+        "occasion": [
+          "smart_casual",
+          "date_night",
+          "dinner"
+        ],
+        "aesthetic": [
+          "minimalist",
+          "contemporary",
+          "elegant"
+        ]
+      },
+      "applies_to": [
+        "bodycon + oversized_outerwear",
+        "fitted + wide_leg",
+        "cropped + high_rise"
+      ],
+      "override": "full_override",
+      "reason": "Controlled contrast between fitted and relaxed silhouettes can create polished contemporary proportions."
+    },
+
+    {
+      "exception_id": "OBE_020",
+      "trigger": {
+        "occasion": [
+          "business_casual",
+          "smart_casual"
+        ],
+        "aesthetic": [
+          "preppy",
+          "classic",
+          "minimalist"
+        ]
+      },
+      "applies_to": [
+        "boxy + tapered",
+        "oversized + tapered",
+        "structured + tapered",
+        "longline + tapered"
+      ],
+      "override": "full_override",
+      "reason": "A streamlined lower silhouette provides sufficient structure to support relaxed upper proportions."
+    },
+
+    {
+      "exception_id": "OBE_021",
+      "trigger": {
+        "occasion": [
+          "formal_business"
+        ],
+        "aesthetic": [
+          "classic",
+          "minimalist",
+          "quiet_luxury"
+        ]
+      },
+      "applies_to": [
+        "fitted + straight_leg",
+        "fitted + tapered",
+        "structured + straight_leg",
+        "structured + tapered"
+      ],
+      "override": "full_override",
+      "reason": "These combinations reinforce professional proportion and visual structure."
+    },
+
+    {
+      "exception_id": "OBE_022",
+      "trigger": {
+        "occasion": [
+          "formal_business",
+          "business_casual"
+        ],
+        "aesthetic": [
+          "classic",
+          "quiet_luxury"
+        ]
+      },
+      "applies_to": [
+        "monochromatic_column",
+        "vertical_column"
+      ],
+      "override": "full_override",
+      "reason": "Continuous vertical silhouettes are compatible with polished professional dressing."
+    },
+
+    {
+      "exception_id": "OBE_023",
+      "trigger": {
+        "occasion": [
+          "casual",
+          "weekend",
+          "brunch"
+        ],
+        "aesthetic": [
+          "bohemian",
+          "romantic",
+          "relaxed"
+        ]
+      },
+      "applies_to": [
+        "fluid + fluid",
+        "a_line + fluid",
+        "maxi + fluid",
+        "oversized + maxi"
+      ],
+      "override": "full_override",
+      "reason": "Soft flowing proportions are intentional within relaxed romantic and bohemian dressing."
+    },
+
+    {
+      "exception_id": "OBE_024",
+      "trigger": {
+        "occasion": [
+          "date_night",
+          "cocktail",
+          "party"
+        ],
+        "aesthetic": [
+          "romantic",
+          "feminine",
+          "glamorous"
+        ]
+      },
+      "applies_to": [
+        "fit_and_flare + fitted",
+        "bodycon + fitted",
+        "a_line + fitted"
+      ],
+      "override": "full_override",
+      "reason": "Defined and feminine proportions are appropriate for evening social occasions."
+    },
+
+    {
+      "exception_id": "OBE_025",
+      "trigger": {
+        "occasion": [
+          "fashion_event",
+          "red_carpet",
+          "concert"
+        ],
+        "aesthetic": [
+          "dramatic",
+          "maximalist",
+          "avant_garde"
+        ]
+      },
+      "applies_to": [
+        "multiple_focal_volumes",
+        "multiple_asymmetric_elements",
+        "extreme_proportion_contrast"
+      ],
+      "override": "full_override",
+      "reason": "Multiple competing focal points can be intentional in editorial and statement dressing."
+    },
+
+    {
+      "exception_id": "OBE_026",
+      "trigger": {
+        "occasion": [
+          "festival",
+          "concert"
+        ],
+        "aesthetic": [
+          "bohemian",
+          "edgy",
+          "maximalist"
+        ]
+      },
+      "applies_to": [
+        "multiple_layers",
+        "multiple_accessory_focal_points",
+        "oversized + oversized"
+      ],
+      "override": "strong_reduction",
+      "reason": "Festival styling often permits deliberate layering and visual complexity."
+    },
+
+    {
+      "exception_id": "OBE_027",
+      "trigger": {
+        "occasion": [
+          "resort",
+          "beach",
+          "vacation"
+        ],
+        "aesthetic": [
+          "minimalist",
+          "resort",
+          "elegant"
+        ]
+      },
+      "applies_to": [
+        "monochromatic_column",
+        "fluid + fluid",
+        "wide_leg + fitted"
+      ],
+      "override": "full_override",
+      "reason": "Clean flowing silhouettes are highly compatible with resort dressing."
+    },
+
+    {
+      "exception_id": "OBE_028",
+      "trigger": {
+        "occasion": [
+          "lounge",
+          "home",
+          "travel"
+        ],
+        "aesthetic": [
+          "relaxed",
+          "minimalist",
+          "sporty"
+        ]
+      },
+      "applies_to": [
+        "fluid + fluid",
+        "oversized + oversized",
+        "very_oversized + very_oversized"
+      ],
+      "override": "full_override",
+      "reason": "Comfort-oriented contexts intentionally prioritize ease and relaxed proportions."
+    },
+
+    {
+      "exception_id": "OBE_029",
+      "trigger": {
+        "occasion": [
+          "wedding_guest",
+          "festive",
+          "cocktail"
+        ],
+        "aesthetic": [
+          "elegant",
+          "romantic",
+          "feminine"
+        ]
+      },
+      "applies_to": [
+        "fit_and_flare",
+        "a_line",
+        "structured + fluid",
+        "defined_waist + volume"
+      ],
+      "override": "full_override",
+      "reason": "Controlled volume and defined-waist silhouettes are appropriate for polished occasion dressing."
+    },
+
+    {
+      "exception_id": "OBE_030",
+      "trigger": {
+        "occasion": [
+          "formal_business"
+        ],
+        "aesthetic": [
+          "classic",
+          "minimalist"
+        ]
+      },
+      "applies_to": [
+        "very_oversized + wide_leg",
+        "balloon + balloon",
+        "very_oversized + balloon",
+        "bodycon + bodycon"
+      ],
+      "override": "none",
+      "reason": "Professional environments generally require controlled proportion even when a fashion-forward aesthetic is desired."
+    }
+
+  ],
+
+  "hard_override_rules": [
+    {
+      "rule_id": "HARD_001",
+      "condition": "garment construction is fundamentally incompatible with silhouette",
+      "action": "never_override",
+      "examples": [
+        "leggings + wide_leg",
+        "wide_leg_trousers + bodycon",
+        "mini_skirt + floor_length",
+        "maxi_skirt + mini",
+        "bodycon_dress + very_oversized"
+      ]
+    },
+
+    {
+      "rule_id": "HARD_002",
+      "condition": "garment structure would be physically or functionally compromised",
+      "action": "never_override",
+      "examples": [
+        "highly_structured_tailoring + extreme_deformation",
+        "functional_outerwear + incompatible_construction"
+      ]
+    }
+  ],
+
+  "context_priority": [
+    "hard_garment_compatibility",
+    "occasion",
+    "user_requested_aesthetic",
+    "silhouette_balance",
+    "color_harmony",
+    "fabric_compatibility",
+    "accessory_compatibility"
+  ],
+
+  "default_behavior": {
+    "if_no_exception_matches": "retain_original_negative_penalty",
+    "if_exception_matches": "apply_exception_override",
+    "if_multiple_exceptions_match": "use_highest_strength_exception",
+    "if_occasion_and_aesthetic_conflict": "occasion_takes_priority",
+    "if_user_explicitly_requests_style": "allow_requested_aesthetic_to_reduce_soft_penalties",
+    "never_reject_based_on_body_balance_alone": true
+  }
+}

@@ -1,0 +1,1020 @@
+{
+  "file": "occasion_incompatibilities.json",
+  "version": "1.0",
+  "description": "Rules identifying garments, footwear, accessories, silhouettes, fabrics, colors, and styling characteristics that are generally incompatible with specific occasions.",
+
+  "severity_scale": {
+    "5": "Strong incompatibility — normally exclude",
+    "4": "High incompatibility — strongly penalize",
+    "3": "Moderate incompatibility — usually avoid",
+    "2": "Mild incompatibility — consider alternatives",
+    "1": "Minor mismatch",
+    "0": "No incompatibility"
+  },
+
+  "override_principle": {
+    "default": "Occasion incompatibilities should strongly influence style-board ranking.",
+    "user_intent_override": true,
+    "override_condition": "If the user explicitly requests an unconventional, rebellious, fashion-forward, or deliberately inappropriate interpretation, soft incompatibilities may be reduced.",
+    "hard_override": false,
+    "hard_override_note": "AHVI should not claim something is conventionally appropriate merely because the user requests it."
+  },
+
+  "occasion_categories": [
+    "formal_business",
+    "business_casual",
+    "smart_casual",
+    "casual",
+    "weekend",
+    "travel",
+    "brunch",
+    "date_night",
+    "dinner",
+    "cocktail",
+    "party",
+    "wedding_guest",
+    "festive",
+    "traditional_festive",
+    "religious_ceremony",
+    "beach",
+    "resort",
+    "vacation",
+    "streetwear",
+    "concert",
+    "festival",
+    "creative_work",
+    "fashion_event",
+    "red_carpet",
+    "black_tie",
+    "lounge",
+    "athleisure",
+    "interview",
+    "presentation",
+    "graduation"
+  ],
+
+  "rules": [
+
+    {
+      "rule_id": "OI_001",
+      "occasion": "formal_business",
+      "category": "garment",
+      "item": "graphic_tshirt",
+      "severity": 5,
+      "reason": "Large graphic messaging is generally inconsistent with polished formal business dressing."
+    },
+
+    {
+      "rule_id": "OI_002",
+      "occasion": "formal_business",
+      "category": "garment",
+      "item": "hoodie",
+      "severity": 5,
+      "reason": "A hoodie is generally too casual for formal business environments."
+    },
+
+    {
+      "rule_id": "OI_003",
+      "occasion": "formal_business",
+      "category": "garment",
+      "item": "sweatpants",
+      "severity": 5,
+      "reason": "Sweatpants are generally incompatible with formal business presentation."
+    },
+
+    {
+      "rule_id": "OI_004",
+      "occasion": "formal_business",
+      "category": "garment",
+      "item": "distressed_denim",
+      "severity": 5,
+      "reason": "Heavy distressing is generally inconsistent with formal business dressing."
+    },
+
+    {
+      "rule_id": "OI_005",
+      "occasion": "formal_business",
+      "category": "garment",
+      "item": "crop_top",
+      "severity": 5,
+      "reason": "Exposed midriff is generally inappropriate for formal business environments."
+    },
+
+    {
+      "rule_id": "OI_006",
+      "occasion": "formal_business",
+      "category": "garment",
+      "item": "micro_mini_skirt",
+      "severity": 5,
+      "reason": "Extremely short hemlines are generally inappropriate for formal business settings."
+    },
+
+    {
+      "rule_id": "OI_007",
+      "occasion": "formal_business",
+      "category": "garment",
+      "item": "sheer_top",
+      "severity": 5,
+      "reason": "Highly transparent garments are generally incompatible with formal business presentation."
+    },
+
+    {
+      "rule_id": "OI_008",
+      "occasion": "formal_business",
+      "category": "garment",
+      "item": "deep_plunging_neckline",
+      "severity": 4,
+      "reason": "Very deep necklines can be inconsistent with conservative professional presentation."
+    },
+
+    {
+      "rule_id": "OI_009",
+      "occasion": "formal_business",
+      "category": "footwear",
+      "item": "flip_flops",
+      "severity": 5,
+      "reason": "Flip-flops are generally too casual for formal business environments."
+    },
+
+    {
+      "rule_id": "OI_010",
+      "occasion": "formal_business",
+      "category": "footwear",
+      "item": "beach_slides",
+      "severity": 5,
+      "reason": "Beach footwear is incompatible with formal professional presentation."
+    },
+
+    {
+      "rule_id": "OI_011",
+      "occasion": "formal_business",
+      "category": "footwear",
+      "item": "athletic_running_shoes",
+      "severity": 4,
+      "reason": "Performance running shoes are generally too casual for formal business settings."
+    },
+
+    {
+      "rule_id": "OI_012",
+      "occasion": "formal_business",
+      "category": "accessory",
+      "item": "novelty_accessories",
+      "severity": 4,
+      "reason": "Novelty accessories can undermine a polished professional appearance."
+    },
+
+    {
+      "rule_id": "OI_013",
+      "occasion": "formal_business",
+      "category": "silhouette",
+      "item": "very_oversized",
+      "severity": 4,
+      "reason": "Extreme oversized proportions can appear insufficiently polished for formal business dressing."
+    },
+
+    {
+      "rule_id": "OI_014",
+      "occasion": "formal_business",
+      "category": "silhouette",
+      "item": "balloon",
+      "severity": 4,
+      "reason": "Extreme balloon proportions are generally inconsistent with conventional professional tailoring."
+    },
+
+    {
+      "rule_id": "OI_015",
+      "occasion": "formal_business",
+      "category": "silhouette",
+      "item": "extreme_bodycon",
+      "severity": 4,
+      "reason": "Extremely body-conscious silhouettes can be inappropriate for conservative professional contexts."
+    },
+
+    {
+      "rule_id": "OI_016",
+      "occasion": "formal_business",
+      "category": "fabric",
+      "item": "beach_crochet",
+      "severity": 5,
+      "reason": "Beach-oriented crochet is generally too casual for formal business dressing."
+    },
+
+    {
+      "rule_id": "OI_017",
+      "occasion": "formal_business",
+      "category": "fabric",
+      "item": "terrycloth",
+      "severity": 4,
+      "reason": "Terrycloth is strongly associated with casual and resort dressing."
+    },
+
+    {
+      "rule_id": "OI_018",
+      "occasion": "formal_business",
+      "category": "styling",
+      "item": "visible_underwear",
+      "severity": 5,
+      "reason": "Visible underwear is generally inappropriate in formal business settings."
+    },
+
+    {
+      "rule_id": "OI_019",
+      "occasion": "business_casual",
+      "category": "garment",
+      "item": "sweatpants",
+      "severity": 4,
+      "reason": "Sweatpants are generally too casual for business-casual settings."
+    },
+
+    {
+      "rule_id": "OI_020",
+      "occasion": "business_casual",
+      "category": "garment",
+      "item": "hoodie",
+      "severity": 4,
+      "reason": "Hoodies are generally too casual unless the workplace explicitly permits relaxed dress."
+    },
+
+    {
+      "rule_id": "OI_021",
+      "occasion": "business_casual",
+      "category": "garment",
+      "item": "distressed_denim",
+      "severity": 4,
+      "reason": "Heavy distressing can appear too casual for most business-casual environments."
+    },
+
+    {
+      "rule_id": "OI_022",
+      "occasion": "business_casual",
+      "category": "garment",
+      "item": "crop_top",
+      "severity": 4,
+      "reason": "Exposed midriff is generally inappropriate for conventional business-casual environments."
+    },
+
+    {
+      "rule_id": "OI_023",
+      "occasion": "business_casual",
+      "category": "footwear",
+      "item": "flip_flops",
+      "severity": 5,
+      "reason": "Flip-flops are generally too casual for business-casual dressing."
+    },
+
+    {
+      "rule_id": "OI_024",
+      "occasion": "business_casual",
+      "category": "silhouette",
+      "item": "very_oversized",
+      "severity": 3,
+      "reason": "Extreme oversized proportions may reduce professional polish."
+    },
+
+    {
+      "rule_id": "OI_025",
+      "occasion": "business_casual",
+      "category": "styling",
+      "item": "excessive_distressing",
+      "severity": 4,
+      "reason": "Heavy distressing can undermine professional presentation."
+    },
+
+    {
+      "rule_id": "OI_026",
+      "occasion": "interview",
+      "category": "garment",
+      "item": "graphic_tshirt",
+      "severity": 5,
+      "reason": "Large graphic messaging can distract from a professional first impression."
+    },
+
+    {
+      "rule_id": "OI_027",
+      "occasion": "interview",
+      "category": "garment",
+      "item": "hoodie",
+      "severity": 5,
+      "reason": "A hoodie is generally too casual for a conventional interview."
+    },
+
+    {
+      "rule_id": "OI_028",
+      "occasion": "interview",
+      "category": "garment",
+      "item": "distressed_denim",
+      "severity": 4,
+      "reason": "Heavy distressing may appear insufficiently polished."
+    },
+
+    {
+      "rule_id": "OI_029",
+      "occasion": "interview",
+      "category": "garment",
+      "item": "crop_top",
+      "severity": 5,
+      "reason": "Exposed midriff is generally inappropriate for a conventional interview."
+    },
+
+    {
+      "rule_id": "OI_030",
+      "occasion": "interview",
+      "category": "accessory",
+      "item": "statement_accessory_stack",
+      "severity": 3,
+      "reason": "Excessive accessories can distract from a professional first impression."
+    },
+
+    {
+      "rule_id": "OI_031",
+      "occasion": "presentation",
+      "category": "styling",
+      "item": "excessive_visual_noise",
+      "severity": 4,
+      "reason": "High visual complexity can compete with the wearer during a presentation."
+    },
+
+    {
+      "rule_id": "OI_032",
+      "occasion": "presentation",
+      "category": "accessory",
+      "item": "oversized_statement_accessory",
+      "severity": 3,
+      "reason": "Large statement accessories can become distracting while presenting."
+    },
+
+    {
+      "rule_id": "OI_033",
+      "occasion": "presentation",
+      "category": "silhouette",
+      "item": "extreme_oversized",
+      "severity": 3,
+      "reason": "Extreme volume can distract from the speaker and reduce visual clarity."
+    },
+
+    {
+      "rule_id": "OI_034",
+      "occasion": "smart_casual",
+      "category": "garment",
+      "item": "sweatpants",
+      "severity": 3,
+      "reason": "Sweatpants generally sit below the expected polish level of smart-casual dressing."
+    },
+
+    {
+      "rule_id": "OI_035",
+      "occasion": "smart_casual",
+      "category": "footwear",
+      "item": "flip_flops",
+      "severity": 4,
+      "reason": "Flip-flops are generally too casual for smart-casual dressing."
+    },
+
+    {
+      "rule_id": "OI_036",
+      "occasion": "smart_casual",
+      "category": "garment",
+      "item": "heavily_distressed_denim",
+      "severity": 3,
+      "reason": "Heavy distressing can reduce the polished quality expected from smart casual."
+    },
+
+    {
+      "rule_id": "OI_037",
+      "occasion": "smart_casual",
+      "category": "garment",
+      "item": "sleepwear",
+      "severity": 5,
+      "reason": "Sleepwear is incompatible with smart-casual dressing."
+    },
+
+    {
+      "rule_id": "OI_038",
+      "occasion": "black_tie",
+      "category": "garment",
+      "item": "casual_tshirt",
+      "severity": 5,
+      "reason": "A conventional casual T-shirt does not meet black-tie formality."
+    },
+
+    {
+      "rule_id": "OI_039",
+      "occasion": "black_tie",
+      "category": "garment",
+      "item": "jeans",
+      "severity": 5,
+      "reason": "Denim is generally incompatible with traditional black-tie dress codes."
+    },
+
+    {
+      "rule_id": "OI_040",
+      "occasion": "black_tie",
+      "category": "garment",
+      "item": "shorts",
+      "severity": 5,
+      "reason": "Shorts are incompatible with traditional black-tie dressing."
+    },
+
+    {
+      "rule_id": "OI_041",
+      "occasion": "black_tie",
+      "category": "footwear",
+      "item": "sneakers",
+      "severity": 5,
+      "reason": "Sneakers generally do not meet traditional black-tie footwear expectations."
+    },
+
+    {
+      "rule_id": "OI_042",
+      "occasion": "black_tie",
+      "category": "footwear",
+      "item": "flip_flops",
+      "severity": 5,
+      "reason": "Flip-flops are incompatible with black-tie dressing."
+    },
+
+    {
+      "rule_id": "OI_043",
+      "occasion": "black_tie",
+      "category": "accessory",
+      "item": "casual_baseball_cap",
+      "severity": 5,
+      "reason": "A casual baseball cap is generally incompatible with traditional black-tie attire."
+    },
+
+    {
+      "rule_id": "OI_044",
+      "occasion": "red_carpet",
+      "category": "garment",
+      "item": "casual_sweatpants",
+      "severity": 4,
+      "reason": "Standard sweatpants generally lack the formality expected for a conventional red-carpet appearance."
+    },
+
+    {
+      "rule_id": "OI_045",
+      "occasion": "cocktail",
+      "category": "garment",
+      "item": "sweatpants",
+      "severity": 5,
+      "reason": "Sweatpants are generally incompatible with cocktail dressing."
+    },
+
+    {
+      "rule_id": "OI_046",
+      "occasion": "cocktail",
+      "category": "garment",
+      "item": "hoodie",
+      "severity": 4,
+      "reason": "A hoodie is generally too casual for cocktail attire."
+    },
+
+    {
+      "rule_id": "OI_047",
+      "occasion": "cocktail",
+      "category": "footwear",
+      "item": "flip_flops",
+      "severity": 5,
+      "reason": "Flip-flops are generally too casual for cocktail dressing."
+    },
+
+    {
+      "rule_id": "OI_048",
+      "occasion": "wedding_guest",
+      "category": "garment",
+      "item": "white_bridal_gown",
+      "severity": 5,
+      "reason": "Traditional white bridal styling can conflict with the role of a wedding guest."
+    },
+
+    {
+      "rule_id": "OI_049",
+      "occasion": "wedding_guest",
+      "category": "garment",
+      "item": "extreme_casualwear",
+      "severity": 4,
+      "reason": "Very casual garments can be inappropriate for many wedding settings."
+    },
+
+    {
+      "rule_id": "OI_050",
+      "occasion": "wedding_guest",
+      "category": "styling",
+      "item": "bridal_look_replication",
+      "severity": 5,
+      "reason": "A guest should generally avoid intentionally replicating the bride's complete visual identity."
+    },
+
+    {
+      "rule_id": "OI_051",
+      "occasion": "wedding_guest",
+      "category": "accessory",
+      "item": "large_bridal_veil",
+      "severity": 5,
+      "reason": "A bridal veil is generally inappropriate for a wedding guest."
+    },
+
+    {
+      "rule_id": "OI_052",
+      "occasion": "traditional_festive",
+      "category": "garment",
+      "item": "gymwear",
+      "severity": 5,
+      "reason": "Gymwear generally does not satisfy the expected cultural or festive presentation."
+    },
+
+    {
+      "rule_id": "OI_053",
+      "occasion": "traditional_festive",
+      "category": "garment",
+      "item": "sleepwear",
+      "severity": 5,
+      "reason": "Sleepwear is incompatible with festive social dressing."
+    },
+
+    {
+      "rule_id": "OI_054",
+      "occasion": "religious_ceremony",
+      "category": "garment",
+      "item": "highly_revealing_garment",
+      "severity": 4,
+      "reason": "Highly revealing garments may be inconsistent with conservative expectations in some religious settings."
+    },
+
+    {
+      "rule_id": "OI_055",
+      "occasion": "religious_ceremony",
+      "category": "garment",
+      "item": "micro_mini",
+      "severity": 4,
+      "reason": "Very short hemlines may be inappropriate in many religious environments."
+    },
+
+    {
+      "rule_id": "OI_056",
+      "occasion": "religious_ceremony",
+      "category": "garment",
+      "item": "sheer_exposed_garment",
+      "severity": 4,
+      "reason": "Highly sheer garments may conflict with modesty expectations in some religious settings."
+    },
+
+    {
+      "rule_id": "OI_057",
+      "occasion": "religious_ceremony",
+      "category": "styling",
+      "item": "exposed_shoulders",
+      "severity": 2,
+      "reason": "Some religious venues have shoulder-covering expectations."
+    },
+
+    {
+      "rule_id": "OI_058",
+      "occasion": "beach",
+      "category": "garment",
+      "item": "formal_business_suit",
+      "severity": 5,
+      "reason": "Formal business tailoring is generally inappropriate for a beach setting."
+    },
+
+    {
+      "rule_id": "OI_059",
+      "occasion": "beach",
+      "category": "footwear",
+      "item": "formal_dress_shoes",
+      "severity": 4,
+      "reason": "Formal dress shoes are generally impractical and visually inconsistent with beach dressing."
+    },
+
+    {
+      "rule_id": "OI_060",
+      "occasion": "beach",
+      "category": "fabric",
+      "item": "heavy_wool",
+      "severity": 5,
+      "reason": "Heavy insulating fabrics are generally unsuitable for warm beach environments."
+    },
+
+    {
+      "rule_id": "OI_061",
+      "occasion": "beach",
+      "category": "fabric",
+      "item": "heavy_leather",
+      "severity": 4,
+      "reason": "Heavy leather is generally too warm and visually heavy for beach dressing."
+    },
+
+    {
+      "rule_id": "OI_062",
+      "occasion": "resort",
+      "category": "fabric",
+      "item": "heavy_winter_wool",
+      "severity": 4,
+      "reason": "Heavy winter fabrics generally conflict with warm resort environments."
+    },
+
+    {
+      "rule_id": "OI_063",
+      "occasion": "resort",
+      "category": "garment",
+      "item": "formal_business_suit",
+      "severity": 4,
+      "reason": "Formal business tailoring generally feels too corporate for resort dressing."
+    },
+
+    {
+      "rule_id": "OI_064",
+      "occasion": "athleisure",
+      "category": "garment",
+      "item": "formal_gown",
+      "severity": 5,
+      "reason": "Formal gowns are incompatible with athletic leisure contexts."
+    },
+
+    {
+      "rule_id": "OI_065",
+      "occasion": "athleisure",
+      "category": "footwear",
+      "item": "stiletto_heels",
+      "severity": 4,
+      "reason": "Stiletto heels are generally inconsistent with functional athleisure dressing."
+    },
+
+    {
+      "rule_id": "OI_066",
+      "occasion": "athleisure",
+      "category": "garment",
+      "item": "tailored_tuxedo",
+      "severity": 5,
+      "reason": "Formal tailoring is incompatible with conventional athleisure styling."
+    },
+
+    {
+      "rule_id": "OI_067",
+      "occasion": "travel",
+      "category": "garment",
+      "item": "extreme_restrictive_silhouette",
+      "severity": 3,
+      "reason": "Highly restrictive garments can reduce comfort during travel."
+    },
+
+    {
+      "rule_id": "OI_068",
+      "occasion": "travel",
+      "category": "footwear",
+      "item": "extreme_stiletto",
+      "severity": 3,
+      "reason": "Very high heels may be impractical for extended walking and transit."
+    },
+
+    {
+      "rule_id": "OI_069",
+      "occasion": "travel",
+      "category": "accessory",
+      "item": "excessive_heavy_accessories",
+      "severity": 2,
+      "reason": "Excessive accessory weight can reduce travel practicality."
+    },
+
+    {
+      "rule_id": "OI_070",
+      "occasion": "lounge",
+      "category": "garment",
+      "item": "formal_suit",
+      "severity": 5,
+      "reason": "Formal suiting is generally inconsistent with lounge dressing."
+    },
+
+    {
+      "rule_id": "OI_071",
+      "occasion": "lounge",
+      "category": "footwear",
+      "item": "formal_dress_shoes",
+      "severity": 4,
+      "reason": "Formal footwear is generally unnecessary and visually inconsistent with lounge dressing."
+    },
+
+    {
+      "rule_id": "OI_072",
+      "occasion": "concert",
+      "category": "styling",
+      "item": "extreme_delicacy",
+      "severity": 2,
+      "reason": "Very delicate garments may be impractical in crowded or active concert environments."
+    },
+
+    {
+      "rule_id": "OI_073",
+      "occasion": "festival",
+      "category": "styling",
+      "item": "extreme_formality",
+      "severity": 3,
+      "reason": "Highly formal styling may feel disconnected from the relaxed and expressive festival environment."
+    },
+
+    {
+      "rule_id": "OI_074",
+      "occasion": "festival",
+      "category": "footwear",
+      "item": "fragile_stiletto",
+      "severity": 3,
+      "reason": "Very delicate high heels may be impractical for outdoor festival environments."
+    },
+
+    {
+      "rule_id": "OI_075",
+      "occasion": "graduation",
+      "category": "garment",
+      "item": "extreme_casualwear",
+      "severity": 3,
+      "reason": "Extremely casual garments may not provide the polished appearance commonly expected for graduation events."
+    },
+
+    {
+      "rule_id": "OI_076",
+      "occasion": "graduation",
+      "category": "garment",
+      "item": "extreme_formal_eveningwear",
+      "severity": 2,
+      "reason": "Red-carpet-level eveningwear can be unnecessarily formal for a typical graduation event."
+    },
+
+    {
+      "rule_id": "OI_077",
+      "occasion": "date_night",
+      "category": "garment",
+      "item": "gymwear",
+      "severity": 3,
+      "reason": "Gymwear can appear too casual unless the date context specifically involves athletic activity."
+    },
+
+    {
+      "rule_id": "OI_078",
+      "occasion": "date_night",
+      "category": "garment",
+      "item": "sleepwear",
+      "severity": 5,
+      "reason": "Sleepwear is generally inappropriate for a conventional date-night setting."
+    },
+
+    {
+      "rule_id": "OI_079",
+      "occasion": "dinner",
+      "category": "garment",
+      "item": "gymwear",
+      "severity": 3,
+      "reason": "Gymwear is generally too casual for most dinner environments."
+    },
+
+    {
+      "rule_id": "OI_080",
+      "occasion": "dinner",
+      "category": "footwear",
+      "item": "beach_flip_flops",
+      "severity": 3,
+      "reason": "Beach footwear may be too casual for many dinner settings."
+    },
+
+    {
+      "rule_id": "OI_081",
+      "occasion": "brunch",
+      "category": "garment",
+      "item": "black_tie_gown",
+      "severity": 4,
+      "reason": "Black-tie-level eveningwear is generally unnecessarily formal for brunch."
+    },
+
+    {
+      "rule_id": "OI_082",
+      "occasion": "brunch",
+      "category": "garment",
+      "item": "formal_tuxedo",
+      "severity": 4,
+      "reason": "Traditional tuxedo dressing is generally too formal for brunch."
+    },
+
+    {
+      "rule_id": "OI_083",
+      "occasion": "casual",
+      "category": "garment",
+      "item": "black_tie_gown",
+      "severity": 5,
+      "reason": "Black-tie gowns are generally incompatible with ordinary casual settings."
+    },
+
+    {
+      "rule_id": "OI_084",
+      "occasion": "casual",
+      "category": "garment",
+      "item": "formal_tuxedo",
+      "severity": 5,
+      "reason": "Formal tuxedo dressing is generally incompatible with ordinary casual occasions."
+    },
+
+    {
+      "rule_id": "OI_085",
+      "occasion": "casual",
+      "category": "footwear",
+      "item": "formal_patent_dress_shoes",
+      "severity": 3,
+      "reason": "Highly formal dress shoes may appear unnecessarily formal for casual occasions."
+    },
+
+    {
+      "rule_id": "OI_086",
+      "occasion": "creative_work",
+      "category": "garment",
+      "item": "strict_conservative_suiting",
+      "severity": 1,
+      "reason": "Highly conventional suiting may be less aligned with creative workplace environments, depending on the organization."
+    },
+
+    {
+      "rule_id": "OI_087",
+      "occasion": "creative_work",
+      "category": "styling",
+      "item": "extreme_uniformity",
+      "severity": 1,
+      "reason": "Overly conservative styling may not express the creative character of the environment."
+    },
+
+    {
+      "rule_id": "OI_088",
+      "occasion": "fashion_event",
+      "category": "styling",
+      "item": "extreme_basicness",
+      "severity": 1,
+      "reason": "Highly basic styling is not necessarily inappropriate but may underperform when the occasion invites fashion expression."
+    },
+
+    {
+      "rule_id": "OI_089",
+      "occasion": "fashion_event",
+      "category": "silhouette",
+      "item": "conventional_business_silhouette",
+      "severity": 1,
+      "reason": "Conventional business silhouettes may appear overly restrained in fashion-focused contexts."
+    },
+
+    {
+      "rule_id": "OI_090",
+      "occasion": "red_carpet",
+      "category": "styling",
+      "item": "ordinary_daywear",
+      "severity": 4,
+      "reason": "Standard daywear generally lacks the intentional presentation expected on a red carpet."
+    },
+
+    {
+      "rule_id": "OI_091",
+      "occasion": "black_tie",
+      "category": "accessory",
+      "item": "casual_backpack",
+      "severity": 5,
+      "reason": "A casual backpack is generally incompatible with formal black-tie presentation."
+    },
+
+    {
+      "rule_id": "OI_092",
+      "occasion": "formal_business",
+      "category": "accessory",
+      "item": "casual_backpack",
+      "severity": 4,
+      "reason": "A casual backpack may undermine formal professional presentation."
+    },
+
+    {
+      "rule_id": "OI_093",
+      "occasion": "formal_business",
+      "category": "accessory",
+      "item": "oversized_sports_watch",
+      "severity": 2,
+      "reason": "Very sporty oversized accessories can create a mismatch with formal business dressing."
+    },
+
+    {
+      "rule_id": "OI_094",
+      "occasion": "formal_business",
+      "category": "eyewear",
+      "item": "sport_sunglasses",
+      "severity": 3,
+      "reason": "Highly athletic eyewear can clash with formal professional styling."
+    },
+
+    {
+      "rule_id": "OI_095",
+      "occasion": "black_tie",
+      "category": "eyewear",
+      "item": "sport_sunglasses",
+      "severity": 4,
+      "reason": "Sport-oriented sunglasses are generally inconsistent with formal evening presentation."
+    },
+
+    {
+      "rule_id": "OI_096",
+      "occasion": "black_tie",
+      "category": "accessory",
+      "item": "large_casual_tote",
+      "severity": 3,
+      "reason": "Large casual totes can undermine formal evening presentation."
+    },
+
+    {
+      "rule_id": "OI_097",
+      "occasion": "cocktail",
+      "category": "accessory",
+      "item": "large_work_tote",
+      "severity": 3,
+      "reason": "A large work tote can appear too utilitarian for cocktail dressing."
+    },
+
+    {
+      "rule_id": "OI_098",
+      "occasion": "date_night",
+      "category": "accessory",
+      "item": "large_work_backpack",
+      "severity": 3,
+      "reason": "A work-oriented backpack can undermine the intentional styling of a date-night look."
+    },
+
+    {
+      "rule_id": "OI_099",
+      "occasion": "beach",
+      "category": "accessory",
+      "item": "heavy_structured_handbag",
+      "severity": 3,
+      "reason": "Heavy structured bags may be visually and practically mismatched with beach dressing."
+    },
+
+    {
+      "rule_id": "OI_100",
+      "occasion": "resort",
+      "category": "accessory",
+      "item": "heavy_structured_work_bag",
+      "severity": 3,
+      "reason": "A formal work bag can conflict with relaxed resort styling."
+    }
+
+  ],
+
+  "occasion_formality_order": [
+    "lounge",
+    "casual",
+    "weekend",
+    "travel",
+    "brunch",
+    "smart_casual",
+    "business_casual",
+    "creative_work",
+    "formal_business",
+    "cocktail",
+    "dinner",
+    "wedding_guest",
+    "festive",
+    "traditional_festive",
+    "red_carpet",
+    "black_tie"
+  ],
+
+  "formality_mismatch_logic": {
+    "too_casual_for_occasion": {
+      "penalty": "increase",
+      "example": "hoodie for black_tie"
+    },
+    "too_formal_for_occasion": {
+      "penalty": "moderate_increase",
+      "example": "black_tie_gown for brunch"
+    },
+    "occasion_specific_incompatibility": {
+      "penalty": "strong_increase",
+      "example": "white_bridal_gown for wedding_guest"
+    },
+    "practicality_conflict": {
+      "penalty": "increase",
+      "example": "stiletto_heels for beach"
+    }
+  },
+
+  "important_context_rules": [
+    {
+      "rule_id": "CTX_001",
+      "description": "Do not assume every workplace has the same dress code.",
+      "action": "Use formal_business, business_casual, or creative_work according to the user's stated context."
+    },
+    {
+      "rule_id": "CTX_002",
+      "description": "Do not assume every wedding, religious ceremony, or festive event has identical cultural expectations.",
+      "action": "Use the user's stated cultural, venue, and dress-code context when available."
+    },
+    {
+      "rule_id": "CTX_003",
+      "description": "Occasion incompatibility should affect ranking rather than automatically deleting every look.",
+      "action": "Hard-exclude only when the garment is explicitly incompatible with the occasion or user-specified dress code."
+    },
+    {
+      "rule_id": "CTX_004",
+      "description": "A user-requested aesthetic can intentionally challenge conventional occasion styling.",
+      "action": "Reduce soft penalties when the user explicitly requests unconventional styling."
+    }
+  ]
+}

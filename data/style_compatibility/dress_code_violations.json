@@ -1,0 +1,1265 @@
+{
+  "file": "dress_code_violations.json",
+  "version": "1.0",
+  "description": "Hard and soft styling violations against explicit dress codes. Used to identify garments, footwear, accessories, silhouettes, fabrics, colors, exposure levels, and styling choices that conflict with a specified dress code.",
+
+  "severity_scale": {
+    "5": "Direct dress-code violation — strongly exclude",
+    "4": "Major violation — strong penalty",
+    "3": "Moderate violation — usually avoid",
+    "2": "Minor violation — context dependent",
+    "1": "Styling tension",
+    "0": "No violation"
+  },
+
+  "violation_types": [
+    "formality_mismatch",
+    "coverage_violation",
+    "hemline_violation",
+    "neckline_violation",
+    "transparency_violation",
+    "footwear_violation",
+    "accessory_violation",
+    "fabric_mismatch",
+    "silhouette_mismatch",
+    "color_mismatch",
+    "cultural_mismatch",
+    "practicality_violation",
+    "branding_violation",
+    "overall_styling_mismatch"
+  ],
+
+  "dress_codes": {
+
+    "black_tie": {
+      "description": "Highly formal evening dress code.",
+      "expected": {
+        "formality": "very_high",
+        "silhouette": [
+          "formal",
+          "tailored",
+          "elegant",
+          "floor_length",
+          "long",
+          "refined"
+        ],
+        "footwear": [
+          "formal_heels",
+          "formal_evening_shoes",
+          "formal_dress_shoes",
+          "refined_formal_flats"
+        ],
+        "accessories": [
+          "evening_clutch",
+          "fine_jewelry",
+          "elegant_watch",
+          "formal_bag"
+        ],
+        "fabrics": [
+          "silk",
+          "satin",
+          "velvet",
+          "crepe",
+          "chiffon",
+          "fine_wool",
+          "formal_embellished_fabric"
+        ]
+      }
+    },
+
+    "black_tie_optional": {
+      "description": "Formal evening dress where black-tie styling is preferred but slightly broader formal options are acceptable.",
+      "expected": {
+        "formality": "high",
+        "silhouette": [
+          "formal",
+          "tailored",
+          "elegant",
+          "long",
+          "midi_formal"
+        ]
+      }
+    },
+
+    "white_tie": {
+      "description": "The highest traditional level of formal evening dress.",
+      "expected": {
+        "formality": "extreme",
+        "silhouette": [
+          "full_formal",
+          "floor_length",
+          "highly_structured"
+        ],
+        "accessories": [
+          "formal_jewelry",
+          "formal_clutch",
+          "formal_evening_accessories"
+        ]
+      }
+    },
+
+    "cocktail": {
+      "description": "Polished semi-formal to formal social dressing, usually shorter and more flexible than black tie.",
+      "expected": {
+        "formality": "high",
+        "silhouette": [
+          "fitted",
+          "a_line",
+          "fit_and_flare",
+          "tailored",
+          "midi",
+          "short_formal"
+        ]
+      }
+    },
+
+    "formal_business": {
+      "description": "Conservative polished professional dressing.",
+      "expected": {
+        "formality": "high",
+        "silhouette": [
+          "tailored",
+          "structured",
+          "straight",
+          "fitted",
+          "clean"
+        ],
+        "footwear": [
+          "formal_pumps",
+          "loafers",
+          "formal_flats",
+          "dress_shoes",
+          "formal_boots"
+        ]
+      }
+    },
+
+    "business_professional": {
+      "description": "Professional office dressing with conservative polished styling.",
+      "expected": {
+        "formality": "high",
+        "silhouette": [
+          "tailored",
+          "structured",
+          "straight",
+          "fitted"
+        ]
+      }
+    },
+
+    "business_casual": {
+      "description": "Professional but relaxed workplace dressing.",
+      "expected": {
+        "formality": "medium_high",
+        "silhouette": [
+          "straight",
+          "relaxed_tailoring",
+          "fitted",
+          "moderately_oversized"
+        ]
+      }
+    },
+
+    "smart_casual": {
+      "description": "Polished casual dressing combining relaxed and refined elements.",
+      "expected": {
+        "formality": "medium",
+        "silhouette": [
+          "relaxed",
+          "tailored",
+          "fitted",
+          "contemporary"
+        ]
+      }
+    },
+
+    "casual": {
+      "description": "Relaxed everyday dressing without strict formal requirements.",
+      "expected": {
+        "formality": "low_medium",
+        "silhouette": [
+          "relaxed",
+          "oversized",
+          "straight",
+          "fitted",
+          "casual"
+        ]
+      }
+    },
+
+    "festive": {
+      "description": "Celebratory dressing with elevated styling and optional cultural elements.",
+      "expected": {
+        "formality": "medium_high",
+        "silhouette": [
+          "elegant",
+          "dramatic",
+          "flowing",
+          "structured",
+          "embellished"
+        ]
+      }
+    },
+
+    "traditional_festive": {
+      "description": "Traditional or culturally specific festive dressing.",
+      "expected": {
+        "formality": "medium_high_to_high",
+        "silhouette": [
+          "traditional",
+          "flowing",
+          "structured",
+          "layered"
+        ]
+      }
+    },
+
+    "beach_formal": {
+      "description": "Elevated dressing appropriate for a beach or tropical environment.",
+      "expected": {
+        "formality": "medium_high",
+        "silhouette": [
+          "fluid",
+          "relaxed",
+          "flowing",
+          "light"
+        ]
+      }
+    },
+
+    "resort_casual": {
+      "description": "Relaxed polished resort dressing.",
+      "expected": {
+        "formality": "medium",
+        "silhouette": [
+          "fluid",
+          "relaxed",
+          "oversized",
+          "wide_leg",
+          "maxi"
+        ]
+      }
+    }
+  },
+
+  "rules": [
+
+    {
+      "rule_id": "DCV_001",
+      "dress_code": "black_tie",
+      "category": "garment",
+      "item": "casual_tshirt",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "A conventional casual T-shirt does not meet black-tie formality."
+    },
+
+    {
+      "rule_id": "DCV_002",
+      "dress_code": "black_tie",
+      "category": "garment",
+      "item": "jeans",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Jeans are generally incompatible with traditional black-tie dress."
+    },
+
+    {
+      "rule_id": "DCV_003",
+      "dress_code": "black_tie",
+      "category": "garment",
+      "item": "shorts",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Shorts do not satisfy traditional black-tie formality."
+    },
+
+    {
+      "rule_id": "DCV_004",
+      "dress_code": "black_tie",
+      "category": "garment",
+      "item": "hoodie",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "A hoodie is incompatible with traditional black-tie dress."
+    },
+
+    {
+      "rule_id": "DCV_005",
+      "dress_code": "black_tie",
+      "category": "garment",
+      "item": "sweatpants",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Sweatpants are incompatible with black-tie dressing."
+    },
+
+    {
+      "rule_id": "DCV_006",
+      "dress_code": "black_tie",
+      "category": "footwear",
+      "item": "sneakers",
+      "violation_type": "footwear_violation",
+      "severity": 5,
+      "reason": "Conventional sneakers do not satisfy traditional black-tie footwear expectations."
+    },
+
+    {
+      "rule_id": "DCV_007",
+      "dress_code": "black_tie",
+      "category": "footwear",
+      "item": "flip_flops",
+      "violation_type": "footwear_violation",
+      "severity": 5,
+      "reason": "Flip-flops are incompatible with black-tie dressing."
+    },
+
+    {
+      "rule_id": "DCV_008",
+      "dress_code": "black_tie",
+      "category": "accessory",
+      "item": "baseball_cap",
+      "violation_type": "accessory_violation",
+      "severity": 5,
+      "reason": "A casual baseball cap is generally incompatible with traditional black-tie styling."
+    },
+
+    {
+      "rule_id": "DCV_009",
+      "dress_code": "black_tie",
+      "category": "garment",
+      "item": "crop_top",
+      "violation_type": "coverage_violation",
+      "severity": 5,
+      "reason": "Exposed midriff is generally inconsistent with traditional black-tie dressing."
+    },
+
+    {
+      "rule_id": "DCV_010",
+      "dress_code": "black_tie",
+      "category": "garment",
+      "item": "micro_mini",
+      "violation_type": "hemline_violation",
+      "severity": 4,
+      "reason": "Extremely short hemlines are generally inconsistent with traditional black-tie styling."
+    },
+
+    {
+      "rule_id": "DCV_011",
+      "dress_code": "black_tie",
+      "category": "garment",
+      "item": "highly_distressed_denim",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Heavy distressing is incompatible with traditional black-tie formality."
+    },
+
+    {
+      "rule_id": "DCV_012",
+      "dress_code": "black_tie",
+      "category": "garment",
+      "item": "gymwear",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Athletic garments do not satisfy black-tie requirements."
+    },
+
+    {
+      "rule_id": "DCV_013",
+      "dress_code": "black_tie",
+      "category": "styling",
+      "item": "visible_underwear",
+      "violation_type": "coverage_violation",
+      "severity": 5,
+      "reason": "Visible underwear is generally inconsistent with traditional formal eveningwear."
+    },
+
+    {
+      "rule_id": "DCV_014",
+      "dress_code": "black_tie",
+      "category": "silhouette",
+      "item": "extreme_athleisure",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Athleisure silhouettes do not meet black-tie formality."
+    },
+
+    {
+      "rule_id": "DCV_015",
+      "dress_code": "black_tie",
+      "category": "accessory",
+      "item": "large_casual_backpack",
+      "violation_type": "accessory_violation",
+      "severity": 4,
+      "reason": "A casual backpack is inconsistent with formal evening presentation."
+    },
+
+    {
+      "rule_id": "DCV_016",
+      "dress_code": "cocktail",
+      "category": "garment",
+      "item": "sweatpants",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Sweatpants are too casual for cocktail dress."
+    },
+
+    {
+      "rule_id": "DCV_017",
+      "dress_code": "cocktail",
+      "category": "garment",
+      "item": "hoodie",
+      "violation_type": "formality_mismatch",
+      "severity": 4,
+      "reason": "A hoodie is generally too casual for cocktail dressing."
+    },
+
+    {
+      "rule_id": "DCV_018",
+      "dress_code": "cocktail",
+      "category": "footwear",
+      "item": "flip_flops",
+      "violation_type": "footwear_violation",
+      "severity": 5,
+      "reason": "Flip-flops are incompatible with cocktail dressing."
+    },
+
+    {
+      "rule_id": "DCV_019",
+      "dress_code": "cocktail",
+      "category": "garment",
+      "item": "gymwear",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Athletic garments do not meet cocktail dress expectations."
+    },
+
+    {
+      "rule_id": "DCV_020",
+      "dress_code": "business_professional",
+      "category": "garment",
+      "item": "graphic_tshirt",
+      "violation_type": "formality_mismatch",
+      "severity": 4,
+      "reason": "Large graphic T-shirts are generally too casual for business-professional dressing."
+    },
+
+    {
+      "rule_id": "DCV_021",
+      "dress_code": "business_professional",
+      "category": "garment",
+      "item": "hoodie",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "A hoodie generally does not meet business-professional expectations."
+    },
+
+    {
+      "rule_id": "DCV_022",
+      "dress_code": "business_professional",
+      "category": "garment",
+      "item": "sweatpants",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Sweatpants are incompatible with business-professional dressing."
+    },
+
+    {
+      "rule_id": "DCV_023",
+      "dress_code": "business_professional",
+      "category": "garment",
+      "item": "distressed_denim",
+      "violation_type": "formality_mismatch",
+      "severity": 4,
+      "reason": "Distressed denim generally falls below the expected formality level."
+    },
+
+    {
+      "rule_id": "DCV_024",
+      "dress_code": "business_professional",
+      "category": "garment",
+      "item": "crop_top",
+      "violation_type": "coverage_violation",
+      "severity": 5,
+      "reason": "Exposed midriff is generally inconsistent with business-professional dress."
+    },
+
+    {
+      "rule_id": "DCV_025",
+      "dress_code": "business_professional",
+      "category": "garment",
+      "item": "micro_mini",
+      "violation_type": "hemline_violation",
+      "severity": 5,
+      "reason": "Extremely short hemlines are generally inappropriate for business-professional settings."
+    },
+
+    {
+      "rule_id": "DCV_026",
+      "dress_code": "business_professional",
+      "category": "footwear",
+      "item": "flip_flops",
+      "violation_type": "footwear_violation",
+      "severity": 5,
+      "reason": "Flip-flops are incompatible with business-professional dress."
+    },
+
+    {
+      "rule_id": "DCV_027",
+      "dress_code": "business_professional",
+      "category": "silhouette",
+      "item": "extreme_oversized",
+      "violation_type": "silhouette_mismatch",
+      "severity": 3,
+      "reason": "Extreme oversized proportions can undermine the polished structure expected in business-professional dressing."
+    },
+
+    {
+      "rule_id": "DCV_028",
+      "dress_code": "business_casual",
+      "category": "garment",
+      "item": "sweatpants",
+      "violation_type": "formality_mismatch",
+      "severity": 4,
+      "reason": "Sweatpants are generally too casual for business-casual environments."
+    },
+
+    {
+      "rule_id": "DCV_029",
+      "dress_code": "business_casual",
+      "category": "garment",
+      "item": "heavy_distressed_denim",
+      "violation_type": "formality_mismatch",
+      "severity": 3,
+      "reason": "Heavy distressing can conflict with business-casual expectations."
+    },
+
+    {
+      "rule_id": "DCV_030",
+      "dress_code": "business_casual",
+      "category": "garment",
+      "item": "crop_top",
+      "violation_type": "coverage_violation",
+      "severity": 4,
+      "reason": "Exposed midriff is generally inappropriate for conventional business-casual dressing."
+    },
+
+    {
+      "rule_id": "DCV_031",
+      "dress_code": "business_casual",
+      "category": "footwear",
+      "item": "flip_flops",
+      "violation_type": "footwear_violation",
+      "severity": 4,
+      "reason": "Flip-flops generally fall below business-casual footwear expectations."
+    },
+
+    {
+      "rule_id": "DCV_032",
+      "dress_code": "smart_casual",
+      "category": "garment",
+      "item": "sleepwear",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Sleepwear is incompatible with smart-casual presentation."
+    },
+
+    {
+      "rule_id": "DCV_033",
+      "dress_code": "smart_casual",
+      "category": "garment",
+      "item": "gymwear",
+      "violation_type": "formality_mismatch",
+      "severity": 3,
+      "reason": "Full gymwear generally falls below the expected polish level of smart casual."
+    },
+
+    {
+      "rule_id": "DCV_034",
+      "dress_code": "smart_casual",
+      "category": "footwear",
+      "item": "flip_flops",
+      "violation_type": "footwear_violation",
+      "severity": 4,
+      "reason": "Flip-flops are generally too casual for smart-casual dressing."
+    },
+
+    {
+      "rule_id": "DCV_035",
+      "dress_code": "casual",
+      "category": "garment",
+      "item": "black_tie_gown",
+      "violation_type": "formality_mismatch",
+      "severity": 4,
+      "reason": "Black-tie-level eveningwear is substantially more formal than required."
+    },
+
+    {
+      "rule_id": "DCV_036",
+      "dress_code": "casual",
+      "category": "garment",
+      "item": "tuxedo",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Traditional tuxedo styling is excessively formal for casual dress."
+    },
+
+    {
+      "rule_id": "DCV_037",
+      "dress_code": "casual",
+      "category": "footwear",
+      "item": "formal_patent_dress_shoes",
+      "violation_type": "formality_mismatch",
+      "severity": 2,
+      "reason": "Highly formal footwear may appear unnecessarily formal in a casual setting."
+    },
+
+    {
+      "rule_id": "DCV_038",
+      "dress_code": "beach_formal",
+      "category": "garment",
+      "item": "heavy_business_suit",
+      "violation_type": "fabric_mismatch",
+      "severity": 4,
+      "reason": "Heavy business suiting is generally impractical and visually inconsistent with beach formal dressing."
+    },
+
+    {
+      "rule_id": "DCV_039",
+      "dress_code": "beach_formal",
+      "category": "footwear",
+      "item": "heavy_formal_dress_shoes",
+      "violation_type": "footwear_violation",
+      "severity": 3,
+      "reason": "Heavy formal footwear is generally impractical for a beach environment."
+    },
+
+    {
+      "rule_id": "DCV_040",
+      "dress_code": "beach_formal",
+      "category": "fabric",
+      "item": "heavy_wool",
+      "violation_type": "fabric_mismatch",
+      "severity": 4,
+      "reason": "Heavy wool is generally unsuitable for warm beach environments."
+    },
+
+    {
+      "rule_id": "DCV_041",
+      "dress_code": "beach_formal",
+      "category": "fabric",
+      "item": "heavy_leather",
+      "violation_type": "fabric_mismatch",
+      "severity": 3,
+      "reason": "Heavy leather is generally too warm and visually heavy for beach formal dressing."
+    },
+
+    {
+      "rule_id": "DCV_042",
+      "dress_code": "resort_casual",
+      "category": "garment",
+      "item": "heavy_business_suit",
+      "violation_type": "formality_mismatch",
+      "severity": 4,
+      "reason": "Heavy corporate suiting is generally inconsistent with resort-casual styling."
+    },
+
+    {
+      "rule_id": "DCV_043",
+      "dress_code": "resort_casual",
+      "category": "fabric",
+      "item": "heavy_winter_wool",
+      "violation_type": "fabric_mismatch",
+      "severity": 4,
+      "reason": "Heavy winter fabrics are generally unsuitable for resort environments."
+    },
+
+    {
+      "rule_id": "DCV_044",
+      "dress_code": "resort_casual",
+      "category": "footwear",
+      "item": "formal_dress_shoes",
+      "violation_type": "formality_mismatch",
+      "severity": 3,
+      "reason": "Formal dress shoes may be unnecessarily rigid for resort-casual dressing."
+    },
+
+    {
+      "rule_id": "DCV_045",
+      "dress_code": "traditional_festive",
+      "category": "garment",
+      "item": "gymwear",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Gymwear does not meet traditional festive expectations."
+    },
+
+    {
+      "rule_id": "DCV_046",
+      "dress_code": "traditional_festive",
+      "category": "garment",
+      "item": "sleepwear",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Sleepwear is incompatible with traditional festive dress."
+    },
+
+    {
+      "rule_id": "DCV_047",
+      "dress_code": "traditional_festive",
+      "category": "styling",
+      "item": "highly_casual_styling",
+      "violation_type": "overall_styling_mismatch",
+      "severity": 4,
+      "reason": "Extremely casual styling can fail to meet the expected celebratory presentation."
+    },
+
+    {
+      "rule_id": "DCV_048",
+      "dress_code": "traditional_festive",
+      "category": "cultural",
+      "item": "contextually_inappropriate_symbolic_motif",
+      "violation_type": "cultural_mismatch",
+      "severity": 4,
+      "reason": "Some symbols or motifs may be inappropriate depending on the specific cultural or religious context."
+    },
+
+    {
+      "rule_id": "DCV_049",
+      "dress_code": "religious_ceremony",
+      "category": "garment",
+      "item": "micro_mini",
+      "violation_type": "coverage_violation",
+      "severity": 4,
+      "reason": "Very short hemlines may conflict with modesty expectations in many religious venues."
+    },
+
+    {
+      "rule_id": "DCV_050",
+      "dress_code": "religious_ceremony",
+      "category": "garment",
+      "item": "highly_sheer_garment",
+      "violation_type": "transparency_violation",
+      "severity": 4,
+      "reason": "Highly sheer garments may be inconsistent with modesty expectations."
+    },
+
+    {
+      "rule_id": "DCV_051",
+      "dress_code": "religious_ceremony",
+      "category": "garment",
+      "item": "deep_plunging_neckline",
+      "violation_type": "neckline_violation",
+      "severity": 4,
+      "reason": "Deep plunging necklines may conflict with modesty requirements."
+    },
+
+    {
+      "rule_id": "DCV_052",
+      "dress_code": "religious_ceremony",
+      "category": "styling",
+      "item": "exposed_shoulders",
+      "violation_type": "coverage_violation",
+      "severity": 2,
+      "reason": "Some venues require shoulders to be covered."
+    },
+
+    {
+      "rule_id": "DCV_053",
+      "dress_code": "religious_ceremony",
+      "category": "styling",
+      "item": "exposed_midriff",
+      "violation_type": "coverage_violation",
+      "severity": 4,
+      "reason": "Exposed midriff may conflict with modesty expectations."
+    },
+
+    {
+      "rule_id": "DCV_054",
+      "dress_code": "white_tie",
+      "category": "garment",
+      "item": "cocktail_dress",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "A conventional cocktail dress generally does not meet white-tie formality."
+    },
+
+    {
+      "rule_id": "DCV_055",
+      "dress_code": "white_tie",
+      "category": "garment",
+      "item": "casual_suit",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "A conventional casual suit does not satisfy white-tie requirements."
+    },
+
+    {
+      "rule_id": "DCV_056",
+      "dress_code": "white_tie",
+      "category": "footwear",
+      "item": "sneakers",
+      "violation_type": "footwear_violation",
+      "severity": 5,
+      "reason": "Sneakers are incompatible with traditional white-tie dressing."
+    },
+
+    {
+      "rule_id": "DCV_057",
+      "dress_code": "black_tie_optional",
+      "category": "garment",
+      "item": "casual_tshirt",
+      "violation_type": "formality_mismatch",
+      "severity": 4,
+      "reason": "A casual T-shirt generally falls below black-tie-optional expectations."
+    },
+
+    {
+      "rule_id": "DCV_058",
+      "dress_code": "black_tie_optional",
+      "category": "garment",
+      "item": "jeans",
+      "violation_type": "formality_mismatch",
+      "severity": 4,
+      "reason": "Jeans generally fall below black-tie-optional expectations."
+    },
+
+    {
+      "rule_id": "DCV_059",
+      "dress_code": "black_tie_optional",
+      "category": "footwear",
+      "item": "sneakers",
+      "violation_type": "footwear_violation",
+      "severity": 4,
+      "reason": "Conventional sneakers generally fall below the expected formality."
+    },
+
+    {
+      "rule_id": "DCV_060",
+      "dress_code": "cocktail",
+      "category": "silhouette",
+      "item": "extreme_oversized",
+      "violation_type": "silhouette_mismatch",
+      "severity": 3,
+      "reason": "Extreme oversized proportions can overwhelm the polished, controlled character of conventional cocktail dressing."
+    },
+
+    {
+      "rule_id": "DCV_061",
+      "dress_code": "cocktail",
+      "category": "silhouette",
+      "item": "extreme_athleisure",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Athleisure silhouettes do not satisfy cocktail dress expectations."
+    },
+
+    {
+      "rule_id": "DCV_062",
+      "dress_code": "formal_business",
+      "category": "silhouette",
+      "item": "extreme_bodycon",
+      "violation_type": "silhouette_mismatch",
+      "severity": 4,
+      "reason": "Extremely body-conscious silhouettes can be inappropriate in conservative formal-business contexts."
+    },
+
+    {
+      "rule_id": "DCV_063",
+      "dress_code": "formal_business",
+      "category": "silhouette",
+      "item": "extreme_oversized",
+      "violation_type": "silhouette_mismatch",
+      "severity": 4,
+      "reason": "Extreme volume can undermine professional tailoring."
+    },
+
+    {
+      "rule_id": "DCV_064",
+      "dress_code": "business_casual",
+      "category": "silhouette",
+      "item": "extreme_oversized",
+      "violation_type": "silhouette_mismatch",
+      "severity": 3,
+      "reason": "Extreme volume may reduce the polished appearance expected in business-casual settings."
+    },
+
+    {
+      "rule_id": "DCV_065",
+      "dress_code": "business_casual",
+      "category": "silhouette",
+      "item": "extreme_bodycon",
+      "violation_type": "silhouette_mismatch",
+      "severity": 3,
+      "reason": "Extreme body-conscious styling may not align with conventional business-casual presentation."
+    },
+
+    {
+      "rule_id": "DCV_066",
+      "dress_code": "formal_business",
+      "category": "fabric",
+      "item": "terrycloth",
+      "violation_type": "fabric_mismatch",
+      "severity": 4,
+      "reason": "Terrycloth is strongly associated with casual or resort dressing."
+    },
+
+    {
+      "rule_id": "DCV_067",
+      "dress_code": "formal_business",
+      "category": "fabric",
+      "item": "beach_crochet",
+      "violation_type": "fabric_mismatch",
+      "severity": 5,
+      "reason": "Beach-oriented crochet is generally incompatible with formal business dress."
+    },
+
+    {
+      "rule_id": "DCV_068",
+      "dress_code": "black_tie",
+      "category": "fabric",
+      "item": "sports_mesh",
+      "violation_type": "fabric_mismatch",
+      "severity": 5,
+      "reason": "Sports mesh is incompatible with traditional black-tie formality."
+    },
+
+    {
+      "rule_id": "DCV_069",
+      "dress_code": "black_tie",
+      "category": "fabric",
+      "item": "fleece",
+      "violation_type": "fabric_mismatch",
+      "severity": 5,
+      "reason": "Fleece is generally too casual and sporty for black-tie dressing."
+    },
+
+    {
+      "rule_id": "DCV_070",
+      "dress_code": "black_tie",
+      "category": "fabric",
+      "item": "terrycloth",
+      "violation_type": "fabric_mismatch",
+      "severity": 5,
+      "reason": "Terrycloth is incompatible with traditional black-tie formality."
+    },
+
+    {
+      "rule_id": "DCV_071",
+      "dress_code": "formal_business",
+      "category": "accessory",
+      "item": "novelty_accessory",
+      "violation_type": "accessory_violation",
+      "severity": 3,
+      "reason": "Novelty accessories can undermine conservative professional presentation."
+    },
+
+    {
+      "rule_id": "DCV_072",
+      "dress_code": "formal_business",
+      "category": "accessory",
+      "item": "oversized_casual_backpack",
+      "violation_type": "accessory_violation",
+      "severity": 3,
+      "reason": "A casual oversized backpack can reduce the polish of a formal professional look."
+    },
+
+    {
+      "rule_id": "DCV_073",
+      "dress_code": "black_tie",
+      "category": "accessory",
+      "item": "sport_smartwatch",
+      "violation_type": "accessory_violation",
+      "severity": 2,
+      "reason": "Sport-oriented watches may create a formality mismatch with black-tie dressing."
+    },
+
+    {
+      "rule_id": "DCV_074",
+      "dress_code": "black_tie",
+      "category": "accessory",
+      "item": "large_casual_tote",
+      "violation_type": "accessory_violation",
+      "severity": 3,
+      "reason": "Large casual totes generally do not align with formal evening styling."
+    },
+
+    {
+      "rule_id": "DCV_075",
+      "dress_code": "cocktail",
+      "category": "accessory",
+      "item": "large_work_tote",
+      "violation_type": "accessory_violation",
+      "severity": 3,
+      "reason": "A large utilitarian work bag can undermine cocktail styling."
+    },
+
+    {
+      "rule_id": "DCV_076",
+      "dress_code": "business_professional",
+      "category": "eyewear",
+      "item": "sport_sunglasses",
+      "violation_type": "accessory_violation",
+      "severity": 2,
+      "reason": "Highly athletic eyewear can clash with professional styling."
+    },
+
+    {
+      "rule_id": "DCV_077",
+      "dress_code": "black_tie",
+      "category": "eyewear",
+      "item": "sport_sunglasses",
+      "violation_type": "accessory_violation",
+      "severity": 3,
+      "reason": "Sport-oriented eyewear generally conflicts with formal evening styling."
+    },
+
+    {
+      "rule_id": "DCV_078",
+      "dress_code": "formal_business",
+      "category": "color",
+      "item": "neon_highlight_palette",
+      "violation_type": "color_mismatch",
+      "severity": 2,
+      "reason": "Highly fluorescent palettes can be difficult to integrate into conservative formal-business dressing."
+    },
+
+    {
+      "rule_id": "DCV_079",
+      "dress_code": "formal_business",
+      "category": "styling",
+      "item": "excessive_logo_display",
+      "violation_type": "branding_violation",
+      "severity": 3,
+      "reason": "Large visible branding can undermine a restrained professional presentation."
+    },
+
+    {
+      "rule_id": "DCV_080",
+      "dress_code": "business_professional",
+      "category": "styling",
+      "item": "excessive_logo_display",
+      "violation_type": "branding_violation",
+      "severity": 3,
+      "reason": "Prominent branding can distract from professional presentation."
+    },
+
+    {
+      "rule_id": "DCV_081",
+      "dress_code": "formal_business",
+      "category": "styling",
+      "item": "visible_underwear",
+      "violation_type": "coverage_violation",
+      "severity": 5,
+      "reason": "Visible underwear is generally incompatible with formal professional presentation."
+    },
+
+    {
+      "rule_id": "DCV_082",
+      "dress_code": "business_casual",
+      "category": "styling",
+      "item": "visible_underwear",
+      "violation_type": "coverage_violation",
+      "severity": 5,
+      "reason": "Visible underwear generally conflicts with business-casual dress expectations."
+    },
+
+    {
+      "rule_id": "DCV_083",
+      "dress_code": "cocktail",
+      "category": "styling",
+      "item": "gymwear_styling",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Athletic styling does not satisfy cocktail dress expectations."
+    },
+
+    {
+      "rule_id": "DCV_084",
+      "dress_code": "resort_casual",
+      "category": "silhouette",
+      "item": "extreme_tailoring",
+      "violation_type": "silhouette_mismatch",
+      "severity": 2,
+      "reason": "Extremely rigid tailoring can feel disconnected from relaxed resort dressing."
+    },
+
+    {
+      "rule_id": "DCV_085",
+      "dress_code": "beach_formal",
+      "category": "silhouette",
+      "item": "extreme_bodycon",
+      "violation_type": "practicality_violation",
+      "severity": 2,
+      "reason": "Extremely restrictive silhouettes may be impractical in beach environments."
+    },
+
+    {
+      "rule_id": "DCV_086",
+      "dress_code": "athleisure",
+      "category": "garment",
+      "item": "formal_gown",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Formal gowns are incompatible with conventional athleisure."
+    },
+
+    {
+      "rule_id": "DCV_087",
+      "dress_code": "athleisure",
+      "category": "footwear",
+      "item": "stiletto_heels",
+      "violation_type": "footwear_violation",
+      "severity": 4,
+      "reason": "Stiletto heels generally conflict with functional athletic styling."
+    },
+
+    {
+      "rule_id": "DCV_088",
+      "dress_code": "athleisure",
+      "category": "garment",
+      "item": "tuxedo",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "Traditional tuxedo styling is incompatible with athleisure."
+    },
+
+    {
+      "rule_id": "DCV_089",
+      "dress_code": "casual",
+      "category": "garment",
+      "item": "full_tuxedo",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "A full tuxedo is substantially more formal than required."
+    },
+
+    {
+      "rule_id": "DCV_090",
+      "dress_code": "casual",
+      "category": "garment",
+      "item": "white_tie_eveningwear",
+      "violation_type": "formality_mismatch",
+      "severity": 5,
+      "reason": "White-tie eveningwear is excessively formal for a casual dress code."
+    }
+
+  ],
+
+  "coverage_rules": [
+    {
+      "rule_id": "COV_001",
+      "dress_codes": [
+        "formal_business",
+        "business_professional",
+        "interview"
+      ],
+      "condition": "exposed_midriff",
+      "severity": 5
+    },
+    {
+      "rule_id": "COV_002",
+      "dress_codes": [
+        "formal_business",
+        "business_professional"
+      ],
+      "condition": "extreme_cleavage",
+      "severity": 4
+    },
+    {
+      "rule_id": "COV_003",
+      "dress_codes": [
+        "formal_business",
+        "business_professional"
+      ],
+      "condition": "micro_mini",
+      "severity": 5
+    },
+    {
+      "rule_id": "COV_004",
+      "dress_codes": [
+        "religious_ceremony"
+      ],
+      "condition": "exposed_shoulders",
+      "severity": 2,
+      "note": "Venue-specific; verify local requirements."
+    }
+  ],
+
+  "hard_violation_logic": [
+    {
+      "rule_id": "HV_001",
+      "condition": "explicit_dress_code AND severity >= 5",
+      "action": "strongly_exclude"
+    },
+    {
+      "rule_id": "HV_002",
+      "condition": "user_explicitly_states_dress_code",
+      "action": "dress_code_rules_override_general_occasion_rules"
+    },
+    {
+      "rule_id": "HV_003",
+      "condition": "dress_code_not_explicitly_stated",
+      "action": "do_not_assume_strict_dress_code"
+    }
+  ],
+
+  "soft_violation_logic": [
+    {
+      "condition": "severity == 1",
+      "action": "minor_penalty"
+    },
+    {
+      "condition": "severity == 2",
+      "action": "contextual_penalty"
+    },
+    {
+      "condition": "severity == 3",
+      "action": "moderate_penalty"
+    },
+    {
+      "condition": "severity == 4",
+      "action": "strong_penalty"
+    }
+  ],
+
+  "override_rules": [
+    {
+      "rule_id": "OVR_001",
+      "condition": "user_requests_intentionally_unconventional_interpretation",
+      "action": "soften_severity_1_to_3"
+    },
+    {
+      "rule_id": "OVR_002",
+      "condition": "user_requests_editorial_or_avant_garde_interpretation",
+      "action": "soften_silhouette_and_aesthetic_violations"
+    },
+    {
+      "rule_id": "OVR_003",
+      "condition": "explicit_dress_code_violation_severity_5",
+      "action": "retain_violation",
+      "reason": "AHVI should not misrepresent a dress-code-breaking look as conventionally compliant."
+    }
+  ],
+
+  "priority_order": [
+    "explicit_user_dress_code",
+    "hard_dress_code_violation",
+    "garment_construction_compatibility",
+    "occasion_incompatibility",
+    "silhouette_compatibility",
+    "body_balance",
+    "color_compatibility",
+    "fabric_compatibility",
+    "aesthetic_preferences"
+  ],
+
+  "final_scoring_behavior": {
+    "severity_5": "exclude_from_primary_style_board",
+    "severity_4": "strongly penalize",
+    "severity_3": "penalize",
+    "severity_2": "mild_penalty",
+    "severity_1": "minor_penalty",
+    "severity_0": "no_penalty"
+  }
+}

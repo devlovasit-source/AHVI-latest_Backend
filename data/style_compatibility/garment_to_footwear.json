@@ -1,0 +1,883 @@
+{
+  "file": "garment_to_footwear.json",
+  "version": "1.0",
+  "description": "Occasion-aware negative compatibility rules between garments and footwear. Rules apply penalties rather than absolute prohibitions unless severity is 5 for the specified occasion.",
+
+  "severity_scale": {
+    "5": "Strongly incompatible",
+    "4": "Significantly incompatible",
+    "3": "Usually avoid",
+    "2": "Potential mismatch",
+    "1": "Minor styling tension",
+    "0": "No negative penalty"
+  },
+
+  "rules": [
+
+    {
+      "rule_id": "G2F_001",
+      "garment": "tuxedo",
+      "footwear": "running_shoes",
+      "conflict_type": "formality",
+      "reason": "Performance footwear is incompatible with traditional black-tie tailoring.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 5,
+        "business_formal": 5,
+        "cocktail": 4,
+        "smart_casual": 1,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_002",
+      "garment": "tuxedo",
+      "footwear": "canvas_sneakers",
+      "conflict_type": "formality",
+      "reason": "Casual canvas sneakers undermine formal tuxedo styling.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 5,
+        "business_formal": 5,
+        "cocktail": 3,
+        "smart_casual": 1,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_003",
+      "garment": "formal_suit",
+      "footwear": "running_shoes",
+      "conflict_type": "formality",
+      "reason": "Technical athletic footwear conflicts with formal tailoring.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 4,
+        "smart_casual": 2,
+        "casual": 0,
+        "travel": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_004",
+      "garment": "formal_suit",
+      "footwear": "flip_flops",
+      "conflict_type": "formality",
+      "reason": "Beach footwear is inappropriate with formal tailoring.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "smart_casual": 4,
+        "casual": 2,
+        "beach": 0,
+        "resort": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_005",
+      "garment": "formal_suit",
+      "footwear": "hiking_boots",
+      "conflict_type": "aesthetic_and_formality",
+      "reason": "Heavy outdoor footwear conflicts with polished tailoring.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 4,
+        "smart_casual": 2,
+        "casual": 0,
+        "outdoor": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_006",
+      "garment": "business_formal_dress",
+      "footwear": "running_shoes",
+      "conflict_type": "formality",
+      "reason": "Athletic footwear undermines the professional appearance of formal businesswear.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 4,
+        "smart_casual": 2,
+        "casual": 0,
+        "travel": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_007",
+      "garment": "pencil_skirt",
+      "footwear": "chunky_hiking_boots",
+      "conflict_type": "aesthetic_and_silhouette",
+      "reason": "Heavy outdoor boots can overpower the refined narrow silhouette of a pencil skirt.",
+      "occasions": {
+        "business_formal": 4,
+        "business_casual": 3,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_008",
+      "garment": "pencil_skirt",
+      "footwear": "flip_flops",
+      "conflict_type": "formality",
+      "reason": "Very casual beach footwear conflicts with polished skirt styling.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "smart_casual": 3,
+        "casual": 1,
+        "beach": 0,
+        "resort": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_009",
+      "garment": "evening_gown",
+      "footwear": "running_shoes",
+      "conflict_type": "formality",
+      "reason": "Performance footwear strongly conflicts with formal eveningwear.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 5,
+        "cocktail": 4,
+        "wedding_guest": 4,
+        "fashion_forward": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_010",
+      "garment": "evening_gown",
+      "footwear": "hiking_boots",
+      "conflict_type": "formality_and_silhouette",
+      "reason": "Heavy outdoor boots overpower the delicate and formal silhouette of a gown.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 5,
+        "cocktail": 5,
+        "wedding_guest": 4,
+        "fashion_forward": 1,
+        "casual": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_011",
+      "garment": "cocktail_dress",
+      "footwear": "hiking_boots",
+      "conflict_type": "formality",
+      "reason": "Technical outdoor footwear can overwhelm cocktail dressing.",
+      "occasions": {
+        "cocktail": 5,
+        "formal_evening": 5,
+        "wedding_guest": 4,
+        "smart_casual": 2,
+        "fashion_forward": 0,
+        "casual": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_012",
+      "garment": "cocktail_dress",
+      "footwear": "running_shoes",
+      "conflict_type": "formality",
+      "reason": "Performance footwear creates excessive casual contrast with cocktailwear.",
+      "occasions": {
+        "cocktail": 5,
+        "formal_evening": 5,
+        "wedding_guest": 4,
+        "smart_casual": 2,
+        "fashion_forward": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_013",
+      "garment": "mini_dress",
+      "footwear": "hiking_boots",
+      "conflict_type": "silhouette",
+      "reason": "Heavy footwear can visually dominate a short, lightweight dress.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 4,
+        "cocktail": 3,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_014",
+      "garment": "mini_dress",
+      "footwear": "knee_high_boots",
+      "conflict_type": "proportion",
+      "reason": "A short hem combined with very high boots can create excessive visual compression of the leg.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 4,
+        "cocktail": 1,
+        "casual": 0,
+        "fashion_forward": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_015",
+      "garment": "wide_leg_trousers",
+      "footwear": "chunky_hiking_boots",
+      "conflict_type": "silhouette",
+      "reason": "Very wide trousers combined with bulky boots can create excessive volume around the lower body.",
+      "occasions": {
+        "business_formal": 4,
+        "business_casual": 3,
+        "smart_casual": 2,
+        "casual": 1,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_016",
+      "garment": "wide_leg_trousers",
+      "footwear": "thin_strappy_sandals",
+      "conflict_type": "proportion",
+      "reason": "Extremely delicate footwear can visually disappear beneath very wide trouser hems.",
+      "occasions": {
+        "business_formal": 1,
+        "business_casual": 1,
+        "smart_casual": 1,
+        "casual": 0,
+        "resort": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_017",
+      "garment": "skinny_jeans",
+      "footwear": "oversized_platform_boots",
+      "conflict_type": "proportion",
+      "reason": "Very slim trousers combined with extremely heavy footwear can create an exaggerated top-to-bottom weight contrast.",
+      "occasions": {
+        "business_casual": 2,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_018",
+      "garment": "culottes",
+      "footwear": "ankle_strap_sandals",
+      "conflict_type": "proportion",
+      "reason": "A strong ankle strap combined with a cropped wide silhouette can visually shorten the legs.",
+      "occasions": {
+        "business_formal": 2,
+        "business_casual": 2,
+        "smart_casual": 1,
+        "casual": 0,
+        "resort": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_019",
+      "garment": "maxi_skirt",
+      "footwear": "very_bulky_sneakers",
+      "conflict_type": "silhouette",
+      "reason": "Very bulky footwear can overwhelm a fluid maxi silhouette.",
+      "occasions": {
+        "business_formal": 3,
+        "business_casual": 2,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_020",
+      "garment": "flowy_maxi_dress",
+      "footwear": "heavy_combat_boots",
+      "conflict_type": "aesthetic",
+      "reason": "Heavy combat boots can overpower a delicate flowing silhouette.",
+      "occasions": {
+        "formal_evening": 4,
+        "cocktail": 3,
+        "wedding_guest": 3,
+        "bohemian": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_021",
+      "garment": "bohemian_maxi_dress",
+      "footwear": "formal_pumps",
+      "conflict_type": "aesthetic",
+      "reason": "Highly polished pumps can conflict with relaxed bohemian styling.",
+      "occasions": {
+        "bohemian": 3,
+        "casual": 1,
+        "garden_party": 1,
+        "formal_evening": 0,
+        "cocktail": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_022",
+      "garment": "athleisure_set",
+      "footwear": "stiletto_heels",
+      "conflict_type": "aesthetic",
+      "reason": "Highly formal heels can conflict with performance-inspired athleisure.",
+      "occasions": {
+        "business_formal": 3,
+        "business_casual": 2,
+        "smart_casual": 1,
+        "casual": 0,
+        "athleisure": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_023",
+      "garment": "joggers",
+      "footwear": "stiletto_heels",
+      "conflict_type": "aesthetic",
+      "reason": "The extreme contrast between athletic bottoms and formal heels may look disconnected unless intentionally styled.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 4,
+        "smart_casual": 2,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_024",
+      "garment": "sweatpants",
+      "footwear": "stiletto_heels",
+      "conflict_type": "aesthetic",
+      "reason": "Sportswear bottoms and highly formal heels create strong stylistic tension.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "smart_casual": 3,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_025",
+      "garment": "formal_saree",
+      "footwear": "running_shoes",
+      "conflict_type": "cultural_and_formality",
+      "reason": "Performance footwear generally conflicts with formal saree styling.",
+      "occasions": {
+        "wedding_guest": 5,
+        "festive": 5,
+        "traditional_ceremony": 5,
+        "formal_evening": 4,
+        "smart_casual": 1,
+        "casual": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_026",
+      "garment": "formal_saree",
+      "footwear": "hiking_boots",
+      "conflict_type": "cultural_and_formality",
+      "reason": "Outdoor utility footwear strongly conflicts with formal traditionalwear.",
+      "occasions": {
+        "wedding_guest": 5,
+        "festive": 5,
+        "traditional_ceremony": 5,
+        "formal_evening": 5,
+        "casual": 1,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_027",
+      "garment": "lehenga",
+      "footwear": "running_shoes",
+      "conflict_type": "cultural_and_formality",
+      "reason": "Athletic footwear generally conflicts with formal festive lehenga styling.",
+      "occasions": {
+        "wedding_guest": 5,
+        "festive": 5,
+        "traditional_ceremony": 5,
+        "formal_evening": 4,
+        "fashion_forward": 0,
+        "casual": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_028",
+      "garment": "lehenga",
+      "footwear": "flip_flops",
+      "conflict_type": "formality",
+      "reason": "Casual beach footwear does not support the elevated character of formal festivewear.",
+      "occasions": {
+        "wedding_guest": 5,
+        "festive": 5,
+        "traditional_ceremony": 5,
+        "formal_evening": 4,
+        "resort": 1,
+        "casual": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_029",
+      "garment": "formal_kurta",
+      "footwear": "running_shoes",
+      "conflict_type": "formality",
+      "reason": "Athletic shoes can undermine the polished appearance of formal traditionalwear.",
+      "occasions": {
+        "wedding_guest": 4,
+        "festive": 4,
+        "traditional_ceremony": 5,
+        "formal_evening": 4,
+        "smart_casual": 1,
+        "casual": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_030",
+      "garment": "formal_kurta",
+      "footwear": "flip_flops",
+      "conflict_type": "formality",
+      "reason": "Very casual footwear can undermine formal kurta styling.",
+      "occasions": {
+        "wedding_guest": 5,
+        "festive": 5,
+        "traditional_ceremony": 5,
+        "formal_evening": 4,
+        "smart_casual": 1,
+        "casual": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_031",
+      "garment": "linen_suit",
+      "footwear": "heavy_hiking_boots",
+      "conflict_type": "seasonality_and_aesthetic",
+      "reason": "Lightweight warm-weather tailoring conflicts with heavy outdoor footwear.",
+      "occasions": {
+        "summer": 4,
+        "resort": 5,
+        "business_casual": 3,
+        "smart_casual": 2,
+        "outdoor": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_032",
+      "garment": "linen_shorts",
+      "footwear": "formal_oxford_shoes",
+      "conflict_type": "formality",
+      "reason": "Highly formal closed shoes can conflict with relaxed summer shorts.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 4,
+        "smart_casual": 2,
+        "casual": 1,
+        "resort": 0,
+        "beach": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_033",
+      "garment": "beachwear",
+      "footwear": "formal_oxford_shoes",
+      "conflict_type": "context",
+      "reason": "Formal leather footwear is inappropriate for beach-oriented dressing.",
+      "occasions": {
+        "beach": 5,
+        "resort": 4,
+        "summer": 3,
+        "formal_evening": 0,
+        "business_formal": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_034",
+      "garment": "beachwear",
+      "footwear": "stiletto_heels",
+      "conflict_type": "practicality",
+      "reason": "High heels are impractical and visually disconnected from relaxed beachwear.",
+      "occasions": {
+        "beach": 5,
+        "resort": 3,
+        "poolside": 4,
+        "party": 0,
+        "formal_evening": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_035",
+      "garment": "formal_evening_gown",
+      "footwear": "flat_flip_flops",
+      "conflict_type": "formality",
+      "reason": "Basic beach footwear does not support formal evening dressing.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 5,
+        "cocktail": 4,
+        "wedding_guest": 4,
+        "resort": 1,
+        "casual": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_036",
+      "garment": "formal_evening_dress",
+      "footwear": "combat_boots",
+      "conflict_type": "aesthetic",
+      "reason": "Heavy combat footwear can overpower traditional formal evening styling.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 4,
+        "cocktail": 3,
+        "fashion_forward": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_037",
+      "garment": "denim_jeans",
+      "footwear": "formal_patent_leather_shoes",
+      "conflict_type": "formality",
+      "reason": "Highly formal patent footwear can create unnecessary formality contrast with casual denim.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 3,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_038",
+      "garment": "distressed_jeans",
+      "footwear": "formal_dress_shoes",
+      "conflict_type": "formality",
+      "reason": "Heavy denim distressing conflicts with highly polished formal footwear.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 4,
+        "smart_casual": 2,
+        "casual": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_039",
+      "garment": "cargo_pants",
+      "footwear": "stiletto_pumps",
+      "conflict_type": "aesthetic",
+      "reason": "Utility cargo styling can conflict with highly formal feminine footwear.",
+      "occasions": {
+        "business_formal": 4,
+        "business_casual": 3,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_040",
+      "garment": "cargo_pants",
+      "footwear": "delicate_ballet_flats",
+      "conflict_type": "aesthetic",
+      "reason": "Heavy utility detailing can overwhelm very delicate footwear.",
+      "occasions": {
+        "business_casual": 2,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_041",
+      "garment": "romantic_floral_dress",
+      "footwear": "heavy_combat_boots",
+      "conflict_type": "aesthetic",
+      "reason": "Combat boots can overpower a delicate romantic silhouette.",
+      "occasions": {
+        "wedding_guest": 3,
+        "garden_party": 3,
+        "romantic": 3,
+        "casual": 1,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_042",
+      "garment": "romantic_floral_dress",
+      "footwear": "running_shoes",
+      "conflict_type": "aesthetic",
+      "reason": "Technical athletic footwear can disrupt a delicate romantic aesthetic.",
+      "occasions": {
+        "wedding_guest": 4,
+        "garden_party": 3,
+        "romantic": 3,
+        "casual": 1,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_043",
+      "garment": "preppy_outfit",
+      "footwear": "heavy_hiking_boots",
+      "conflict_type": "aesthetic",
+      "reason": "Heavy outdoor footwear can conflict with polished preppy styling.",
+      "occasions": {
+        "business_casual": 3,
+        "smart_casual": 2,
+        "preppy": 3,
+        "casual": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_044",
+      "garment": "minimalist_outfit",
+      "footwear": "highly_ornate_shoes",
+      "conflict_type": "aesthetic",
+      "reason": "Excessive footwear embellishment can undermine minimalist styling.",
+      "occasions": {
+        "minimalist": 4,
+        "business_formal": 2,
+        "business_casual": 2,
+        "smart_casual": 1,
+        "formal_evening": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_045",
+      "garment": "maximalist_outfit",
+      "footwear": "highly_ornate_shoes",
+      "conflict_type": "visual_overload",
+      "reason": "Highly detailed footwear can create excessive visual competition within an already maximalist outfit.",
+      "occasions": {
+        "business_formal": 4,
+        "business_casual": 3,
+        "smart_casual": 2,
+        "casual": 1,
+        "formal_evening": 0,
+        "party": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_046",
+      "garment": "oversized_trousers",
+      "footwear": "very_thin_pointed_flats",
+      "conflict_type": "proportion",
+      "reason": "Extremely delicate footwear can disappear beneath oversized trouser proportions.",
+      "occasions": {
+        "business_formal": 2,
+        "business_casual": 2,
+        "smart_casual": 1,
+        "casual": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_047",
+      "garment": "long_flowing_skirt",
+      "footwear": "very_bulky_platforms",
+      "conflict_type": "silhouette",
+      "reason": "Large platforms can compete with the movement and proportions of a flowing skirt.",
+      "occasions": {
+        "formal_evening": 3,
+        "cocktail": 2,
+        "wedding_guest": 2,
+        "casual": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_048",
+      "garment": "cropped_trousers",
+      "footwear": "high_contrast_ankle_boots",
+      "conflict_type": "proportion",
+      "reason": "A strong contrast at the ankle can visually shorten the leg line.",
+      "occasions": {
+        "business_formal": 2,
+        "business_casual": 2,
+        "smart_casual": 1,
+        "casual": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_049",
+      "garment": "formal_business_dress",
+      "footwear": "chunky_platform_sneakers",
+      "conflict_type": "formality",
+      "reason": "Very casual oversized sneakers can undermine professional polish.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 4,
+        "smart_casual": 2,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_050",
+      "garment": "formal_business_trousers",
+      "footwear": "slides",
+      "conflict_type": "formality",
+      "reason": "Casual slides generally conflict with professional tailoring.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "smart_casual": 3,
+        "casual": 0,
+        "resort": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_051",
+      "garment": "formal_business_trousers",
+      "footwear": "chunky_running_shoes",
+      "conflict_type": "formality",
+      "reason": "Technical athletic footwear can undermine the polished appearance of formal trousers.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 3,
+        "smart_casual": 1,
+        "casual": 0,
+        "travel": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_052",
+      "garment": "traditional_formalwear",
+      "footwear": "beach_slides",
+      "conflict_type": "formality_and_context",
+      "reason": "Beach-oriented footwear is inappropriate for formal traditional dressing.",
+      "occasions": {
+        "wedding_guest": 5,
+        "festive": 5,
+        "traditional_ceremony": 5,
+        "formal_evening": 4,
+        "resort": 0,
+        "beach": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_053",
+      "garment": "formal_evening_jumpsuit",
+      "footwear": "running_shoes",
+      "conflict_type": "formality",
+      "reason": "Athletic footwear conflicts with the elevated character of formal evening tailoring.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 5,
+        "cocktail": 4,
+        "wedding_guest": 4,
+        "fashion_forward": 0,
+        "casual": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_054",
+      "garment": "formal_evening_jumpsuit",
+      "footwear": "flip_flops",
+      "conflict_type": "formality",
+      "reason": "Beach footwear is incompatible with formal evening dressing.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 5,
+        "cocktail": 4,
+        "wedding_guest": 4,
+        "resort": 1,
+        "casual": 0
+      }
+    },
+
+    {
+      "rule_id": "G2F_055",
+      "garment": "business_formal_skirt",
+      "footwear": "athletic_slides",
+      "conflict_type": "formality",
+      "reason": "Sport slides undermine the polished appearance expected from business formalwear.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "smart_casual": 3,
+        "casual": 0
+      }
+    }
+
+  ]
+}

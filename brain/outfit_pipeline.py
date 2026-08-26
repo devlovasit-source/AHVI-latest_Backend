@@ -3531,8 +3531,24 @@ def get_daily_outfits(user: Dict[str, Any]) -> Dict[str, Any]:
             )
         except Exception:
             pass
+        # Fail-closed (P0): a HARD-invalid outfit (certain structural/rule
+        # violation, not just a soft occasion-fit penalty) must never be
+        # resurrected as a "closest option" merely because it ranked first
+        # before the guard ran. Skip past any candidate the guard tagged
+        # hard_invalid; if every pre-guard candidate was hard-invalid, there
+        # is no safe closest option to offer.
+        closest_source = None
         if closest_requested and not ranked and pre_guard_ranked:
-            closest_outfit = deepcopy(pre_guard_ranked[0])
+            closest_source = next(
+                (
+                    o for o in pre_guard_ranked
+                    if isinstance(o, dict)
+                    and not (o.get("_quality_guard_meta") or {}).get("hard_invalid")
+                ),
+                None,
+            )
+        if closest_source is not None:
+            closest_outfit = deepcopy(closest_source)
             closest_outfit.setdefault("score_meta", {})
             closest_score_meta = closest_outfit["score_meta"]
             closest_outfit["title"] = "Closest wardrobe option"

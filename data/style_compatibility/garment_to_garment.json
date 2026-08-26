@@ -1,0 +1,802 @@
+{
+  "file": "garment_to_garment.json",
+  "version": "1.0",
+  "description": "Occasion-aware negative compatibility rules between garments. Severity 5 indicates a strong incompatibility; severity 0 indicates no negative penalty.",
+  "severity_scale": {
+    "5": "Strongly incompatible",
+    "4": "Significantly incompatible",
+    "3": "Usually avoid",
+    "2": "Potential mismatch",
+    "1": "Minor styling tension",
+    "0": "No negative penalty"
+  },
+
+  "rules": [
+
+    {
+      "rule_id": "G2G_001",
+      "garment_1": "graphic_tshirt",
+      "garment_2": "formal_blazer",
+      "conflict_type": "formality",
+      "reason": "Graphic casualwear can conflict with the polished structure of formal tailoring.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 3,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_002",
+      "garment_1": "graphic_tshirt",
+      "garment_2": "formal_trousers",
+      "conflict_type": "formality",
+      "reason": "A highly casual graphic top can create excessive formality contrast with tailored trousers.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 3,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_003",
+      "garment_1": "hoodie",
+      "garment_2": "formal_blazer",
+      "conflict_type": "formality",
+      "reason": "Athleisure layering can conflict with highly formal tailoring.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 4,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_004",
+      "garment_1": "hoodie",
+      "garment_2": "formal_trousers",
+      "conflict_type": "formality",
+      "reason": "The relaxed athletic character of a hoodie can undermine formal tailoring.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 4,
+        "smart_casual": 2,
+        "casual": 0,
+        "streetwear": 0,
+        "travel": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_005",
+      "garment_1": "athletic_shorts",
+      "garment_2": "formal_blazer",
+      "conflict_type": "formality",
+      "reason": "Performance-oriented shorts strongly contrast with structured tailoring.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "smart_casual": 3,
+        "casual": 1,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_006",
+      "garment_1": "sweatpants",
+      "garment_2": "formal_blazer",
+      "conflict_type": "formality",
+      "reason": "Sweatpants create a strong sportswear-versus-tailoring contrast.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "smart_casual": 3,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 1
+      }
+    },
+
+    {
+      "rule_id": "G2G_007",
+      "garment_1": "cargo_pants",
+      "garment_2": "formal_blazer",
+      "conflict_type": "aesthetic",
+      "reason": "Utility detailing can compete with the refined structure of formal tailoring.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 3,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_008",
+      "garment_1": "distressed_jeans",
+      "garment_2": "formal_blazer",
+      "conflict_type": "formality",
+      "reason": "Heavy distressing can undermine the polished appearance of formal tailoring.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 4,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_009",
+      "garment_1": "distressed_jeans",
+      "garment_2": "formal_vest",
+      "conflict_type": "formality",
+      "reason": "Heavy denim distressing conflicts with formal waistcoat styling.",
+      "occasions": {
+        "business_formal": 5,
+        "formal_evening": 5,
+        "business_casual": 4,
+        "smart_casual": 2,
+        "casual": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_010",
+      "garment_1": "evening_gown",
+      "garment_2": "distressed_denim_jacket",
+      "conflict_type": "formality",
+      "reason": "Distressed denim can overwhelm the refined character of an evening gown.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 5,
+        "cocktail": 4,
+        "wedding_guest": 4,
+        "fashion_forward": 0,
+        "casual": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_011",
+      "garment_1": "cocktail_dress",
+      "garment_2": "oversized_hoodie",
+      "conflict_type": "formality",
+      "reason": "The relaxed volume and athletic character of a hoodie can overwhelm cocktail dressing.",
+      "occasions": {
+        "cocktail": 5,
+        "formal_evening": 5,
+        "wedding_guest": 4,
+        "smart_casual": 2,
+        "casual": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_012",
+      "garment_1": "evening_gown",
+      "garment_2": "oversized_utility_jacket",
+      "conflict_type": "aesthetic",
+      "reason": "Heavy utility styling can overpower delicate eveningwear.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 5,
+        "cocktail": 4,
+        "fashion_forward": 0,
+        "casual": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_013",
+      "garment_1": "silk_blouse",
+      "garment_2": "heavy_cargo_pants",
+      "conflict_type": "fabric_and_aesthetic",
+      "reason": "Delicate silk and heavy utility styling can create an unintended visual imbalance.",
+      "occasions": {
+        "business_formal": 3,
+        "business_casual": 2,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_014",
+      "garment_1": "lace_top",
+      "garment_2": "athletic_shorts",
+      "conflict_type": "aesthetic",
+      "reason": "Delicate romantic detailing can conflict with performance-oriented sportswear.",
+      "occasions": {
+        "business_formal": 4,
+        "business_casual": 3,
+        "smart_casual": 2,
+        "casual": 1,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_015",
+      "garment_1": "sequin_top",
+      "garment_2": "sequin_skirt",
+      "conflict_type": "visual_overload",
+      "reason": "Heavy embellishment on both garments can create excessive visual intensity.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "cocktail": 2,
+        "formal_evening": 1,
+        "party": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_016",
+      "garment_1": "sequined_jacket",
+      "garment_2": "sequined_dress",
+      "conflict_type": "visual_overload",
+      "reason": "Layering multiple heavily embellished pieces can obscure the silhouette.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "cocktail": 3,
+        "formal_evening": 2,
+        "party": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_017",
+      "garment_1": "oversized_top",
+      "garment_2": "oversized_bottom",
+      "conflict_type": "proportion",
+      "reason": "Excessive volume on both halves can obscure body proportions.",
+      "occasions": {
+        "business_formal": 4,
+        "business_casual": 3,
+        "smart_casual": 2,
+        "casual": 1,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_018",
+      "garment_1": "oversized_blazer",
+      "garment_2": "wide_leg_trousers",
+      "conflict_type": "proportion",
+      "reason": "Large structured volume combined with very wide trousers can overwhelm the silhouette.",
+      "occasions": {
+        "business_formal": 3,
+        "business_casual": 2,
+        "smart_casual": 1,
+        "casual": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_019",
+      "garment_1": "oversized_sweater",
+      "garment_2": "wide_leg_trousers",
+      "conflict_type": "proportion",
+      "reason": "Large volume on both top and bottom can reduce visual definition.",
+      "occasions": {
+        "business_formal": 4,
+        "business_casual": 3,
+        "smart_casual": 2,
+        "casual": 1,
+        "travel": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_020",
+      "garment_1": "long_oversized_tunic",
+      "garment_2": "wide_leg_trousers",
+      "conflict_type": "proportion",
+      "reason": "Long oversized layers combined with wide trousers can create excessive visual volume.",
+      "occasions": {
+        "business_formal": 4,
+        "business_casual": 3,
+        "smart_casual": 2,
+        "casual": 1,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_021",
+      "garment_1": "cropped_top",
+      "garment_2": "low_rise_bottom",
+      "conflict_type": "proportion",
+      "reason": "The combination creates a very short visible torso and may produce an unbalanced silhouette.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "smart_casual": 3,
+        "casual": 1,
+        "party": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_022",
+      "garment_1": "boxy_top",
+      "garment_2": "boxy_bottom",
+      "conflict_type": "proportion",
+      "reason": "Repeated boxy shapes can eliminate waist and silhouette definition.",
+      "occasions": {
+        "business_formal": 4,
+        "business_casual": 3,
+        "smart_casual": 2,
+        "casual": 1,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_023",
+      "garment_1": "bodycon_top",
+      "garment_2": "bodycon_bottom",
+      "conflict_type": "silhouette_intensity",
+      "reason": "Highly fitted garments on both halves can create an overly restrictive silhouette.",
+      "occasions": {
+        "business_formal": 4,
+        "business_casual": 4,
+        "smart_casual": 2,
+        "casual": 1,
+        "evening": 0,
+        "party": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_024",
+      "garment_1": "mini_skirt",
+      "garment_2": "cropped_top",
+      "conflict_type": "exposure",
+      "reason": "The combination creates high overall skin exposure and may be inappropriate for conservative settings.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "wedding_guest": 4,
+        "smart_casual": 2,
+        "party": 0,
+        "beach": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_025",
+      "garment_1": "deep_plunge_top",
+      "garment_2": "mini_skirt",
+      "conflict_type": "exposure",
+      "reason": "High exposure at both top and bottom can conflict with formal or conservative dress codes.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "wedding_guest": 4,
+        "cocktail": 2,
+        "party": 0,
+        "club": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_026",
+      "garment_1": "deep_plunge_top",
+      "garment_2": "high_slit_skirt",
+      "conflict_type": "exposure",
+      "reason": "Multiple high-exposure elements can make the outfit unsuitable for conservative occasions.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "wedding_guest": 4,
+        "formal_evening": 3,
+        "cocktail": 1,
+        "party": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_027",
+      "garment_1": "formal_suit_jacket",
+      "garment_2": "athletic_joggers",
+      "conflict_type": "formality",
+      "reason": "Sportswear bottoms conflict strongly with traditional suit tailoring.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "smart_casual": 3,
+        "casual": 1,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_028",
+      "garment_1": "formal_suit_jacket",
+      "garment_2": "athletic_shorts",
+      "conflict_type": "formality",
+      "reason": "Performance shorts create a strong mismatch with formal tailoring.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "smart_casual": 4,
+        "casual": 1,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_029",
+      "garment_1": "formal_shirt",
+      "garment_2": "sweatshorts",
+      "conflict_type": "formality",
+      "reason": "The polished character of a formal shirt conflicts with casual athletic bottoms.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 5,
+        "smart_casual": 3,
+        "casual": 1,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_030",
+      "garment_1": "tuxedo_jacket",
+      "garment_2": "casual_denim_jeans",
+      "conflict_type": "dress_code",
+      "reason": "Traditional tuxedo tailoring should not be paired with casual denim for formal dress codes.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 5,
+        "cocktail": 3,
+        "business_formal": 4,
+        "smart_casual": 1,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_031",
+      "garment_1": "formal_saree",
+      "garment_2": "sporty_hoodie",
+      "conflict_type": "cultural_and_formality",
+      "reason": "Athleisure styling conflicts with traditional formal saree dressing.",
+      "occasions": {
+        "wedding_guest": 5,
+        "festive": 5,
+        "traditional_ceremony": 5,
+        "formal_evening": 4,
+        "casual": 1,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_032",
+      "garment_1": "formal_kurta",
+      "garment_2": "distressed_jeans",
+      "conflict_type": "cultural_and_formality",
+      "reason": "Heavy denim distressing can undermine the polished character of formal traditionalwear.",
+      "occasions": {
+        "wedding_guest": 4,
+        "festive": 4,
+        "traditional_ceremony": 5,
+        "formal_evening": 4,
+        "smart_casual": 1,
+        "casual": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_033",
+      "garment_1": "traditional_heavy_embellished_top",
+      "garment_2": "heavily_embellished_bottom",
+      "conflict_type": "visual_overload",
+      "reason": "Heavy embellishment across both pieces can overwhelm the outfit.",
+      "occasions": {
+        "wedding_guest": 2,
+        "festive": 1,
+        "traditional_ceremony": 1,
+        "formal_evening": 1,
+        "party": 0,
+        "casual": 3
+      }
+    },
+
+    {
+      "rule_id": "G2G_034",
+      "garment_1": "heavy_winter_coat",
+      "garment_2": "light_summer_dress",
+      "conflict_type": "seasonality",
+      "reason": "The seasonal weight and visual character of the garments conflict.",
+      "occasions": {
+        "summer": 5,
+        "spring": 3,
+        "winter": 0,
+        "cold_weather": 0,
+        "transitional_weather": 1
+      }
+    },
+
+    {
+      "rule_id": "G2G_035",
+      "garment_1": "heavy_knit_sweater",
+      "garment_2": "linen_shorts",
+      "conflict_type": "seasonality",
+      "reason": "Heavy winter knitwear and lightweight summer bottoms communicate conflicting seasonal intent.",
+      "occasions": {
+        "summer": 5,
+        "spring": 3,
+        "winter": 1,
+        "cold_weather": 0,
+        "resort": 4,
+        "beach": 5
+      }
+    },
+
+    {
+      "rule_id": "G2G_036",
+      "garment_1": "fur_coat",
+      "garment_2": "beachwear",
+      "conflict_type": "seasonality_and_context",
+      "reason": "Cold-weather outerwear conflicts strongly with warm-weather beach dressing.",
+      "occasions": {
+        "beach": 5,
+        "resort": 5,
+        "summer": 5,
+        "winter": 0,
+        "cold_weather": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_037",
+      "garment_1": "puffer_jacket",
+      "garment_2": "formal_evening_gown",
+      "conflict_type": "formality",
+      "reason": "Bulky athletic outerwear conflicts with formal evening elegance.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 5,
+        "cocktail": 4,
+        "winter_party": 2,
+        "casual": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_038",
+      "garment_1": "oversized_denim_jacket",
+      "garment_2": "formal_tuxedo_trousers",
+      "conflict_type": "formality",
+      "reason": "Casual denim outerwear can undermine the formal character of tuxedo tailoring.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 5,
+        "business_formal": 5,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_039",
+      "garment_1": "bohemian_maxi_dress",
+      "garment_2": "formal_tailored_blazer",
+      "conflict_type": "aesthetic",
+      "reason": "Highly structured corporate tailoring can conflict with relaxed bohemian styling.",
+      "occasions": {
+        "business_formal": 3,
+        "business_casual": 2,
+        "smart_casual": 1,
+        "bohemian": 0,
+        "casual": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_040",
+      "garment_1": "romantic_floral_dress",
+      "garment_2": "heavy_utility_vest",
+      "conflict_type": "aesthetic",
+      "reason": "Heavy utility detailing can overpower a delicate romantic aesthetic.",
+      "occasions": {
+        "romantic": 3,
+        "garden_party": 3,
+        "wedding_guest": 3,
+        "casual": 1,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_041",
+      "garment_1": "preppy_cardigan",
+      "garment_2": "heavy_distressed_cargo_pants",
+      "conflict_type": "aesthetic",
+      "reason": "Traditional preppy styling can conflict with aggressive utility detailing.",
+      "occasions": {
+        "business_casual": 2,
+        "smart_casual": 1,
+        "preppy": 0,
+        "casual": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_042",
+      "garment_1": "minimalist_top",
+      "garment_2": "maximalist_embellished_bottom",
+      "conflict_type": "aesthetic",
+      "reason": "The combination can work as intentional contrast but may conflict with a strictly minimalist styling direction.",
+      "occasions": {
+        "minimalist": 4,
+        "business_formal": 2,
+        "business_casual": 2,
+        "smart_casual": 0,
+        "fashion_forward": 0,
+        "party": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_043",
+      "garment_1": "cropped_leather_jacket",
+      "garment_2": "formal_evening_gown",
+      "conflict_type": "aesthetic",
+      "reason": "The strong edgy character of leather can conflict with classic formal evening styling.",
+      "occasions": {
+        "black_tie": 5,
+        "formal_evening": 4,
+        "cocktail": 2,
+        "fashion_forward": 0,
+        "streetwear": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_044",
+      "garment_1": "athleisure_top",
+      "garment_2": "pencil_skirt",
+      "conflict_type": "formality_and_aesthetic",
+      "reason": "Sportswear styling can conflict with the polished structure of a pencil skirt.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 3,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_045",
+      "garment_1": "sporty_bomber_jacket",
+      "garment_2": "formal_pencil_skirt",
+      "conflict_type": "formality_and_aesthetic",
+      "reason": "Sporty outerwear can create excessive contrast with formal tailoring.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 3,
+        "smart_casual": 1,
+        "casual": 0,
+        "streetwear": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_046",
+      "garment_1": "longline_blazer",
+      "garment_2": "long_maxi_skirt",
+      "conflict_type": "length_and_proportion",
+      "reason": "Two long structured layers can visually elongate the torso and obscure proportion.",
+      "occasions": {
+        "business_formal": 3,
+        "business_casual": 2,
+        "smart_casual": 1,
+        "casual": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_047",
+      "garment_1": "long_tunic",
+      "garment_2": "long_maxi_skirt",
+      "conflict_type": "length_and_proportion",
+      "reason": "Overlapping long silhouettes can create excessive visual length and reduce definition.",
+      "occasions": {
+        "business_formal": 3,
+        "business_casual": 2,
+        "smart_casual": 1,
+        "casual": 0,
+        "traditional": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_048",
+      "garment_1": "high_neck_top",
+      "garment_2": "high_neck_outerwear",
+      "conflict_type": "visual_bulk",
+      "reason": "Multiple high necklines can create excessive bulk around the face and neck.",
+      "occasions": {
+        "business_formal": 2,
+        "business_casual": 2,
+        "smart_casual": 1,
+        "casual": 1,
+        "winter": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_049",
+      "garment_1": "ruffled_top",
+      "garment_2": "ruffled_skirt",
+      "conflict_type": "visual_overload",
+      "reason": "Large ruffles on both garments can create excessive visual movement.",
+      "occasions": {
+        "business_formal": 5,
+        "business_casual": 4,
+        "smart_casual": 2,
+        "romantic": 0,
+        "party": 0,
+        "fashion_forward": 0
+      }
+    },
+
+    {
+      "rule_id": "G2G_050",
+      "garment_1": "highly_structured_top",
+      "garment_2": "highly_structured_bottom",
+      "conflict_type": "structure",
+      "reason": "Strong structure on both halves can make the outfit visually rigid.",
+      "occasions": {
+        "business_formal": 1,
+        "business_casual": 1,
+        "smart_casual": 0,
+        "casual": 0,
+        "fashion_forward": 0
+      }
+    }
+  ]
+}
