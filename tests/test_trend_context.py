@@ -71,16 +71,34 @@ class TestTrendVerificationGate(unittest.TestCase):
         trend = _verified_trend(verified_at="2027-01-01T00:00:00Z")
         self.assertFalse(TrendContextService.is_trend_valid(trend, target_date=date(2026, 8, 26)))
 
-    def test_real_registry_has_zero_verified_active_trends(self):
-        """The shipped registry (PR48 data checked 2026-08-26, all sources
-        dead or unconfirmed) must produce zero active trends today -- this
-        proves the BLOCKING provenance rule is actually enforced end-to-end,
+    def test_original_pr48_records_remain_permanently_disabled(self):
+        """The original 12 PR48 records (all dead links or unconfirmed
+        content, checked 2026-08-26) must never become active regardless of
+        the Phase 2 verified additions -- this proves the BLOCKING
+        provenance rule is still enforced end-to-end for that specific data,
         not just in a mocked unit test."""
-        active = TrendContextService.get_active_trends(target_date=date(2026, 8, 26), target_region="india")
-        self.assertEqual(active, [])
         registry = style_trend_registry.get_trend_registry()
-        self.assertTrue(len(registry) > 0)  # data exists...
-        self.assertTrue(all(t.get("verification_status") != "VERIFIED" for t in registry))  # ...none verified
+        original_ids = {t["trend_id"] for t in style_trend_registry.ORIGINAL_DISABLED_TRENDS}
+        active = TrendContextService.get_active_trends(
+            target_date=date(2026, 8, 26), target_region="india", allow_global_fallback=True,
+        )
+        active_ids = {t["trend_id"] for t in active}
+        self.assertTrue(original_ids.isdisjoint(active_ids))
+        self.assertTrue(all(t.get("verification_status") != "VERIFIED" for t in style_trend_registry.ORIGINAL_DISABLED_TRENDS))
+
+    def test_phase2_verified_records_are_active(self):
+        """The 7 Phase 2 records, independently re-sourced and verified live
+        on 2026-08-26 against real editorial publications, must be reachable
+        (India-scoped one for target_region="india"; all 7 with global
+        fallback permitted)."""
+        registry = style_trend_registry.get_trend_registry()
+        verified_ids = {t["trend_id"] for t in style_trend_registry.VERIFIED_TRENDS}
+        self.assertEqual(len(verified_ids), 7)
+        active_global = TrendContextService.get_active_trends(
+            target_date=date(2026, 8, 26), target_region="india", allow_global_fallback=True,
+        )
+        active_ids = {t["trend_id"] for t in active_global}
+        self.assertEqual(active_ids, verified_ids)
 
     def test_missing_review_state_rejected(self):
         trend = _verified_trend()
@@ -354,12 +372,13 @@ class TestFailOpen(unittest.TestCase):
 
 
 class TestDiagnostics(unittest.TestCase):
-    def test_diagnostics_reporting_reflects_zero_verified(self):
+    def test_diagnostics_reporting_reflects_phase2_activation(self):
         diag = TrendContextService.get_diagnostics(target_date=date(2026, 8, 26), target_region="india")
         self.assertTrue(diag["trend_registry_loaded"])
-        self.assertGreater(diag["total_record_count"], 0)
-        self.assertEqual(diag["active_record_count"], 0)  # real registry: nothing verified
-        self.assertEqual(diag["source_health"], "degraded")
+        self.assertEqual(diag["total_record_count"], 19)  # 12 disabled + 7 verified
+        self.assertEqual(diag["active_record_count"], 1)  # india-scoped default region: only the 1 India record
+        self.assertEqual(diag["unverified_count"], 12)
+        self.assertEqual(diag["source_health"], "healthy")
         self.assertEqual(diag["mode"], "CURATED_SOURCE_BACKED")
 
 
@@ -420,6 +439,151 @@ class TestNegativeCompatUnaffected(unittest.TestCase):
         )
         self.assertTrue(v)
         self.assertTrue(all(x.severity == SEVERITY_HARD for x in v))
+
+
+class TestPhase2Matchability(unittest.TestCase):
+    """Section 8: a valid source that can never match AHVI taxonomy is not
+    useful. One representative canonical board fixture per Phase 2 verified
+    trend, built from that trend's own real keywords, against the REAL
+    (unmocked) registry."""
+
+    FIXTURES = {
+        "modern_heirlooms_2026": (
+            [{"id": "1", "name": "Beaded Brocade Gown", "category": "dresses", "tags": ["embroidery"]}],
+            "cocktail",
+        ),
+        "office_hours_skirt_suits_2026": (
+            [{"id": "1", "name": "Houndstooth Skirt Suit Blazer", "category": "outerwear"}],
+            "office",
+        ),
+        "touch_point_texture_2026": (
+            [{"id": "1", "name": "Shearling Fur Coat", "category": "outerwear"}],
+            "travel",
+        ),
+        "night_moves_dark_romance_2026": (
+            [{"id": "1", "name": "Lace Corsetry Dress", "category": "dresses", "color": "burgundy"}],
+            "party",
+        ),
+        "shape_shift_proportion_2026": (
+            [{"id": "1", "name": "Oversized Shoulder Peplum Jacket", "category": "outerwear"}],
+            "party",
+        ),
+        "its_a_wrap_shrouds_2026": (
+            [{"id": "1", "name": "Structured Knit Cape", "category": "outerwear"}],
+            "casual",
+        ),
+        "india_couture_week_embellished_ethnic_2026": (
+            [{"id": "1", "name": "Zardozi Embroidered Lehenga", "category": "ethnic_wear", "color": "gold"}],
+            "wedding",
+        ),
+    }
+
+    def test_every_verified_trend_matches_its_own_representative_board(self):
+        for trend_id, (items, occasion) in self.FIXTURES.items():
+            with self.subTest(trend_id=trend_id):
+                match = TrendContextService.match_board_trend(
+                    board_items=items, canonical_occasion=occasion,
+                    target_region="india", allow_global_fallback=True,
+                    target_date=date(2026, 8, 26),
+                )
+                self.assertIsNotNone(match, f"{trend_id} did not match its own representative board")
+                self.assertEqual(match["trend_id"], trend_id)
+                self.assertGreaterEqual(match["match_score"], 0.55)
+
+    def test_color_alone_still_insufficient_against_real_verified_trend(self):
+        """night_moves_dark_romance_2026 lists 'jewel tone'/'burgundy' as
+        colors but requires a real keyword match (lace/corsetry/high neck/
+        feathered/asymmetric hem) -- a plain burgundy item with none of
+        those words must NOT match, proving the strong-signal rule still
+        holds against real (not mocked) verified data."""
+        items = [{"id": "1", "name": "Burgundy Wool Sweater", "category": "top", "color": "burgundy"}]
+        match = TrendContextService.match_board_trend(
+            board_items=items, canonical_occasion="party",
+            target_region="india", allow_global_fallback=True, target_date=date(2026, 8, 26),
+        )
+        self.assertIsNone(match)
+
+
+class TestPhase2IndiaGlobalFallbackCases(unittest.TestCase):
+    """Section 9, cases A-D, against the real registry."""
+
+    def test_case_a_india_specific_match_selected_before_global(self):
+        items = [{"id": "1", "name": "Zardozi Embroidered Lehenga", "category": "ethnic_wear", "color": "gold"}]
+        match = TrendContextService.match_board_trend(
+            board_items=items, canonical_occasion="wedding",
+            target_region="india", allow_global_fallback=True, target_date=date(2026, 8, 26),
+        )
+        self.assertIsNotNone(match)
+        self.assertEqual(match["trend_id"], "india_couture_week_embellished_ethnic_2026")
+
+    def test_case_b_no_india_match_valid_global_participates(self):
+        items = [{"id": "1", "name": "Houndstooth Skirt Suit Blazer", "category": "outerwear"}]
+        match = TrendContextService.match_board_trend(
+            board_items=items, canonical_occasion="office",
+            target_region="india", allow_global_fallback=True, target_date=date(2026, 8, 26),
+        )
+        self.assertIsNotNone(match)
+        self.assertEqual(match["trend_id"], "office_hours_skirt_suits_2026")
+
+    def test_case_c_india_trend_exists_but_board_mismatch_allows_global_fallback(self):
+        """The India-scoped trend exists in the registry, but this board
+        (an office blazer) shares no keyword signal with it -- V1 policy
+        must still allow a matching global trend through."""
+        items = [{"id": "1", "name": "Houndstooth Skirt Suit Blazer", "category": "outerwear"}]
+        india_trends = TrendContextService.get_active_trends(
+            target_date=date(2026, 8, 26), canonical_occasion="office", target_region="india", allow_global_fallback=False,
+        )
+        self.assertEqual(india_trends, [])  # india trend doesn't cover "office" occasion at all
+        match = TrendContextService.match_board_trend(
+            board_items=items, canonical_occasion="office",
+            target_region="india", allow_global_fallback=True, target_date=date(2026, 8, 26),
+        )
+        self.assertIsNotNone(match)
+        self.assertEqual(match["trend_id"], "office_hours_skirt_suits_2026")  # global trend used via fallback
+
+    def test_case_c_global_not_used_when_fallback_disallowed(self):
+        items = [{"id": "1", "name": "Houndstooth Skirt Suit Blazer", "category": "outerwear"}]
+        match = TrendContextService.match_board_trend(
+            board_items=items, canonical_occasion="office",
+            target_region="india", allow_global_fallback=False, target_date=date(2026, 8, 26),
+        )
+        self.assertIsNone(match)
+
+    def test_case_d_no_valid_trend_board_unchanged(self):
+        board = {"outfit_id": "1", "items": [{"id": "1", "name": "Plain Grey T-Shirt", "category": "top"}]}
+        annotated = annotate_board_with_trend(
+            board, canonical_occasion="casual", target_region="india",
+            allow_global_fallback=True, target_date=date(2026, 8, 26),
+        )
+        self.assertNotIn("trend_label", annotated)
+        self.assertEqual(annotated["items"], board["items"])
+
+
+class TestPhase2UserFacingMetadata(unittest.TestCase):
+    """Section 10: exact metadata shape attached to a board, no internal
+    scoring/debug leakage, no item mutation."""
+
+    def test_trend_meta_exposes_only_approved_fields(self):
+        board = {
+            "outfit_id": "board_1",
+            "items": [{"id": "1", "name": "Houndstooth Skirt Suit Blazer", "category": "outerwear"}],
+        }
+        annotated = annotate_board_with_trend(
+            board, canonical_occasion="office", target_region="india",
+            allow_global_fallback=True, target_date=date(2026, 8, 26),
+        )
+        self.assertIn("trend_meta", annotated)
+        meta = annotated["trend_meta"]
+        required_keys = {"trend_id", "match_score", "region", "valid_until", "confidence", "publisher", "published_at", "claim"}
+        self.assertEqual(set(meta.keys()), required_keys)
+        # no raw scoring internals (item points, coverage math, matched_item_ids) leak into user-facing meta
+        self.assertNotIn("matched_item_ids", meta)
+        self.assertNotIn("matched_reasons", meta)
+        self.assertEqual(meta["trend_id"], "office_hours_skirt_suits_2026")
+        self.assertEqual(meta["publisher"], "Coveteur")
+        self.assertEqual(meta["published_at"], "2026-08-12T00:00:00Z")
+        self.assertIn(meta["claim"], (SOURCE_BACKED_CURRENT, SOURCE_BACKED_RECENT))
+        self.assertEqual(board["items"], annotated["items"])  # unchanged
 
 
 if __name__ == "__main__":

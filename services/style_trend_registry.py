@@ -3,38 +3,34 @@ services/style_trend_registry.py
 Deterministic source-backed registry for AHVI Trend Intelligence V1.
 
 Schema, provenance concept, and freshness-window fields are adapted from
-PR #48 (feat/trend-intelligence-dynamic, f0a57eb). The DATA is not: every
-record below was checked against its claimed `source.url` on 2026-08-26 and
-none passed independent verification (see `verification_status` per
-record). This registry therefore ships with zero VERIFIED records for V1 --
-the mechanism is proven end-to-end, but no trend is allowed to present
-itself as source-backed until a human editor actually confirms a source.
+PR #48 (feat/trend-intelligence-dynamic, f0a57eb). The original 12 PR48
+records (ORIGINAL_DISABLED_TRENDS below) remain in this file, permanently
+disabled, as an audit trail -- see their per-record verification_status/
+verification_note for why each failed (10/12 dead links, 2/12 unconfirmed
+content; checked 2026-08-26). None of the original 12 were reusable.
 
-Verification method used: HTTP GET against each claimed url.
-  - 10/12 returned 404 (dead link) -> verification_status="DEAD_LINK"
-  - 2/12 returned 200 but failed content verification -> "UNCONFIRMED_CONTENT"
-      * relaxed_tailoring_2026: the live page title is "The Key Summer 2026
-        Trends..." -- a different season/topic than what this record claims.
-      * earthy_neutrals_2026: the claimed url used a placeholder numeric ID
-        (.../a60000000/...) that Harper's Bazaar's CMS silently redirected
-        to an unrelated real article ID -- not evidence the redirect target
-        actually discusses "Earthy Neutrals".
-  - Every record in PR #48 shared the exact same verified_at timestamp
-    (2026-02-01T10:00:00Z) across 12 different publishers -- itself strong
-    evidence verified_at was never a real, independent verification event.
-    verified_at is therefore set to None here rather than kept as invented
-    metadata (do not resurrect the PR #48 timestamp).
+PHASE 2 (2026-08-26): 7 new records (VERIFIED_TRENDS below) were sourced
+and independently verified from scratch via live web search + fetch against
+first-party editorial publications -- not AI trend summaries, SEO scraper
+sites, Pinterest, blogs, or search-snippets-alone. Each record's
+`verification_note` states exactly what was confirmed (URL resolves,
+publisher, live title, byline, publication date) and the source excerpt the
+keywords/colors/categories were drawn from. `verified_at` is the actual date
+this verification was performed, not backdated. 6 of 7 are GLOBAL scope
+(two publishers, both fall/winter-2026 season coverage); 1 is INDIA scope,
+sourced from real India Couture Week 2026 runway coverage -- stored
+narrowly (wedding/festive-occasion, couture-context) rather than
+generalized into a claim about everyday Indian fashion the source doesn't
+support.
 
-`review_state` is downgraded from PR48's "approved" to "unverified" for
-every record for the same reason: no human/process has actually approved
-these sources. TrendContextService.is_trend_valid() hard-gates on both
-review_state=="approved" AND verification_status=="VERIFIED", so nothing
-here is reachable at runtime -- get_active_trends() returns [] until a real
-record is added with genuine, checked provenance.
+TrendContextService.is_trend_valid() hard-gates on review_state=="approved"
+AND verification_status=="VERIFIED" AND a parseable, non-future, in-window
+verified_at -- so only the 7 VERIFIED_TRENDS records below are reachable at
+runtime; the 12 disabled ones remain permanently inert.
 """
 from typing import Any, Dict, List
 
-ACTIVE_TRENDS: List[Dict[str, Any]] = [
+ORIGINAL_DISABLED_TRENDS: List[Dict[str, Any]] = [
     {
         "trend_id": "relaxed_tailoring_2026",
         "label": "Relaxed Tailoring",
@@ -354,11 +350,216 @@ ACTIVE_TRENDS: List[Dict[str, Any]] = [
 ]
 
 
-def get_trend_registry() -> List[Dict[str, Any]]:
-    """Return all curated trend records (verified and unverified alike).
+# ---------------------------------------------------------------------------
+# Phase 2: independently re-sourced and verified 2026-08-26. Each record's
+# keywords/colors/categories are drawn only from what the fetched article
+# excerpt actually stated -- fields the source didn't specify are left empty
+# rather than invented. occasions use ONLY the confirmed literal output
+# vocabulary of brain.engines.style_scorer.normalize_occasion() (beach,
+# brunch, capsule, casual, cocktail, date_night, office, party, travel,
+# wedding, workout) -- not "evening"/"festive"/"dinner", which that function
+# never actually returns, so a trend using those words would silently never
+# match at runtime.
+# ---------------------------------------------------------------------------
+VERIFIED_TRENDS: List[Dict[str, Any]] = [
+    {
+        "trend_id": "modern_heirlooms_2026",
+        "label": "Modern Heirlooms",
+        "scope": "global",
+        "region": ["global"],
+        "gender": ["male", "female", "unisex"],
+        "categories": ["outerwear", "dresses", "jewelry"],
+        "colors": [],
+        "keywords": ["brocade", "jacquard", "embroidery", "beaded", "embellished coat", "gown", "estate jewelry"],
+        "occasions": ["cocktail", "wedding", "party"],
+        "season": ["autumn", "winter"],
+        "strength": 0.6,
+        "confidence": 0.65,
+        "review_state": "approved",
+        "verification_status": "VERIFIED",
+        "verification_note": "Fetched live 2026-08-26. Title matches exactly: '10 Fashion Month Trends Set to Define Fall/Winter 2026 Style | Who What Wear'. Byline Kristen Nichols and Eliza Huber. 'Modern Heirlooms' section confirmed: rich brocade/jacquard fabrics, intricate embroidery, beaded details, embellished coats, sophisticated gowns, estate jewelry.",
+        "valid_from": "2026-07-28",
+        "valid_until": "2027-01-31",
+        "ingested_at": "2026-08-26T00:00:00Z",
+        "verified_at": "2026-08-26T00:00:00Z",
+        "source": {
+            "publisher": "Who What Wear",
+            "url": "https://www.whowhatwear.com/fashion/runway/fashion-week-trends-fall-winter-2026",
+            "published_at": "2026-07-28T00:00:00Z",
+        },
+    },
+    {
+        "trend_id": "office_hours_skirt_suits_2026",
+        "label": "Office Hours (Skirt Suits)",
+        "scope": "global",
+        "region": ["global"],
+        "gender": ["female", "unisex"],
+        "categories": ["outerwear", "bottom"],
+        "colors": [],
+        "keywords": ["skirt suit", "blazer", "asymmetric hem", "houndstooth"],
+        "occasions": ["office"],
+        "season": ["autumn", "winter"],
+        "strength": 0.6,
+        "confidence": 0.65,
+        "review_state": "approved",
+        "verification_status": "VERIFIED",
+        "verification_note": "Fetched live 2026-08-26. Title matches exactly: \"8 Fashion Trends We're Buying for Fall 2026 | Who What Wear\" republished/aggregated at coveteur.com by Ella O'Keeffe, published 2026-08-12. 'Office Hours' section confirmed: blazers, skirt suits, asymmetric hems, off-kilter button details, houndstooth patterns, professional/workwear context.",
+        "valid_from": "2026-08-12",
+        "valid_until": "2027-02-28",
+        "ingested_at": "2026-08-26T00:00:00Z",
+        "verified_at": "2026-08-26T00:00:00Z",
+        "source": {
+            "publisher": "Coveteur",
+            "url": "https://coveteur.com/fall-fashion-trends-2026",
+            "published_at": "2026-08-12T00:00:00Z",
+        },
+    },
+    {
+        "trend_id": "touch_point_texture_2026",
+        "label": "Touch Point (Texture)",
+        "scope": "global",
+        "region": ["global"],
+        "gender": ["male", "female", "unisex"],
+        "categories": ["outerwear"],
+        "colors": [],
+        "keywords": ["fur coat", "shearling", "fringe", "pile fabric"],
+        "occasions": ["casual", "travel"],
+        "season": ["autumn", "winter"],
+        "strength": 0.55,
+        "confidence": 0.65,
+        "review_state": "approved",
+        "verification_status": "VERIFIED",
+        "verification_note": "Same article as office_hours_skirt_suits_2026 (Coveteur, Ella O'Keeffe, 2026-08-12). 'Touch Point' section confirmed: fur coats, shearling jackets, pile fabrics, fringe accents.",
+        "valid_from": "2026-08-12",
+        "valid_until": "2027-02-28",
+        "ingested_at": "2026-08-26T00:00:00Z",
+        "verified_at": "2026-08-26T00:00:00Z",
+        "source": {
+            "publisher": "Coveteur",
+            "url": "https://coveteur.com/fall-fashion-trends-2026",
+            "published_at": "2026-08-12T00:00:00Z",
+        },
+    },
+    {
+        "trend_id": "night_moves_dark_romance_2026",
+        "label": "Night Moves (Dark Romance)",
+        "scope": "global",
+        "region": ["global"],
+        "gender": ["female", "unisex"],
+        "categories": ["dresses", "top"],
+        "colors": ["jewel tone", "burgundy"],
+        "keywords": ["lace dress", "corsetry", "high neck", "feathered", "asymmetric hem"],
+        "occasions": ["cocktail", "party", "date_night"],
+        "season": ["autumn", "winter"],
+        "strength": 0.6,
+        "confidence": 0.65,
+        "review_state": "approved",
+        "verification_status": "VERIFIED",
+        "verification_note": "Same article as office_hours_skirt_suits_2026 (Coveteur, Ella O'Keeffe, 2026-08-12). 'Night Moves' section confirmed: lace dresses, corsetry, high-neck pieces, feathered bolero shrugs, asymmetric hems, jewel tones, moody palettes, evening context.",
+        "valid_from": "2026-08-12",
+        "valid_until": "2027-01-31",
+        "ingested_at": "2026-08-26T00:00:00Z",
+        "verified_at": "2026-08-26T00:00:00Z",
+        "source": {
+            "publisher": "Coveteur",
+            "url": "https://coveteur.com/fall-fashion-trends-2026",
+            "published_at": "2026-08-12T00:00:00Z",
+        },
+    },
+    {
+        "trend_id": "shape_shift_proportion_2026",
+        "label": "Shape Shift (Proportion Play)",
+        "scope": "global",
+        "region": ["global"],
+        "gender": ["female", "unisex"],
+        "categories": ["outerwear", "bottom"],
+        "colors": [],
+        "keywords": ["oversized shoulder", "peplum", "mini skirt", "dropped waist", "high-low"],
+        "occasions": ["party", "cocktail"],
+        "season": ["autumn", "winter"],
+        "strength": 0.55,
+        "confidence": 0.62,
+        "review_state": "approved",
+        "verification_status": "VERIFIED",
+        "verification_note": "Same article as office_hours_skirt_suits_2026 (Coveteur, Ella O'Keeffe, 2026-08-12). 'Shape Shift' section confirmed: mini skirts with high-low trains, oversized shoulder pads, peplum details, ultra-dropped waists.",
+        "valid_from": "2026-08-12",
+        "valid_until": "2027-02-28",
+        "ingested_at": "2026-08-26T00:00:00Z",
+        "verified_at": "2026-08-26T00:00:00Z",
+        "source": {
+            "publisher": "Coveteur",
+            "url": "https://coveteur.com/fall-fashion-trends-2026",
+            "published_at": "2026-08-12T00:00:00Z",
+        },
+    },
+    {
+        "trend_id": "its_a_wrap_shrouds_2026",
+        "label": "It's A Wrap (Shrouds)",
+        "scope": "global",
+        "region": ["global"],
+        "gender": ["male", "female", "unisex"],
+        "categories": ["outerwear"],
+        "colors": [],
+        "keywords": ["cape", "shroud", "structured knit"],
+        "occasions": ["casual", "travel"],
+        "season": ["autumn", "winter"],
+        "strength": 0.55,
+        "confidence": 0.62,
+        "review_state": "approved",
+        "verification_status": "VERIFIED",
+        "verification_note": "Same article as office_hours_skirt_suits_2026 (Coveteur, Ella O'Keeffe, 2026-08-12). 'It's A Wrap' section confirmed: capes, shroud-like knitwear, structured tops keeping arms close to body, layering/outerwear context, check patterns mentioned.",
+        "valid_from": "2026-08-12",
+        "valid_until": "2027-02-28",
+        "ingested_at": "2026-08-26T00:00:00Z",
+        "verified_at": "2026-08-26T00:00:00Z",
+        "source": {
+            "publisher": "Coveteur",
+            "url": "https://coveteur.com/fall-fashion-trends-2026",
+            "published_at": "2026-08-12T00:00:00Z",
+        },
+    },
+    {
+        "trend_id": "india_couture_week_embellished_ethnic_2026",
+        "label": "India Couture Week Embellished Ethnic",
+        "scope": "india",
+        "region": ["india"],
+        "gender": ["female", "unisex"],
+        "categories": ["ethnic_wear"],
+        "colors": ["red", "gold", "wine", "ivory", "silver", "blue"],
+        "keywords": ["lehenga", "sari", "saree", "zardozi", "mirror work", "bandhani", "embroidery", "corseted blouse"],
+        "occasions": ["wedding", "party"],
+        "season": ["autumn", "winter"],
+        "strength": 0.65,
+        "confidence": 0.75,
+        "review_state": "approved",
+        "verification_status": "VERIFIED",
+        "verification_note": (
+            "Fetched live 2026-08-26. Title/byline confirmed: 'India Couture Week 2026 in all its "
+            "glory: Celebrating the artisans, the atelier, and the art of couture', Harper's Bazaar "
+            "India, by Santya Ahuja, published 2026-07-30. Confirmed runway coverage across multiple "
+            "designers: sculpted lehengas, fluid saris, corseted blouses, zardozi/bandhani/mirror-work "
+            "embroidery, palette including deep reds, antique golds, wines, ivories, silvers, celestial "
+            "blues. Stored narrowly as India Couture Week runway coverage (wedding/festive occasion "
+            "context), NOT generalized into a claim about everyday Indian fashion -- the source is "
+            "couture-week reporting, not a market-wide trend survey."
+        ),
+        "valid_from": "2026-07-30",
+        "valid_until": "2027-02-28",
+        "ingested_at": "2026-08-26T00:00:00Z",
+        "verified_at": "2026-08-26T00:00:00Z",
+        "source": {
+            "publisher": "Harper's Bazaar India",
+            "url": "https://www.harpersbazaar.in/fashion/story/india-couture-week-2026-in-all-its-glory-celebrating-the-artisans-the-atelier-and-the-art-of-couture-1431572-2026-07-30",
+            "published_at": "2026-07-30T00:00:00Z",
+        },
+    },
+]
 
-    Callers must go through TrendContextService.is_trend_valid()/
+
+def get_trend_registry() -> List[Dict[str, Any]]:
+    """Return all curated trend records (verified and permanently-disabled
+    alike). Callers must go through TrendContextService.is_trend_valid()/
     get_active_trends() -- this function does not filter by verification
     status itself, it is the raw registry.
     """
-    return ACTIVE_TRENDS
+    return ORIGINAL_DISABLED_TRENDS + VERIFIED_TRENDS
