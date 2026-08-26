@@ -6,6 +6,7 @@ from services.style_trend_registry import get_trend_registry
 
 MIN_BOARD_TREND_THRESHOLD = 0.55
 MIN_TREND_CONFIDENCE = 0.60
+MAX_SOURCE_AGE_DAYS = 365
 logger = logging.getLogger("ahvi.services.trend_context")
 
 _CANONICAL_OCCASION_MAP = {
@@ -21,6 +22,23 @@ _CANONICAL_OCCASION_MAP = {
     "travel": "travel", "vacation": "travel", "flight": "travel", "airport": "travel",
     "workout": "casual", "gym": "casual", "sport": "casual", "beach": "travel", "beach_party": "party",
 }
+
+
+def _normalize_gender(gender_val: Optional[str]) -> str:
+    """
+    Canonical Gender Normalization:
+    male / man / men / m -> 'male'
+    female / woman / women / w / f -> 'female'
+    unisex / all / empty -> 'unisex'
+    """
+    if not gender_val:
+        return "unisex"
+    g = str(gender_val).lower().strip()
+    if g in {"male", "man", "men", "m"}:
+        return "male"
+    if g in {"female", "woman", "women", "w", "f"}:
+        return "female"
+    return "unisex"
 
 
 def _canonicalize_occasion(occasion: Optional[str]) -> Optional[str]:
@@ -48,6 +66,7 @@ def annotate_board_with_trend(
 ) -> dict:
     """
     Additive soft trend annotation. Modifies board ONLY if a valid, current, source-backed trend matches.
+    Wired into style-board pipeline AFTER deterministic safety & occasion/gender validation.
     Trends NEVER alter outfit selection, item order, or styling safety.
     If no match or error occurs, trend keys are cleared and the board is returned intact.
     """
@@ -114,13 +133,18 @@ class TrendContextService:
         allow_global_fallback: bool = False,
     ) -> bool:
         """
-        Strict freshness, provenance, confidence, review state, and region gate.
-        Returns False if expired, unsourced, unpublished, low confidence, or unapproved.
+        Strict freshness, provenance, confidence, review_state, stale-source, and region gate.
+        Returns False if expired, unsourced, unpublished, future-published, stale, low confidence, or unapproved.
         """
         if not isinstance(trend, dict):
             return False
 
-        # 1. Freshness Gate (strict date parsing — no unsourced 2099 infinity)
+        # 1. Review State Gate (missing or not 'approved' -> REJECT)
+        rev = trend.get("review_state")
+        if not rev or str(rev).lower().strip() != "approved":
+            return False
+
+        # 2. Freshness Gate (strict date parsing)
         v_from = cls._parse_date(trend.get("valid_from"))
         v_until = cls._parse_date(trend.get("valid_until"))
 
@@ -131,7 +155,7 @@ class TrendContextService:
         if not (v_from <= current_d <= v_until):
             return False
 
-        # 2. Source & Provenance Gate
+        # 3. Source & Provenance Gate
         source = trend.get("source")
         if not isinstance(source, dict):
             return False
@@ -142,7 +166,15 @@ class TrendContextService:
         if not publisher or not url or not pub_at:
             return False
 
-        # 3. Confidence Gate
+        # 4. Future Publication Date Gate (published_at > current_d -> REJECT)
+        if pub_at > current_d:
+            return False
+
+        # 5. Stale Source Policy Gate (published_at older than 365 days relative to valid_from or current_d -> REJECT)
+        if (v_from - pub_at).days > MAX_SOURCE_AGE_DAYS or (current_d - pub_at).days > MAX_SOURCE_AGE_DAYS:
+            return False
+
+        # 6. Confidence Gate
         try:
             conf = float(trend.get("confidence", 0.0))
         except (TypeError, ValueError):
@@ -150,11 +182,7 @@ class TrendContextService:
         if conf < MIN_TREND_CONFIDENCE:
             return False
 
-        # 4. Review State Gate
-        if str(trend.get("review_state") or "approved").lower().strip() != "approved":
-            return False
-
-        # 5. Region & Scope Gate
+        # 7. Region & Scope Gate
         req_region = str(target_region or "india").lower().strip()
         trend_regions = [str(r).lower().strip() for r in (trend.get("region") or [])]
         trend_scope = str(trend.get("scope") or "").lower().strip()
@@ -185,6 +213,7 @@ class TrendContextService:
         all_trends = get_trend_registry()
         active = []
         canonical_occ = _canonicalize_occasion(occasion)
+        norm_req_gender = _normalize_gender(gender)
 
         for trend in all_trends:
             if not cls.is_trend_valid(
@@ -195,14 +224,13 @@ class TrendContextService:
             ):
                 continue
 
-            # Gender filter
-            if gender:
-                g_norm = gender.lower().strip()
-                t_genders = [g.lower() for g in trend.get("gender", [])]
-                if g_norm not in t_genders and "unisex" not in t_genders:
+            # Normalized Gender Filter (male/man/men -> male; female/woman/women -> female)
+            if norm_req_gender != "unisex":
+                t_genders = [_normalize_gender(g) for g in trend.get("gender", [])]
+                if norm_req_gender not in t_genders and "unisex" not in t_genders:
                     continue
 
-            # Canonical Occasion filter
+            # Canonical Occasion Filter
             if canonical_occ:
                 t_occs = [o.lower().strip().replace(" ", "_") for o in trend.get("occasions", [])]
                 if canonical_occ not in t_occs:

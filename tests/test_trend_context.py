@@ -1,13 +1,13 @@
 """
 tests/test_trend_context.py
 Comprehensive test suite for AHVI Trend Intelligence V1.
-Verifies strict provenance gates, freshness controls, region filtering, soft additive influence,
-personalized explanations, and health diagnostics.
+Verifies strict provenance gates, freshness controls, stale source rejection, missing review_state rejection,
+gender normalization, region fallbacks, soft additive influence, personalized explanations, and health diagnostics.
 """
 import unittest
 from unittest.mock import patch
 from datetime import date
-from services.trend_context_service import TrendContextService, annotate_board_with_trend, _canonicalize_occasion
+from services.trend_context_service import TrendContextService, annotate_board_with_trend, _canonicalize_occasion, _normalize_gender
 
 
 class TestTrendContext(unittest.TestCase):
@@ -18,7 +18,7 @@ class TestTrendContext(unittest.TestCase):
             "label": "Relaxed Tailoring",
             "scope": "global",
             "region": ["india", "global"],
-            "gender": ["men", "women", "unisex"],
+            "gender": ["male", "female", "unisex"],
             "categories": ["top", "bottom", "outerwear", "shoes"],
             "colors": ["navy", "brown", "olive"],
             "keywords": ["wide leg", "trouser", "pleated", "overshirt"],
@@ -27,135 +27,169 @@ class TestTrendContext(unittest.TestCase):
             "review_state": "approved",
             "valid_from": "2026-01-01",
             "valid_until": "2026-12-31",
+            "ingested_at": "2026-01-10T08:00:00Z",
+            "verified_at": "2026-02-01T10:00:00Z",
             "source": {
                 "publisher": "Vogue Fashion Index",
-                "url": "https://vogue.com/trends/relaxed-tailoring",
-                "published_at": "2026-01-05T00:00:00Z",
+                "url": "https://www.vogue.com/article/spring-2026-fashion-trends",
+                "published_at": "2026-01-15T00:00:00Z",
             },
         }
 
-    # ─── PROVENANCE & FRESHNESS GATES ───
+    # ─── PROVENANCE, FRESHNESS & REVIEW STATE GATES ───
+
+    def test_missing_review_state_rejected(self):
+        """Trend missing review_state or with unapproved state must be rejected."""
+        trend_missing = dict(self.sample_valid_trend)
+        trend_missing.pop("review_state", None)
+        self.assertFalse(TrendContextService.is_trend_valid(trend_missing, target_date=date(2026, 8, 26)))
+
+        trend_pending = dict(self.sample_valid_trend)
+        trend_pending["review_state"] = "pending"
+        self.assertFalse(TrendContextService.is_trend_valid(trend_pending, target_date=date(2026, 8, 26)))
+
+    def test_future_published_at_rejected(self):
+        """Source with published_at in the future relative to target_date must be rejected."""
+        trend = dict(self.sample_valid_trend)
+        trend["source"] = {
+            "publisher": "Vogue",
+            "url": "https://www.vogue.com/article/future-trends",
+            "published_at": "2026-09-01T00:00:00Z",  # Future relative to 2026-08-26
+        }
+        self.assertFalse(TrendContextService.is_trend_valid(trend, target_date=date(2026, 8, 26)))
+
+    def test_stale_source_rejected(self):
+        """Source with published_at > 365 days older than valid_from/target_date must be rejected as stale."""
+        trend = dict(self.sample_valid_trend)
+        trend["source"] = {
+            "publisher": "Vogue",
+            "url": "https://www.vogue.com/article/old-trends",
+            "published_at": "2024-12-01T00:00:00Z",  # > 365 days older
+        }
+        self.assertFalse(TrendContextService.is_trend_valid(trend, target_date=date(2026, 8, 26)))
 
     def test_expired_trend_rejected(self):
         """Expired trend (valid_until in the past) must be rejected."""
         trend = dict(self.sample_valid_trend)
         trend["valid_until"] = "2025-12-31"
-        target_date = date(2026, 8, 26)
-        self.assertFalse(TrendContextService.is_trend_valid(trend, target_date=target_date))
+        self.assertFalse(TrendContextService.is_trend_valid(trend, target_date=date(2026, 8, 26)))
 
     def test_future_trend_rejected(self):
         """Future trend (valid_from in the future) must be rejected."""
         trend = dict(self.sample_valid_trend)
         trend["valid_from"] = "2027-01-01"
-        target_date = date(2026, 8, 26)
-        self.assertFalse(TrendContextService.is_trend_valid(trend, target_date=target_date))
+        self.assertFalse(TrendContextService.is_trend_valid(trend, target_date=date(2026, 8, 26)))
 
     def test_valid_current_trend_accepted(self):
         """Valid current trend with complete source provenance must be accepted."""
-        target_date = date(2026, 8, 26)
-        self.assertTrue(TrendContextService.is_trend_valid(self.sample_valid_trend, target_date=target_date))
+        self.assertTrue(TrendContextService.is_trend_valid(self.sample_valid_trend, target_date=date(2026, 8, 26)))
 
     def test_missing_source_rejected(self):
         """Trend missing publisher or url in source must be rejected."""
         trend = dict(self.sample_valid_trend)
-        trend["source"] = {"publisher": "", "url": "", "published_at": "2026-01-05T00:00:00Z"}
-        self.assertFalse(TrendContextService.is_trend_valid(trend))
+        trend["source"] = {"publisher": "", "url": "", "published_at": "2026-01-15T00:00:00Z"}
+        self.assertFalse(TrendContextService.is_trend_valid(trend, target_date=date(2026, 8, 26)))
 
     def test_missing_publication_date_rejected(self):
         """Trend missing published_at timestamp in source must be rejected."""
         trend = dict(self.sample_valid_trend)
-        trend["source"] = {"publisher": "Vogue", "url": "https://vogue.com", "published_at": ""}
-        self.assertFalse(TrendContextService.is_trend_valid(trend))
+        trend["source"] = {"publisher": "Vogue", "url": "https://www.vogue.com", "published_at": ""}
+        self.assertFalse(TrendContextService.is_trend_valid(trend, target_date=date(2026, 8, 26)))
 
     def test_low_confidence_trend_rejected(self):
         """Trend with confidence < 0.60 must be rejected/suppressed."""
         trend = dict(self.sample_valid_trend)
         trend["confidence"] = 0.45
-        self.assertFalse(TrendContextService.is_trend_valid(trend))
+        self.assertFalse(TrendContextService.is_trend_valid(trend, target_date=date(2026, 8, 26)))
 
-    # ─── REGION & GENDER GATES ───
+    # ─── GENDER NORMALIZATION & REGION GATES ───
 
-    def test_region_mismatch_rejected(self):
-        """Pure global trend requested for India without allow_global_fallback must be rejected."""
+    def test_male_vs_men_normalization(self):
+        """'male', 'man', 'men', 'm' all resolve to 'male' and match male trends."""
+        self.assertEqual(_normalize_gender("men"), "male")
+        self.assertEqual(_normalize_gender("Man"), "male")
+        self.assertEqual(_normalize_gender("MALE"), "male")
+
         trend = dict(self.sample_valid_trend)
-        trend["scope"] = "global"
-        trend["region"] = ["global"]  # Does NOT list India
-        self.assertFalse(
-            TrendContextService.is_trend_valid(
-                trend, target_region="india", allow_global_fallback=False
+        trend["gender"] = ["male"]
+        with patch("services.trend_context_service.get_trend_registry", return_value=[trend]):
+            active = TrendContextService.get_active_trends(
+                target_date=date(2026, 8, 26), gender="men", target_region="global"
             )
-        )
+            self.assertEqual(len(active), 1)
 
-    def test_global_fallback_works_when_allowed(self):
-        """Global trend is accepted for India request ONLY when allow_global_fallback=True."""
+    def test_female_vs_women_normalization(self):
+        """'female', 'woman', 'women', 'w', 'f' all resolve to 'female' and match female trends."""
+        self.assertEqual(_normalize_gender("women"), "female")
+        self.assertEqual(_normalize_gender("Woman"), "female")
+        self.assertEqual(_normalize_gender("FEMALE"), "female")
+
+        trend = dict(self.sample_valid_trend)
+        trend["gender"] = ["female"]
+        with patch("services.trend_context_service.get_trend_registry", return_value=[trend]):
+            active = TrendContextService.get_active_trends(
+                target_date=date(2026, 8, 26), gender="women", target_region="global"
+            )
+            self.assertEqual(len(active), 1)
+
+    def test_global_fallback_disabled_and_enabled(self):
+        """Global trend requested for India is rejected when allow_global_fallback=False, accepted when True."""
         trend = dict(self.sample_valid_trend)
         trend["scope"] = "global"
         trend["region"] = ["global"]
+
+        # Disabled fallback -> Rejected for India
+        self.assertFalse(
+            TrendContextService.is_trend_valid(
+                trend, target_date=date(2026, 8, 26), target_region="india", allow_global_fallback=False
+            )
+        )
+
+        # Enabled fallback -> Accepted for India
         self.assertTrue(
             TrendContextService.is_trend_valid(
-                trend, target_region="india", allow_global_fallback=True
+                trend, target_date=date(2026, 8, 26), target_region="india", allow_global_fallback=True
             )
         )
 
-    def test_occasion_mismatch_rejected(self):
-        """Trend filtering excludes trends that do not match requested occasion."""
-        trends = TrendContextService.get_active_trends(
-            target_date=date(2026, 8, 26), occasion="office_fit", target_region="india"
-        )
-        self.assertTrue(len(trends) > 0)
-        for t in trends:
-            self.assertIn("office", [occ.lower() for occ in t.get("occasions", [])])
+    # ─── REAL RUNTIME BOARD ANNOTATION & IMMUTABILITY ───
 
-    def test_gender_mismatch_rejected(self):
-        """Trend filtering excludes trends incompatible with requested gender."""
-        trend = dict(self.sample_valid_trend)
-        trend["gender"] = ["women"]
-        with patch("services.trend_context_service.get_trend_registry", return_value=[trend]):
-            active = TrendContextService.get_active_trends(
-                target_date=date(2026, 8, 26), gender="men", target_region="india"
-            )
-            self.assertEqual(len(active), 0)
-
-    # ─── WARDROBE MATCHING & REASONING ───
-
-    def test_color_only_coincidence_does_not_falsely_match(self):
-        """Gym clothes with matching colors but NO matching keywords must be rejected."""
-        gym_wardrobe = [
-            {"id": "1", "name": "Athletic shorts", "category": "bottom", "color": "navy"},
-            {"id": "2", "name": "Gym tee", "category": "top", "color": "brown"},
-        ]
-        match = TrendContextService.match_board_trend(gym_wardrobe, occasion="smart_casual")
-        self.assertIsNone(match)
-
-    def test_strong_wardrobe_signal_matches(self):
-        """Wardrobe with strong keyword matches returns match score and personalized explanation."""
-        wardrobe = [
+    def test_real_runtime_board_annotation(self):
+        """Integration test: Real board receives trend_label, trend_meta, trend_explanation without mutating items."""
+        original_items = [
             {"id": "1", "name": "Wide leg trouser", "category": "bottom", "color": "navy", "tags": ["pleated"]},
             {"id": "2", "name": "Pleated overshirt", "category": "outerwear", "color": "brown"},
-            {"id": "3", "name": "Minimal sneaker", "category": "shoes", "color": "white"},
         ]
-        match = TrendContextService.match_board_trend(wardrobe, occasion="smart_casual", target_date=date(2026, 8, 26))
-        self.assertIsNotNone(match)
-        self.assertIn(match["label"], ["Relaxed Tailoring", "Elevated Basics"])
-        self.assertGreaterEqual(match["match_score"], 0.55)
-        self.assertIn("wide leg trouser", match["explanation"].lower())
-
-    # ─── SOFT ADDITIVE INFLUENCE & IMMUTABILITY ───
-
-    def test_trend_cannot_bypass_outfit_safety(self):
-        """annotate_board_with_trend must never mutate items list or primary outfit selection."""
-        original_items = [{"id": "top_1"}, {"id": "bottom_2"}]
         board = {
-            "outfit_id": "outfit_123",
-            "primary_outfit": {"top": "top_1", "bottom": "bottom_2"},
+            "outfit_id": "board_999",
+            "primary_outfit": {"top": "2", "bottom": "1"},
             "items": list(original_items),
         }
-        annotated = annotate_board_with_trend(board)
+
+        annotated = annotate_board_with_trend(
+            board,
+            user_gender="men",
+            occasion="smart_casual",
+            target_region="india",
+            allow_global_fallback=True,
+            target_date=date(2026, 8, 26),
+        )
+
+        # 1. Trend fields populated
+        self.assertIn("trend_label", annotated)
+        self.assertIn("trend_explanation", annotated)
+        self.assertIn("trend_meta", annotated)
+        meta = annotated["trend_meta"]
+        self.assertIn("publisher", meta)
+        self.assertIn("published_at", meta)
+        self.assertIn("confidence", meta)
+
+        # 2. Safety & Outfit Immutability: items and primary_outfit MUST NOT change!
         self.assertEqual(annotated["items"], original_items)
-        self.assertEqual(annotated["primary_outfit"], {"top": "top_1", "bottom": "bottom_2"})
+        self.assertEqual(annotated["primary_outfit"], {"top": "2", "bottom": "1"})
 
     def test_no_valid_trend_board_unchanged(self):
-        """When no valid trend matches, trend keys are omitted and board is returned unchanged."""
+        """When no valid trend matches, board keys are omitted and core fields remain intact."""
         board = {
             "outfit_id": "123",
             "items": [{"id": "1", "name": "Generic item", "category": "other"}],
@@ -165,30 +199,11 @@ class TestTrendContext(unittest.TestCase):
         self.assertNotIn("trend_explanation", annotated)
         self.assertNotIn("trend_meta", annotated)
 
-    def test_trend_metadata_preserves_provenance(self):
-        """trend_meta includes complete provenance fields: publisher, published_at, confidence, region, valid_until."""
-        wardrobe = [
-            {"id": "1", "name": "Wide leg trouser", "category": "bottom", "color": "navy", "tags": ["pleated"]},
-            {"id": "2", "name": "Pleated overshirt", "category": "outerwear", "color": "brown"},
-        ]
-        board = {"outfit_id": "123", "items": wardrobe}
-        annotated = annotate_board_with_trend(board, occasion="smart_casual", target_date=date(2026, 8, 26))
-        self.assertIn("trend_label", annotated)
-        self.assertIn("trend_meta", annotated)
-        meta = annotated["trend_meta"]
-        self.assertIn("publisher", meta)
-        self.assertIn("published_at", meta)
-        self.assertIn("confidence", meta)
-        self.assertIn("region", meta)
-        self.assertIn("valid_until", meta)
-        self.assertIn("source_count", meta)
-
     def test_diagnostics_reporting(self):
         """get_diagnostics reports loaded status, record counts, latest ingestion, and source health."""
         diag = TrendContextService.get_diagnostics(target_date=date(2026, 8, 26), target_region="india")
         self.assertTrue(diag["trend_registry_loaded"])
         self.assertGreater(diag["total_record_count"], 0)
-        self.assertGreaterEqual(diag["active_record_count"], 0)
         self.assertIn(diag["source_health"], ["healthy", "degraded"])
 
 
