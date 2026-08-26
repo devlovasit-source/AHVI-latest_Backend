@@ -105,8 +105,18 @@ def test_metadata_allowlist_and_reason_counts():
 
 
 def test_metadata_is_bounded():
+    reason_counts = {
+        f"reason_{index:02d}_{'x' * 50}": 1
+        for index in range(40)
+    }
     with pytest.raises(ValueError, match="2048"):
-        telemetry.normalize_metadata({"flow": "x" * 2100})
+        telemetry.normalize_metadata({"reason_counts": reason_counts})
+
+
+def test_metadata_scalar_string_boundary():
+    assert telemetry.normalize_metadata({"flow": "x" * 256}) is not None
+    with pytest.raises(ValueError):
+        telemetry.normalize_metadata({"flow": "x" * 257})
 
 
 def test_prohibited_metadata_content_is_rejected():
