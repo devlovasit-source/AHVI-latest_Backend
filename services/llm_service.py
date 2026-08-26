@@ -381,6 +381,10 @@ def _call_ollama(
             continue
         seen.add(model)
 
+        attempt: Optional[int] = None
+        started: Optional[float] = None
+        provider_call_started = False
+        provider_recorded = False
         try:
             current = dict(payload)
             current["model"] = model
@@ -395,9 +399,25 @@ def _call_ollama(
             attempt_state["attempt"] = int(attempt_state.get("attempt") or 0) + 1
             attempt = attempt_state["attempt"]
             started = time.perf_counter()
+            provider_call_started = True
             res = session.post(f"{OLLAMA_URL}/generate", json=current, timeout=timeout)
             if res.status_code == 200:
-                data = res.json()
+                try:
+                    data = res.json()
+                except Exception:
+                    _meter_attempt(
+                        user_id=user_id,
+                        request_id=request_id or get_request_id(),
+                        operation_id=operation_id,
+                        attempt=attempt,
+                        provider="ollama",
+                        model=model,
+                        usecase=usecase,
+                        started=started,
+                        status="success",
+                    )
+                    provider_recorded = True
+                    raise
                 _meter_attempt(
                     user_id=user_id,
                     request_id=request_id or get_request_id(),
@@ -410,6 +430,7 @@ def _call_ollama(
                     status="success",
                     response=data,
                 )
+                provider_recorded = True
                 return data
             _meter_attempt(
                 user_id=user_id,
@@ -423,6 +444,7 @@ def _call_ollama(
                 status="failed",
                 error=RuntimeError(f"http_{res.status_code}"),
             )
+            provider_recorded = True
             logger.warning(
                 "Ollama call failed status=%s model=%s body=%s",
                 res.status_code,
@@ -430,7 +452,7 @@ def _call_ollama(
                 res.text[:200],
             )
         except Exception as exc:
-            if "attempt" in locals() and "started" in locals():
+            if provider_call_started and not provider_recorded and attempt is not None and started is not None:
                 _meter_attempt(
                     user_id=user_id,
                     request_id=request_id or get_request_id(),

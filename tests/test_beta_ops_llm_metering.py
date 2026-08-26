@@ -137,6 +137,48 @@ def test_ollama_failed_model_then_fallback_are_separate(monkeypatch):
     ]
 
 
+def test_ollama_http_200_body_parse_failure_is_one_success_attempt(monkeypatch):
+    events = []
+
+    class Response:
+        status_code = 200
+        def json(self): raise ValueError("malformed body")
+
+    class Session:
+        def post(self, *args, **kwargs): return Response()
+
+    monkeypatch.setattr(llm_service, "session", Session())
+    monkeypatch.setattr(llm_service, "MODEL_FALLBACKS", [])
+    monkeypatch.setattr(llm_service, "record_llm_attempt", lambda **kwargs: events.append(kwargs))
+
+    assert llm_service._call_ollama(
+        {"model": "model-a"}, user_id="u1", operation_id="op1"
+    ) is None
+    assert len(events) == 1
+    assert events[0]["status"] == "success"
+
+
+def test_ollama_vision_invalid_generated_json_is_one_success_attempt(monkeypatch):
+    events = []
+
+    class Response:
+        status_code = 200
+        text = ""
+        def json(self): return {"response": "not-json"}
+
+    monkeypatch.setattr(ai_gateway, "_vision_model_candidates", lambda: ["vision-a"])
+    monkeypatch.setattr(ai_gateway.requests, "post", lambda *args, **kwargs: Response())
+    monkeypatch.setattr(ai_gateway, "parse_json_object", lambda value: (_ for _ in ()).throw(ValueError("bad json")))
+    monkeypatch.setattr(ai_gateway, "record_llm_attempt", lambda **kwargs: events.append(kwargs))
+
+    with pytest.raises(RuntimeError):
+        ai_gateway.ollama_vision_json(
+            prompt="safe", image_base64="opaque", user_id="u1", request_id="r1"
+        )
+    assert len(events) == 1
+    assert events[0]["status"] == "success"
+
+
 def test_generate_text_gemini_failure_then_ollama_fallback_shares_operation(monkeypatch):
     events = []
     token = set_authenticated_user_id("u1")
@@ -269,6 +311,18 @@ def test_gateway_circuit_breaker_skip_emits_zero_attempts(monkeypatch):
             prompt="safe", image_base64="not persisted", user_id="u1", request_id="r1"
         )
 
+    assert events == []
+
+
+def test_gateway_pre_request_url_failure_emits_zero_attempts(monkeypatch):
+    events = []
+    monkeypatch.setattr(ai_gateway, "_ollama_generate_url", lambda: (_ for _ in ()).throw(ValueError("bad url")))
+    monkeypatch.setattr(ai_gateway, "record_llm_attempt", lambda **kwargs: events.append(kwargs))
+
+    with pytest.raises(RuntimeError):
+        ai_gateway.ollama_vision_json(
+            prompt="safe", image_base64="opaque", user_id="u1", request_id="r1"
+        )
     assert events == []
 
 

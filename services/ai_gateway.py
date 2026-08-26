@@ -437,12 +437,18 @@ def ollama_vision_json(
     operation_id = new_operation_id()
     attempt = 0
     for model in _vision_model_candidates():
+        attempt_started = None
+        provider_call_started = False
+        provider_recorded = False
         try:
+            url = _ollama_generate_url()
+            request_payload = {**payload, "model": model}
             attempt += 1
             attempt_started = time.perf_counter()
+            provider_call_started = True
             response = requests.post(
-                _ollama_generate_url(),
-                json={**payload, "model": model},
+                url,
+                json=request_payload,
                 timeout=(min(2, timeout), timeout),
             )
             if response.status_code >= 400:
@@ -451,7 +457,26 @@ def ollama_vision_json(
                 raise RuntimeError(
                     f"Ollama vision request failed model={model} status={response.status_code} body={body}"
                 )
-            usage = response.json()
+            try:
+                usage = response.json()
+            except Exception:
+                usage = {}
+                try:
+                    record_llm_attempt(
+                        user_id=user_id,
+                        request_id=rid,
+                        operation_id=operation_id,
+                        attempt=attempt,
+                        provider="ollama",
+                        model=model,
+                        usecase=case,
+                        status="success",
+                        duration_ms=round((time.perf_counter() - attempt_started) * 1000),
+                    )
+                except Exception:
+                    logger.warning("ahvi.llm.telemetry_failed provider=ollama")
+                provider_recorded = True
+                raise
             raw = usage.get("response", "{}")
             parsed = parse_json_object(raw)
             try:
@@ -471,6 +496,7 @@ def ollama_vision_json(
                 )
             except Exception:
                 logger.warning("ahvi.llm.telemetry_failed provider=ollama")
+            provider_recorded = True
             _trace(
                 "success",
                 request_id=rid,
@@ -484,7 +510,7 @@ def ollama_vision_json(
             _breaker_mark_success(op_key)
             return parsed, model
         except Exception as exc:
-            if attempt:
+            if provider_call_started and not provider_recorded and attempt and attempt_started is not None:
                 try:
                     record_llm_attempt(
                         user_id=user_id,
@@ -499,6 +525,8 @@ def ollama_vision_json(
                         error_code=(
                             "timeout" if isinstance(exc, requests.Timeout)
                             else "connection_error" if isinstance(exc, requests.exceptions.ConnectionError)
+                            else "http_4xx" if re.search(r"status=4\d\d", str(exc))
+                            else "http_5xx" if re.search(r"status=5\d\d", str(exc))
                             else "provider_error"
                         ),
                     )
