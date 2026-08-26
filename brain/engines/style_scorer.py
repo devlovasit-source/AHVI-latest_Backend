@@ -998,7 +998,10 @@ def normalize_occasion(occasion: Any) -> str:
         return "party"
     if any(w in text for w in ["travel", "airport", "flight", "vacation", "trip"]):
         return "travel"
-    if any(w in text for w in ["wedding", "reception", "ceremony", "event"]):
+    if (
+        any(w in readable for w in ["wedding", "reception", "ceremony", "event", "black tie", "white tie"])
+        or "gala" in tokens
+    ):
         return "wedding"
     if any(w in text for w in ["casual", "daily", "today", "weekend"]):
         return "casual"

@@ -294,7 +294,7 @@ def _detect_explicit_dress_code(occasion: str, query: str) -> str:
     # classification) and must not be mistaken for the user having typed a
     # dress code, or every board generated for that occasion bucket would
     # silently activate hard dress-code enforcement it never asked for.
-    text = f" {str(query or '').lower()} ".replace("_", " ")
+    text = f" {str(query or '').lower()} ".replace("_", " ").replace("-", " ")
     for code, phrases in _DRESS_CODE_TRIGGERS.items():
         if any(phrase in text for phrase in phrases):
             return code

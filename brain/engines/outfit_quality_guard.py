@@ -182,13 +182,16 @@ def normalize_occasion(occasion: Any) -> str:
         return "travel"
     if any(w in text for w in ["temple_modest", "temple", "mandir", "pooja", "puja", "religious", "shrine", "darshan"]):
         return "temple_modest"
-    if any(
-        w in text
-        for w in [
-            "wedding", "reception", "ceremony", "event", "engagement",
-            "sangeet", "haldi", "mehendi", "mehndi", "baraat", "nikah",
-            "shaadi", "roka", "varmala",
-        ]
+    if (
+        any(
+            w in readable
+            for w in [
+                "wedding", "reception", "ceremony", "event", "engagement",
+                "sangeet", "haldi", "mehendi", "mehndi", "baraat", "nikah",
+                "shaadi", "roka", "varmala", "black tie", "white tie",
+            ]
+        )
+        or "gala" in tokens
     ):
         return "wedding"
     if any(w in text for w in ["daily", "today"]):
