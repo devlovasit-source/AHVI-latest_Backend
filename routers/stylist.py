@@ -1272,7 +1272,8 @@ def style_wardrobe_item(
                 repaired
                 for repaired in (
                     _style_this_compat_repair(
-                        direction, anchor=anchor, wardrobe=wardrobe, occasion=request.occasion,
+                        direction, anchor=anchor, wardrobe=wardrobe,
+                        occasion=resolver_context["occasion"],
                     )
                     for direction in directions
                 )
