@@ -439,6 +439,14 @@ class TrendContextService:
             "explanation": explanation,
             "claim": claim,
             "match_score": round(normalized_score, 2),
+            # The trend's OWN source scope (e.g. "global"/"india"), never the
+            # requesting caller's target_region. A globally-sourced trend
+            # surfaced for an India request via allow_global_fallback must
+            # still be labeled "global" here -- annotate_board_with_trend's
+            # target_region fallback only applies if a record is somehow
+            # missing both `scope` and `region` (should not happen in
+            # practice; every registry record sets `scope`).
+            "region": str(trend.get("scope") or (trend.get("region") or [""])[0] or "").lower(),
             "valid_until": trend.get("valid_until"),
             "confidence": float(trend.get("confidence", 0.0)),
             "publisher": str(source.get("publisher") or ""),

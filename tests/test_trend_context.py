@@ -525,6 +525,37 @@ class TestPhase2IndiaGlobalFallbackCases(unittest.TestCase):
         self.assertIsNotNone(match)
         self.assertEqual(match["trend_id"], "office_hours_skirt_suits_2026")
 
+    def test_global_trend_used_via_india_fallback_is_never_relabeled_india(self):
+        """Regression for a real bug: office_hours_skirt_suits_2026 is scope=
+        "global" in the registry. Surfacing it for an India-region request via
+        allow_global_fallback must report region="global" in both the raw
+        match and the board's trend_meta -- never "india" just because the
+        requester's target_region was "india". Trend source scope and
+        request/user region are distinct and must never be conflated."""
+        items = [{"id": "1", "name": "Houndstooth Skirt Suit Blazer", "category": "outerwear"}]
+        match = TrendContextService.match_board_trend(
+            board_items=items, canonical_occasion="office",
+            target_region="india", allow_global_fallback=True, target_date=date(2026, 8, 26),
+        )
+        self.assertEqual(match["trend_id"], "office_hours_skirt_suits_2026")
+        self.assertEqual(match["region"], "global")
+
+        board = {"outfit_id": "1", "items": items}
+        annotated = annotate_board_with_trend(
+            board, canonical_occasion="office", target_region="india",
+            allow_global_fallback=True, target_date=date(2026, 8, 26),
+        )
+        self.assertEqual(annotated["trend_meta"]["region"], "global")
+
+    def test_india_trend_reports_its_own_region_correctly(self):
+        items = [{"id": "1", "name": "Zardozi Embroidered Lehenga", "category": "ethnic_wear", "color": "gold"}]
+        match = TrendContextService.match_board_trend(
+            board_items=items, canonical_occasion="wedding",
+            target_region="india", allow_global_fallback=True, target_date=date(2026, 8, 26),
+        )
+        self.assertEqual(match["trend_id"], "india_couture_week_embellished_ethnic_2026")
+        self.assertEqual(match["region"], "india")
+
     def test_case_c_india_trend_exists_but_board_mismatch_allows_global_fallback(self):
         """The India-scoped trend exists in the registry, but this board
         (an office blazer) shares no keyword signal with it -- V1 policy
