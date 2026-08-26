@@ -134,6 +134,26 @@ def test_cancel_reminder_removes_it_from_list(monkeypatch):
     assert after.json()["reminders"] == []
 
 
+def test_cancel_reminder_for_a_different_item_is_rejected(monkeypatch):
+    client, _ = _client(monkeypatch, item_owner="u1")
+    client.post(
+        "/api/wardrobe/item-1/wear-reminder",
+        json={"send_at_iso": "2026-09-01T09:00:00+00:00"},
+        headers={"x-test-user": "u1"},
+    )
+    reminder_id = client.get(
+        "/api/wardrobe/item-1/wear-reminder", headers={"x-test-user": "u1"}
+    ).json()["reminders"][0]["reminder_id"]
+
+    # item-2 also resolves to owner u1 in this fake, so the item-ownership
+    # check alone would pass — this proves cancel additionally checks the
+    # reminder's own eventId against the item in the URL.
+    resp = client.delete(
+        f"/api/wardrobe/item-2/wear-reminder/{reminder_id}", headers={"x-test-user": "u1"}
+    )
+    assert resp.status_code == 403
+
+
 def test_cancel_reminder_twice_stays_idempotent(monkeypatch):
     client, _ = _client(monkeypatch, item_owner="u1")
     client.post(
