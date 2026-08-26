@@ -160,6 +160,25 @@ def record_wear(
                 "AHVI_WEAR_REMINDER_RECONCILE_FAILED user_id=%s item_id=%s", uid, iid
             )
 
+        # Keep the wardrobe item's own display-only `worn` counter in sync.
+        # wear_events/outfit_history are the source of truth; this is purely
+        # so the wardrobe grid/AI-insight copy (which reads the item's own
+        # document, never wear_events) doesn't go stale after a relaunch —
+        # it previously worked because the old direct-Appwrite-write path
+        # patched this same field on every wear. Never blocks the wear.
+        try:
+            from services.wardrobe_persistence_service import _fetch_document, _patch_document
+
+            total_wears = get_wear_history(user_id=uid, item_id=iid)["total_wears"]
+            _, collection_id, database_id = _fetch_document(iid)
+            _patch_document(
+                iid, {"worn": total_wears}, collection_id=collection_id, database_id=database_id
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "AHVI_WEAR_ITEM_WORN_SYNC_FAILED user_id=%s item_id=%s", uid, iid
+            )
+
     return {"event": event, "newly_created": newly_created}
 
 
