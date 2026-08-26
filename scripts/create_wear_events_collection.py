@@ -94,6 +94,47 @@ def _base() -> str:
     return f"{endpoint}/databases/{database_id}/collections"
 
 
+def _config_status() -> Dict[str, bool]:
+    """Presence-only check (never the values) of every var/alias this script
+    (and AppwriteProxy) accept. Lets audit()/apply() report a legible
+    endpoint/project/database/api_key breakdown instead of one opaque
+    RuntimeError with a blank "target database=" line."""
+    return {
+        "endpoint": bool(_env("APPWRITE_ENDPOINT") or _env("EXPO_PUBLIC_APPWRITE_ENDPOINT")),
+        "project": bool(_env("APPWRITE_PROJECT_ID") or _env("EXPO_PUBLIC_APPWRITE_PROJECT_ID")),
+        "database": bool(_database_id()),
+        "api_key": bool(_env("APPWRITE_API_KEY") or _env("APPWRITE_KEY")),
+    }
+
+
+def _print_config_diagnostics() -> bool:
+    """Prints configured=YES/NO per var (never a value) and returns whether
+    every required var is present. This repo has no auto-loading convention
+    for these schema scripts (services/appwrite_proxy.py's _load_local_env()
+    is opt-in via APPWRITE_PROXY_LOAD_LOCAL_ENV and is only ever called by
+    AppwriteProxy itself - no create_*_collection.py script calls it), so
+    the operator is expected to export real values into the shell first,
+    same as every sibling script in scripts/create_*_collection.py."""
+    status = _config_status()
+    print("wear_events schema target")
+    print(f"endpoint_configured={'YES' if status['endpoint'] else 'NO'}")
+    print(f"project_configured={'YES' if status['project'] else 'NO'}")
+    print(f"database_configured={'YES' if status['database'] else 'NO'}")
+    print(f"api_key_configured={'YES' if status['api_key'] else 'NO'}")
+    print(f"collection={COLLECTION_ID}")
+    ready = all(status.values())
+    if not ready:
+        print(
+            "Missing Appwrite configuration - export APPWRITE_ENDPOINT, "
+            "APPWRITE_PROJECT_ID, APPWRITE_DATABASE_ID, APPWRITE_API_KEY "
+            "(or their EXPO_PUBLIC_*/APPWRITE_KEY aliases) into this shell "
+            "before running. This is not specific to wear_events: none of "
+            "this repo's create_*_collection.py scripts read a local .env, "
+            "so this is expected without an explicit export."
+        )
+    return ready
+
+
 def _request(method: str, url: str, payload: Dict[str, Any] | None = None) -> requests.Response:
     return requests.request(method, url, headers=_headers(), json=payload, timeout=20)
 
@@ -145,7 +186,9 @@ def _diff_attribute(actual: Dict[str, Any], attr_type: str, expected: Dict[str, 
 
 def audit() -> bool:
     """Read-only check against the real environment. Returns True iff ready."""
-    print(f"target database={_database_id()} collection={COLLECTION_ID}")
+    if not _print_config_diagnostics():
+        print("APPWRITE_SCHEMA_READY=NO")
+        return False
     status = _collection_status()
     ready = status == "ok"
     print(f"collection_exists={ready}")
@@ -185,6 +228,8 @@ def audit() -> bool:
 
 
 def apply() -> None:
+    if not _print_config_diagnostics():
+        raise RuntimeError("Cannot apply schema: Appwrite configuration is incomplete (see diagnostics above).")
     status = _collection_status()
     if status != "ok":
         payload = {
