@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from services.qdrant_service import qdrant_service, user_memory_sentinel_vector
 from services.auth_helpers import enforce_owner
 from services.style_memory_service import _outfit_signature
+from services.beta_ops_telemetry import record_event
 
 router = APIRouter(prefix="/api/feedback")
 logger = logging.getLogger("ahvi.feedback")
@@ -82,6 +83,18 @@ def feedback_board(request: BoardFeedbackRequest, http_request: Request):
         )
 
         if action in passive_actions:
+            try:
+                board_id = board.get("board_id") or board.get("id") or board.get("card_id") or ""
+                metadata = {"board_id": str(board_id).strip()} if str(board_id).strip() else None
+                record_event(
+                    event_type="product.event",
+                    user_id=user_id,
+                    request_id=str(getattr(http_request.state, "request_id", "") or "") or None,
+                    status=action,
+                    metadata=metadata,
+                )
+            except Exception:
+                logger.warning("ahvi.beta_ops.product_event_failed")
             return {
                 "success": True,
                 "message": "Board behavior logged",

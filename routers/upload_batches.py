@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from routers.wardrobe_capture import _effective_user_id
 from services.upload_batch_orchestrator import UploadBatchInfraError, upload_batch_orchestrator
+from services.beta_ops_telemetry import record_event
 
 router = APIRouter(prefix="/api/wardrobe/upload-batches", tags=["wardrobe-upload-batch"])
 
@@ -64,6 +65,17 @@ def create_batch(http_request: Request, request: CreateBatchRequest) -> Dict[str
         raise _infra_failure(exc) from exc
     if not result.get("success"):
         raise HTTPException(status_code=403, detail=result.get("reason", "batch_denied"))
+    try:
+        record_event(
+            event_type="wardrobe.upload_started",
+            user_id=user_id,
+            request_id=str(getattr(http_request.state, "request_id", "") or "") or None,
+            idempotency_key=f"{user_id}|wardrobe.upload_started|{result['batch_id']}",
+            metadata={"batch_id": result["batch_id"]},
+        )
+    except Exception:
+        # Telemetry is observational and must not alter the upload contract.
+        pass
     return {
         "success": True,
         "batch_id": result["batch_id"],

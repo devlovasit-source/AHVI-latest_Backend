@@ -6,6 +6,7 @@ import os
 import re
 import time
 import uuid
+from contextvars import ContextVar
 from typing import Any, Dict, List, Optional
 
 from brain.engines.outfit_quality_guard import is_complete_board
@@ -13,6 +14,24 @@ from services.category_taxonomy import infer_style_attributes
 from services.style_board_image_readiness import resolve_board_image_candidate
 from services.style_item_contract import canonical_item_role
 from services.wardrobe_suitability import outfit_contains_private_wear
+from services.beta_ops_telemetry import record_event as record_beta_ops_event
+
+_STYLE_OUTCOME_STATE: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
+    "ahvi_style_outcome_state", default=None
+)
+
+
+def _note_style_rejections(rejected_cards: List[Any]) -> None:
+    state = _STYLE_OUTCOME_STATE.get()
+    if state is None:
+        return
+    state["rejected_count"] = int(state.get("rejected_count") or 0) + len(rejected_cards)
+    reasons = state.setdefault("reason_counts", {})
+    for _card, reason in rejected_cards:
+        reason_text = _safe_text(reason).strip().lower()
+        if not reason_text or len(reason_text) > 64 or not re.fullmatch(r"[a-z0-9_.:-]+", reason_text):
+            continue
+        reasons[reason_text] = int(reasons.get(reason_text) or 0) + 1
 
 try:
     from brain.engines.style_brief import resolve_occasion_archetype
@@ -4498,6 +4517,7 @@ def finalize_style_response_payload(
         len(filtered_cards),
         len(rejected_cards),
     )
+    _note_style_rejections(rejected_cards)
     if not filtered_cards:
         strict_formal_dinner = normalized_occasion == "client_dinner"
         closest_board = (
@@ -4842,7 +4862,7 @@ def finalize_style_response_payload(
         return response_payload
 
 
-def build_style_flow_response(
+def _build_style_flow_response(
     *,
     user_id: str,
     query: str,
@@ -5355,6 +5375,101 @@ def build_style_flow_response(
     except Exception:
         logger.warning("style_flow.gender_guard_failed", exc_info=True)
         return response_payload
+
+
+def _style_outcome_count(value: Any, default: int = 0) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _emit_style_request_outcome(
+    *,
+    user_id: str,
+    request_id: str,
+    context: Optional[Dict[str, Any]],
+    requested_count: Optional[int],
+    started: float,
+    response: Optional[Dict[str, Any]],
+    state: Dict[str, Any],
+    status: str,
+) -> None:
+    response = response if isinstance(response, dict) else {}
+    cards = response.get("cards") if isinstance(response.get("cards"), list) else []
+    requested = _style_outcome_count(requested_count, 6) or 6
+    metadata: Dict[str, Any] = {}
+    ctx = context if isinstance(context, dict) else {}
+    for key in ("source", "flow"):
+        value = ctx.get(key)
+        if isinstance(value, str) and value.strip():
+            metadata[key] = value.strip()
+    reasons = dict(state.get("reason_counts") or {})
+    if reasons:
+        metadata["reason_counts"] = reasons
+    rejected_count = _style_outcome_count(state.get("rejected_count"))
+    try:
+        record_beta_ops_event(
+            event_type="style.request_outcome",
+            user_id=str(user_id or "").strip(),
+            request_id=str(request_id or "").strip() or None,
+            status=status,
+            duration_ms=round((time.perf_counter() - started) * 1000),
+            metadata={
+                **metadata,
+                "requested_count": requested,
+                "generated_count": len(cards),
+                "rejected_count": rejected_count,
+            },
+            idempotency_key=(
+                f"{user_id}|style.request_outcome|{request_id}"
+                if request_id
+                else ""
+            ),
+        )
+    except Exception:
+        logger.warning("ahvi.beta_ops.style_outcome_failed")
+
+
+def build_style_flow_response(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    """Run the existing flow and emit one observational request summary."""
+    user_id = str(kwargs.get("user_id") or "").strip()
+    context = kwargs.get("context")
+    context_dict = context if isinstance(context, dict) else {}
+    request_id = str(
+        context_dict.get("request_id") or context_dict.get("requestId") or ""
+    ).strip()
+    requested_count = kwargs.get("requested_board_count")
+    started = time.perf_counter()
+    state: Dict[str, Any] = {"rejected_count": 0, "reason_counts": {}}
+    token = _STYLE_OUTCOME_STATE.set(state)
+    try:
+        response = _build_style_flow_response(*args, **kwargs)
+    except Exception:
+        _emit_style_request_outcome(
+            user_id=user_id,
+            request_id=request_id,
+            context=context_dict,
+            requested_count=requested_count,
+            started=started,
+            response=None,
+            state=state,
+            status="failed",
+        )
+        raise
+    finally:
+        _STYLE_OUTCOME_STATE.reset(token)
+    _emit_style_request_outcome(
+        user_id=user_id,
+        request_id=request_id,
+        context=context_dict,
+        requested_count=requested_count,
+        started=started,
+        response=response,
+        state=state,
+        status="success",
+    )
+    return response
 
 
 # ============================================================================

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from middleware.auth_middleware import get_current_user
 from services.home_summary_service import generate_home_summary
 from services.data_access_service import get_user_profile
+from services.beta_ops_telemetry import record_event
 
 logger = logging.getLogger("ahvi.routers.home")
 
@@ -40,4 +41,12 @@ async def get_today_summary(
         timezone_override=timezone_override,
         request_id=request_id
     )
+    try:
+        record_event(
+            event_type="home.summary_requested",
+            user_id=user_id,
+            request_id=request_id or None,
+        )
+    except Exception:
+        logger.warning("ahvi.beta_ops.home_event_failed")
     return summary
