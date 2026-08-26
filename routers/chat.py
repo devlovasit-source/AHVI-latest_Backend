@@ -3208,6 +3208,7 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
             "party outfit",
             "build a board",
             "style board",
+            "casual",
         ]
     ):
         return True
@@ -3238,6 +3239,7 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
         "next week",
         "need to go",
         "going to",
+        "attending",
     ]
     if any(o in q for o in occasion_setup_words) and any(
         p in q for p in setup_phrases
