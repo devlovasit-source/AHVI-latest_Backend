@@ -79,6 +79,15 @@ _SECRET_VALUE_RE = re.compile(
     r"(?:bearer\s+|(?:api[_-]?key|secret|password|token)\s*[:=]|https?://[^\s]*[?&](?:key|token|secret|signature)=)",
     re.IGNORECASE,
 )
+_PROHIBITED_VALUE_RE = re.compile(
+    r"(?:prompt|chat\s+content|base64|data:image|raw\s+provider\s+response|credentials?|passwords?)",
+    re.IGNORECASE,
+)
+_STRUCTURED_CONTENT_RE = re.compile(
+    r"(?:^\s*[\[{]|[\"'](?:items|cards|wardrobe|messages|contents)[\"']\s*:)",
+    re.IGNORECASE,
+)
+_CREDENTIAL_URL_RE = re.compile(r"https?://[^\s/@]+:[^\s/@]+@", re.IGNORECASE)
 
 
 def deterministic_appwrite_id(*parts: str) -> str:
@@ -113,6 +122,13 @@ def _scalar_string(name: str, value: Any, *, required: bool = False) -> Optional
         raise ValueError(f"{name} is required")
     if len(text) > _STRING_LIMITS[name]:
         raise ValueError(f"{name} exceeds {_STRING_LIMITS[name]} characters")
+    if (
+        _PROHIBITED_VALUE_RE.search(text)
+        or _SECRET_VALUE_RE.search(text)
+        or _STRUCTURED_CONTENT_RE.search(text)
+        or _CREDENTIAL_URL_RE.search(text)
+    ):
+        raise ValueError(f"{name} contains prohibited content")
     return text or None
 
 
@@ -125,7 +141,13 @@ def _validate_metadata_value(key: str, value: Any) -> Any:
         return value
     if isinstance(value, str):
         text = value.strip()
-        if len(text) > 256 or _SECRET_VALUE_RE.search(text):
+        if (
+            len(text) > 256
+            or _PROHIBITED_VALUE_RE.search(text)
+            or _SECRET_VALUE_RE.search(text)
+            or _STRUCTURED_CONTENT_RE.search(text)
+            or _CREDENTIAL_URL_RE.search(text)
+        ):
             raise ValueError(f"metadata field {key} contains prohibited content")
         return text
     if isinstance(value, Mapping):
@@ -219,6 +241,7 @@ def record_event(
 ) -> Dict[str, Any]:
     """Safely persist one event; validation or Appwrite failures never raise."""
     event_type = str(event_fields.get("event_type") or "").strip()
+    safe_event_type = event_type if event_type in ALLOWED_EVENT_TYPES else "invalid"
     try:
         event = normalize_event(**event_fields)
         document_id = event_document_id(event, idempotency_key)
@@ -251,7 +274,7 @@ def record_event(
     except Exception as exc:
         logger.warning(
             "ahvi.beta_ops.telemetry_persistence_failed event_type=%s error_type=%s",
-            event_type or "unknown",
+            safe_event_type,
             type(exc).__name__,
         )
         return {
@@ -266,18 +289,55 @@ def list_events(
     *,
     user_id: Optional[str] = None,
     event_type: Optional[str] = None,
+    occurred_after: Any = None,
+    occurred_before: Any = None,
     limit: int = 100,
     offset: int = 0,
 ) -> List[Dict[str, Any]]:
-    """Read primitive for future aggregation, scoped through AppwriteProxy."""
-    proxy = AppwriteProxy()
-    rows = proxy.list_documents(
-        BETA_OPS_EVENTS_RESOURCE,
-        user_id=str(user_id).strip() if user_id else None,
-        limit=max(1, min(int(limit), 100)),
-        offset=max(0, int(offset)),
-    )
-    return [row for row in rows if not event_type or row.get("event_type") == event_type]
+    """Read primitive for future aggregation with explicit local scoping."""
+    proxy_class = AppwriteProxy
+    if proxy_class is None:
+        from services.appwrite_proxy import AppwriteProxy as proxy_class
+    proxy = proxy_class()
+    safe_limit = max(1, min(int(limit), 100))
+    safe_offset = max(0, int(offset))
+    uid = str(user_id or "").strip()
+    event_name = str(event_type or "").strip()
+    if uid:
+        rows = proxy.find_by_attribute(
+            BETA_OPS_EVENTS_RESOURCE,
+            "user_id",
+            uid,
+            limit=safe_limit,
+        )
+    elif event_name:
+        rows = proxy.find_by_attribute(
+            BETA_OPS_EVENTS_RESOURCE,
+            "event_type",
+            event_name,
+            limit=safe_limit,
+        )
+    else:
+        rows = proxy.list_documents(
+            BETA_OPS_EVENTS_RESOURCE,
+            limit=safe_limit,
+            offset=safe_offset,
+        )
+    after = normalize_datetime(occurred_after) if occurred_after is not None else None
+    before = normalize_datetime(occurred_before) if occurred_before is not None else None
+    filtered = []
+    for row in rows:
+        if uid and str(row.get("user_id") or "") != uid:
+            continue
+        if event_name and row.get("event_type") != event_name:
+            continue
+        occurred = str(row.get("occurred_at") or "")
+        if after and occurred < after:
+            continue
+        if before and occurred >= before:
+            continue
+        filtered.append(row)
+    return filtered[safe_offset:] if (uid or event_name) and safe_offset else filtered
 
 
 __all__ = [
