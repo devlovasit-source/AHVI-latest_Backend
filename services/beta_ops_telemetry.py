@@ -1,0 +1,293 @@
+"""Small, privacy-bounded persistence foundation for beta operations telemetry.
+
+This module intentionally has no instrumentation hooks. Callers can validate
+and persist an already-normalized event without making telemetry failures part
+of their user-facing operation's failure path.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import re
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Mapping, Optional
+
+logger = logging.getLogger("ahvi.beta_ops_telemetry")
+
+# Kept injectable for tests and lazy-loaded so validation remains usable in
+# tooling that does not load the application's optional HTTP stack.
+AppwriteProxy = None
+
+BETA_OPS_EVENTS_RESOURCE = "beta_ops_events"
+MAX_METADATA_BYTES = 2048
+
+ALLOWED_EVENT_TYPES = frozenset(
+    {
+        "user.activity",
+        "home.summary_requested",
+        "wardrobe.upload_started",
+        "style.requested",
+        "style_board.behavior",
+        "style.request_outcome",
+        "llm.usage_attempt",
+        "rmbg.completed",
+        "rmbg.failed",
+        "notification.attempt",
+        "product.event",
+    }
+)
+
+_STRING_LIMITS = {
+    "event_type": 64,
+    "user_id": 128,
+    "status": 32,
+    "request_id": 128,
+    "operation_id": 128,
+    "provider": 32,
+    "model": 96,
+    "usecase": 64,
+    "error_code": 64,
+}
+_NUMERIC_FIELDS = (
+    "attempt",
+    "duration_ms",
+    "input_tokens",
+    "output_tokens",
+    "cached_tokens",
+)
+_METADATA_KEYS = frozenset(
+    {
+        "source",
+        "flow",
+        "batch_id",
+        "item_id",
+        "board_id",
+        "requested_count",
+        "generated_count",
+        "rejected_count",
+        "reason_counts",
+        "failure_reason",
+    }
+)
+_PROHIBITED_KEY_RE = re.compile(
+    r"(?:prompt|chat|image|photo|board_payload|response|credential|secret|token|password|api[_-]?key)",
+    re.IGNORECASE,
+)
+_SECRET_VALUE_RE = re.compile(
+    r"(?:bearer\s+|(?:api[_-]?key|secret|password|token)\s*[:=]|https?://[^\s]*[?&](?:key|token|secret|signature)=)",
+    re.IGNORECASE,
+)
+
+
+def deterministic_appwrite_id(*parts: str) -> str:
+    """Return AHVI's existing deterministic 36-character SHA256 ID."""
+    raw = ":".join(str(part).strip() for part in parts if part is not None).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:36]
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def normalize_datetime(value: Any) -> str:
+    if value is None or value == "":
+        return _utcnow().isoformat()
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("occurred_at must be a valid ISO-8601 datetime") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _scalar_string(name: str, value: Any, *, required: bool = False) -> Optional[str]:
+    text = str(value or "").strip()
+    if required and not text:
+        raise ValueError(f"{name} is required")
+    if len(text) > _STRING_LIMITS[name]:
+        raise ValueError(f"{name} exceeds {_STRING_LIMITS[name]} characters")
+    return text or None
+
+
+def _validate_metadata_value(key: str, value: Any) -> Any:
+    if isinstance(value, bool):
+        raise ValueError(f"metadata field {key} must not be boolean")
+    if isinstance(value, int):
+        if value < 0:
+            raise ValueError(f"metadata field {key} must not be negative")
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if len(text) > 256 or _SECRET_VALUE_RE.search(text):
+            raise ValueError(f"metadata field {key} contains prohibited content")
+        return text
+    if isinstance(value, Mapping):
+        if key != "reason_counts":
+            raise ValueError(f"metadata field {key} must be scalar")
+        result: Dict[str, int] = {}
+        for reason, count in value.items():
+            reason_text = str(reason).strip()
+            if not reason_text or len(reason_text) > 64 or _PROHIBITED_KEY_RE.search(reason_text):
+                raise ValueError("reason_counts contains a prohibited reason")
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                raise ValueError("reason_counts values must be non-negative integers")
+            result[reason_text] = count
+        return result
+    raise ValueError(f"metadata field {key} has an unsupported type")
+
+
+def normalize_metadata(metadata: Optional[Mapping[str, Any]]) -> Optional[str]:
+    if metadata is None:
+        return None
+    if not isinstance(metadata, Mapping):
+        raise ValueError("metadata must be an object")
+    normalized: Dict[str, Any] = {}
+    for key, value in metadata.items():
+        key_text = str(key).strip()
+        if key_text not in _METADATA_KEYS or _PROHIBITED_KEY_RE.search(key_text):
+            raise ValueError(f"metadata field {key_text or '<empty>'} is not allowed")
+        normalized[key_text] = _validate_metadata_value(key_text, value)
+    encoded = json.dumps(normalized, separators=(",", ":"), sort_keys=True)
+    if len(encoded.encode("utf-8")) > MAX_METADATA_BYTES:
+        raise ValueError("metadata_json exceeds 2048 bytes")
+    return encoded
+
+
+def normalize_event(
+    *,
+    event_type: str,
+    user_id: str,
+    occurred_at: Any = None,
+    status: Any = None,
+    request_id: Any = None,
+    operation_id: Any = None,
+    attempt: Any = None,
+    provider: Any = None,
+    model: Any = None,
+    usecase: Any = None,
+    duration_ms: Any = None,
+    input_tokens: Any = None,
+    output_tokens: Any = None,
+    cached_tokens: Any = None,
+    error_code: Any = None,
+    metadata: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    event_name = str(event_type or "").strip()
+    if event_name not in ALLOWED_EVENT_TYPES:
+        raise ValueError(f"unsupported beta ops event_type: {event_name or '<empty>'}")
+    event: Dict[str, Any] = {
+        "event_type": event_name,
+        "user_id": _scalar_string("user_id", user_id, required=True),
+        "occurred_at": normalize_datetime(occurred_at),
+    }
+    for name in _STRING_LIMITS:
+        if name == "event_type" or name == "user_id":
+            continue
+        value = _scalar_string(name, locals()[name])
+        if value is not None:
+            event[name] = value
+    for name, value in zip(_NUMERIC_FIELDS, (attempt, duration_ms, input_tokens, output_tokens, cached_tokens)):
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"{name} must be a non-negative integer")
+        event[name] = value
+    metadata_json = normalize_metadata(metadata)
+    if metadata_json is not None:
+        event["metadata_json"] = metadata_json
+    return event
+
+
+def event_document_id(event: Mapping[str, Any], idempotency_key: str = "") -> str:
+    key = str(idempotency_key or "").strip()
+    if not key:
+        key = "|".join(f"{name}={event.get(name, '')}" for name in sorted(event))
+    return deterministic_appwrite_id("beta_ops", key)
+
+
+def record_event(
+    *,
+    idempotency_key: str = "",
+    **event_fields: Any,
+) -> Dict[str, Any]:
+    """Safely persist one event; validation or Appwrite failures never raise."""
+    event_type = str(event_fields.get("event_type") or "").strip()
+    try:
+        event = normalize_event(**event_fields)
+        document_id = event_document_id(event, idempotency_key)
+        proxy_class = AppwriteProxy
+        if proxy_class is None:
+            from services.appwrite_proxy import AppwriteProxy as proxy_class
+        proxy = proxy_class()
+        try:
+            stored = proxy.create_document(
+                BETA_OPS_EVENTS_RESOURCE,
+                event,
+                document_id=document_id,
+            )
+            logger.info(
+                "ahvi.beta_ops.telemetry_persisted event_type=%s document_id=%s",
+                event["event_type"],
+                document_id,
+            )
+            return {"persisted": True, "duplicate": False, "event": stored, "document_id": document_id}
+        except Exception as exc:
+            if getattr(exc, "status_code", None) != 409:
+                raise
+            stored = proxy.get_document(BETA_OPS_EVENTS_RESOURCE, document_id)
+            logger.info(
+                "ahvi.beta_ops.telemetry_duplicate event_type=%s document_id=%s",
+                event["event_type"],
+                document_id,
+            )
+            return {"persisted": True, "duplicate": True, "event": stored, "document_id": document_id}
+    except Exception as exc:
+        logger.warning(
+            "ahvi.beta_ops.telemetry_persistence_failed event_type=%s error_type=%s",
+            event_type or "unknown",
+            type(exc).__name__,
+        )
+        return {
+            "persisted": False,
+            "duplicate": False,
+            "event": None,
+            "document_id": None,
+        }
+
+
+def list_events(
+    *,
+    user_id: Optional[str] = None,
+    event_type: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[Dict[str, Any]]:
+    """Read primitive for future aggregation, scoped through AppwriteProxy."""
+    proxy = AppwriteProxy()
+    rows = proxy.list_documents(
+        BETA_OPS_EVENTS_RESOURCE,
+        user_id=str(user_id).strip() if user_id else None,
+        limit=max(1, min(int(limit), 100)),
+        offset=max(0, int(offset)),
+    )
+    return [row for row in rows if not event_type or row.get("event_type") == event_type]
+
+
+__all__ = [
+    "ALLOWED_EVENT_TYPES",
+    "BETA_OPS_EVENTS_RESOURCE",
+    "deterministic_appwrite_id",
+    "event_document_id",
+    "list_events",
+    "normalize_datetime",
+    "normalize_event",
+    "normalize_metadata",
+    "record_event",
+]
