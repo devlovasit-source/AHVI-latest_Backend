@@ -358,6 +358,98 @@ def set_wardrobe_item_favorite(request: FavoriteRequest, http_request: Request):
     return {"success": True, "item_id": clean_item_id, "liked": bool(request.is_liked)}
 
 
+class WearReminderRequest(BaseModel):
+    send_at_iso: str
+    message: str = ""
+
+
+@wardrobe_router.post("/{item_id}/wear-reminder")
+def create_wardrobe_wear_reminder(item_id: str, request: WearReminderRequest, http_request: Request):
+    user_id = _request_user_id(http_request)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    clean_item_id = str(item_id or "").strip()
+    if not clean_item_id:
+        raise HTTPException(status_code=400, detail="Missing item_id")
+
+    try:
+        _verify_wardrobe_item_owner(user_id, clean_item_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    from services.wardrobe_reminder_service import create_wear_reminder
+
+    try:
+        result = create_wear_reminder(
+            user_id=user_id,
+            item_id=clean_item_id,
+            send_at_iso=request.send_at_iso,
+            message=request.message,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        logger.exception(
+            "ahvi.wardrobe.wear_reminder.create.failed user_id=%s item_id=%s", user_id, clean_item_id
+        )
+        raise HTTPException(status_code=500, detail="Failed to create wear reminder")
+
+    return result
+
+
+@wardrobe_router.get("/{item_id}/wear-reminder")
+def list_wardrobe_wear_reminders(item_id: str, http_request: Request):
+    user_id = _request_user_id(http_request)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    clean_item_id = str(item_id or "").strip()
+    if not clean_item_id:
+        raise HTTPException(status_code=400, detail="Missing item_id")
+
+    try:
+        _verify_wardrobe_item_owner(user_id, clean_item_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    from services.wardrobe_reminder_service import list_wear_reminders
+
+    reminders = list_wear_reminders(user_id=user_id, item_id=clean_item_id)
+    return {"success": True, "item_id": clean_item_id, "reminders": reminders}
+
+
+@wardrobe_router.delete("/{item_id}/wear-reminder/{reminder_id}")
+def cancel_wardrobe_wear_reminder(item_id: str, reminder_id: str, http_request: Request):
+    user_id = _request_user_id(http_request)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    clean_item_id = str(item_id or "").strip()
+    clean_reminder_id = str(reminder_id or "").strip()
+    if not clean_item_id or not clean_reminder_id:
+        raise HTTPException(status_code=400, detail="Missing item_id/reminder_id")
+
+    try:
+        _verify_wardrobe_item_owner(user_id, clean_item_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    from services.wardrobe_reminder_service import cancel_wear_reminder
+
+    try:
+        ok = cancel_wear_reminder(
+            user_id=user_id, item_id=clean_item_id, reminder_id=clean_reminder_id
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    return {"success": bool(ok), "item_id": clean_item_id, "reminder_id": clean_reminder_id}
+
+
 class CaptureAnalyzeRequest(BaseModel):
     user_id: str
     image_base64: str = Field(..., min_length=20)

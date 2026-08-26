@@ -105,6 +105,7 @@ def get_notification_preferences(
                 "medi",
                 "calendar",
                 "style",
+                "wardrobe",
             )
         },
     }

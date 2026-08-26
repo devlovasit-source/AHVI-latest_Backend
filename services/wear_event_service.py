@@ -148,6 +148,18 @@ def record_wear(
                 "AHVI_WEAR_EVENT_PROJECTION_FAILED user_id=%s item_id=%s", uid, iid
             )
 
+        # Reconcile wear reminders: a newly-committed wear satisfies at most
+        # its own item's reminders, never another item's. Retryable/logged
+        # only — must never cause the wear itself to fail or re-run.
+        try:
+            from services.wardrobe_reminder_service import complete_reminders_for_item
+
+            complete_reminders_for_item(user_id=uid, item_id=iid)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "AHVI_WEAR_REMINDER_RECONCILE_FAILED user_id=%s item_id=%s", uid, iid
+            )
+
     return {"event": event, "newly_created": newly_created}
 
 

@@ -20,6 +20,7 @@ NOTIFICATION_PREFERENCE_CATEGORIES = {
     "medi",
     "calendar",
     "style",
+    "wardrobe",
 }
 
 # Appwrite custom document ids may be at most 36 characters. Enforced inside
@@ -299,6 +300,41 @@ class NotificationStore:
             return [r for r in rows if isinstance(r, dict)]
         except Exception:
             return []
+
+    def list_reminders(
+        self, *, user_id: str, source: str = "", event_id: str = ""
+    ) -> List[Dict[str, Any]]:
+        """Owner-scoped reminder listing, optionally narrowed to a source
+        and/or eventId. Used by domain services (e.g. wardrobe wear
+        reminders) that need "this user's reminders of this kind for this
+        entity" without reaching into self._appwrite directly."""
+        uid = _safe_text(user_id)
+        if not uid:
+            return []
+        try:
+            rows = self._appwrite.list_documents(
+                self.reminders_resource, user_id=uid, limit=self.max_scan
+            )
+        except Exception:
+            return []
+        out = [r for r in rows if isinstance(r, dict)]
+        src = _safe_text(source).lower()
+        if src:
+            out = [r for r in out if _safe_text(r.get("source")).lower() == src]
+        eid = _safe_text(event_id)
+        if eid:
+            out = [r for r in out if _safe_text(r.get("eventId")) == eid]
+        return out
+
+    def get_reminder(self, *, reminder_id: str) -> Optional[Dict[str, Any]]:
+        rid = _safe_text(reminder_id)
+        if not rid:
+            return None
+        try:
+            doc = self._appwrite.get_document(self.reminders_resource, rid)
+        except Exception:
+            return None
+        return doc if isinstance(doc, dict) else None
 
     # -------------------------
     # Reminders
