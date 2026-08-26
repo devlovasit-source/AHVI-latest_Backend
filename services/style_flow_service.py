@@ -4778,6 +4778,28 @@ def finalize_style_response_payload(
             normalized_occasion,
         )
 
+    # Trend Intelligence V1 -- soft annotation only. Runs AFTER candidate
+    # generation, garment role validation, negative compatibility, occasion/
+    # dress-code safety (private-wear guard + FINAL STYLE SAFETY GATE above),
+    # and board completeness are all already final. `cards` at this point is
+    # the fully validated board list; annotate_board_with_trend() only ever
+    # adds/removes top-level trend_* keys and is fail-open on any error.
+    try:
+        from services.trend_context_service import annotate_board_with_trend as _annotate_trend
+
+        _trend_gender = ctx.get("target_gender") or ctx.get("gender") or _dict(ctx.get("style_identity")).get("gender")
+        for _tcard in cards:
+            if isinstance(_tcard, dict):
+                _annotate_trend(
+                    _tcard,
+                    user_gender=_trend_gender,
+                    canonical_occasion=normalized_occasion,
+                    target_region="india",
+                    allow_global_fallback=True,
+                )
+    except Exception:
+        logger.warning("trend_intelligence.integration_failed", exc_info=True)
+
     data = {
         "outfits": cards,
         "visual_intelligence": visual_intelligence_from_outfit(raw_outfits[0]) if raw_outfits and isinstance(raw_outfits[0], dict) else {},
