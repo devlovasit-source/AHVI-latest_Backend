@@ -1640,6 +1640,14 @@ def _fetch_wardrobe_for_style(
 
 def _ahvi_style_occasion(query_text):
     q = str(query_text or "").lower()
+    # Black-tie / gala phrasing must resolve to the wedding formal-safety
+    # bucket rather than falling through to the generic "today" daily route
+    # below (which bypasses formal-occasion handling entirely). Hyphen
+    # normalized (space, not underscore, to match this function's plain
+    # keyword-in-string checks) and "gala" is word-boundary matched to avoid
+    # false positives like "galaxy print shirt".
+    if "black tie" in q.replace("-", " ") or "white tie" in q.replace("-", " ") or re.search(r"\bgala\b", q):
+        return "wedding"
     # Multi-event / transition prompts must win before generic mapping so
     # "basketball game ... then team dinner" is not flattened to date night.
     try:

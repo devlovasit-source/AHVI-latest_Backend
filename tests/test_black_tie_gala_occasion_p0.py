@@ -1,18 +1,32 @@
 """P0 hotfix: black-tie / gala occasion vocabulary gap.
 
-"black-tie gala" (and phrase variants) fell through both normalize_occasion()
-canonicalizers to an unrecognized bucket, which the strict pipeline allowlist
-then zeroed out to "" and downstream logic defaulted to casual - bypassing
-formal-safety checks entirely. Fixed by teaching the existing "wedding"
-bucket (the one that already activates outfit_quality_guard's formal-safety
-path) to recognize "black tie" / "white tie" / "gala" as phrase/token-aware
-signals, and by fixing a hyphen-normalization gap in
+"black-tie gala" (and phrase variants) fell through all three of AHVI's
+occasion classifiers to an unrecognized bucket:
+
+  1. routers/chat.py::_ahvi_style_occasion() - the free-text chat entry
+     point's own keyword classifier, which had no gala/black-tie branch and
+     fell all the way to its generic "today" daily-route default, bypassing
+     occasion interpretation entirely (confirmed live: a physical-device
+     request logged AHVI_DAILY_STYLE_ROUTE occasion=today for this exact
+     prompt even after the pipeline-level fix below was deployed).
+  2. brain/engines/style_scorer.py::normalize_occasion() - the pipeline-
+     authoritative canonicalizer, whose result is filtered through a strict
+     allowlist that zeroed out any unrecognized bucket to "".
+  3. brain/engines/outfit_quality_guard.py::normalize_occasion() - a second,
+     independent copy used inside reject_board_for_occasion(), sharing the
+     identical gap.
+
+Any of these dropping the gala/black-tie signal meant occasion collapsed to
+casual/daily downstream, bypassing every formal-safety check keyed on the
+occasion string. Fixed by teaching the existing "wedding" bucket (the one
+that already activates outfit_quality_guard's formal-safety path) to
+recognize "black tie" / "white tie" / "gala" as phrase/token-aware signals
+in all three, plus a hyphen-normalization gap in
 style_compatibility_rules._detect_explicit_dress_code() so "black-tie" text
 triggers the same explicit dress_code="black_tie" detection as "black tie".
 
-No new canonicalizer was introduced - both edits are in the two existing
-normalize_occasion() implementations plus the one existing dress-code
-detector.
+No new canonicalizer was introduced - all edits are in the three existing
+occasion classifiers plus the one existing dress-code detector.
 """
 import os
 
@@ -24,6 +38,7 @@ from brain.engines.outfit_quality_guard import (
     guard_outfit,
 )
 from brain.engines.style_compatibility_rules import _detect_explicit_dress_code
+from routers.chat import _ahvi_style_occasion
 
 PHRASE_MATRIX = [
     # input, expected_scorer_occasion, expected_guard_occasion, expected_dress_code
@@ -50,6 +65,25 @@ PHRASE_MATRIX = [
     ("workout", "workout", "workout", ""),
     ("beach", "beach", "beach", ""),
 ]
+
+CHAT_ROUTER_PHRASE_MATRIX = [
+    # input, expected _ahvi_style_occasion() bucket
+    ("give me a black-tie gala outfit with sneakers", "wedding"),
+    ("give me a black-tie gala outfit", "wedding"),
+    ("black tie", "wedding"),
+    ("black-tie", "wedding"),
+    ("formal gala", "wedding"),
+    ("candidate interview", "date night"),  # pre-existing, unchanged
+    ("office meeting", "office"),
+    # Token-boundary regression: "galaxy" contains "gala" as a substring but
+    # must never be treated as a black-tie/gala signal.
+    ("galaxy print shirt for casual outing", "casual outing"),
+]
+
+
+@pytest.mark.parametrize("text,expected", CHAT_ROUTER_PHRASE_MATRIX)
+def test_chat_router_occasion_classifier(text, expected):
+    assert _ahvi_style_occasion(text) == expected
 
 
 @pytest.mark.parametrize("text,exp_scorer,exp_guard,exp_dress_code", PHRASE_MATRIX)
