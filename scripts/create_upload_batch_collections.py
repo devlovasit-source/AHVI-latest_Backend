@@ -56,6 +56,9 @@ BATCH_ATTRIBUTES: Tuple[Tuple[str, Dict[str, Any]], ...] = (
     ("integer", {"key": "failed_count", "required": False, "array": False, "default": 0}),
     ("datetime", {"key": "created_at", "required": False}),
     ("datetime", {"key": "updated_at", "required": False}),
+    ("integer", {"key": "analysis_ms", "required": False, "array": False}),
+    ("integer", {"key": "persistence_ms", "required": False, "array": False}),
+    ("integer", {"key": "total_item_ms", "required": False, "array": False}),
 )
 
 # Doc id is deterministic_appwrite_id(user_id, client_batch_request_id) - no

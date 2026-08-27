@@ -340,6 +340,163 @@ async def test_persistence_receives_item_with_current_image_fields_intact(orch, 
 
 
 # --------------------------------------------------------------------- #
+# Durable per-attempt latency fields
+# ---------------------------------------------------------------------
+
+def _item_doc(orch, user_id, item_id):
+    return orch._get_doc(orch.items_collection, deterministic_appwrite_id(user_id, item_id))
+
+
+def _assert_non_negative_timing(doc, *fields):
+    for field in fields:
+        assert field in doc
+        assert isinstance(doc[field], int)
+        assert doc[field] >= 0
+
+
+@pytest.mark.anyio
+async def test_success_persists_all_measured_latency_fields(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="latency-1", client_batch_request_id="batch-1", total_items=1)
+    _mock_analyze(monkeypatch, [_valid_item("latency-item-1")])
+    _mock_persist(monkeypatch)
+
+    result = await orch.process_single_batch_item(
+        http_request=None, user_id="latency-1", batch_id="batch-1",
+        client_upload_item_id="upload-1", image_base64="x" * 30,
+    )
+
+    assert set(result["metrics"]) == {"queue_wait_ms", "analysis_ms", "persistence_ms", "total_item_ms"}
+    _assert_non_negative_timing(_item_doc(orch, "latency-1", "upload-1"), "analysis_ms", "persistence_ms", "total_item_ms")
+
+
+@pytest.mark.anyio
+async def test_reviewed_item_bypass_does_not_fabricate_analysis_latency(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="latency-2", client_batch_request_id="batch-2", total_items=1)
+    _mock_persist(monkeypatch)
+
+    await orch.process_single_batch_item(
+        http_request=None, user_id="latency-2", batch_id="batch-2",
+        client_upload_item_id="upload-2", image_base64="x" * 30,
+        reviewed_item=_valid_item("latency-item-2"),
+    )
+
+    doc = _item_doc(orch, "latency-2", "upload-2")
+    assert "analysis_ms" not in doc
+    _assert_non_negative_timing(doc, "persistence_ms", "total_item_ms")
+
+
+@pytest.mark.anyio
+async def test_rejected_and_needs_review_real_attempts_persist_total_latency(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="latency-3", client_batch_request_id="batch-3", total_items=2)
+    _mock_analyze(monkeypatch, [[], [_needs_review_item("latency-item-3")]])
+
+    rejected = await orch.process_single_batch_item(
+        http_request=None, user_id="latency-3", batch_id="batch-3",
+        client_upload_item_id="upload-3", image_base64="x" * 30,
+    )
+    needs_review = await orch.process_single_batch_item(
+        http_request=None, user_id="latency-3", batch_id="batch-3",
+        client_upload_item_id="upload-4", image_base64="x" * 30,
+    )
+
+    assert rejected["status"] == "REJECTED"
+    assert needs_review["status"] == "NEEDS_REVIEW"
+    _assert_non_negative_timing(_item_doc(orch, "latency-3", "upload-3"), "analysis_ms", "total_item_ms")
+    _assert_non_negative_timing(_item_doc(orch, "latency-3", "upload-4"), "analysis_ms", "total_item_ms")
+
+
+@pytest.mark.anyio
+async def test_analysis_failure_persists_analysis_and_total_only(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="latency-4", client_batch_request_id="batch-4", total_items=1)
+
+    async def failing_analyze(*args, **kwargs):
+        raise RuntimeError("analysis failure")
+
+    monkeypatch.setattr(wardrobe_capture, "analyze_capture", failing_analyze)
+    with pytest.raises(UploadBatchInfraError, match="ANALYSIS_FAILED"):
+        await orch.process_single_batch_item(
+            http_request=None, user_id="latency-4", batch_id="batch-4",
+            client_upload_item_id="upload-5", image_base64="x" * 30,
+        )
+
+    doc = _item_doc(orch, "latency-4", "upload-5")
+    _assert_non_negative_timing(doc, "analysis_ms", "total_item_ms")
+    assert "persistence_ms" not in doc
+
+
+@pytest.mark.anyio
+async def test_persistence_failure_persists_persistence_and_total_latency(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="latency-5", client_batch_request_id="batch-5", total_items=1)
+    _mock_analyze(monkeypatch, [_valid_item("latency-item-5")])
+    _mock_persist(monkeypatch, fail=True)
+
+    with pytest.raises(UploadBatchInfraError, match="PERSISTENCE_FAILED"):
+        await orch.process_single_batch_item(
+            http_request=None, user_id="latency-5", batch_id="batch-5",
+            client_upload_item_id="upload-6", image_base64="x" * 30,
+        )
+
+    doc = _item_doc(orch, "latency-5", "upload-6")
+    _assert_non_negative_timing(doc, "analysis_ms", "persistence_ms", "total_item_ms")
+
+
+@pytest.mark.anyio
+async def test_idempotent_replay_does_not_overwrite_latency(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="latency-6", client_batch_request_id="batch-6", total_items=1)
+    _mock_analyze(monkeypatch, [_valid_item("latency-item-6")])
+    _mock_persist(monkeypatch)
+    await orch.process_single_batch_item(
+        http_request=None, user_id="latency-6", batch_id="batch-6",
+        client_upload_item_id="upload-7", image_base64="x" * 30,
+    )
+    before = dict(_item_doc(orch, "latency-6", "upload-7"))
+
+    result = await orch.process_single_batch_item(
+        http_request=None, user_id="latency-6", batch_id="batch-6",
+        client_upload_item_id="upload-7", image_base64="x" * 30,
+    )
+
+    assert result["idempotent"] is True
+    after = _item_doc(orch, "latency-6", "upload-7")
+    assert {key: after.get(key) for key in ("analysis_ms", "persistence_ms", "total_item_ms")} == {
+        key: before.get(key) for key in ("analysis_ms", "persistence_ms", "total_item_ms")
+    }
+
+
+@pytest.mark.anyio
+async def test_failed_retry_records_new_actual_attempt_latency(orch, monkeypatch):
+    orch.create_or_resume_batch(user_id="latency-7", client_batch_request_id="batch-7", total_items=1)
+    _mock_analyze(monkeypatch, [[_valid_item("latency-item-7")], [_valid_item("latency-item-7")]])
+    _mock_persist(monkeypatch, fail=True)
+    with pytest.raises(UploadBatchInfraError):
+        await orch.process_single_batch_item(
+            http_request=None, user_id="latency-7", batch_id="batch-7",
+            client_upload_item_id="upload-8", image_base64="x" * 30,
+        )
+    first = dict(_item_doc(orch, "latency-7", "upload-8"))
+
+    _mock_persist(monkeypatch, fail=False)
+    await orch.process_single_batch_item(
+        http_request=None, user_id="latency-7", batch_id="batch-7",
+        client_upload_item_id="upload-8", image_base64="x" * 30,
+    )
+    second = _item_doc(orch, "latency-7", "upload-8")
+    assert second["attempt_count"] == 2
+    _assert_non_negative_timing(second, "analysis_ms", "persistence_ms", "total_item_ms")
+    assert second["updated_at"] != first["updated_at"]
+
+
+def test_upload_item_latency_schema_fields_are_optional():
+    from scripts.create_upload_batch_collections import ITEM_ATTRIBUTES
+
+    fields = {definition["key"]: definition for definition in ITEM_ATTRIBUTES}
+    for field in ("analysis_ms", "persistence_ms", "total_item_ms"):
+        attribute_type, definition = fields[field]
+        assert attribute_type == "integer"
+        assert definition["required"] is False
+
+
+# --------------------------------------------------------------------- #
 # Duplicate contract audit: canonical signal is analyze_capture()'s own
 # item["duplicate"] object - no second detector, no routers.data engine.
 # --------------------------------------------------------------------- #

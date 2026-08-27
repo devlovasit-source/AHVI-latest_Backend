@@ -123,6 +123,21 @@ def _memory_fallback_allowed() -> bool:
     return env in {"local", "test", "testing"}
 
 
+def _durable_metrics_patch(
+    metrics: Dict[str, Any], started_at: float, measured_fields: set[str]
+) -> Dict[str, int]:
+    """Return only measured non-negative item timings for one processing attempt."""
+    total_item_ms = max(0, int((time.time() - started_at) * 1000))
+    metrics["total_item_ms"] = total_item_ms
+    patch: Dict[str, int] = {"total_item_ms": total_item_ms}
+    for field in ("analysis_ms", "persistence_ms"):
+        if field in measured_fields:
+            value = max(0, int(metrics[field]))
+            metrics[field] = value
+            patch[field] = value
+    return patch
+
+
 class UploadBatchInfraError(RuntimeError):
     """Typed infrastructure failure - Appwrite unavailable outside test/local.
     Never caught and converted into a fake success anywhere in this module."""
@@ -388,6 +403,7 @@ class UploadBatchOrchestrator:
             "persistence_ms": 0,
             "total_item_ms": 0,
         }
+        measured_fields: set[str] = set()
         doc_id = deterministic_appwrite_id(user_id, client_upload_item_id)
         # Set to the batch counter field this item was previously counted
         # under, whenever a terminal _update_doc below moves it to a NEW
@@ -447,7 +463,14 @@ class UploadBatchOrchestrator:
             # explicitly asked to override duplicate-blocking on THIS item.
             self._update_doc(
                 self.items_collection, doc_id,
-                {"status": "PROCESSING", "attempt_count": int(existing.get("attempt_count") or 1) + 1, "updated_at": _utcnow_iso()},
+                {
+                    "status": "PROCESSING",
+                    "attempt_count": int(existing.get("attempt_count") or 1) + 1,
+                    "analysis_ms": None,
+                    "persistence_ms": None,
+                    "total_item_ms": None,
+                    "updated_at": _utcnow_iso(),
+                },
             )
             migrate_from_field = "needs_review_count"
         elif existing_status == "FAILED":
@@ -464,6 +487,9 @@ class UploadBatchOrchestrator:
                     "status": "PROCESSING",
                     "attempt_count": int(existing.get("attempt_count") or 1) + 1,
                     "error_code": None,
+                    "analysis_ms": None,
+                    "persistence_ms": None,
+                    "total_item_ms": None,
                     "updated_at": _utcnow_iso(),
                 },
             )
@@ -521,9 +547,15 @@ class UploadBatchOrchestrator:
                 )
             except Exception as exc:
                 metrics["analysis_ms"] = int((time.time() - t_an) * 1000)
+                measured_fields.add("analysis_ms")
                 self._update_doc(
                     self.items_collection, doc_id,
-                    {"status": "FAILED", "error_code": "ANALYSIS_FAILED", "updated_at": _utcnow_iso()},
+                    {
+                        "status": "FAILED",
+                        "error_code": "ANALYSIS_FAILED",
+                        "updated_at": _utcnow_iso(),
+                        **_durable_metrics_patch(metrics, t0, measured_fields),
+                    },
                 )
                 self._bump_batch_counter(
                     user_id, batch_id, "failed_count",
@@ -531,6 +563,7 @@ class UploadBatchOrchestrator:
                 )
                 raise UploadBatchInfraError(f"ANALYSIS_FAILED: {exc}") from exc
             metrics["analysis_ms"] = int((time.time() - t_an) * 1000)
+            measured_fields.add("analysis_ms")
 
             items = analyze_result.get("items") if isinstance(analyze_result, dict) else []
             items = [i for i in (items or []) if isinstance(i, dict)]
@@ -538,13 +571,17 @@ class UploadBatchOrchestrator:
         if not items:
             self._update_doc(
                 self.items_collection, doc_id,
-                {"status": "REJECTED", "error_code": "NO_ITEM_DETECTED", "updated_at": _utcnow_iso()},
+                {
+                    "status": "REJECTED",
+                    "error_code": "NO_ITEM_DETECTED",
+                    "updated_at": _utcnow_iso(),
+                    **_durable_metrics_patch(metrics, t0, measured_fields),
+                },
             )
             self._bump_batch_counter(
                 user_id, batch_id, "rejected_count",
                 migrate_from=migrate_from_field,
             )
-            metrics["total_item_ms"] = int((time.time() - t0) * 1000)
             return {"success": False, "status": "REJECTED", "reason": "no_item_detected", "metrics": metrics}
 
         for item in items:
@@ -568,13 +605,13 @@ class UploadBatchOrchestrator:
                     "duplicate_reason": dup.get("reason"),
                     "duplicate_confidence": dup.get("confidence"),
                     "updated_at": _utcnow_iso(),
+                    **_durable_metrics_patch(metrics, t0, measured_fields),
                 },
             )
             self._bump_batch_counter(
                 user_id, batch_id, "needs_review_count",
                 migrate_from=migrate_from_field,
             )
-            metrics["total_item_ms"] = int((time.time() - t0) * 1000)
             return {
                 "success": False,
                 "status": "NEEDS_REVIEW",
@@ -588,13 +625,17 @@ class UploadBatchOrchestrator:
         if not approved:
             self._update_doc(
                 self.items_collection, doc_id,
-                {"status": "NEEDS_REVIEW", "error_code": "NOT_AUTO_APPROVED", "updated_at": _utcnow_iso()},
+                {
+                    "status": "NEEDS_REVIEW",
+                    "error_code": "NOT_AUTO_APPROVED",
+                    "updated_at": _utcnow_iso(),
+                    **_durable_metrics_patch(metrics, t0, measured_fields),
+                },
             )
             self._bump_batch_counter(
                 user_id, batch_id, "needs_review_count",
                 migrate_from=migrate_from_field,
             )
-            metrics["total_item_ms"] = int((time.time() - t0) * 1000)
             return {"success": False, "status": "NEEDS_REVIEW", "reason": "not_auto_approved", "items": items, "metrics": metrics}
 
         # Ensure raw_url/masked_url/normalized_url exist before persisting -
@@ -642,9 +683,15 @@ class UploadBatchOrchestrator:
             )
         except Exception as exc:
             metrics["persistence_ms"] = int((time.time() - t_persist) * 1000)
+            measured_fields.add("persistence_ms")
             self._update_doc(
                 self.items_collection, doc_id,
-                {"status": "FAILED", "error_code": "PERSISTENCE_FAILED", "updated_at": _utcnow_iso()},
+                {
+                    "status": "FAILED",
+                    "error_code": "PERSISTENCE_FAILED",
+                    "updated_at": _utcnow_iso(),
+                    **_durable_metrics_patch(metrics, t0, measured_fields),
+                },
             )
             self._bump_batch_counter(
                 user_id, batch_id, "failed_count",
@@ -652,6 +699,7 @@ class UploadBatchOrchestrator:
             )
             raise UploadBatchInfraError(f"PERSISTENCE_FAILED: {exc}") from exc
         metrics["persistence_ms"] = int((time.time() - t_persist) * 1000)
+        measured_fields.add("persistence_ms")
 
         saved_items = save_result.get("items") if isinstance(save_result, dict) else []
         saved_items = [i for i in (saved_items or []) if isinstance(i, dict)]
@@ -669,13 +717,17 @@ class UploadBatchOrchestrator:
             )
             self._update_doc(
                 self.items_collection, doc_id,
-                {"status": "FAILED", "error_code": "UPLOAD_ITEM_PERSISTENCE_FAILED", "updated_at": _utcnow_iso()},
+                {
+                    "status": "FAILED",
+                    "error_code": "UPLOAD_ITEM_PERSISTENCE_FAILED",
+                    "updated_at": _utcnow_iso(),
+                    **_durable_metrics_patch(metrics, t0, measured_fields),
+                },
             )
             self._bump_batch_counter(
                 user_id, batch_id, "failed_count",
                 migrate_from=migrate_from_field,
             )
-            metrics["total_item_ms"] = int((time.time() - t0) * 1000)
             return {
                 "success": False,
                 "status": "FAILED",
@@ -688,7 +740,12 @@ class UploadBatchOrchestrator:
         if not wardrobe_item_id:
             self._update_doc(
                 self.items_collection, doc_id,
-                {"status": "FAILED", "error_code": "PERSISTENCE_FAILED", "updated_at": _utcnow_iso()},
+                {
+                    "status": "FAILED",
+                    "error_code": "PERSISTENCE_FAILED",
+                    "updated_at": _utcnow_iso(),
+                    **_durable_metrics_patch(metrics, t0, measured_fields),
+                },
             )
             self._bump_batch_counter(
                 user_id, batch_id, "failed_count",
@@ -698,13 +755,17 @@ class UploadBatchOrchestrator:
 
         self._update_doc(
             self.items_collection, doc_id,
-            {"status": "ADDED_TO_WARDROBE", "wardrobe_item_id": wardrobe_item_id, "updated_at": _utcnow_iso()},
+            {
+                "status": "ADDED_TO_WARDROBE",
+                "wardrobe_item_id": wardrobe_item_id,
+                "updated_at": _utcnow_iso(),
+                **_durable_metrics_patch(metrics, t0, measured_fields),
+            },
         )
         self._bump_batch_counter(
             user_id, batch_id, "added_count",
             migrate_from=migrate_from_field,
         )
-        metrics["total_item_ms"] = int((time.time() - t0) * 1000)
         logger.info(
             "ahvi.upload_batch.item_added batch_id=%s item_id=%s analysis_ms=%s persistence_ms=%s total_item_ms=%s",
             batch_id, client_upload_item_id, metrics["analysis_ms"], metrics["persistence_ms"], metrics["total_item_ms"],

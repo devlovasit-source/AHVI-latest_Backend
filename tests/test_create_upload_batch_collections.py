@@ -194,15 +194,16 @@ def test_apply_skips_existing_attribute(fake_appwrite):
 # ---------------------------------------------------------------------------
 def test_partially_created_collection_resumes_and_completes(fake_appwrite):
     # Simulate the exact reported live state: collection + most attributes
-    # exist, duplicate_confidence/created_at/updated_at are missing because
-    # the first apply run aborted on the float-route 404.
+    # exist, duplicate_confidence/created_at/updated_at and the optional
+    # latency fields are missing because the first apply run aborted on the
+    # float-route 404.
     mod._ensure_collection(mod.ITEMS_COLLECTION_ID, "upload_batch_items")
-    already_created = mod.ITEM_ATTRIBUTES[:-3]  # everything up to (not incl.) duplicate_confidence
+    already_created = mod.ITEM_ATTRIBUTES[:-6]  # everything up to (not incl.) duplicate_confidence
     mod._ensure_attributes(mod.ITEMS_COLLECTION_ID, already_created)
     assert set(fake_appwrite.attributes[mod.ITEMS_COLLECTION_ID].keys()) == {a[1]["key"] for a in already_created}
 
     # Rerunning full apply must not blow up on the pre-existing ones and must
-    # create exactly the three that were missing.
+    # create exactly the six that were missing.
     mod._ensure_collection(mod.ITEMS_COLLECTION_ID, "upload_batch_items")
     mod._ensure_attributes(mod.ITEMS_COLLECTION_ID, mod.ITEM_ATTRIBUTES)
 
