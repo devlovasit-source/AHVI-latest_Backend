@@ -4373,10 +4373,15 @@ def finalize_style_response_payload(
     )
     raw_candidate_count = len(candidates)
     pool_count = len(cards)
+    # ctx["occasion"] is the caller's already-resolved canonical occasion (e.g.
+    # chat.py's _ahvi_style_occasion). It must win over occasion_interpretation,
+    # which free-text-reparses `query` here and silently defaults unmatched
+    # vocabulary (e.g. "black-tie gala") to "daily", clobbering an already-correct
+    # upstream value.
     normalized_occasion = _normalize_occasion_value(
-        occasion_interpretation.get("occasion")
-        or _dict(occasion_interpretation.get("board_generation_notes")).get("occasion_kind")
-        or ctx.get("occasion"),
+        ctx.get("occasion")
+        or occasion_interpretation.get("occasion")
+        or _dict(occasion_interpretation.get("board_generation_notes")).get("occasion_kind"),
         query,
     )
     safety_action = (style_action or ctx.get("style_action") or "").strip().lower()
@@ -4911,10 +4916,13 @@ def build_style_flow_response(
 
     occasion_interpretation = interpret_occasion(query, ctx)
     ctx["occasion_interpretation"] = occasion_interpretation
+    # ctx["occasion"] is the caller's already-resolved canonical occasion; it must
+    # win over occasion_interpretation, which free-text-reparses `query` here and
+    # silently defaults unmatched vocabulary (e.g. "black-tie gala") to "daily".
     normalized_occasion = _normalize_occasion_value(
-        occasion_interpretation.get("occasion")
-        or _dict(occasion_interpretation.get("board_generation_notes")).get("occasion_kind")
-        or ctx.get("occasion"),
+        ctx.get("occasion")
+        or occasion_interpretation.get("occasion")
+        or _dict(occasion_interpretation.get("board_generation_notes")).get("occasion_kind"),
         query,
     )
     if normalized_occasion:

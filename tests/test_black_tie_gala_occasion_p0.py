@@ -39,6 +39,7 @@ from brain.engines.outfit_quality_guard import (
 )
 from brain.engines.style_compatibility_rules import _detect_explicit_dress_code
 from routers.chat import _ahvi_style_occasion
+from services.style_flow_service import finalize_style_response_payload, interpret_occasion
 
 PHRASE_MATRIX = [
     # input, expected_scorer_occasion, expected_guard_occasion, expected_dress_code
@@ -153,3 +154,60 @@ def test_black_tie_gala_outfit_board_complete_no_footwear_complaint():
 def test_casual_dinner_control_unaffected():
     # A regular casual request must never pick up dress-code enforcement.
     assert _detect_explicit_dress_code("casual", "give me a casual dinner outfit") == ""
+
+
+# ---------------------------------------------------------------------------
+# Follow-up P0 gap, found live on ahvi-backend-00998-xid (commit 1aeb117)
+# after the three classifiers above were already fixed and deployed:
+#
+# /api/text's chat-orchestrator layer correctly resolved this prompt's
+# occasion to "wedding" (proving the chat-router fix worked). But the same
+# request also runs a second, independent board-generation step -
+# services/style_flow_service.py's finalize_style_response_payload() /
+# build_style_flow_response() - which re-derives its own occasion from raw
+# query text via brain/engines/occasion_interpreter.py::detect_occasion(),
+# a FOURTH classifier that was never taught "black tie" / "gala" vocabulary.
+# It returned "daily", and that freshly re-derived (wrong) guess was checked
+# *before* the caller-supplied, already-correct ctx["occasion"]="wedding" in
+# an `or` chain, so it silently won. Live evidence: style_board.generate
+# logged interpreted_occasion=daily and ahvi.final_boards badges=['DAILY']
+# for this exact prompt on 00998-xid.
+#
+# Fixed by reordering that `or` chain so ctx["occasion"] - the value the
+# caller already resolved - is checked first. No new classifier added.
+# ---------------------------------------------------------------------------
+
+def _wedding_board(footwear_name, footwear_formality="formal"):
+    items = [
+        {"id": "top1", "name": "White Dress Shirt", "role": "top", "category": "Tops"},
+        {"id": "bot1", "name": "Black Formal Trousers", "role": "bottom", "category": "Bottoms"},
+        {"id": "shoe1", "name": footwear_name, "role": "footwear", "category": "Footwear",
+         "style_metadata": {"formality": footwear_formality}},
+    ]
+    return {"items": items, "top": items[0], "bottom": items[1], "footwear": items[2]}
+
+
+def test_style_flow_board_generation_no_longer_defaults_to_daily():
+    query = "give me a black-tie gala outfit with sneakers"
+
+    # Confirms the underlying gap still exists in the raw-text reparser -
+    # if this ever starts passing, the ctx["occasion"] precedence fix below
+    # is still required regardless, since callers must not depend on every
+    # downstream reparser knowing every occasion phrase.
+    reparsed = interpret_occasion(query)
+    assert reparsed.get("occasion") == "daily"
+
+    board = _wedding_board("White Sneakers", footwear_formality="casual")
+    response = finalize_style_response_payload(
+        {"cards": [board], "outfits": [board]},
+        user_id="u1",
+        query=query,
+        wardrobe=board["items"],
+        context={"occasion": "wedding"},
+    )
+
+    resolved_occasion = (response.get("cards") or [{}])[0].get("occasion")
+    assert resolved_occasion == "wedding", (
+        f"board generation must keep the caller's resolved occasion; got {resolved_occasion!r}"
+    )
+    assert resolved_occasion not in {"daily", "today", "casual"}
