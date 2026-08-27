@@ -38,8 +38,9 @@ from brain.engines.outfit_quality_guard import (
     guard_outfit,
 )
 from brain.engines.style_compatibility_rules import _detect_explicit_dress_code
-from routers.chat import _ahvi_style_occasion
+from routers.chat import _ahvi_style_occasion, _apply_current_turn_occasion_authority
 from services.style_flow_service import finalize_style_response_payload, interpret_occasion
+from services.style_conversation_context import resolve_style_conversation_context
 
 PHRASE_MATRIX = [
     # input, expected_scorer_occasion, expected_guard_occasion, expected_dress_code
@@ -211,3 +212,138 @@ def test_style_flow_board_generation_no_longer_defaults_to_daily():
         f"board generation must keep the caller's resolved occasion; got {resolved_occasion!r}"
     )
     assert resolved_occasion not in {"daily", "today", "casual"}
+
+
+# ---------------------------------------------------------------------------
+# Second follow-up P0 gap, found live on ahvi-backend-01000-bav (commit
+# 80a3b8b) via a real multi-turn device conversation:
+#
+#   Turn 1: "give me a casual dinner outfit"
+#   Turn 2: "give me a black-tie gala outfit with sneakers"
+#
+# Turn 2's own text correctly resolved to occasion=wedding via chat.py's
+# _ahvi_style_occasion(). But services/style_conversation_context.py's
+# resolve_style_conversation_context() - which merges "current turn >
+# carried state > history" - re-derives its OWN idea of the current turn's
+# occasion via a separate, narrower keyword list
+# (_occasion_from_text/_OCCASION_ALIASES) that also doesn't know
+# "black tie"/"gala". Since that internal detector found nothing for Turn
+# 2, the merge never had anything to assert current-turn priority with, so
+# _text_conversation.occasion silently stayed on Turn 1's carried "dinner"
+# value. This is a FIFTH classifier gap, in a different file than the four
+# already fixed by 6cd2ccf/1aeb117/80a3b8b - but per this fix's scope, it is
+# NOT patched with new vocabulary. Instead, chat.py's already-correct
+# _ahvi_style_occasion() result (when not its own generic "today"
+# no-signal sentinel) is applied on top of whatever
+# resolve_style_conversation_context() produced, in
+# _apply_current_turn_occasion_authority(). No new occasion map, regex, or
+# black-tie special case was added anywhere.
+# ---------------------------------------------------------------------------
+
+def _turn_occasion(message, *, carried_occasion=None, history_messages=()):
+    carried_context = {"resolved_context": {"occasion": carried_occasion}} if carried_occasion else {}
+    history = [{"role": "user", "content": m} for m in history_messages]
+    conversation, _ = resolve_style_conversation_context(
+        current_message=message,
+        recent_history=history,
+        carried_context=carried_context,
+    )
+    conversation = _apply_current_turn_occasion_authority(conversation, message)
+    return conversation.occasion
+
+
+def test_current_turn_authority_ignores_its_own_generic_sentinel():
+    # Direct unit check of the authority helper: "today" (the classifier's
+    # own designated no-explicit-signal value) must never overwrite an
+    # existing backfilled occasion.
+    conversation, _ = resolve_style_conversation_context(
+        current_message="another option",
+        recent_history=[],
+        carried_context={"resolved_context": {"occasion": "wedding"}},
+    )
+    assert _ahvi_style_occasion("another option") == "today"
+    result = _apply_current_turn_occasion_authority(conversation, "another option")
+    assert result.occasion == "wedding"
+
+
+def test_sequence_a_black_tie_after_casual_dinner_wins():
+    turn1 = _turn_occasion("give me a casual dinner outfit")
+    turn2 = _turn_occasion(
+        "give me a black-tie gala outfit with sneakers",
+        carried_occasion=turn1,
+        history_messages=["give me a casual dinner outfit"],
+    )
+    assert turn2 == "wedding"
+
+
+def test_sequence_b_black_tie_after_office_wins():
+    turn1 = _turn_occasion("give me an office outfit")
+    turn2 = _turn_occasion(
+        "give me a black tie gala outfit",
+        carried_occasion=turn1,
+        history_messages=["give me an office outfit"],
+    )
+    assert turn2 == "wedding"
+
+
+def test_sequence_c_elliptical_followup_inherits_black_tie_context():
+    turn1 = _turn_occasion("give me a black-tie gala outfit")
+    assert turn1 == "wedding"
+    turn2 = _turn_occasion(
+        "make another one with loafers",
+        carried_occasion=turn1,
+        history_messages=["give me a black-tie gala outfit"],
+    )
+    assert turn2 == "wedding"
+
+
+def test_sequence_d_explicit_new_occasion_replaces_wedding_context():
+    turn1 = _turn_occasion("give me a wedding reception outfit")
+    assert turn1 == "wedding"
+    turn2 = _turn_occasion(
+        "actually make it casual for dinner",
+        carried_occasion=turn1,
+        history_messages=["give me a wedding reception outfit"],
+    )
+    assert turn2 != "wedding", "an explicit new occasion in the current turn must replace prior context"
+
+
+def test_sequence_e_elliptical_followup_inherits_casual_dinner_context():
+    turn1 = _turn_occasion("give me a casual dinner outfit")
+    turn2 = _turn_occasion(
+        "another option",
+        carried_occasion=turn1,
+        history_messages=["give me a casual dinner outfit"],
+    )
+    assert turn2 == turn1, "an elliptical follow-up must inherit the prior turn's occasion, not reset to generic"
+
+
+def test_sequence_f_candidate_interview_does_not_false_match_gala_or_black_tie():
+    # "candidate interview" contains the substring "date", a pre-existing,
+    # already-documented _ahvi_style_occasion quirk unrelated to this fix
+    # (see test_chat_router_occasion_classifier above) - intentionally left
+    # unchanged here. What this fix must guarantee is that it never
+    # false-matches the black-tie/gala/wedding bucket specifically.
+    result = _turn_occasion("candidate interview")
+    assert result != "wedding"
+
+
+def test_full_live_failure_sequence_resolves_to_wedding_end_to_end():
+    # The exact live device conversation that exposed this gap.
+    turn1 = _turn_occasion("give me a casual dinner outfit")
+    turn2_query = "give me a black-tie gala outfit with sneakers"
+    turn2_occasion = _turn_occasion(
+        turn2_query,
+        carried_occasion=turn1,
+        history_messages=["give me a casual dinner outfit"],
+    )
+    assert turn2_occasion == "wedding"
+    assert turn2_occasion not in {"client_dinner", "daily", "today", "casual"}
+
+    # And the already-fixed downstream pipeline still enforces on it.
+    intent = scorer_normalize_occasion(turn2_query)
+    assert intent == "wedding"
+    outfit = _formal_outfit("White Sneakers")
+    allowed, penalty, reasons, fixed = guard_outfit(outfit, intent=intent, query=turn2_query)
+    assert allowed is False
+    assert any("DCV_006" in r for r in reasons), reasons

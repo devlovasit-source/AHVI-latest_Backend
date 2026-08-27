@@ -1712,6 +1712,23 @@ def _ahvi_style_occasion(query_text):
     return "today"
 
 
+def _apply_current_turn_occasion_authority(conversation, message):
+    """The current turn's own explicit occasion must win over whatever
+    resolve_style_conversation_context() backfilled from carried/history state -
+    that backfill logic re-derives occasion from raw text via a separate,
+    narrower keyword list (services/style_conversation_context.py) that doesn't
+    know every phrase _ahvi_style_occasion does, so an explicit new occasion in
+    the current turn can otherwise be silently shadowed by stale prior-turn
+    context. "today" is _ahvi_style_occasion's own no-explicit-signal sentinel,
+    so it must not override a real backfill - elliptical follow-ups ("make
+    another one with loafers") still need to inherit prior context.
+    """
+    current_turn_occasion = _ahvi_style_occasion(message)
+    if current_turn_occasion != "today":
+        conversation.occasion = current_turn_occasion
+    return conversation
+
+
 def _daily_wear_style_tips_payload(query_text: str, user_id: str) -> Dict[str, Any] | None:
     """Fast path for Daily Wear's Ask AHVI sheet.
 
@@ -5662,6 +5679,7 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
             context=_text_conversation.to_dict(),
             diagnostics=_text_conversation_diagnostics,
         )
+    _text_conversation = _apply_current_turn_occasion_authority(_text_conversation, user_input)
     _board_mutation = handle_board_operation(
         _text_board_payload,
         semantic_decision=_text_semantic,
