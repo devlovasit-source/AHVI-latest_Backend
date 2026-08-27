@@ -1679,7 +1679,14 @@ def _ahvi_style_occasion(query_text):
         return "funeral"
     if any(k in q for k in ["temple", "mandir", "puja", "pooja", "darshan", "shrine"]):
         return "temple_modest"
-    if any(k in q for k in ["date", "dinner", "night"]):
+    # Word-boundary matched: plain substring containment let "candidate"
+    # false-match "date" (c-a-n-d-i-date). An explicit "casual" qualifier
+    # co-occurring with "dinner" must win over the bare date-night bucket,
+    # the same qualifier-before-generic-bucket pattern already used for
+    # black-tie/gala above.
+    if re.search(r"\bcasual\b", q) and re.search(r"\bdinner\b", q):
+        return "casual_dinner"
+    if any(re.search(rf"\b{k}\b", q) for k in ["date", "dinner", "night"]):
         return "date night"
     # Office ONLY on explicit work signals — never as a generic-daily fallback.
     if any(

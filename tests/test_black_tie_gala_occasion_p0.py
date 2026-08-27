@@ -75,11 +75,29 @@ CHAT_ROUTER_PHRASE_MATRIX = [
     ("black tie", "wedding"),
     ("black-tie", "wedding"),
     ("formal gala", "wedding"),
-    ("candidate interview", "date night"),  # pre-existing, unchanged
+    ("wedding reception", "wedding"),
     ("office meeting", "office"),
+    ("workout", "workout"),
     # Token-boundary regression: "galaxy" contains "gala" as a substring but
     # must never be treated as a black-tie/gala signal.
     ("galaxy print shirt for casual outing", "casual outing"),
+    # "date" in "candidate" was an unanchored-substring false match, fixed by
+    # this task - "candidate interview"/"candidate screening" must resolve
+    # via the office/interview branch, never date night.
+    ("candidate interview", "office"),
+    ("candidate screening", "today"),  # no office keyword present either; must just not be "date night"
+    ("interview outfit", "office"),
+    ("job interview", "office"),
+    # Explicit "casual" qualifier co-occurring with "dinner" must win over
+    # the bare date-night bucket - fixed by this task.
+    ("casual dinner", "casual_dinner"),
+    ("give me a casual dinner outfit", "casual_dinner"),
+    ("actually make it casual for dinner", "casual_dinner"),
+    ("dinner but keep it casual", "casual_dinner"),
+    # Unqualified dinner/date phrasing keeps its existing date-night meaning.
+    ("date night", "date night"),
+    ("date night dinner", "date night"),
+    ("dinner date", "date night"),
 ]
 
 
@@ -305,11 +323,12 @@ def test_sequence_d_explicit_new_occasion_replaces_wedding_context():
         carried_occasion=turn1,
         history_messages=["give me a wedding reception outfit"],
     )
-    assert turn2 != "wedding", "an explicit new occasion in the current turn must replace prior context"
+    assert turn2 == "casual_dinner", "an explicit new occasion in the current turn must replace prior context"
 
 
 def test_sequence_e_elliptical_followup_inherits_casual_dinner_context():
     turn1 = _turn_occasion("give me a casual dinner outfit")
+    assert turn1 == "casual_dinner"
     turn2 = _turn_occasion(
         "another option",
         carried_occasion=turn1,
@@ -319,13 +338,11 @@ def test_sequence_e_elliptical_followup_inherits_casual_dinner_context():
 
 
 def test_sequence_f_candidate_interview_does_not_false_match_gala_or_black_tie():
-    # "candidate interview" contains the substring "date", a pre-existing,
-    # already-documented _ahvi_style_occasion quirk unrelated to this fix
-    # (see test_chat_router_occasion_classifier above) - intentionally left
-    # unchanged here. What this fix must guarantee is that it never
-    # false-matches the black-tie/gala/wedding bucket specifically.
+    # "candidate" containing the substring "date" was a real bug, fixed by
+    # this task (see CHAT_ROUTER_PHRASE_MATRIX above) - word-boundary
+    # matching now keeps it out of the date-night bucket entirely.
     result = _turn_occasion("candidate interview")
-    assert result != "wedding"
+    assert result not in {"wedding", "date night", "date_night"}
 
 
 def test_full_live_failure_sequence_resolves_to_wedding_end_to_end():
