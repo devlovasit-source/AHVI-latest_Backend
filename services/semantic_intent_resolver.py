@@ -631,7 +631,11 @@ def resolve_semantic_intent(
         return result
 
     module = str(module_hint or "").strip().lower()
-    if module not in {"style", "daily_wear"}:
+    # Defense-in-depth only (see routers/chat.py's early_intent-based board
+    # gate for the primary safeguard): the LLM-backed contextual classifier
+    # below can now also veto a board for wardrobe-surface follow-ups, not
+    # just style-surface ones.
+    if module not in {"style", "daily_wear", "wardrobe"}:
         return None
 
     contextual = _contextual_request(current_message)

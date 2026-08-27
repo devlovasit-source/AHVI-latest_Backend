@@ -2,6 +2,7 @@ import logging
 from typing import Dict, Any
 
 from services.ai_gateway import generate_text, parse_json_object
+from services.style_item_contract import garment_words
 from services.stylist_knowledge_service import (
     COLOR_BODY_ADVICE,
     SHOPPING_ASSIST,
@@ -759,30 +760,10 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
         return {"intent": "explore_styles", "slots": slots, "confidence": 0.62}
 
     count_words = ["how many", "count", "number of", "total", "do i have"]
-    wardrobe_words = [
-        "wardrobe",
-        "closet",
-        "outfit",
-        "outfits",
-        "tops",
-        "top",
-        "shirts",
-        "shirt",
-        "tshirt",
-        "t-shirt",
-        "pants",
-        "trousers",
-        "jeans",
-        "bottoms",
-        "shoes",
-        "footwear",
-        "dress",
-        "dresses",
-        "accessories",
-        "jewelry",
-        "bags",
-        "bag",
-    ]
+    # Canonical garment vocabulary (single source: services.style_item_contract)
+    # plus collective/container nouns that name a wardrobe query without being
+    # a garment type themselves.
+    wardrobe_words = garment_words() | {"wardrobe", "closet", "outfit", "outfits"}
     if any(x in t for x in count_words) and any(x in t for x in wardrobe_words):
         return {"intent": "wardrobe_query", "slots": slots, "confidence": 0.8}
 

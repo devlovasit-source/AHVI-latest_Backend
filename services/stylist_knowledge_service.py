@@ -55,11 +55,13 @@ def is_wardrobe_style_request(
     style_action: str = "",
 ) -> bool:
     q = _norm(text)
-    module = _norm(module_context)
     action = _norm(style_action)
 
-    if module in {"wardrobe", "closet"} and q:
-        return True
+    # module_context alone must never decide this (CORE PRINCIPLE: module is a
+    # hint, resolved content/intent is authority) -- callers that legitimately
+    # want "and it's the wardrobe surface" already check module_context
+    # themselves (see e.g. _should_default_visual_inspiration). What follows
+    # is content-only.
     if action in {"use_my_wardrobe", "wardrobe_style", "style_saved_item"}:
         return True
 
@@ -83,6 +85,16 @@ def is_wardrobe_style_request(
         "style saved item",
         "use my items",
         "use my wardrobe for",
+        # Imperative "style me <preposition>" is an execution request, not
+        # advice, regardless of whether a specific owned item is named ("style
+        # me for a Pooja") or is ("style me using my Red Top and ...") -- it
+        # was previously falling through to the generic style_advice default
+        # because none of the phrases above matched a bare "style me for/with/
+        # using ..." construction.
+        "style me for",
+        "style me using",
+        "style me with",
+        "style me in",
     )
     if _has_any(q, explicit):
         return True

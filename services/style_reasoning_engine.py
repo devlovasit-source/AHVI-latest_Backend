@@ -5731,11 +5731,11 @@ def _coerce_mode(query: str, intent: dict | str | None, context: dict | None) ->
     q = _norm(query)
     action_blob = f"{q} {style_action} {next_action}"
 
-    # 1) use_wardrobe — highest precedence.
-    if (
-        module_context.lower() in {"wardrobe", "closet"}
-        or _has_any(action_blob, ("use_wardrobe", "use my wardrobe", "use wardrobe", "from my wardrobe", "with my wardrobe"))
-    ):
+    # 1) use_wardrobe — highest precedence. module_context is a hint, never
+    # the sole trigger (CORE PRINCIPLE: module is a hint, resolved content is
+    # authority) -- a wardrobe action is decided by what the user actually
+    # asked/clicked, not merely which chat surface they typed into.
+    if _has_any(action_blob, ("use_wardrobe", "use my wardrobe", "use wardrobe", "from my wardrobe", "with my wardrobe")):
         logger.info("AHVI_STYLE_ROUTE_FORCED mode=wardrobe_style reason=use_wardrobe")
         return WARDROBE_STYLE
 

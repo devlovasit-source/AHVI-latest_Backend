@@ -143,6 +143,22 @@ _TYPE_MAP = {
     "sunglasses": "accessory", "eyewear": "accessory", "scarf": "accessory",
 }
 
+
+def garment_role_map() -> Dict[str, str]:
+    """Canonical garment-noun -> role vocabulary (top/bottom/dress/outerwear/
+    footwear/accessory). Single source of truth so callers (wardrobe entity
+    matching, "how many X do I own" detection, intent classification) don't
+    each hand-maintain their own divergent word list."""
+    return dict(_TYPE_MAP)
+
+
+def garment_words() -> frozenset:
+    """Garment-noun keys only, e.g. for "does this text mention a garment"
+    checks. Excludes collective/container nouns like "wardrobe" or "outfit"
+    -- callers add those separately since they aren't garment types."""
+    return frozenset(_TYPE_MAP.keys())
+
+
 _EXPLICIT_FIELDS = (
     "role", "slot", "type", "category", "cat", "category_group",
     "sub_category", "subcategory", "subCategory", "garment_type",
@@ -429,3 +445,140 @@ def assert_fixed_items_preserved(
             mismatched[fid] = fields
     if missing or mismatched:
         raise FixedItemLostError(missing or sorted(mismatched), stage=stage, mismatched_fields=mismatched)
+
+
+# ---------------------------------------------------------------------------
+# Owned-item mention resolution
+#
+# Resolves free-text item references ("my Red Top") against the caller's
+# COMPLETE wardrobe -- the one canonical resolver shared by first-turn Style
+# Chat requests and board-refinement follow-ups (see beta_style_bridge),
+# instead of each caller inventing its own name matcher.
+# ---------------------------------------------------------------------------
+
+_NAME_NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _normalize_name(text: str) -> str:
+    return _NAME_NORMALIZE_RE.sub(" ", str(text or "").lower()).strip()
+
+
+# Only used to flag a NAMED item the wardrobe has no candidate for at all
+# (e.g. "my Purple Spacesuit") -- everything the user actually owns is found
+# by the wardrobe-anchored pass below regardless of "my" phrasing.
+_MY_ITEM_STOPWORDS = {"and", "with", "for", "to", "using", "wearing", "plus"}
+_MY_PHRASE_RE = re.compile(r"\bmy\s+([a-z0-9][a-z0-9 \-']{1,60})", re.IGNORECASE)
+
+# "my body type" / "my skin tone" name a personal attribute, not a garment --
+# without this, an advice question would be misread as a request for an
+# unowned item. Deliberately a small denylist (not an allowlist of garment
+# words): the whole point of this path is catching items that AREN'T in the
+# garment vocabulary (typos, items the user doesn't own), so filtering by
+# "is a known garment word" would defeat it.
+_MY_PHRASE_NON_ITEM_PHRASES = {
+    "body type", "body shape", "body", "skin tone", "skin color",
+    "skin colour", "complexion", "style", "wardrobe", "closet", "budget",
+    "size", "measurements", "figure", "color", "colour", "colors", "colours",
+}
+
+
+def _extract_my_phrases(query: str) -> List[str]:
+    phrases: List[str] = []
+    for m in _MY_PHRASE_RE.finditer(str(query or "")):
+        current: List[str] = []
+        for word in m.group(1).split():
+            bare = re.sub(r"[^a-z']", "", word.lower())
+            if bare in _MY_ITEM_STOPWORDS:
+                break
+            current.append(word)
+        phrase = " ".join(current).strip(" .,!?")
+        if phrase and _normalize_name(phrase) not in _MY_PHRASE_NON_ITEM_PHRASES:
+            phrases.append(phrase)
+    return phrases
+
+
+def resolve_owned_item_mentions(query: str, wardrobe: Iterable[Any]) -> Dict[str, List[Dict[str, Any]]]:
+    """Deterministically resolve free-text item mentions in `query` against
+    the caller's COMPLETE wardrobe, before any generic role-based candidate
+    ranking runs.
+
+    Conservative matching only: case-insensitive, whitespace/punctuation-
+    normalized comparison against each item's own stored name. No fuzzy,
+    embedding, or LLM matching. Longer/more specific item names are checked
+    before shorter ones so a generic short name can never steal a match that
+    belongs to a more specific one, and a bare role word ("top") never
+    resolves anything on its own -- only an actual stored item name can.
+
+    Returns {"resolved": [...], "ambiguous": [...], "unresolved": [...]}:
+      resolved:   [{mention, item_id, role, source, match_type}], match_type
+                  is "exact" (whole normalized name matched) or "normalized"
+                  (matched after case/whitespace/punctuation folding only).
+      ambiguous:  [{mention, candidate_item_ids, match_type: "ambiguous"}]
+                  when 2+ owned items share the same normalized name.
+      unresolved: [{mention, match_type: "none"}] for a "my <phrase>" the
+                  user named that matches no owned item at all.
+    """
+    items = [i for i in (wardrobe or []) if isinstance(i, dict)]
+    norm_query = _normalize_name(query)
+
+    by_name: Dict[str, List[Dict[str, Any]]] = {}
+    for item in items:
+        name = str(item.get("name") or item.get("label") or "").strip()
+        norm_name = _normalize_name(name)
+        if not norm_name:
+            continue
+        by_name.setdefault(norm_name, []).append(item)
+
+    resolved: List[Dict[str, Any]] = []
+    ambiguous: List[Dict[str, Any]] = []
+    matched_norm_names: List[str] = []
+
+    for norm_name in sorted(by_name, key=len, reverse=True):
+        if f" {norm_name} " not in f" {norm_query} ":
+            continue
+        # A shorter name fully contained inside an already-claimed longer
+        # match ("top" inside an already-matched "red top") is not a second,
+        # independent mention.
+        if any(norm_name in claimed for claimed in matched_norm_names):
+            continue
+        matched_norm_names.append(norm_name)
+        candidates = by_name[norm_name]
+        mention = next(
+            (str(i.get("name") or "").strip() for i in candidates if i.get("name")),
+            norm_name,
+        )
+        if len(candidates) == 1:
+            item = candidates[0]
+            item_id = canonical_item_id(item)
+            if not item_id:
+                continue
+            resolved.append({
+                "mention": mention,
+                "item_id": item_id,
+                "role": canonical_item_role(item),
+                "source": canonical_item_source(item),
+                "match_type": "exact" if _normalize_name(mention) == norm_name else "normalized",
+            })
+        else:
+            candidate_ids = [cid for cid in (canonical_item_id(i) for i in candidates) if cid]
+            if not candidate_ids:
+                continue
+            ambiguous.append({
+                "mention": mention,
+                "candidate_item_ids": candidate_ids,
+                "match_type": "ambiguous",
+            })
+
+    unresolved: List[Dict[str, Any]] = []
+    consumed_norms = {_normalize_name(r["mention"]) for r in resolved}
+    consumed_norms |= {_normalize_name(a["mention"]) for a in ambiguous}
+    for phrase in _extract_my_phrases(query):
+        norm_phrase = _normalize_name(phrase)
+        if not norm_phrase or norm_phrase in consumed_norms:
+            continue
+        if any(norm_phrase in c or c in norm_phrase for c in consumed_norms):
+            continue
+        unresolved.append({"mention": phrase.strip(), "match_type": "none"})
+        consumed_norms.add(norm_phrase)
+
+    return {"resolved": resolved, "ambiguous": ambiguous, "unresolved": unresolved}

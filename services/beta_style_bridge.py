@@ -23,6 +23,7 @@ from services.style_item_contract import (
     canonical_item_role,
     canonical_item_source,
     normalize_style_item,
+    resolve_owned_item_mentions,
 )
 try:
     from brain.engines.outfit_quality_guard import reject_board_for_occasion
@@ -165,9 +166,24 @@ def _mentioned_roles(query: str) -> List[str]:
     return found
 
 
-def _resolve_item_references(query: str, state: Mapping[str, Any]) -> List[str]:
+def _resolve_item_references(
+    query: str, state: Mapping[str, Any], wardrobe: Optional[Iterable[Any]] = None
+) -> List[str]:
+    board_items = state.get("board_items") or []
+    if not board_items:
+        # First turn: no existing board to match against. Delegate to the
+        # canonical owned-item resolver against the complete wardrobe instead
+        # of returning nothing (which previously made "my Red Top" a no-op on
+        # turn one). Ambiguous/unresolved mentions are deliberately excluded
+        # here -- this function's contract is "confidently matched ids", and
+        # silently picking one of several same-named items would be exactly
+        # the silent-substitution bug this resolver exists to prevent.
+        if wardrobe:
+            resolution = resolve_owned_item_mentions(query, wardrobe)
+            return [hit["item_id"] for hit in resolution["resolved"] if hit.get("item_id")]
+        return []
     matched: List[str] = []
-    for item in state.get("board_items") or []:
+    for item in board_items:
         if not isinstance(item, Mapping):
             continue
         item_id = canonical_item_id(dict(item))

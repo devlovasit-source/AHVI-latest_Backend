@@ -35,6 +35,14 @@ from services.response_contract import (
 )
 from services.pre_classifier import classify_message as _pre_classify_message
 from services.semantic_intent_resolver import resolve_semantic_intent
+from services.style_item_contract import garment_words as _canonical_garment_words
+from services.style_item_contract import (
+    resolve_owned_item_mentions,
+    assert_fixed_items_preserved,
+    FixedItemLostError,
+    canonical_item_id as _canonical_item_id,
+    canonical_item_role as _canonical_item_role,
+)
 from services.style_conversation_context import (
     StyleConversationContext,
     resolve_style_conversation_context,
@@ -1264,31 +1272,24 @@ def _normalize_memory_history(events: Any, max_items: int = 12) -> List[Dict[str
     return normalized
 
 
+_WARDROBE_CONTAINER_WORDS = frozenset({"wardrobe", "closet", "outfit", "outfits"})
+
+# Intents from brain.intent_engine.detect_intent (module-independent -- not
+# gated on module_context) that mean the user is asking AHVI to actually
+# build/generate a look, as opposed to a query or advice request.
+# module_context is a hint for WHICH items to draw from once execution is
+# confirmed (see _is_wardrobe_ask below); it must never be the sole signal
+# that authorizes a board on its own.
+_BOARD_EXECUTION_INTENTS = frozenset({"wardrobe_style", "daily_outfit", "occasion_outfit"})
+
+
 def _is_fast_wardrobe_count_query(text: str) -> bool:
     lowered = str(text or "").lower()
     count_words = ["how many", "count", "number of", "total", "do i have"]
-    wardrobe_words = [
-        "wardrobe",
-        "closet",
-        "outfit",
-        "outfits",
-        "tops",
-        "top",
-        "shirts",
-        "shirt",
-        "pants",
-        "trousers",
-        "jeans",
-        "bottoms",
-        "shoes",
-        "footwear",
-        "dress",
-        "dresses",
-        "accessories",
-        "jewelry",
-        "bags",
-        "bag",
-    ]
+    # Canonical garment vocabulary (single source: services.style_item_contract)
+    # plus the small set of collective/container nouns that aren't garment
+    # types themselves but still name a wardrobe query ("how many outfits...").
+    wardrobe_words = _canonical_garment_words() | _WARDROBE_CONTAINER_WORDS
     return any(k in lowered for k in count_words) and any(
         k in lowered for k in wardrobe_words
     )
@@ -2933,6 +2934,108 @@ def _style_curation_brief(query_text: str, occasion: str) -> Dict[str, Any]:
         return {"occasion": occasion}
 
 
+def _ahvi_item_not_found_response(mentions: List[str], occasion: str, user_id: str, wardrobe_count: int) -> Dict[str, Any]:
+    names = ", ".join(f'"{m}"' for m in mentions)
+    logger.info(
+        "style.owned_item.not_found user_id=%s mentions=%s occasion=%s wardrobe_count=%s",
+        user_id, mentions, occasion, wardrobe_count,
+    )
+    return {
+        "success": False,
+        "reason": "item_not_found",
+        "message": (
+            f"I can't find {names} in your wardrobe. Add it first, or tell me "
+            "which item you actually own and I'll use that instead."
+        ),
+        "board": "style",
+        "type": "item_not_found",
+        "cards": [],
+        "style_boards": [],
+        "board_ids": "",
+        "data": {"outfits": [], "rendered_boards": [], "unresolved_mentions": mentions},
+        "meta": {
+            "mode": "owned_item_resolution", "intent": "style_pipeline_adapter",
+            "reason": "item_not_found", "occasion": occasion, "wardrobe_count": wardrobe_count,
+        },
+    }
+
+
+def _ahvi_item_ambiguous_response(ambiguous: List[Dict[str, Any]], occasion: str, user_id: str, wardrobe_count: int) -> Dict[str, Any]:
+    mention = ambiguous[0]["mention"] if ambiguous else "that item"
+    logger.info(
+        "style.owned_item.ambiguous user_id=%s mentions=%s occasion=%s wardrobe_count=%s",
+        user_id, [a.get("mention") for a in ambiguous], occasion, wardrobe_count,
+    )
+    return {
+        "success": False,
+        "reason": "item_ambiguous",
+        "message": (
+            f'You have more than one item named "{mention}". Which one did you mean? '
+            "Tell me a color, brand, or other detail to tell them apart."
+        ),
+        "board": "style",
+        "type": "item_ambiguous",
+        "cards": [],
+        "style_boards": [],
+        "board_ids": "",
+        "data": {"outfits": [], "rendered_boards": [], "ambiguous_mentions": ambiguous},
+        "meta": {
+            "mode": "owned_item_resolution", "intent": "style_pipeline_adapter",
+            "reason": "item_ambiguous", "occasion": occasion, "wardrobe_count": wardrobe_count,
+        },
+    }
+
+
+def _enforce_fixed_items_on_cards(
+    cards: List[Dict[str, Any]], fixed_items: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Explicitly-requested owned items must survive candidate ranking/curation.
+    Verifies each card via the same assert_fixed_items_preserved contract Style
+    This and board-shuffle already trust; repairs a card that dropped a fixed
+    item by swapping it back in for whatever occupies that item's role, and
+    drops a card only when no same-role slot exists to repair into. Never
+    invents a role the card doesn't already have."""
+    if not fixed_items:
+        return cards
+    fixed_by_id = {_canonical_item_id(f): f for f in fixed_items if _canonical_item_id(f)}
+    survivors: List[Dict[str, Any]] = []
+    for card in cards:
+        if not isinstance(card, dict):
+            continue
+        items = [i for i in (card.get("items") or []) if isinstance(i, dict)]
+        try:
+            assert_fixed_items_preserved(fixed_items, items, stage="chat_owned_item_anchor")
+            survivors.append(card)
+            continue
+        except FixedItemLostError as exc:
+            repaired = list(items)
+            ok = True
+            for missing_id in exc.missing_ids:
+                fixed = fixed_by_id.get(missing_id)
+                if fixed is None:
+                    ok = False
+                    break
+                role = _canonical_item_role(fixed)
+                slot_idx = next(
+                    (i for i, it in enumerate(repaired) if _canonical_item_role(it) == role),
+                    None,
+                )
+                if slot_idx is None:
+                    ok = False
+                    break
+                repaired[slot_idx] = dict(fixed)
+            if not ok:
+                continue
+            try:
+                assert_fixed_items_preserved(fixed_items, repaired, stage="chat_owned_item_anchor_repaired")
+            except FixedItemLostError:
+                continue
+            card = dict(card)
+            card["items"] = repaired
+            survivors.append(card)
+    return survivors
+
+
 def _demo_style_board_payload(
     user_id,
     query_text,
@@ -2971,6 +3074,35 @@ def _demo_style_board_payload(
         or carried_context.get("activity")
         or ""
     ).strip() or _ahvi_style_occasion(query_text)
+
+    # Explicitly-named owned items ("my Red Top") must resolve against the
+    # COMPLETE wardrobe before any candidate ranking runs, and become fixed
+    # anchors -- never silently dropped/substituted, never an arbitrary pick
+    # among same-named items. See services.style_item_contract.resolve_owned_item_mentions.
+    _owned_item_resolution = resolve_owned_item_mentions(query_text, wardrobe)
+    fixed_items: List[Dict[str, Any]] = []
+    _wardrobe_by_id = {_canonical_item_id(i): i for i in wardrobe if _canonical_item_id(i)}
+    for hit in _owned_item_resolution["resolved"]:
+        item = _wardrobe_by_id.get(hit.get("item_id"))
+        if item is not None:
+            fixed_items.append(item)
+    logger.info(
+        "style.owned_item.resolution user_id=%s resolved=%s ambiguous=%s unresolved=%s",
+        user_id,
+        len(_owned_item_resolution["resolved"]),
+        len(_owned_item_resolution["ambiguous"]),
+        len(_owned_item_resolution["unresolved"]),
+    )
+    if _owned_item_resolution["unresolved"]:
+        return _ahvi_item_not_found_response(
+            [u["mention"] for u in _owned_item_resolution["unresolved"]],
+            occasion, user_id, len(wardrobe),
+        )
+    if _owned_item_resolution["ambiguous"]:
+        return _ahvi_item_ambiguous_response(
+            _owned_item_resolution["ambiguous"], occasion, user_id, len(wardrobe),
+        )
+
     logger.info("style.intent.detected user_id=%s occasion=%s prompt=%r", user_id, occasion, query_text)
     if any(token in str(query_text or "").lower() for token in ("meeting", "client", "presentation", "interview")):
         logger.info("style.sub_intent.detected user_id=%s sub_intent=office_meeting prompt=%r", user_id, query_text)
@@ -3096,6 +3228,46 @@ def _demo_style_board_payload(
                 candidate_pool=wardrobe if isinstance(wardrobe, list) else None,
                 enforcement=_enforcement,
             )
+            _pre_fixed_item_count = len(curated)
+            curated = _enforce_fixed_items_on_cards(curated, fixed_items)
+            logger.info(
+                "style.fixed_items.enforced user_id=%s fixed_ids=%s candidates_before=%s candidates_after=%s",
+                user_id,
+                [_canonical_item_id(f) for f in fixed_items],
+                _pre_fixed_item_count,
+                len(curated),
+            )
+            if fixed_items and _pre_fixed_item_count and not curated:
+                # Curation produced valid boards, but none of them could honor
+                # every explicitly-requested owned item even after repair --
+                # this is a distinct failure from "missing roles" or "low
+                # occasion confidence" and must say so, not fall back to the
+                # generic weak-match message.
+                _fixed_names = [str(f.get("name") or "").strip() for f in fixed_items if f.get("name")]
+                logger.info(
+                    "style.fixed_items.lost user_id=%s fixed_names=%s occasion=%s",
+                    user_id, _fixed_names, occasion,
+                )
+                return {
+                    "success": False,
+                    "reason": "fixed_item_lost",
+                    "message": (
+                        "I couldn't build a look that keeps "
+                        + (", ".join(_fixed_names) or "the item you named")
+                        + " for this occasion. Try a different occasion or let me "
+                        + "suggest a close alternative."
+                    ),
+                    "board": "style",
+                    "type": "fixed_item_lost",
+                    "cards": [],
+                    "style_boards": [],
+                    "board_ids": "",
+                    "data": {"outfits": [], "rendered_boards": [], "fixed_item_ids": [_canonical_item_id(f) for f in fixed_items]},
+                    "meta": {
+                        "mode": "owned_item_resolution", "intent": "style_pipeline_adapter",
+                        "reason": "fixed_item_lost", "occasion": occasion, "wardrobe_count": len(wardrobe),
+                    },
+                }
             _requested = list(_enforcement.get("requested_roles") or [])
             if curated:
                 response["cards"] = curated
@@ -6411,10 +6583,14 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
             user_input,
             style_action,
         )
+    # module_context alone must never authorize a board (CORE PRINCIPLE: module
+    # is a hint, resolved intent is authority) -- early_intent is the
+    # module-independent classification already computed above (line ~6418),
+    # unaffected by which chat surface sent the request.
     visual_context = (
-        str(request.module_context or "").lower() in {"style", "wardrobe"}
-        or style_query
+        style_query
         or bool(style_action)
+        or early_intent in _BOARD_EXECUTION_INTENTS
     )
     cache_key = _cache_key(
         user_input,
@@ -6816,11 +6992,16 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
     # right now." The clarification helper itself already has a
     # precise short-prompt + broad-fashion-token + specificity check,
     # so just call it directly.
+    # module_context alone must never authorize a board -- see visual_context
+    # above. early_intent in _BOARD_EXECUTION_INTENTS is the module-independent
+    # positive execution signal; _needs_style_clarification is unrelated to
+    # authorization (it only ever leads to a clarification question, never
+    # straight to a board).
     style_intent_candidate = (
         style_mode == WARDROBE_STYLE
         or bool(style_action)
         or bool(closest_requested)
-        or (request.module_context or "").lower() in {"wardrobe"}
+        or early_intent in _BOARD_EXECUTION_INTENTS
         or _needs_style_clarification(english_input)
     )
 
@@ -6860,12 +7041,18 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
         ) and not _is_complete_outfit_cta(english_input)
         intent_status = "clarify" if needs_clarify else "generate"
         logger.info(
-            "style_intent user_id=%s intent_status=%s prompt=%s interpreted_occasion=%s visual_context=%s",
+            "style_intent user_id=%s module=%s resolved_intent=%s intent_status=%s "
+            "prompt=%s interpreted_occasion=%s visual_context=%s style_intent_candidate=%s "
+            "text_board_veto=%s",
             user_id,
+            request.module_context or "",
+            early_intent,
             intent_status,
             english_input,
             interpreted_occasion,
             bool(visual_context),
+            bool(style_intent_candidate),
+            bool(_text_board_veto),
         )
         if needs_clarify:
             logger.info(
@@ -6873,7 +7060,23 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
                 user_id, english_input, interpreted_occasion,
             )
             return _style_clarification_response(english_input, style_interpretation)
-        if (visual_context or interpreted_occasion) and not _text_board_veto:
+        _board_authorized_decision = bool(
+            (visual_context or interpreted_occasion) and not _text_board_veto
+        )
+        logger.info(
+            "style.board_authorization user_id=%s module=%s resolved_intent=%s "
+            "authorized=%s visual_context=%s interpreted_occasion=%s text_board_veto=%s "
+            "fallback_reason=%s",
+            user_id,
+            request.module_context or "",
+            early_intent,
+            _board_authorized_decision,
+            bool(visual_context),
+            bool(interpreted_occasion),
+            bool(_text_board_veto),
+            "" if _board_authorized_decision else "veto_or_no_positive_signal",
+        )
+        if _board_authorized_decision:
             logger.info(
                 "style.fast_board_route user_id=%s prompt=%r interpreted_occasion=%s",
                 user_id,

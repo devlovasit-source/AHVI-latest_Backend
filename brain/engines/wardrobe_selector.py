@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Optional
 from brain.engines.color_normalizer import color_normalizer
 from brain.engines.styling.palette_engine import palette_engine
 from services.wardrobe_suitability import is_style_eligible
+from services.style_item_contract import garment_role_map
 
 try:
     from brain.engines.memory_scorer import memory_scorer
@@ -33,98 +34,10 @@ class WardrobeSelector:
     # =========================
     # TYPE NORMALIZATION
     # =========================
-    TYPE_MAP = {
-        "tshirt": "top",
-        "t-shirt": "top",
-        "tshirts": "top",
-        "tee": "top",
-        "tees": "top",
-        "shirt": "top",
-        "shirts": "top",
-        "top": "top",
-        "tops": "top",
-        "polo": "top",
-        "polos": "top",
-        "kurta": "top",
-        "kurtas": "top",
-        "hoodie": "top",
-        "hoodies": "top",
-        "blouse": "top",
-        "sweater": "top",
-        "tank": "top",
-        "camisole": "top",
-
-        "bottom": "bottom",
-        "bottoms": "bottom",
-        "pant": "bottom",
-        "pants": "bottom",
-        "trouser": "bottom",
-        "trousers": "bottom",
-        "jean": "bottom",
-        "jeans": "bottom",
-        "shorts": "bottom",
-        "chino": "bottom",
-        "chinos": "bottom",
-        "skirt": "bottom",
-        "leggings": "bottom",
-        "joggers": "bottom",
-
-        "shoe": "footwear",
-        "shoes": "footwear",
-        "sneaker": "footwear",
-        "sneakers": "footwear",
-        "loafer": "footwear",
-        "loafers": "footwear",
-        "heel": "footwear",
-        "heels": "footwear",
-        "boot": "footwear",
-        "boots": "footwear",
-        "sandal": "footwear",
-        "sandals": "footwear",
-        "slipper": "footwear",
-        "slippers": "footwear",
-        "footwear": "footwear",
-
-        "dress": "dress",
-        "dresses": "dress",
-        "gown": "dress",
-        "saree": "dress",
-        "sari": "dress",
-        "jumpsuit": "dress",
-
-        "outerwear": "outerwear",
-        "jacket": "outerwear",
-        "jackets": "outerwear",
-        "coat": "outerwear",
-        "coats": "outerwear",
-        "blazer": "outerwear",
-        "blazers": "outerwear",
-        "cardigan": "outerwear",
-        "shrug": "outerwear",
-
-        "accessory": "accessory",
-        "accessories": "accessory",
-        "watch": "accessory",
-        "watches": "accessory",
-        "belt": "accessory",
-        "belts": "accessory",
-        "bag": "accessory",
-        "bags": "accessory",
-        "cap": "accessory",
-        "caps": "accessory",
-        "hat": "accessory",
-        "hats": "accessory",
-        "jewelry": "accessory",
-        "jewellery": "accessory",
-        "bracelet": "accessory",
-        "necklace": "accessory",
-        "ring": "accessory",
-        "rings": "accessory",
-        "earring": "accessory",
-        "earrings": "accessory",
-        "sunglasses": "accessory",
-        "eyewear": "accessory",
-    }
+    # Canonical garment-noun -> role vocabulary, single-sourced from
+    # services.style_item_contract so this doesn't drift from the same
+    # mapping used for wardrobe-query detection and intent classification.
+    TYPE_MAP = garment_role_map()
 
     @staticmethod
     def _cosine_similarity(a: List[float], b: List[float]) -> float:
