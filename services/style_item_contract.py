@@ -159,6 +159,32 @@ def garment_words() -> frozenset:
     return frozenset(_TYPE_MAP.keys())
 
 
+_TOKEN_RE = re.compile(r"[a-z0-9']+")
+_SEP_RE = re.compile(r"[-_]+")
+
+
+def has_garment_word(text: str, extra_words: Iterable[str] = ()) -> bool:
+    """Token-aware check: True if `text` mentions a canonical garment noun (or
+    one of `extra_words`, e.g. collective nouns like "wardrobe"/"outfit") as a
+    whole word or phrase. Never a bare substring match -- "ring" must not
+    match inside "spring", "cap" must not match inside "captions". Multi-word
+    vocabulary entries ("one_piece" / "one-piece" / "one piece") are all
+    normalized to space-separated phrases and checked space-bounded, since
+    single-token matching can't represent them."""
+    vocab = garment_words() | frozenset(str(w).lower() for w in extra_words)
+    norm_vocab = {_SEP_RE.sub(" ", w).strip() for w in vocab if w.strip()}
+    single = {w for w in norm_vocab if " " not in w}
+    phrases = [w for w in norm_vocab if " " in w]
+    raw = str(text or "").lower()
+    tokens = frozenset(_TOKEN_RE.findall(raw))
+    if tokens & single:
+        return True
+    if not phrases:
+        return False
+    padded = f" {_SEP_RE.sub(' ', raw)} "
+    return any(f" {phrase} " in padded for phrase in phrases)
+
+
 _EXPLICIT_FIELDS = (
     "role", "slot", "type", "category", "cat", "category_group",
     "sub_category", "subcategory", "subCategory", "garment_type",
@@ -466,8 +492,12 @@ def _normalize_name(text: str) -> str:
 # Only used to flag a NAMED item the wardrobe has no candidate for at all
 # (e.g. "my Purple Spacesuit") -- everything the user actually owns is found
 # by the wardrobe-anchored pass below regardless of "my" phrasing.
-_MY_ITEM_STOPWORDS = {"and", "with", "for", "to", "using", "wearing", "plus"}
-_MY_PHRASE_RE = re.compile(r"\bmy\s+([a-z0-9][a-z0-9 \-']{1,60})", re.IGNORECASE)
+# "and"/"&" are conjunctions, not stop words -- "my Red Top and Purple Skirt"
+# names TWO items distributively ("my Red Top" + "[my] Purple Skirt"), so they
+# split the phrase into separate mentions rather than truncating it.
+_MY_ITEM_STOPWORDS = {"with", "for", "to", "using", "wearing", "plus"}
+_MY_CONJUNCTION_RE = re.compile(r"\s*(?:,|&|\band\b)\s*", re.IGNORECASE)
+_MY_PHRASE_RE = re.compile(r"\bmy\s+([a-z0-9][a-z0-9 &\-']{1,80})", re.IGNORECASE)
 
 # "my body type" / "my skin tone" name a personal attribute, not a garment --
 # without this, an advice question would be misread as a request for an
@@ -485,15 +515,22 @@ _MY_PHRASE_NON_ITEM_PHRASES = {
 def _extract_my_phrases(query: str) -> List[str]:
     phrases: List[str] = []
     for m in _MY_PHRASE_RE.finditer(str(query or "")):
+        # Cut the captured tail at the first non-conjunction stop word so
+        # trailing context ("... for a Pooja") never folds into the item
+        # phrase, while leaving "and"/"&"/"," in place to split on next.
         current: List[str] = []
         for word in m.group(1).split():
-            bare = re.sub(r"[^a-z']", "", word.lower())
+            bare = re.sub(r"[^a-z&']", "", word.lower())
             if bare in _MY_ITEM_STOPWORDS:
                 break
             current.append(word)
-        phrase = " ".join(current).strip(" .,!?")
-        if phrase and _normalize_name(phrase) not in _MY_PHRASE_NON_ITEM_PHRASES:
-            phrases.append(phrase)
+        tail = " ".join(current).strip(" .,!?")
+        if not tail:
+            continue
+        for candidate in _MY_CONJUNCTION_RE.split(tail):
+            candidate = candidate.strip(" .,!?")
+            if candidate and _normalize_name(candidate) not in _MY_PHRASE_NON_ITEM_PHRASES:
+                phrases.append(candidate)
     return phrases
 
 
@@ -520,6 +557,10 @@ def resolve_owned_item_mentions(query: str, wardrobe: Iterable[Any]) -> Dict[str
     """
     items = [i for i in (wardrobe or []) if isinstance(i, dict)]
     norm_query = _normalize_name(query)
+    # Lightly-normalized (case-folded only, punctuation/spacing intact) query,
+    # used to tell "exact" from "normalized" matches by how the QUERY text
+    # itself matched -- not by comparing the stored name to itself.
+    soft_query = f" {str(query or '').lower()} "
 
     by_name: Dict[str, List[Dict[str, Any]]] = {}
     for item in items:
@@ -547,6 +588,12 @@ def resolve_owned_item_mentions(query: str, wardrobe: Iterable[Any]) -> Dict[str
             (str(i.get("name") or "").strip() for i in candidates if i.get("name")),
             norm_name,
         )
+        # Did the QUERY text itself contain this item's literal stored name
+        # (case aside), or did it only line up after the heavier alnum-only
+        # normalization (different punctuation/spacing/separators)? This
+        # reflects how the query matched -- comparing the stored name against
+        # itself would be a tautology (always true).
+        match_type = "exact" if f" {mention.lower()} " in soft_query else "normalized"
         if len(candidates) == 1:
             item = candidates[0]
             item_id = canonical_item_id(item)
@@ -557,10 +604,10 @@ def resolve_owned_item_mentions(query: str, wardrobe: Iterable[Any]) -> Dict[str
                 "item_id": item_id,
                 "role": canonical_item_role(item),
                 "source": canonical_item_source(item),
-                "match_type": "exact" if _normalize_name(mention) == norm_name else "normalized",
+                "match_type": match_type,
             })
         else:
-            candidate_ids = [cid for cid in (canonical_item_id(i) for i in candidates) if cid]
+            candidate_ids = sorted(cid for cid in (canonical_item_id(i) for i in candidates) if cid)
             if not candidate_ids:
                 continue
             ambiguous.append({

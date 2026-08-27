@@ -92,3 +92,65 @@ def test_items_missing_canonical_id_are_skipped_not_crashed_on():
     broken = {"name": "Ghost Item", "role": "top"}  # no id/item_id field
     result = resolve_owned_item_mentions("style me using my Ghost Item", [broken])
     assert result["resolved"] == []
+
+
+# ── Hardening: request-changes review round 2 ──────────────────────────────
+
+def test_mixed_owned_and_unowned_second_item_no_silent_bottom_substitution():
+    """"my Red Top and Purple Skirt" -- Red Top is owned, Purple Skirt is not.
+    Red Top must resolve; Purple Skirt must be explicitly unresolved, not
+    silently dropped or backfilled with some other owned bottom."""
+    result = resolve_owned_item_mentions(
+        "Style me using my Red Top and Purple Skirt", WARDROBE
+    )
+    resolved_ids = {r["item_id"] for r in result["resolved"]}
+    assert resolved_ids == {"red-top"}
+    assert result["ambiguous"] == []
+    assert len(result["unresolved"]) == 1
+    assert result["unresolved"][0]["mention"].lower() == "purple skirt"
+    # Nothing from the wardrobe (e.g. Leopard Print Skirt / Blue Jeans) was
+    # silently pulled in to stand in for the unresolved "Purple Skirt".
+    assert "leopard-print-skirt" not in resolved_ids
+    assert "blue-jeans" not in resolved_ids
+
+
+def test_ampersand_conjunction_supported():
+    result = resolve_owned_item_mentions(
+        "Style me using my Red Top & Leopard Print Skirt", WARDROBE
+    )
+    ids = {r["item_id"] for r in result["resolved"]}
+    assert ids == {"red-top", "leopard-print-skirt"}
+    assert result["unresolved"] == []
+
+
+def test_ampersand_conjunction_with_one_unowned_item():
+    result = resolve_owned_item_mentions(
+        "Style me using my Red Top & Purple Skirt", WARDROBE
+    )
+    resolved_ids = {r["item_id"] for r in result["resolved"]}
+    assert resolved_ids == {"red-top"}
+    assert len(result["unresolved"]) == 1
+    assert result["unresolved"][0]["mention"].lower() == "purple skirt"
+
+
+def test_ambiguous_candidate_ids_are_sorted_deterministic():
+    # item_ids intentionally out of sort order in wardrobe list.
+    wardrobe = [
+        _it("Black Shirt", "top", item_id="zzz-shirt"),
+        _it("Black Shirt", "top", item_id="aaa-shirt"),
+    ]
+    result = resolve_owned_item_mentions("Create an outfit using my Black Shirt", wardrobe)
+    assert result["ambiguous"][0]["candidate_item_ids"] == ["aaa-shirt", "zzz-shirt"]
+
+
+def test_match_type_exact_reflects_literal_query_text_not_stored_name_tautology():
+    result = resolve_owned_item_mentions("Create an outfit using my Red Top", WARDROBE)
+    assert result["resolved"][0]["match_type"] == "exact"
+
+
+def test_match_type_normalized_when_query_text_differs_from_stored_name():
+    # Stored name is "Red Top"; query uses different punctuation/casing/
+    # spacing, so it can only match after normalization, not literally.
+    result = resolve_owned_item_mentions("style me with my RED--TOP please", WARDROBE)
+    hit = next(r for r in result["resolved"] if r["item_id"] == "red-top")
+    assert hit["match_type"] == "normalized"

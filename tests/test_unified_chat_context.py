@@ -72,6 +72,9 @@ def _it(name: str, role: str, source: str = "wardrobe") -> Dict[str, Any]:
         "role": role,
         "source": source,
         "image_url": f"https://x/{iid}.png",
+        # Board-safety candidate ConstrainedOutfitBuilder requires for a
+        # fixed/locked item (services.style_board_image_readiness).
+        "masked_url": f"https://x/{iid}-masked.png",
     }
 
 
@@ -240,6 +243,54 @@ def test_style_me_for_a_pooja_is_board_authorized(monkeypatch, module_context):
     assert _entered_board_pipeline(body), f"module_context={module_context} body={body}"
 
 
+# ── Positive-execution-only authorization: semantic resolver fail-open ─────
+#
+# request-changes review round 2, item 2: interpreted_occasion must never
+# authorize a board by itself, even if the semantic veto is unavailable
+# (resolve_semantic_intent returns None -- provider failure, timeout, etc).
+# visual_context is the sole authority; occasion only supplies context AFTER
+# execution is already authorized.
+
+@pytest.mark.parametrize("module_context", ["wardrobe", "style"])
+def test_pooja_advice_stays_no_board_when_semantic_intent_unavailable(monkeypatch, module_context):
+    monkeypatch.setattr(chat, "AppwriteProxy", _FakeAppwriteProxy)
+    monkeypatch.setattr(chat, "resolve_semantic_intent", lambda *a, **k: None)
+    client = _client()
+
+    r = _post_text(
+        client,
+        module_context=module_context,
+        message="What kind of outfit is appropriate to wear to a Pooja?",
+        wardrobe=_ROUTING_TEST_WARDROBE,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert not _entered_board_pipeline(body), (
+        f"occasion alone authorized a board under semantic-resolver failure: "
+        f"module_context={module_context} body={body}"
+    )
+
+
+@pytest.mark.parametrize("module_context", ["wardrobe", "style"])
+def test_pooja_execution_still_authorized_when_semantic_intent_unavailable(monkeypatch, module_context):
+    monkeypatch.setattr(chat, "AppwriteProxy", _FakeAppwriteProxy)
+    monkeypatch.setattr(chat, "resolve_semantic_intent", lambda *a, **k: None)
+    client = _client()
+
+    r = _post_text(
+        client,
+        module_context=module_context,
+        message="Style me for a Pooja",
+        wardrobe=_ROUTING_TEST_WARDROBE,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert _entered_board_pipeline(body), (
+        f"a genuine execution request was blocked by semantic-resolver failure: "
+        f"module_context={module_context} body={body}"
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────
 # OWNED ITEM EXECUTION / NO-MATCH / AMBIGUOUS
 #
@@ -310,6 +361,20 @@ def test_style_me_using_red_top_and_leopard_skirt_preserves_both(monkeypatch):
     )
 
 
+def test_invalid_final_outfit_around_fixed_item_is_rejected_not_returned(monkeypatch):
+    """request-changes review round 2, item 1: if the outfit constructed
+    around a fixed anchor would be occasion/safety-invalid, it must be
+    rejected outright -- never silently returned as a valid board."""
+    monkeypatch.setattr(chat, "reject_board_for_occasion", lambda card, occasion: (True, "test_forced_rejection"))
+    result = chat._ahvi_construct_board_around_fixed_items(
+        [RED_TOP], _OWNED_ITEM_WARDROBE, "daily", "Create an outfit using my Red Top", "user-1",
+    )
+    assert result["success"] is False
+    assert result["cards"] == []
+    assert result["reason"] == "occasion_incompatible"
+    assert "red-top" not in _card_item_ids(result)
+
+
 def test_no_match_owned_item_is_explicit_not_silent_substitution(monkeypatch):
     monkeypatch.setattr(chat, "AppwriteProxy", _FakeAppwriteProxy)
     client = _client()
@@ -333,6 +398,44 @@ def test_no_match_owned_item_is_explicit_not_silent_substitution(monkeypatch):
         f"expected an explicit not-found response for an item the user does not own; "
         f"got message={body.get('message')!r} ids={ids}"
     )
+
+
+def test_mixed_owned_and_unowned_multi_item_no_silent_bottom_substitution(monkeypatch):
+    """"my Red Top and Purple Skirt" -- Red Top is owned, Purple Skirt is not.
+    Must not silently swap in Leopard Print Skirt / Blue Jeans for the unowned
+    "Purple Skirt" and ship a board as if the request had been satisfied."""
+    monkeypatch.setattr(chat, "AppwriteProxy", _FakeAppwriteProxy)
+    client = _client()
+
+    r = _post_text(
+        client,
+        module_context="wardrobe",
+        message="Style me using my Red Top and Purple Skirt",
+        wardrobe=_OWNED_ITEM_WARDROBE,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    ids = _card_item_ids(body)
+    assert "leopard-print-skirt" not in ids
+    assert "blue-jeans" not in ids
+    msg = str(body.get("message") or "").lower()
+    assert "purple skirt" in msg
+    assert not ids or ids == {"red-top"}, f"unexpected silent substitution: ids={ids} body={body}"
+
+
+def test_ampersand_conjunction_resolves_both_named_items(monkeypatch):
+    monkeypatch.setattr(chat, "AppwriteProxy", _FakeAppwriteProxy)
+    client = _client()
+
+    r = _post_text(
+        client,
+        module_context="style",
+        message="Style me using my Red Top & Leopard Print Skirt",
+        wardrobe=_OWNED_ITEM_WARDROBE,
+    )
+    assert r.status_code == 200
+    ids = _card_item_ids(r.json())
+    assert RED_TOP["item_id"] in ids and LEOPARD_SKIRT["item_id"] in ids
 
 
 def test_ambiguous_owned_item_name_asks_for_clarification(monkeypatch):

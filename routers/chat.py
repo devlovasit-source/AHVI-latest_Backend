@@ -35,7 +35,7 @@ from services.response_contract import (
 )
 from services.pre_classifier import classify_message as _pre_classify_message
 from services.semantic_intent_resolver import resolve_semantic_intent
-from services.style_item_contract import garment_words as _canonical_garment_words
+from services.style_item_contract import has_garment_word as _has_garment_word
 from services.style_item_contract import (
     resolve_owned_item_mentions,
     assert_fixed_items_preserved,
@@ -43,6 +43,12 @@ from services.style_item_contract import (
     canonical_item_id as _canonical_item_id,
     canonical_item_role as _canonical_item_role,
 )
+from services.constrained_outfit_builder import (
+    ConstrainedOutfitBuilder,
+    ConstrainedOutfitError,
+    replaceable_slots_for_fixed_items,
+)
+from brain.engines.outfit_quality_guard import reject_board_for_occasion
 from services.style_conversation_context import (
     StyleConversationContext,
     resolve_style_conversation_context,
@@ -1286,12 +1292,10 @@ _BOARD_EXECUTION_INTENTS = frozenset({"wardrobe_style", "daily_outfit", "occasio
 def _is_fast_wardrobe_count_query(text: str) -> bool:
     lowered = str(text or "").lower()
     count_words = ["how many", "count", "number of", "total", "do i have"]
-    # Canonical garment vocabulary (single source: services.style_item_contract)
-    # plus the small set of collective/container nouns that aren't garment
-    # types themselves but still name a wardrobe query ("how many outfits...").
-    wardrobe_words = _canonical_garment_words() | _WARDROBE_CONTAINER_WORDS
-    return any(k in lowered for k in count_words) and any(
-        k in lowered for k in wardrobe_words
+    # Canonical garment vocabulary (single source: services.style_item_contract),
+    # token-aware so "spring events"/"captions" never false-match "ring"/"cap".
+    return any(k in lowered for k in count_words) and _has_garment_word(
+        text, extra_words=_WARDROBE_CONTAINER_WORDS
     )
 
 
@@ -2986,54 +2990,125 @@ def _ahvi_item_ambiguous_response(ambiguous: List[Dict[str, Any]], occasion: str
     }
 
 
-def _enforce_fixed_items_on_cards(
-    cards: List[Dict[str, Any]], fixed_items: List[Dict[str, Any]]
-) -> List[Dict[str, Any]]:
-    """Explicitly-requested owned items must survive candidate ranking/curation.
-    Verifies each card via the same assert_fixed_items_preserved contract Style
-    This and board-shuffle already trust; repairs a card that dropped a fixed
-    item by swapping it back in for whatever occupies that item's role, and
-    drops a card only when no same-role slot exists to repair into. Never
-    invents a role the card doesn't already have."""
-    if not fixed_items:
-        return cards
-    fixed_by_id = {_canonical_item_id(f): f for f in fixed_items if _canonical_item_id(f)}
-    survivors: List[Dict[str, Any]] = []
-    for card in cards:
-        if not isinstance(card, dict):
-            continue
-        items = [i for i in (card.get("items") or []) if isinstance(i, dict)]
-        try:
-            assert_fixed_items_preserved(fixed_items, items, stage="chat_owned_item_anchor")
-            survivors.append(card)
-            continue
-        except FixedItemLostError as exc:
-            repaired = list(items)
-            ok = True
-            for missing_id in exc.missing_ids:
-                fixed = fixed_by_id.get(missing_id)
-                if fixed is None:
-                    ok = False
-                    break
-                role = _canonical_item_role(fixed)
-                slot_idx = next(
-                    (i for i, it in enumerate(repaired) if _canonical_item_role(it) == role),
-                    None,
-                )
-                if slot_idx is None:
-                    ok = False
-                    break
-                repaired[slot_idx] = dict(fixed)
-            if not ok:
-                continue
-            try:
-                assert_fixed_items_preserved(fixed_items, repaired, stage="chat_owned_item_anchor_repaired")
-            except FixedItemLostError:
-                continue
-            card = dict(card)
-            card["items"] = repaired
-            survivors.append(card)
-    return survivors
+def _ahvi_fixed_item_failure_response(
+    reason: str, message: str, occasion: str, user_id: str, wardrobe_count: int,
+    fixed_items: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    logger.info(
+        "style.fixed_items.construction_failed user_id=%s reason=%s fixed_ids=%s occasion=%s",
+        user_id, reason, [_canonical_item_id(f) for f in fixed_items], occasion,
+    )
+    return {
+        "success": False,
+        "reason": reason,
+        "message": message,
+        "board": "style",
+        "type": reason,
+        "cards": [],
+        "style_boards": [],
+        "board_ids": "",
+        "data": {
+            "outfits": [], "rendered_boards": [],
+            "fixed_item_ids": [_canonical_item_id(f) for f in fixed_items],
+        },
+        "meta": {
+            "mode": "owned_item_resolution", "intent": "style_pipeline_adapter",
+            "reason": reason, "occasion": occasion, "wardrobe_count": wardrobe_count,
+        },
+    }
+
+
+def _ahvi_construct_board_around_fixed_items(
+    fixed_items: List[Dict[str, Any]],
+    wardrobe: List[Dict[str, Any]],
+    occasion: str,
+    query_text: str,
+    user_id: str,
+) -> Dict[str, Any]:
+    """Build an outfit AROUND explicitly-requested owned items, instead of
+    generating candidates first and swapping items in afterward. Reuses the
+    same ConstrainedOutfitBuilder Style This and board-shuffle already trust
+    (never a second outfit engine): fixed items are validated and become
+    immutable anchors BEFORE any supporting-role selection happens, so a
+    same-role generic candidate can never outrank/replace one. The full
+    occasion guard and assert_fixed_items_preserved still run on the FINAL
+    constructed set before anything is returned -- construction narrows the
+    search space, it does not replace validation.
+    """
+    fixed_ids_log = [_canonical_item_id(f) for f in fixed_items]
+    try:
+        replaceable = replaceable_slots_for_fixed_items(fixed_items)
+    except ConstrainedOutfitError as exc:
+        return _ahvi_fixed_item_failure_response(
+            "fixed_items_incompatible", exc.message, occasion, user_id, len(wardrobe), fixed_items,
+        )
+
+    result = ConstrainedOutfitBuilder().generate(
+        scenario="build_outfit",
+        fixed_items=fixed_items,
+        replaceable_slots=replaceable,
+        source_policy={"allowed_completion_sources": ["wardrobe", "style_asset"]},
+        wardrobe=wardrobe,
+        context={"occasion": occasion},
+    )
+    logger.info(
+        "style.fixed_items.constructed user_id=%s fixed_ids=%s success=%s occasion=%s",
+        user_id, fixed_ids_log, bool(result.get("success")), occasion,
+    )
+    if not result.get("success"):
+        error = result.get("error") if isinstance(result.get("error"), dict) else {}
+        return _ahvi_fixed_item_failure_response(
+            str(error.get("code") or "fixed_item_lost").lower(),
+            str(error.get("message") or "I couldn't build a look that keeps the item(s) you named."),
+            occasion, user_id, len(wardrobe), fixed_items,
+        )
+
+    constructed_items = [i for i in (result.get("items") or []) if isinstance(i, dict)]
+    card = {"id": "outfit_card_1", "title": "Styled for You", "items": constructed_items, "occasion": occasion}
+
+    # Whole-outfit occasion/safety guard runs on the FINAL constructed set --
+    # a fixed item surviving construction does not exempt the board from the
+    # same occasion-appropriateness check any other board must pass.
+    rejected, reject_reason = reject_board_for_occasion(card, occasion)
+    if rejected:
+        return _ahvi_fixed_item_failure_response(
+            "occasion_incompatible",
+            "I couldn't build a look with the item(s) you named that's appropriate for this occasion "
+            f"({reject_reason}).",
+            occasion, user_id, len(wardrobe), fixed_items,
+        )
+
+    # Final invariant check -- construction guarantees this, but re-verify
+    # explicitly rather than trusting it implicitly (defense in depth, same
+    # contract Style This/shuffle enforce at their own final step).
+    try:
+        assert_fixed_items_preserved(fixed_items, constructed_items, stage="chat_constrained_build_final")
+    except FixedItemLostError as exc:
+        return _ahvi_fixed_item_failure_response(
+            "fixed_item_lost",
+            "I couldn't keep " + ", ".join(exc.missing_ids) + " in the final look. "
+            "Try a different occasion or let me suggest a close alternative.",
+            occasion, user_id, len(wardrobe), fixed_items,
+        )
+
+    response = {
+        "success": True,
+        "type": "cards",
+        "message": "I pulled together a look using the item(s) you asked for.",
+        "cards": [card],
+        "style_boards": [card],
+        "board_ids": "",
+        "data": {"outfits": [card], "rendered_boards": [card]},
+        "meta": {
+            "mode": "constrained_outfit_builder", "intent": "style_pipeline_adapter",
+            "occasion": occasion, "wardrobe_count": len(wardrobe),
+            "fixed_item_ids": fixed_ids_log,
+        },
+    }
+    _stamp_response_contract(
+        response, occasion=occasion, source_policy=_canonical_source_policy(query_text) or "wardrobe",
+    )
+    return response
 
 
 def _demo_style_board_payload(
@@ -3101,6 +3176,17 @@ def _demo_style_board_payload(
     if _owned_item_resolution["ambiguous"]:
         return _ahvi_item_ambiguous_response(
             _owned_item_resolution["ambiguous"], occasion, user_id, len(wardrobe),
+        )
+
+    if fixed_items:
+        # Named owned items construct the outfit AROUND themselves (via the
+        # same ConstrainedOutfitBuilder Style This/shuffle already trust)
+        # instead of generating candidates first and swapping items in after
+        # the fact -- see _ahvi_construct_board_around_fixed_items. This
+        # replaces the rest of this function's generic candidate pipeline
+        # entirely for a fixed-item request.
+        return _ahvi_construct_board_around_fixed_items(
+            fixed_items, wardrobe, occasion, query_text, user_id,
         )
 
     logger.info("style.intent.detected user_id=%s occasion=%s prompt=%r", user_id, occasion, query_text)
@@ -3228,46 +3314,9 @@ def _demo_style_board_payload(
                 candidate_pool=wardrobe if isinstance(wardrobe, list) else None,
                 enforcement=_enforcement,
             )
-            _pre_fixed_item_count = len(curated)
-            curated = _enforce_fixed_items_on_cards(curated, fixed_items)
-            logger.info(
-                "style.fixed_items.enforced user_id=%s fixed_ids=%s candidates_before=%s candidates_after=%s",
-                user_id,
-                [_canonical_item_id(f) for f in fixed_items],
-                _pre_fixed_item_count,
-                len(curated),
-            )
-            if fixed_items and _pre_fixed_item_count and not curated:
-                # Curation produced valid boards, but none of them could honor
-                # every explicitly-requested owned item even after repair --
-                # this is a distinct failure from "missing roles" or "low
-                # occasion confidence" and must say so, not fall back to the
-                # generic weak-match message.
-                _fixed_names = [str(f.get("name") or "").strip() for f in fixed_items if f.get("name")]
-                logger.info(
-                    "style.fixed_items.lost user_id=%s fixed_names=%s occasion=%s",
-                    user_id, _fixed_names, occasion,
-                )
-                return {
-                    "success": False,
-                    "reason": "fixed_item_lost",
-                    "message": (
-                        "I couldn't build a look that keeps "
-                        + (", ".join(_fixed_names) or "the item you named")
-                        + " for this occasion. Try a different occasion or let me "
-                        + "suggest a close alternative."
-                    ),
-                    "board": "style",
-                    "type": "fixed_item_lost",
-                    "cards": [],
-                    "style_boards": [],
-                    "board_ids": "",
-                    "data": {"outfits": [], "rendered_boards": [], "fixed_item_ids": [_canonical_item_id(f) for f in fixed_items]},
-                    "meta": {
-                        "mode": "owned_item_resolution", "intent": "style_pipeline_adapter",
-                        "reason": "fixed_item_lost", "occasion": occasion, "wardrobe_count": len(wardrobe),
-                    },
-                }
+            # fixed_items is always empty here -- a fixed-item request returns
+            # early via _ahvi_construct_board_around_fixed_items above, before
+            # this generic candidate-ranking/curation path ever runs.
             _requested = list(_enforcement.get("requested_roles") or [])
             if curated:
                 response["cards"] = curated
@@ -5869,7 +5918,9 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
 
     _text_board_veto = _blocks_new_style_board(_text_semantic)
     _text_beta_state = normalize_style_state(request.style_state)
-    _text_beta_instructions = interpret_style_followup(user_input, _text_beta_state)
+    _text_beta_instructions = interpret_style_followup(
+        user_input, _text_beta_state, wardrobe=request.wardrobe
+    )
     _text_beta_owns_board_flow = bool(_text_beta_state.get("board_items")) and str(
         _text_beta_instructions.get("action") or ""
     ).strip().lower() in {
@@ -7060,9 +7111,13 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
                 user_id, english_input, interpreted_occasion,
             )
             return _style_clarification_response(english_input, style_interpretation)
-        _board_authorized_decision = bool(
-            (visual_context or interpreted_occasion) and not _text_board_veto
-        )
+        # interpreted_occasion supplies occasion CONTEXT once execution is
+        # already authorized -- it must never authorize a board by itself.
+        # Merely mentioning an occasion ("Pooja") is not a positive execution
+        # signal, and this must hold even if the semantic veto fails open
+        # (_text_semantic unavailable/provider failure -> _text_board_veto
+        # stays False): visual_context alone is the authority.
+        _board_authorized_decision = bool(visual_context and not _text_board_veto)
         logger.info(
             "style.board_authorization user_id=%s module=%s resolved_intent=%s "
             "authorized=%s visual_context=%s interpreted_occasion=%s text_board_veto=%s "

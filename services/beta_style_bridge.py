@@ -228,13 +228,22 @@ _INSPIRATION_PHRASES = (
 )
 
 
-def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str, Any]:
-    """Extend existing deterministic routing with additive Style instructions."""
+def interpret_style_followup(
+    message: str, style_state: Any = None, wardrobe: Optional[Iterable[Any]] = None
+) -> Dict[str, Any]:
+    """Extend existing deterministic routing with additive Style instructions.
+
+    `wardrobe` is optional and only consulted on a first turn (no
+    style_state.board_items yet) -- see _resolve_item_references. Callers on
+    the first-turn Style Chat path should pass the caller's already-fetched
+    wardrobe so a named owned item ("keep my Red Top") resolves even before
+    any board exists.
+    """
     query = _text(message).lower()
     state = normalize_style_state(style_state)
     has_state = bool(state["board_items"])
     roles = _mentioned_roles(query)
-    referenced_ids = _resolve_item_references(query, state)
+    referenced_ids = _resolve_item_references(query, state, wardrobe=wardrobe)
     exclusions: List[str] = []
     exclusion_query = re.sub(r"\s+n\s+", " and ", query)
     for match in re.finditer(
@@ -304,9 +313,9 @@ def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str,
     # the keep clause; change-targets from the change clause.
     keep_seg, change_seg = _split_keep_change(query)
     keep_roles = _mentioned_roles(keep_seg)
-    keep_ref_ids = _resolve_item_references(keep_seg, state)
+    keep_ref_ids = _resolve_item_references(keep_seg, state, wardrobe=wardrobe)
     change_roles = _mentioned_roles(change_seg)
-    change_ref_ids = _resolve_item_references(change_seg, state)
+    change_ref_ids = _resolve_item_references(change_seg, state, wardrobe=wardrobe)
     if "keep everything except" in query:
         replace_roles = change_roles
         replace_ids = change_ref_ids
@@ -355,9 +364,16 @@ def interpret_style_followup(message: str, style_state: Any = None) -> Dict[str,
             ),
         ]))
 
-    state_ids = {item["item_id"] for item in state["board_items"]}
-    preserve_ids = [item_id for item_id in preserve_ids if item_id in state_ids]
-    replace_ids = [item_id for item_id in replace_ids if item_id in state_ids]
+    # A mutation (has_state=True) can only preserve/replace items that are
+    # actually ON the current board -- restrict to state_ids as before. On a
+    # first turn (has_state=False) there IS no board to restrict against;
+    # preserve_ids/replace_ids at that point come only from
+    # _resolve_item_references' wardrobe-based resolution (already scoped to
+    # real owned items with valid canonical ids), so nothing to filter here.
+    if has_state:
+        state_ids = {item["item_id"] for item in state["board_items"]}
+        preserve_ids = [item_id for item_id in preserve_ids if item_id in state_ids]
+        replace_ids = [item_id for item_id in replace_ids if item_id in state_ids]
     source_mode = state["source_mode"]
     if wardrobe_only_req and not inspiration_req:
         source_mode = "wardrobe_only"

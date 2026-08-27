@@ -45,3 +45,34 @@ def test_single_source_of_truth_no_duplicate_authoring():
     # chat.py's fast-path check must recognize every canonical garment noun.
     for word in canonical:
         assert chat._is_fast_wardrobe_count_query(f"how many {word} do I have")
+
+
+# ── Token-aware matching: no substring collisions ──────────────────────────
+
+def test_spring_events_does_not_match_ring():
+    assert not chat._is_fast_wardrobe_count_query("how many spring events do I have?")
+    result = intent_engine._fallback_intent("how many spring events do I have?")
+    assert result["intent"] != "wardrobe_query", result
+
+
+def test_captions_does_not_match_cap():
+    assert not chat._is_fast_wardrobe_count_query("how many captions are there?")
+    result = intent_engine._fallback_intent("how many captions are there?")
+    assert result["intent"] != "wardrobe_query", result
+
+
+@pytest.mark.parametrize("term", ["jacket", "cap", "ring", "bag", "top"])
+def test_representative_positive_wardrobe_nouns_still_match(term):
+    assert chat._is_fast_wardrobe_count_query(f"how many {term} do I own?")
+    result = intent_engine._fallback_intent(f"how many {term} do I own?")
+    assert result["intent"] == "wardrobe_query", (term, result)
+
+
+@pytest.mark.parametrize(
+    "variant",
+    ["one_piece", "one-piece", "one piece"],
+)
+def test_multiword_vocabulary_variants_all_match_regardless_of_separator(variant):
+    from services.style_item_contract import has_garment_word
+
+    assert has_garment_word(f"how many {variant} do I have")
