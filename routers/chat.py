@@ -48,7 +48,7 @@ from services.constrained_outfit_builder import (
     ConstrainedOutfitError,
     replaceable_slots_for_fixed_items,
 )
-from brain.engines.outfit_quality_guard import reject_board_for_occasion
+from brain.engines.outfit_quality_guard import reject_board_for_occasion, missing_required_slots
 from services.style_conversation_context import (
     StyleConversationContext,
     resolve_style_conversation_context,
@@ -3064,6 +3064,24 @@ def _ahvi_construct_board_around_fixed_items(
         )
 
     constructed_items = [i for i in (result.get("items") or []) if isinstance(i, dict)]
+
+    # The canonical completeness contract Style This relies on (reused
+    # directly here rather than switching this call's scenario to
+    # "style_this" -- scenario only affects source-policy defaults, which
+    # this call already overrides explicitly, and an early-exit specific to
+    # an empty style-asset pool that would misreport a plain wardrobe
+    # shortfall). A fixed anchor with no fillable supporting slots must
+    # never ship as a "complete" partial board.
+    missing_slots = missing_required_slots(constructed_items)
+    if missing_slots:
+        return _ahvi_fixed_item_failure_response(
+            "insufficient_wardrobe",
+            "I found the item(s) you named, but there aren't enough other pieces in "
+            "your wardrobe to complete a look around them (missing: "
+            f"{', '.join(missing_slots)}).",
+            occasion, user_id, len(wardrobe), fixed_items,
+        )
+
     card = {"id": "outfit_card_1", "title": "Styled for You", "items": constructed_items, "occasion": occasion}
 
     # Whole-outfit occasion/safety guard runs on the FINAL constructed set --

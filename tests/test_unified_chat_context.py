@@ -361,6 +361,96 @@ def test_style_me_using_red_top_and_leopard_skirt_preserves_both(monkeypatch):
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# FIXED-ANCHOR COMPLETENESS
+#
+# P1 follow-up: a fixed anchor with no fillable supporting slots must never
+# ship as a "complete" partial board (e.g. a lone top with no bottom/
+# footwear). See routers/chat.py:_ahvi_construct_board_around_fixed_items.
+# ─────────────────────────────────────────────────────────────────────────
+
+WHITE_SNEAKERS = _it("White Sneakers", "footwear")
+BLACK_TROUSERS = _it("Black Trousers", "bottom")
+
+_RED_TOP_ONLY_WARDROBE = [RED_TOP]
+_RED_TOP_COMPLETE_WARDROBE = [RED_TOP, BLACK_TROUSERS, WHITE_SNEAKERS]
+_TWO_ANCHOR_COMPLETE_WARDROBE = [RED_TOP, LEOPARD_SKIRT, WHITE_SNEAKERS]
+
+
+def test_fixed_anchor_with_no_supporting_items_is_rejected_not_partial_board(monkeypatch):
+    monkeypatch.setattr(chat, "AppwriteProxy", _FakeAppwriteProxy)
+    client = _client()
+
+    r = _post_text(
+        client,
+        module_context="wardrobe",
+        message="Create an outfit using my Red Top",
+        wardrobe=_RED_TOP_ONLY_WARDROBE,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("success") is not True, (
+        f"a lone fixed anchor with no eligible bottom/footwear was returned as a "
+        f"successful board. body={body}"
+    )
+    assert not body.get("cards"), f"expected no cards for an incomplete outfit. body={body}"
+    # The fixed anchor must still be acknowledged (found), not silently dropped.
+    fixed_ids = (body.get("data") or {}).get("fixed_item_ids") or []
+    assert RED_TOP["item_id"] in fixed_ids, (
+        f"Red Top should be reported as the honored-but-insufficient anchor. body={body}"
+    )
+
+
+def test_fixed_anchor_with_full_supporting_wardrobe_returns_complete_board(monkeypatch):
+    monkeypatch.setattr(chat, "AppwriteProxy", _FakeAppwriteProxy)
+    client = _client()
+
+    r = _post_text(
+        client,
+        module_context="wardrobe",
+        message="Create an outfit using my Red Top",
+        wardrobe=_RED_TOP_COMPLETE_WARDROBE,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    ids = _card_item_ids(body)
+    roles = {
+        item.get("role")
+        for card in body.get("cards") or []
+        for item in card.get("items") or []
+        if isinstance(item, dict)
+    }
+    assert RED_TOP["item_id"] in ids, f"Red Top was not preserved. body={body}"
+    assert "bottom" in roles and "footwear" in roles, (
+        f"expected a complete outfit (top+bottom+footwear). roles={roles} body={body}"
+    )
+
+
+def test_two_fixed_anchors_with_full_supporting_wardrobe_returns_complete_board(monkeypatch):
+    monkeypatch.setattr(chat, "AppwriteProxy", _FakeAppwriteProxy)
+    client = _client()
+
+    r = _post_text(
+        client,
+        module_context="style",
+        message="Style me using my Red Top and Leopard Print Skirt",
+        wardrobe=_TWO_ANCHOR_COMPLETE_WARDROBE,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    ids = _card_item_ids(body)
+    roles = {
+        item.get("role")
+        for card in body.get("cards") or []
+        for item in card.get("items") or []
+        if isinstance(item, dict)
+    }
+    assert RED_TOP["item_id"] in ids and LEOPARD_SKIRT["item_id"] in ids, (
+        f"both fixed anchors must be preserved. ids={ids} body={body}"
+    )
+    assert "footwear" in roles, f"expected footwear to complete the look. roles={roles} body={body}"
+
+
 def test_invalid_final_outfit_around_fixed_item_is_rejected_not_returned(monkeypatch):
     """request-changes review round 2, item 1: if the outfit constructed
     around a fixed anchor would be occasion/safety-invalid, it must be
