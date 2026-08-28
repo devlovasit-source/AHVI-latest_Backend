@@ -1,15 +1,10 @@
 from __future__ import annotations
 
 import re
-import logging
 from typing import Any, Dict, List
 
 from brain.engines.fitness.workout_outfit_pairer import pair_workout_outfit
 from services.workout_reminder_service import build_workout_reminders
-from brain.engines.fitness.fitness_engine import fitness_engine
-from brain.engines.fitness.workout_ranker import workout_ranker
-
-logger = logging.getLogger("ahvi.services.workout_card_service")
 
 
 def _exercise_from_text(text: str) -> Dict[str, Any]:
@@ -41,17 +36,20 @@ def _exercises(session: Dict[str, Any]) -> List[Dict[str, Any]]:
     return exercises[:8]
 
 
-def _display_title(session: Dict[str, Any], context: Dict[str, Any]) -> str:
-    title = str(session.get("title") or "Today's Workout").strip()
-    gender = str(context.get("gender") or "universal").lower().strip()
-    session_gender = str(session.get("gender") or "").lower().strip()
-    if gender == "universal" or session_gender == "universal":
-        title = re.sub(
-            r"^(?:Women|Men|Universal)\s+(?:\u2014|-)\s+",
-            "",
-            title,
-            flags=re.IGNORECASE,
-        )
+def _display_title(session: Dict[str, Any], context: Dict[str, Any] = None) -> str:
+    raw = str(session.get("title") or session.get("name") or "Today's Workout").strip()
+    title = re.sub(
+        r"^(?:Women|Men|Universal)\s*(?:\u2014|--|-)\s*",
+        "",
+        raw,
+        flags=re.IGNORECASE,
+    ).strip()
+    title = re.sub(r"\b10\s*Min\b", "10-Min", title, flags=re.IGNORECASE)
+    title = re.sub(r"\b20\s*Min\b", "20-Min", title, flags=re.IGNORECASE)
+    title = re.sub(r"\b30\s*Min\b", "30-Min", title, flags=re.IGNORECASE)
+    title = re.sub(r"\b40\s*Min\b", "40-Min", title, flags=re.IGNORECASE)
+    title = re.sub(r"\b50\s*Min\b", "50-Min", title, flags=re.IGNORECASE)
+    title = re.sub(r"\b60\s*Min\b", "60-Min", title, flags=re.IGNORECASE)
     return title or "Today's Workout"
 
 
@@ -99,42 +97,3 @@ def _prep_notes(context: Dict[str, Any]) -> List[str]:
     if weather.get("condition") in {"humid", "hot"}:
         notes.append("Wear breathable fabric")
     return notes[:4]
-
-
-def get_workout_recommendations(
-    *,
-    user_id: str,
-    context: dict,
-    limit: int = 3,
-) -> List[Dict[str, Any]] | None:
-    """
-    Public, synchronous, read-only service accessor to retrieve workout recommendations.
-    Does not log raw user IDs.
-    """
-    try:
-        raw = fitness_engine.filter_sessions(context)
-        if not raw:
-            raw = fitness_engine.relaxed_fallback(context, limit=max(limit, 3))
-        ranked = workout_ranker.rank(raw, context, limit=limit)
-        if not ranked:
-            return None
-        return [build_workout_card(session, context) for session in ranked]
-    except Exception as exc:
-        logger.exception("Failed to get workout recommendations: %s", exc)
-    return None
-
-
-def get_today_workout_card(
-    *,
-    user_id: str,
-    profile: dict | None,
-    context: dict,
-) -> dict | None:
-    """
-    Public, synchronous, read-only service accessor to retrieve today's workout card.
-    Delegates to get_workout_recommendations.
-    """
-    cards = get_workout_recommendations(user_id=user_id, context=context, limit=1)
-    if cards:
-        return cards[0]
-    return None
