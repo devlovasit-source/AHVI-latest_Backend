@@ -2277,7 +2277,6 @@ _COMPLETE_OUTFIT_CTA_PHRASES = (
     "full outfit for today",
     "give me a full look",
     "what should i wear today",
-    "what should i wear",
     "style me for today",
     "style me today",
     "dress me for today",
@@ -3470,14 +3469,12 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
     ):
         return True
 
+    # Unambiguous imperative/command phrasing always authorizes execution.
     if module in {"style", "wardrobe"} and any(
         k in q
         for k in [
-            "outfit",
-            "look",
             "style me",
             "style this",
-            "what should i wear",
             "date night",
             "office outfit",
             "party outfit",
@@ -3486,6 +3483,37 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
         ]
     ):
         return True
+
+    # A creation verb directly governing "outfit"/a "look" (as a noun) is
+    # unambiguous execution regardless of topic (e.g. "build me an outfit
+    # that suits my skin tone" is a command, not a color-advice question
+    # just because it mentions skin tone). "look" requires a leading article
+    # ("a/an/the look") so intransitive "make me look taller" -- the verb
+    # "to look", not the noun "a look" -- never matches; "outfit" is never a
+    # verb so no article is required for it.
+    if module in {"style", "wardrobe"} and re.search(
+        r"\b(?:build|create|make|generate|put together)\b.{0,48}\boutfit\b"
+        r"|\b(?:build|create|make|generate|put together)\b.{0,48}\b(?:an?|the)\s+look\b",
+        q,
+    ):
+        return True
+
+    # Bare style vocabulary ("outfit", "look", "what should i wear") is
+    # ambiguous between advice and execution -- TALKING ABOUT STYLE !=
+    # REQUESTING STYLE EXECUTION ("how will I look taller" is a question,
+    # not a board request, even though it contains "look"). When the
+    # existing deterministic style-mode classifier already resolves the
+    # query to a narrow body/color-advice topic, defer to that advice
+    # signal instead of treating the bare vocabulary as a command; explicit
+    # execution phrasing (checked above, or later in this function) still
+    # wins regardless.
+    if module in {"style", "wardrobe"} and any(
+        k in q
+        for k in ["outfit", "look", "what should i wear", "what to wear", "what do i wear"]
+    ):
+        resolved_mode = classify_style_mode(q, module_context=module, style_action="")
+        if resolved_mode not in {COLOR_BODY_ADVICE, "body_proportion_advice", "color_advice"}:
+            return True
 
     occasion_setup_words = [
         "date",
@@ -3553,9 +3581,6 @@ def _is_explicit_style_request(text: str, module_context: str | None = None) -> 
         return True
 
     explicit_phrases = [
-        "what should i wear",
-        "what to wear",
-        "what do i wear",
         "help me choose an outfit",
         "choose an outfit",
         "suggest an outfit",
@@ -4944,6 +4969,22 @@ def _module_llm_response(
             "\n\nUse this app context. Do not invent missing data:\n"
             + json.dumps(context_data, ensure_ascii=False, default=str)[:6000]
         )
+        personal_style_profile = context_data.get("personal_style_profile") or {}
+        if isinstance(personal_style_profile, dict) and personal_style_profile.get("skin_tone"):
+            system_instruction += (
+                "\n\nSaved skin-tone rule: personal_style_profile.skin_tone.swatch_hex "
+                "is saved SHADE information only — it carries no undertone. Never infer "
+                "or state whether the undertone is warm, cool, or neutral from it. Use "
+                "the known shade to recommend colors, and only ask about undertone if it "
+                "would materially improve precision. Never treat the user as having no "
+                "skin-tone information when a valid saved swatch is present above."
+            )
+        if isinstance(personal_style_profile, dict) and personal_style_profile.get("body_shape"):
+            system_instruction += (
+                "\n\nSaved body-shape rule: personal_style_profile.body_shape is a saved "
+                "profile setting the user selected, not a measured physical fact — "
+                "reference it naturally without asserting it as an objective measurement."
+            )
 
     messages: List[Dict[str, str]] = []
     for item in list(history or [])[-10:]:
@@ -5195,6 +5236,14 @@ def _conversation_clarification(diagnostics: Dict[str, Any]) -> Dict[str, Any]:
     ) or {}
 
 
+# text_only intents that materially benefit from the user's saved Style
+# profile (skin tone / body shape / style preferences). Greeting, identity,
+# small talk, supportive conversation, and generic "information" (concept
+# definitions) answer identically regardless of the user's profile, so they
+# never trigger the persisted-profile Appwrite fetch.
+_PERSONALIZATION_RELEVANT_TEXT_ONLY_INTENTS = {"color_advice", "advice"}
+
+
 async def _handle_preclassified(
     pre: Dict[str, Any],
     request: "ModuleChatRequest",
@@ -5262,12 +5311,16 @@ async def _handle_preclassified(
         user_id = _state_user_id(http_request)
         request_profile = dict(request.user_profile or {})
         profile = request_profile
-        if str(pre.get("intent") or "").strip().lower() == "color_advice":
+        intent = str(pre.get("intent") or "").strip().lower()
+        # Persisted-profile retrieval (an Appwrite fetch) is reserved for
+        # Style/personalization-relevant intents — never for greeting/
+        # help_identity/small_talk/supportive_conversation/information, which
+        # answer identically regardless of the user's saved Style profile.
+        if intent in _PERSONALIZATION_RELEVANT_TEXT_ONLY_INTENTS:
             profile = _ahvi_resolve_effective_user_profile(user_id, request_profile)
         if user_id:
             profile["user_id"] = user_id
 
-        intent = str(pre.get("intent") or "").strip().lower()
         if intent == "greeting":
             return _ahvi_greeting_response("style")
         if intent == "help_identity":
@@ -5278,9 +5331,19 @@ async def _handle_preclassified(
             return _preclassified_supportive_reply(pre)
 
         context_provenance = None
-        if intent == "color_advice":
-            context_provenance = _color_context_provenance(request_profile, profile)
-            merged_context["context_provenance"] = context_provenance
+        if intent in _PERSONALIZATION_RELEVANT_TEXT_ONLY_INTENTS:
+            from services.style_context_service import compact_personal_style_profile
+
+            if intent == "color_advice":
+                context_provenance = _color_context_provenance(request_profile, profile)
+                merged_context["context_provenance"] = context_provenance
+            bounded_profile = compact_personal_style_profile(profile)
+            if bounded_profile:
+                merged_context["personal_style_profile"] = bounded_profile
+                logger.info(
+                    "style_advice.profile_context_loaded=true context_fields=%s",
+                    sorted(bounded_profile.keys()),
+                )
         try:
             llm_reply = _module_llm_response(
                 module="style",

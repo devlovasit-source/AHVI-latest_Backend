@@ -433,6 +433,7 @@ def build_style_context(
         "event_context": _safe_dict(event_context),
         "style_dna": style_dna,
         "preferences": preferences,
+        "personal_style_profile": compact_personal_style_profile(profile),
         "last_style_context": _safe_dict(last_style_context),
         # Multi-event / transition context (None for single-occasion prompts).
         "multi_event": multi_event,
@@ -462,6 +463,11 @@ def build_style_context(
         bool(context["weather_context"]),
         bool(context["event_context"]),
     )
+    if context["personal_style_profile"]:
+        logger.info(
+            "style_advice.profile_context_loaded=true context_fields=%s",
+            sorted(context["personal_style_profile"].keys()),
+        )
     return context
 
 
@@ -634,6 +640,96 @@ def compact_style_dna(style_dna: Any, preferences: Any) -> Dict[str, Any]:
             contract.get("style_archetypes"),
         )
     return contract
+
+
+# 1-based skin-tone swatch palette — verified against the active frontend's
+# onboarding1 palette. This is a SHADE reference only; it carries no undertone
+# (warm/cool/neutral) information and must never be used to infer one.
+_SKIN_TONE_SWATCH_HEX = {
+    1: "#FDDBB4",
+    2: "#F5C6A0",
+    3: "#E8A87C",
+    4: "#C68642",
+    5: "#8D5524",
+    6: "#4A2912",
+    7: "#2C1A0E",
+    8: "#1A0D07",
+}
+
+
+def _flag_true(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value or "").strip().lower() in {"true", "1", "yes"}
+
+
+def _normalize_style_preferences(value: Any) -> List[str]:
+    """Accept a plain list (the real Appwrite shape) or a dict of aesthetic
+    sub-lists, and return a short deduped list of preference labels."""
+    out: List[str] = []
+    seen: set = set()
+
+    def _add(raw: Any) -> None:
+        text = str(raw or "").strip()
+        if text and text.lower() not in seen:
+            seen.add(text.lower())
+            out.append(text)
+
+    if isinstance(value, list):
+        for item in value:
+            _add(item)
+    elif isinstance(value, dict):
+        for key in ("style_keywords", "archetypes", "styles", "keywords", "preferences"):
+            for item in _safe_list(value.get(key)):
+                _add(item)
+    return out[:8]
+
+
+def compact_personal_style_profile(user_profile: Any) -> Dict[str, Any]:
+    """Bounded, prompt-safe slice of ONLY the Style-relevant profile fields
+    the user has actually confirmed via onboarding — never phone/DOB/account
+    metadata, never a raw skin-tone index, never an inferred undertone.
+
+    Acceptance rules (verified frontend contract):
+    - skin_tone / body_shape are only trusted when onboarding1 == true.
+    - style_preferences are only trusted when onboarding2 == true.
+    - an unparseable/out-of-range skin-tone index is treated as unknown,
+      never fabricated into a nearby shade.
+    - style_dna is NOT included here — it has its own dedicated pipeline
+      (build_style_context's "style_dna" key + compact_style_dna() in
+      compact_context_for_prompt). Duplicating it here would ship the same
+      data twice in the compacted prompt context.
+    """
+    profile = _safe_dict(user_profile)
+    out: Dict[str, Any] = {}
+
+    if _flag_true(profile.get("onboarding1")):
+        raw_skin_tone = profile.get("skinTone", profile.get("skin_tone"))
+        try:
+            skin_tone_index = int(raw_skin_tone)
+        except (TypeError, ValueError):
+            skin_tone_index = None
+        swatch_hex = _SKIN_TONE_SWATCH_HEX.get(skin_tone_index) if skin_tone_index else None
+        if swatch_hex:
+            out["skin_tone"] = {"swatch_hex": swatch_hex, "undertone": "unknown"}
+
+        body_shape = str(profile.get("bodyShape") or profile.get("body_shape") or "").strip()
+        if body_shape:
+            out["body_shape"] = body_shape
+
+    if _flag_true(profile.get("onboarding2")):
+        raw_prefs = (
+            profile.get("stylePreferences")
+            if profile.get("stylePreferences") is not None
+            else profile.get("style_preferences")
+        )
+        style_preferences = _normalize_style_preferences(raw_prefs)
+        if style_preferences:
+            out["style_preferences"] = style_preferences
+
+    return out
 
 
 _MALE_GENDER_TOKENS = {"male", "man", "men", "mens", "masculine", "m"}
@@ -998,6 +1094,7 @@ def compact_context_for_prompt(context: Dict[str, Any]) -> Dict[str, Any]:
             and ctx.get("weather_context", {}).get(k) is not None
         },
         "preferences": _compact_preferences(ctx.get("preferences")),
+        "personal_style_profile": ctx.get("personal_style_profile") or None,
         "style_dna": style_dna_compact or None,
         "style_dna_archetypes": style_dna_compact.get("style_archetypes"),
         "last_style_mode": _safe_dict(ctx.get("last_style_context")).get("last_style_mode"),

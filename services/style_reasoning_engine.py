@@ -5904,12 +5904,36 @@ User query: {_clean_recursive_prompt(query)}
                 '  "styling_routes": [string]'
             )
             _label = "occasion_advice"
+        import json as _json
+
+        _personal_profile = (style_ctx or {}).get("personal_style_profile") or {}
+        _personal_profile_json = _json.dumps(_personal_profile, ensure_ascii=False)
         return f"""
 {AHVI_SYSTEM_PROMPT}
 
 You are AHVI's senior stylist answering an open-ended {_label} question — not
 building an outfit board. Be specific and practical, like a stylist, never a
 textbook. No "styling principles" headings.
+
+Saved personal Style profile (only fields the user has actually confirmed —
+never invent anything beyond this):
+{_personal_profile_json}
+
+Personalization rules:
+- If skin_tone is present, its swatch_hex is SHADE EVIDENCE ONLY — a sampled
+  or selected skin swatch. It carries no undertone information. Never state or
+  imply a warm/cool/neutral undertone from it. You may reason about colors
+  that generally flatter that shade family; if undertone materially changes
+  the answer, say undertone is not known and optionally ask for it.
+- If body_shape is present, treat it as a saved profile setting selected by
+  the user, not as a measured physical fact. Reference the saved value
+  naturally in your recommendation, but never assert it as an objective
+  measurement of their body.
+- If style_preferences is present, ground recommendations in it naturally.
+- For any of skin_tone / body_shape / style_preferences that is ABSENT above,
+  do not invent it or guess a value — answer with what is known, and only ask
+  a clarifying question for the specific missing piece if it materially
+  changes the advice.
 
 Return ONLY valid JSON:
 {{
