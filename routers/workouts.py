@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from brain.engines.fitness.fitness_engine import fitness_engine
+from brain.engines.fitness.workout_ranker import workout_ranker
 from middleware.auth_middleware import get_current_user
-from services.workout_card_service import get_workout_recommendations, get_today_workout_card
+from services.workout_card_service import (
+    build_workout_card,
+    get_workout_recommendations,
+    get_today_workout_card,
+)
 from services.workout_context_service import build_workout_context
 from services.appwrite_proxy import AppwriteProxy
-from services.location_weather_context import resolve_location_weather_context
 
 router = APIRouter(prefix="/workouts", tags=["workouts"])
 
@@ -32,14 +35,6 @@ class WorkoutRecommendRequest(BaseModel):
     calendar: Dict[str, Any] | None = None
     profile: Dict[str, Any] | None = None
     recent_skipped_workout_ids: List[str] | None = None
-    weather_context: Dict[str, Any] | str | None = None
-    coordinates: Dict[str, Any] | None = None
-    latitude: float | None = None
-    longitude: float | None = None
-    lat: float | None = None
-    lon: float | None = None
-    lng: float | None = None
-    location_context: Dict[str, Any] | None = None
 
 
 class WorkoutFeedbackRequest(BaseModel):
@@ -51,11 +46,11 @@ class WorkoutFeedbackRequest(BaseModel):
     reason: str | None = None
 
 
-def _user_id(user: Any) -> str:
+def _user_id(user: Any, fallback: str | None = None) -> str:
     uid = str(
         (user or {}).get("user_id")
         or (user or {}).get("$id")
-        or (user or {}).get("id")
+        or fallback
         or ""
     ).strip()
     if not uid:
@@ -67,12 +62,18 @@ def _history_for(user_id: str) -> List[Dict[str, Any]]:
     return _WORKOUT_HISTORY.setdefault(user_id, [])
 
 
+def _recommendations(context: Dict[str, Any], limit: int = 3) -> List[Dict[str, Any]]:
+    raw = fitness_engine.filter_sessions(context)
+    if not raw:
+        raw = fitness_engine.relaxed_fallback(context, limit=max(limit, 3))
+    ranked = workout_ranker.rank(raw, context, limit=limit)
+    return [build_workout_card(session, context) for session in ranked]
+
+
 def _weather_note(context: Dict[str, Any]) -> str:
     weather = context.get("weather_context") if isinstance(context.get("weather_context"), dict) else {}
     condition = str(weather.get("condition") or "").strip()
-    temp = weather.get("temp_c") if weather.get("temp_c") is not None else (
-        weather.get("temperature") if weather.get("temperature") is not None else weather.get("temperature_c")
-    )
+    temp = weather.get("temp_c") or weather.get("temperature") or weather.get("temperature_c")
     bits: List[str] = []
     if temp not in (None, ""):
         bits.append(f"{temp}°C")
@@ -142,8 +143,7 @@ def recommend_workout(
     req: WorkoutRecommendRequest,
     user=Depends(get_current_user),
 ):
-    # Ignore request-body user_id; authenticated identity is authoritative
-    user_id = _user_id(user)
+    user_id = _user_id(user, req.user_id)
     skipped = [
         item["workout_id"]
         for item in _history_for(user_id)[-10:]
@@ -151,19 +151,11 @@ def recommend_workout(
     ]
     payload = req.model_dump(exclude_none=True)
     payload.setdefault("profile", user or {})
-    resolved = resolve_location_weather_context(
-        user_id=user_id, request_data=payload, profile=payload.get("profile")
-    )
-    payload["profile"] = resolved["profile"]
-    payload["weather_context"] = resolved["weather"]
-    payload["location_context"] = resolved["location"]
     payload["recent_skipped_workout_ids"] = list(
         dict.fromkeys((payload.get("recent_skipped_workout_ids") or []) + skipped)
     )
     context = build_workout_context(user_id, payload)
-
-    # Call public service
-    cards = get_workout_recommendations(user_id=user_id, context=context) or []
+    cards = _recommendations(context)
     _persist_cards(user_id, cards, context)
     return {
         "type": "fitness_recommendation",
@@ -173,25 +165,12 @@ def recommend_workout(
             "context": context,
             "count": len(cards),
         },
-        "context_usage": resolved["context_usage"],
     }
 
 
 @router.get("/today")
-def today_workout(request: Request, user=Depends(get_current_user)):
+def today_workout(user=Depends(get_current_user)):
     user_id = _user_id(user)
-    request_data: Dict[str, Any] = {}
-    raw_location = request.query_params.get("location_context")
-    if raw_location:
-        try:
-            request_data["location_context"] = json.loads(raw_location)
-        except (TypeError, ValueError):
-            pass
-    resolved = resolve_location_weather_context(
-        user_id=user_id,
-        request_data=request_data,
-        profile=user or {},
-    )
     context = build_workout_context(
         user_id,
         {
@@ -199,15 +178,10 @@ def today_workout(request: Request, user=Depends(get_current_user)):
             "duration": 12,
             "location": "home",
             "equipment": "none",
-            "profile": resolved["profile"],
-            "weather_context": resolved["weather"],
-            "location_context": resolved["location"],
+            "profile": user or {},
         },
     )
-
-    # Call public service
-    card = get_today_workout_card(user_id=user_id, profile=user, context=context)
-    cards = [card] if card else []
+    cards = _recommendations(context, limit=1)
     _persist_cards(user_id, cards, context)
     first = cards[0] if cards else None
     return {
@@ -216,13 +190,12 @@ def today_workout(request: Request, user=Depends(get_current_user)):
         "outfit_pairing": (first or {}).get("outfit_pairing") or {},
         "reminders": (first or {}).get("reminders") or [],
         "meta": {"mode": "prep", "context": context},
-        "context_usage": resolved["context_usage"],
     }
 
 
 @router.post("/complete")
 def complete_workout(req: WorkoutFeedbackRequest, user=Depends(get_current_user)):
-    user_id = _user_id(user)
+    user_id = _user_id(user, req.user_id)
     entry = {
         "user_id": user_id,
         "workout_id": req.workout_id,
@@ -238,7 +211,7 @@ def complete_workout(req: WorkoutFeedbackRequest, user=Depends(get_current_user)
 
 @router.post("/skip")
 def skip_workout(req: WorkoutFeedbackRequest, user=Depends(get_current_user)):
-    user_id = _user_id(user)
+    user_id = _user_id(user, req.user_id)
     entry = {
         "user_id": user_id,
         "workout_id": req.workout_id,

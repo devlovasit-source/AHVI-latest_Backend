@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Dict, List
 
+from brain.engines.fitness.fitness_engine import fitness_engine
 from brain.engines.fitness.workout_outfit_pairer import pair_workout_outfit
+from brain.engines.fitness.workout_ranker import workout_ranker
 from services.workout_reminder_service import build_workout_reminders
+
+logger = logging.getLogger(__name__)
 
 
 def _exercise_from_text(text: str) -> Dict[str, Any]:
@@ -36,20 +41,17 @@ def _exercises(session: Dict[str, Any]) -> List[Dict[str, Any]]:
     return exercises[:8]
 
 
-def _display_title(session: Dict[str, Any], context: Dict[str, Any] = None) -> str:
+def _display_title(session: Dict[str, Any], context: Dict[str, Any] | None = None) -> str:
     raw = str(session.get("title") or session.get("name") or "Today's Workout").strip()
+    if not raw or raw == "None":
+        return "Today's Workout"
     title = re.sub(
-        r"^(?:Women|Men|Universal)\s*(?:\u2014|--|-)\s*",
+        r"^(?:Women|Men|Universal)\s*(?:\u2014|\u2013|--|-)\s*",
         "",
         raw,
         flags=re.IGNORECASE,
     ).strip()
-    title = re.sub(r"\b10\s*Min\b", "10-Min", title, flags=re.IGNORECASE)
-    title = re.sub(r"\b20\s*Min\b", "20-Min", title, flags=re.IGNORECASE)
-    title = re.sub(r"\b30\s*Min\b", "30-Min", title, flags=re.IGNORECASE)
-    title = re.sub(r"\b40\s*Min\b", "40-Min", title, flags=re.IGNORECASE)
-    title = re.sub(r"\b50\s*Min\b", "50-Min", title, flags=re.IGNORECASE)
-    title = re.sub(r"\b60\s*Min\b", "60-Min", title, flags=re.IGNORECASE)
+    title = re.sub(r"\b(\d+)\s*Min\b", r"\1-Min", title, flags=re.IGNORECASE)
     return title or "Today's Workout"
 
 
@@ -76,6 +78,22 @@ def build_workout_card(session: Dict[str, Any], context: Dict[str, Any]) -> Dict
     card["outfit_pairing"] = pair_workout_outfit(context, card)
     card["reminders"] = build_workout_reminders(context, card)
     return card
+
+
+def get_workout_recommendations(context: Dict[str, Any], limit: int = 3) -> List[Dict[str, Any]]:
+    raw = fitness_engine.filter_sessions(context)
+    if not raw:
+        raw = fitness_engine.relaxed_fallback(context, limit=max(limit, 3))
+    ranked = workout_ranker.rank(raw, context, limit=limit)
+    return [build_workout_card(session, context) for session in ranked]
+
+
+def get_today_workout_card(user_id: str, context: Dict[str, Any] | None = None) -> Dict[str, Any] | None:
+    from services.workout_context_service import build_workout_context
+
+    ctx = context or build_workout_context(user_id, {})
+    cards = get_workout_recommendations(ctx, limit=1)
+    return cards[0] if cards else None
 
 
 def _why_this(session: Dict[str, Any], context: Dict[str, Any]) -> str:
