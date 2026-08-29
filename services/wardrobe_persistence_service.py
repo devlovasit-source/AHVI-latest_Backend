@@ -12,7 +12,15 @@ from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
 from services.category_taxonomy import infer_style_attributes, normalize_category_from_label, is_face_risk_category
 from services.qdrant_service import qdrant_service
 from services.wardrobe_taxonomy import normalize as _taxonomy_normalize
-from services.wardrobe_intelligence_service import enrich_wardrobe_item
+from services.wardrobe_intelligence_service import (
+    enrich_wardrobe_item,
+    apply_user_climate_edit,
+    build_climate_profile,
+    fetch_existing_climate_profile,
+    merge_climate_profile,
+    user_confirmed_material_tuple,
+    CLIMATE_PROFILE_VERSION,
+)
 from services.wardrobe_suitability import apply_metadata_guard
 
 logger = logging.getLogger("ahvi.wardrobe_persistence")
@@ -371,12 +379,14 @@ def _style_metadata_payload(
     item_id: str,
     user_id: str,
     item_payload: Dict[str, Any],
+    explicit_material: Any = None,
 ) -> Dict[str, Any]:
     style_meta = enrich_wardrobe_item(item_payload if isinstance(item_payload, dict) else {})
 
     # AHVI Metadata Validator agent — merge agent-produced fields on top of
     # the legacy enrichment when the env flag is enabled. Failures are
     # absorbed by the agent layer itself (returns safe defaults).
+    agent_climate_profile: Dict[str, Any] = {}
     try:
         if _agent_validate_metadata_sync is not None and _agent_metadata_enabled():
             agent_meta = _agent_validate_metadata_sync(
@@ -391,6 +401,10 @@ def _style_metadata_payload(
                 merged = dict(style_meta) if isinstance(style_meta, dict) else {}
                 # Agent fields are authoritative when present.
                 for key, value in agent_meta.items():
+                    if key == "climate_profile":
+                        if isinstance(value, dict) and value:
+                            agent_climate_profile = value
+                        continue
                     if value in (None, "", [], {}):
                         continue
                     merged[key] = value
@@ -420,6 +434,47 @@ def _style_metadata_payload(
             exc_info=True,
         )
 
+    # Climate Metadata V1 — additive, describes the garment only. Carries
+    # forward any prior evidence (including user_confirmed material, for
+    # apparel or footwear alike) so re-saves / re-enrichment / backfill never
+    # regress stronger evidence.
+    try:
+        existing_climate = fetch_existing_climate_profile(item_id)
+        # vision_result (when present) must be the CURRENT, positively-
+        # provenanced vision detector output for this exact item — never the
+        # stored item_payload text itself, which may be user-edited/stale.
+        # See extract_vision_observed_climate_properties for the provenance
+        # check this feeds.
+        vision_evidence = (
+            item_payload.get("vision_result") if isinstance(item_payload, dict) else None
+        )
+        climate_profile = build_climate_profile(
+            item_payload if isinstance(item_payload, dict) else {},
+            vision_evidence=vision_evidence,
+            existing_profile=existing_climate,
+        )
+        if agent_climate_profile:
+            climate_profile = merge_climate_profile(climate_profile, agent_climate_profile)
+        if explicit_material is not None:
+            material_tuple = user_confirmed_material_tuple(explicit_material)
+            if material_tuple is not None:
+                # Explicit, intentional user correction — the ONE place an
+                # equal-authority ("u" over an existing "u") replacement is
+                # allowed. Never merge_climate_profile() here: that path is
+                # generic/automated and keeps ties on the existing value.
+                climate_profile = apply_user_climate_edit(
+                    climate_profile, "material", material_tuple
+                )
+        style_meta["climate_profile"] = climate_profile
+        style_meta["climate_profile_version"] = CLIMATE_PROFILE_VERSION
+    except Exception:
+        logging.getLogger("ahvi.wardrobe_persistence").warning(
+            "ahvi.climate.build_failed item=%s user=%s",
+            item_id,
+            user_id,
+            exc_info=True,
+        )
+
     return {
         "item_id": _safe_text(item_id),
         "userId": _safe_text(user_id),
@@ -432,12 +487,14 @@ def _upsert_style_metadata(
     item_id: str,
     user_id: str,
     item_payload: Dict[str, Any],
+    explicit_material: Any = None,
 ) -> str:
     doc_id = _safe_document_id(item_id)
     payload = _style_metadata_payload(
         item_id=doc_id,
         user_id=user_id,
         item_payload=item_payload,
+        explicit_material=explicit_material,
     )
     proxy = AppwriteProxy()
     try:
@@ -456,12 +513,14 @@ def _persist_style_metadata_nonfatal(
     user_id: str,
     item_payload: Dict[str, Any],
     source: str,
+    explicit_material: Any = None,
 ) -> str:
     try:
         result = _upsert_style_metadata(
             item_id=item_id,
             user_id=user_id,
             item_payload=item_payload,
+            explicit_material=explicit_material,
         )
         logging.getLogger("ahvi.wardrobe_persistence").info(
             "ahvi.style_metadata.%s item=%s user=%s source=%s",
@@ -1559,7 +1618,10 @@ def update_item_labels(
     # — map them to the canonical occasions[] field.
     if tags is not None:
         patch["occasions"] = _normalize_list(tags)
-    # material is not in the schema; ignore to avoid 'Unknown attribute'.
+    # material is not in the outfits collection schema, so it never joins
+    # `patch` (would 400 as an unknown attribute). It is instead persisted
+    # as climate_profile.material (user_confirmed) in the wardrobe_style_
+    # metadata sidecar below — see _persist_style_metadata_nonfatal call.
 
     guard_probe = apply_metadata_guard(
         {
@@ -1576,16 +1638,9 @@ def update_item_labels(
         patch["sub_category"] = "Private Wear"
         patch["occasions"] = _normalize_list(guard_probe.get("occasions"))
 
-    if not patch:
+    if not patch and material is None:
         raise ValueError("Nothing to update.")
 
-    # Strategy: PATCH-first, GET-fallback.
-    #
-    # Old flow (GET then PATCH) lost a round-trip and meant a single 404
-    # on GET aborted the whole update — even when the client knew exactly
-    # which collection holds the doc. New flow: try the client-supplied
-    # location's PATCH straight away. If that 404s, only THEN walk env
-    # candidates with GET to discover the right collection.
     target_db_override = _safe_text(override_database_id)
     target_col_override = _safe_text(override_collection_id)
     source_collection = target_col_override or APPWRITE_COLLECTION_ID or ""
@@ -1593,29 +1648,11 @@ def update_item_labels(
     updated: Dict[str, Any] | None = None
     dropped_keys: List[str] = []
 
-    if target_db_override and target_col_override:
-        log.info(
-            "ahvi.update_labels.direct user=%s item=%s db=%s col=%s patch_keys=%s",
-            user_id, item_id, target_db_override, target_col_override, list(patch.keys()),
-        )
-        try:
-            updated, dropped_keys = _patch_document(
-                item_id, patch, target_col_override, target_db_override
-            )
-        except RuntimeError as exc:
-            msg = str(exc)
-            if " 404 " not in f" {msg} " and "404" not in msg:
-                # Real error (auth/schema) — propagate
-                log.error("ahvi.update_labels.direct_failed item=%s err=%s", item_id, exc)
-                raise
-            log.warning(
-                "ahvi.update_labels.direct_404 item=%s db=%s col=%s — falling back to env walk",
-                item_id, target_db_override, target_col_override,
-            )
-
-    if updated is None:
-        # GET-walk fallback. Locates the document across every known
-        # outfits collection, verifies ownership, then PATCHes there.
+    if not patch:
+        # Material-only edit: nothing in the outfits collection schema
+        # changes (material lives in the style_metadata sidecar), but we
+        # still need an owner-verified read before writing that sidecar —
+        # otherwise a caller could attach climate data to someone else's item.
         existing, source_collection, source_database = _fetch_document(
             item_id,
             override_collection_id=target_col_override,
@@ -1630,16 +1667,62 @@ def update_item_labels(
                 item_id, owner, user_id,
             )
             raise PermissionError("Item does not belong to user.")
-        merged_payload = {**existing, **patch}
-        merged_payload["subcategory"] = merged_payload.get("subcategory") or merged_payload.get("sub_category")
-        merged_payload["tags"] = merged_payload.get("occasions")
-        try:
-            updated, dropped_keys = _patch_document(
-                item_id, patch, source_collection, source_database
+        updated = existing
+    else:
+        # Strategy: PATCH-first, GET-fallback.
+        #
+        # Old flow (GET then PATCH) lost a round-trip and meant a single 404
+        # on GET aborted the whole update — even when the client knew exactly
+        # which collection holds the doc. New flow: try the client-supplied
+        # location's PATCH straight away. If that 404s, only THEN walk env
+        # candidates with GET to discover the right collection.
+        if target_db_override and target_col_override:
+            log.info(
+                "ahvi.update_labels.direct user=%s item=%s db=%s col=%s patch_keys=%s",
+                user_id, item_id, target_db_override, target_col_override, list(patch.keys()),
             )
-        except RuntimeError as exc:
-            log.error("ahvi.update_labels.patch_failed item=%s err=%s", item_id, exc)
-            raise
+            try:
+                updated, dropped_keys = _patch_document(
+                    item_id, patch, target_col_override, target_db_override
+                )
+            except RuntimeError as exc:
+                msg = str(exc)
+                if " 404 " not in f" {msg} " and "404" not in msg:
+                    # Real error (auth/schema) — propagate
+                    log.error("ahvi.update_labels.direct_failed item=%s err=%s", item_id, exc)
+                    raise
+                log.warning(
+                    "ahvi.update_labels.direct_404 item=%s db=%s col=%s — falling back to env walk",
+                    item_id, target_db_override, target_col_override,
+                )
+
+        if updated is None:
+            # GET-walk fallback. Locates the document across every known
+            # outfits collection, verifies ownership, then PATCHes there.
+            existing, source_collection, source_database = _fetch_document(
+                item_id,
+                override_collection_id=target_col_override,
+                override_database_id=target_db_override,
+            )
+            owner = _safe_text(existing.get("userId") or existing.get("user_id"))
+            if not owner:
+                raise PermissionError("Wardrobe item has no owner. Refusing update.")
+            if owner != user_id:
+                log.warning(
+                    "ahvi.update_labels.forbidden item=%s owner=%s requester=%s",
+                    item_id, owner, user_id,
+                )
+                raise PermissionError("Item does not belong to user.")
+            merged_payload = {**existing, **patch}
+            merged_payload["subcategory"] = merged_payload.get("subcategory") or merged_payload.get("sub_category")
+            merged_payload["tags"] = merged_payload.get("occasions")
+            try:
+                updated, dropped_keys = _patch_document(
+                    item_id, patch, source_collection, source_database
+                )
+            except RuntimeError as exc:
+                log.error("ahvi.update_labels.patch_failed item=%s err=%s", item_id, exc)
+                raise
 
     # Post-patch ownership verification (only needed when we skipped the
     # GET pre-check). Cheap because `updated` is already in memory.
@@ -1662,6 +1745,7 @@ def update_item_labels(
         user_id=user_id,
         item_payload=metadata_payload,
         source="update_labels",
+        explicit_material=material,
     )
 
     log.info(

@@ -14,6 +14,8 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
+from services.wardrobe_intelligence_service import normalize_agent_climate_profile
+
 logger = logging.getLogger("ahvi.agent.metadata_validator")
 
 
@@ -140,6 +142,10 @@ _SCHEMA_KEYS = (
     "risk_flags",
     "styling_notes",
     "confidence",
+    # Optional, additive — garment climate properties (Climate Metadata V1).
+    # Agent output here is always demoted to model_inferred confidence; it
+    # can only fill properties nothing stronger has already established.
+    "climate_profile",
 )
 
 
@@ -978,6 +984,7 @@ def validate_metadata_payload(
         "risk_flags": _coerce_list(raw.get("risk_flags")),
         "styling_notes": _coerce_list(raw.get("styling_notes")),
         "confidence": _coerce_confidence(raw.get("confidence")),
+        "climate_profile": normalize_agent_climate_profile(raw.get("climate_profile")),
     }
     validated = _apply_category_defaults(validated, base=base, raw=raw)
     validated = _apply_metadata_score_defaults(
