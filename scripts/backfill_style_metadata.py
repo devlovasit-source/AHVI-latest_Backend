@@ -18,7 +18,13 @@ from services.agent_metadata_validator import (
     validate_metadata_payload,
     validate_wardrobe_metadata_sync,
 )
-from services.wardrobe_intelligence_service import enrich_wardrobe_item
+from services.wardrobe_intelligence_service import (
+    enrich_wardrobe_item,
+    build_climate_profile,
+    fetch_existing_climate_profile,
+    merge_climate_profile,
+    CLIMATE_PROFILE_VERSION,
+)
 
 log = logging.getLogger("ahvi.backfill_style_metadata")
 STYLE_METADATA_RESOURCE = "wardrobe_style_metadata"
@@ -85,6 +91,28 @@ def _style_metadata_for_doc(
     deterministic = validate_metadata_payload({}, base_item=doc)
     _merge_if_present(metadata, deterministic)
 
+    # Climate Metadata V1 — evidence-tiered, additive.
+    # Tier A: existing_profile carries forward any prior user_confirmed /
+    #         vision_observed / deterministic_derived values unchanged.
+    # Tier B: extract_vision_observed_climate_properties (inside
+    #         build_climate_profile) — ONLY fires when `doc` carries a
+    #         `vision_result` whose own label_source/source field proves it
+    #         is genuine, current, image-grounded vision output. The outfits
+    #         collection does not persist that field today, so in practice
+    #         Tier B is empty for backfill — historical name/sub_category
+    #         text is NEVER promoted to vision_observed just because it
+    #         contains a word like "sleeveless" or "quilted"; see Tier C.
+    # Tier C: derive_deterministic_climate_properties — category/name/
+    #         sub_category/pattern only, low confidence, never a material.
+    # Tier D: whatever is left over stays the canonical unknown tuple.
+    doc_id = _doc_id(doc)
+    existing_climate = fetch_existing_climate_profile(doc_id) if doc_id else {}
+    climate_profile = build_climate_profile(
+        doc if isinstance(doc, dict) else {},
+        vision_evidence=doc.get("vision_result") if isinstance(doc, dict) else None,
+        existing_profile=existing_climate,
+    )
+
     if use_agent:
         agent_meta = validate_wardrobe_metadata_sync(
             item=doc,
@@ -93,9 +121,15 @@ def _style_metadata_for_doc(
             context={"source": "backfill_style_metadata"},
         )
         if isinstance(agent_meta, dict):
+            agent_climate = agent_meta.get("climate_profile")
             _merge_if_present(metadata, agent_meta)
             metadata["agent_validated"] = True
             metadata["agent_confidence"] = float(agent_meta.get("confidence") or 0.0)
+            if isinstance(agent_climate, dict) and agent_climate:
+                climate_profile = merge_climate_profile(climate_profile, agent_climate)
+
+    metadata["climate_profile"] = climate_profile
+    metadata["climate_profile_version"] = CLIMATE_PROFILE_VERSION
 
     return normalize_metadata_v2(metadata, base_item=doc)
 
