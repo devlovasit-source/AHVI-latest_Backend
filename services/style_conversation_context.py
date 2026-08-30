@@ -185,9 +185,34 @@ def _extract_garment_mentions(text: str) -> list[str]:
     mentions: list[str] = []
     for match in _GARMENT_PATTERN.finditer(text):
         phrase = " ".join(match.group("phrase").lower().replace("-", " ").split())
-        if phrase and phrase not in mentions:
-            mentions.append(phrase)
+        if not phrase or phrase in mentions:
+            continue
+        if phrase == "dress" and _is_verb_dress_usage(text, match.start(), match.end()):
+            # "how can I dress to look taller?", "dress to impress" -- the
+            # verb "dress" (get dressed / style oneself), not the noun "a
+            # dress". Only a bare, undetermined "dress" collides with the
+            # verb; "a/the/my/black dress" etc. still match as garments.
+            continue
+        mentions.append(phrase)
     return mentions[-MAX_CONTEXT_LIST:]
+
+
+_GARMENT_DETERMINERS = (
+    "a", "an", "the", "my", "your", "his", "her", "their", "our",
+    "this", "that", "these", "those",
+)
+
+
+def _is_verb_dress_usage(text: str, match_start: int, match_end: int) -> bool:
+    preceding = text[:match_start]
+    following = text[match_end:]
+    has_determiner_before = bool(
+        re.search(
+            rf"\b({'|'.join(_GARMENT_DETERMINERS)})\s*$", preceding, re.IGNORECASE
+        )
+    )
+    followed_by_to = bool(re.match(r"\s+to\b", following, re.IGNORECASE))
+    return not has_determiner_before and followed_by_to
 
 
 def _garment_noun(value: str) -> str | None:
@@ -559,7 +584,23 @@ def resolve_style_conversation_context(
         re.search(r"\b(?:need something|show(?: me)? .*inspiration|show inspiration|outfit|what should i wear|dress(?:ing)?)\b", request_text)
     )
     if needs_style_context and not resolved.activity and not resolved.occasion:
-        missing = ["occasion_or_activity"]
+        # Open-ended advice ("How can I dress to look taller?", "what should
+        # I wear to look taller?") matches the same "outfit"/"dress"/"what
+        # should I wear" keywords as a genuine board-building request, but
+        # advice questions never need an occasion -- there's no board to
+        # build. Purely textual (this function must stay synchronous/
+        # LLM-free) -- catches the "how/what ... look/suit/body/skin/colour"
+        # shape of an advice question; execution requests ("style me for a
+        # wedding", "use my wardrobe for the party") don't match this and
+        # still require occasion/activity same as before.
+        is_advice_shaped = bool(
+            re.search(
+                r"^\s*(?:what|how)\b.*\b(?:look|suit|body\s*type|skin\s*tone|colou?r)\b",
+                request_text,
+            )
+        )
+        if not is_advice_shaped:
+            missing = ["occasion_or_activity"]
     context_used: list[str] = []
     for field_name in ("date_context", "daypart", "occasion", "activity", "activity_type", "venue"):
         if getattr(current, field_name):

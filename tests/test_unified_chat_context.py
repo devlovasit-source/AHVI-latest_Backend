@@ -696,3 +696,136 @@ def test_client_supplied_wardrobe_item_without_source_remains_untrusted(monkeypa
     msg = str(body.get("message") or "")
     assert "trusted source" not in msg.lower(), f"internal validator string leaked to chat. body={body}"
     assert body.get("reason") == "unknown_item_source", f"expected typed reason code. body={body}"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# P0 (RC3): AUTHENTICATED WARDROBE ROWS CARRYING A STRAY `source` VALUE
+#
+# Regression: a physical device's real Appwrite wardrobe rows for "Black
+# Trousers" and "Light Green Polo Shirt" reproduced unknown_item_source even
+# though the P0 fix (stamp_wardrobe_ownership_source) was deployed. Auditing
+# the actual document-build path (services/wardrobe_persistence_service.py
+# _build_appwrite_doc) shows the persisted "outfits" document never includes
+# a `source` key at all -- so the stray value some real rows carry does not
+# come from this codebase's own writer. Since it can appear regardless, and
+# every row reaching stamp_wardrobe_ownership_source has already been proven
+# to belong to the authenticated user (it was fetched by user_id from their
+# own "outfits" collection), the fix makes that boundary unconditionally
+# authoritative: it overwrites source="wardrobe" rather than only filling a
+# blank. These tests cover a stray "gemini_multi" value (the one concrete
+# capture-provenance tag found in routers/wardrobe_capture.py, used on the
+# in-memory detection/preview item -- included here as the best-evidenced
+# stand-in for "whatever non-blank value a legacy row may carry") and a
+# second unrelated stray value, to prove the fix isn't keyed to one literal.
+# ─────────────────────────────────────────────────────────────────────────
+
+LEGACY_BLACK_TROUSERS_STRAY_SOURCE = _legacy_appwrite_doc(
+    "Black Trousers", "bottom", "legacy-black-trousers-stray-source",
+    source="gemini_multi",
+)
+LEGACY_POLO_STRAY_SOURCE = _legacy_appwrite_doc(
+    "Light Green Polo Shirt", "top", "legacy-polo-stray-source",
+    source="gemini_multi",
+)
+LEGACY_JACKET_OTHER_STRAY_SOURCE = _legacy_appwrite_doc(
+    "Denim Jacket", "outerwear", "legacy-jacket-other-stray-source",
+    source="wardrobe_capture.analyze",
+)
+LEGACY_WHITE_SHIRT_1 = _legacy_appwrite_doc("White Shirt", "top", "legacy-white-shirt-1")
+LEGACY_WHITE_SHIRT_2 = _legacy_appwrite_doc("White Shirt", "top", "legacy-white-shirt-2")
+
+
+def test_black_trousers_with_stray_gemini_multi_source_resolves_and_builds_board(monkeypatch):
+    wardrobe = [
+        LEGACY_WHITE_TEE, LEGACY_BLUE_JEANS, LEGACY_BLACK_TROUSERS_STRAY_SOURCE,
+        LEGACY_BLACK_FLIP_FLOPS, LEGACY_WHITE_SNEAKERS,
+    ]
+    monkeypatch.setattr(chat, "AppwriteProxy", _fake_appwrite_with_docs(wardrobe))
+
+    result = chat._demo_style_board_payload(
+        "user-1", "Create an outfit using my Black Trousers", None, resolved_occasion="daily",
+    )
+    ids = _card_item_ids(result)
+    assert result.get("success") is True, f"stray non-blank source must not block a real anchor. result={result}"
+    assert LEGACY_BLACK_TROUSERS_STRAY_SOURCE["item_id"] in ids, f"anchor item not preserved. ids={ids} result={result}"
+
+
+def test_light_green_polo_with_stray_gemini_multi_source_resolves_and_builds_board(monkeypatch):
+    wardrobe = [
+        LEGACY_POLO_STRAY_SOURCE, LEGACY_BLUE_JEANS, LEGACY_WHITE_SNEAKERS,
+        LEGACY_BLACK_FLIP_FLOPS,
+    ]
+    monkeypatch.setattr(chat, "AppwriteProxy", _fake_appwrite_with_docs(wardrobe))
+
+    result = chat._demo_style_board_payload(
+        "user-1", "Create an outfit using my Light Green Polo Shirt", None, resolved_occasion="daily",
+    )
+    ids = _card_item_ids(result)
+    assert result.get("success") is True, f"stray non-blank source must not block a real anchor. result={result}"
+    assert LEGACY_POLO_STRAY_SOURCE["item_id"] in ids, f"anchor item not preserved. ids={ids} result={result}"
+
+
+def test_other_stray_capture_provenance_value_also_resolves(monkeypatch):
+    """Proves the fix is not keyed to the literal string "gemini_multi" --
+    ANY stray value on an authenticated-fetch row must be treated as
+    wardrobe-trusted, since trust comes from the fetch boundary, not from
+    inspecting the value."""
+    wardrobe = [
+        LEGACY_JACKET_OTHER_STRAY_SOURCE, LEGACY_WHITE_TEE, LEGACY_BLUE_JEANS,
+        LEGACY_WHITE_SNEAKERS,
+    ]
+    monkeypatch.setattr(chat, "AppwriteProxy", _fake_appwrite_with_docs(wardrobe))
+
+    result = chat._demo_style_board_payload(
+        "user-1", "Create an outfit using my Denim Jacket", None, resolved_occasion="daily",
+    )
+    ids = _card_item_ids(result)
+    assert result.get("success") is True, f"result={result}"
+    assert LEGACY_JACKET_OTHER_STRAY_SOURCE["item_id"] in ids, f"ids={ids} result={result}"
+
+
+def test_client_supplied_gemini_multi_source_remains_untrusted(monkeypatch):
+    """Security: a client-supplied `wardrobe` payload must stay untrusted
+    even if it claims a source value ("gemini_multi") that IS trusted when
+    it comes from the authenticated fetch. Trust is about the boundary
+    (server-side fetch vs. caller-supplied JSON), never about the value."""
+    monkeypatch.setattr(chat, "AppwriteProxy", _FakeAppwriteProxy)
+    injected_item = {
+        "id": "injected-gemini", "item_id": "injected-gemini", "name": "Injected Gemini Jacket",
+        "category": "outerwear", "image_url": "https://x/injected.png",
+        "masked_url": "https://x/injected-masked.png", "source": "gemini_multi",
+    }
+    client = _client()
+
+    r = _post_text(
+        client,
+        module_context="wardrobe",
+        message="Create an outfit using my Injected Gemini Jacket",
+        wardrobe=[injected_item],
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("success") is not True, (
+        f"a client-supplied gemini_multi-source item became a trusted anchor. body={body}"
+    )
+    assert body.get("reason") == "unknown_item_source", f"expected typed reason code. body={body}"
+
+
+def test_ambiguous_white_shirt_still_asks_for_clarification_after_source_fix(monkeypatch):
+    """The unconditional wardrobe-source stamp must not paper over genuine
+    same-name ambiguity -- two authenticated rows both named "White Shirt"
+    must still require clarification, not silently resolve to either one."""
+    wardrobe = [LEGACY_WHITE_SHIRT_1, LEGACY_WHITE_SHIRT_2, LEGACY_BLUE_JEANS, LEGACY_WHITE_SNEAKERS]
+    monkeypatch.setattr(chat, "AppwriteProxy", _fake_appwrite_with_docs(wardrobe))
+
+    result = chat._demo_style_board_payload(
+        "user-1", "Create an outfit using my White Shirt", None, resolved_occasion="daily",
+    )
+    ids = _card_item_ids(result)
+    picked_one_arbitrarily = bool(
+        ids & {LEGACY_WHITE_SHIRT_1["item_id"], LEGACY_WHITE_SHIRT_2["item_id"]}
+    )
+    assert not picked_one_arbitrarily, (
+        f"ambiguous same-name item was silently resolved instead of asking for "
+        f"clarification. ids={ids} result={result}"
+    )

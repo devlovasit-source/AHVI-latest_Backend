@@ -51,17 +51,13 @@ STYLE_ADVICE_FORMAT_CONTRACT = (
 # scrubbing slang/forbidden phrases -- correct for every other caller's
 # single-line captions, but it would destroy the bullet line breaks advice
 # modes are instructed to return. Rather than adding an advice-aware
-# parameter to that shared, safety-critical module, protect newlines with an
-# invisible sentinel (U+2063 SEPARATOR -- not whitespace, so it survives
-# str.split() and every \s-based regex tone_engine.py uses) before the call
-# and restore them after. tone_engine.py itself stays untouched.
-_ADVICE_NEWLINE_SENTINEL = "⁣"
-
-
-def _protect_newlines_through_tone_engine(text: str, apply_tone) -> str:
-    protected = str(text or "").replace("\n", _ADVICE_NEWLINE_SENTINEL)
-    toned = apply_tone(protected)
-    return str(toned or "").replace(_ADVICE_NEWLINE_SENTINEL, "\n")
+# parameter to that shared, safety-critical module, protect newlines via the
+# shared services.advice_text_guard sentinel helper before the call and
+# restore them after. tone_engine.py itself stays untouched. This helper is
+# also used by services.llm_service._call_gemini_text -- the module-chat
+# free-text advice path (e.g. height/skin-tone questions) shares the same
+# tone_engine.apply() chokepoint and needs the same protection.
+from services.advice_text_guard import protect_newlines_through as _protect_newlines_through_tone_engine  # noqa: E402
 
 _STYLE_REASONING_MODES = {
     GENERAL,

@@ -93,15 +93,24 @@ def is_wardrobe_item(item: Any) -> bool:
 
 
 def stamp_wardrobe_ownership_source(item: Dict[str, Any]) -> Dict[str, Any]:
-    """Derive missing ownership provenance for a row from the authenticated
-    user's own wardrobe fetch.  Call ONLY at that trusted boundary
+    """Assign ownership provenance to a row fetched from the authenticated
+    user's own wardrobe collection.  Call ONLY at that trusted boundary
     (authenticated user_id + a successful, user-scoped wardrobe collection
-    fetch) -- never on a caller-supplied item payload.  An already-set source
-    is left untouched; this exists for legacy rows that predate explicit
-    source tagging.
+    fetch) -- never on a caller-supplied item payload.
+
+    Ownership trust here comes from WHICH collection the row was fetched
+    from and on WHOSE behalf (the authenticated user), not from inspecting
+    whatever value happens to already be in `source`.  A row can carry a
+    non-blank `source` that was never meant as an ownership signal -- e.g.
+    capture/detection-pipeline provenance tags (which describe how an item
+    was scanned/labelled, not who owns it) can end up on a wardrobe row
+    without ever being intentionally set as this field's contract.  Since
+    every row reaching this function has already been proven to belong to
+    the authenticated user by the caller's fetch, the ownership source is
+    unconditionally "wardrobe" here -- overwriting any such stray value
+    rather than only filling blanks.
     """
-    if not str(item.get("source") or "").strip():
-        item["source"] = "wardrobe"
+    item["source"] = "wardrobe"
     return item
 
 
@@ -542,8 +551,21 @@ def _extract_my_phrases(query: str) -> List[str]:
             continue
         for candidate in _MY_CONJUNCTION_RE.split(tail):
             candidate = candidate.strip(" .,!?")
-            if candidate and _normalize_name(candidate) not in _MY_PHRASE_NON_ITEM_PHRASES:
-                phrases.append(candidate)
+            if not candidate:
+                continue
+            norm_candidate = _normalize_name(candidate)
+            if norm_candidate in _MY_PHRASE_NON_ITEM_PHRASES:
+                continue
+            # "my wardrobe-first looks", "my wardrobe items/picks/pieces" --
+            # "wardrobe" used as a MODIFIER on a generic noun still means
+            # the whole collection, not a specific garment (no real garment
+            # is itself named starting with "wardrobe"). The bare "my
+            # wardrobe" case is already caught by the exact-match denylist
+            # above; this catches the same word compounded with a
+            # following generic noun instead of standing alone.
+            if norm_candidate == "wardrobe" or norm_candidate.startswith("wardrobe "):
+                continue
+            phrases.append(candidate)
     return phrases
 
 

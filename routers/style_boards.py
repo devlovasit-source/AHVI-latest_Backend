@@ -92,7 +92,12 @@ def _resolve_wardrobe(
             )
         except Exception:
             rows = []
-    return [i if i.get("source") else {**i, "source": "wardrobe"} for i in rows], True
+    # Same authenticated-fetch trust boundary as
+    # style_item_contract.stamp_wardrobe_ownership_source: ownership comes
+    # from this being the user's own "outfits" collection row, not from
+    # whatever stray value already sits in `source` (e.g. a
+    # capture/detection provenance tag that was never an ownership signal).
+    return [{**i, "source": "wardrobe"} for i in rows], True
 
 
 def _style_asset_provider() -> List[Dict[str, Any]]:

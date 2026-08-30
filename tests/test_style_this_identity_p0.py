@@ -226,6 +226,37 @@ def test_missing_source_wrong_owner_cannot_become_wardrobe_anchor(monkeypatch):
     assert response.status_code == 404
 
 
+def test_client_supplied_wardrobe_list_cannot_gain_ownership_trust(monkeypatch):
+    """P0 (RC3) trust-boundary regression: the *unconditional* wardrobe-source
+    stamp only became safe to make unconditional because it is gated on
+    provenance (authenticated Appwrite fetch), not on the item's declared
+    source value. This proves a client-supplied `wardrobe` list (a
+    completely different vector from the already-covered `anchor_item`
+    override) cannot use that same unconditional stamp to manufacture trust
+    for an item the user does not actually own -- the real authenticated
+    wardrobe is empty here, so any success would mean the client payload was
+    trusted instead of the server's own fetch."""
+    client = _http_client(monkeypatch, [])  # authenticated wardrobe: empty
+
+    forged = _item("forged-item", "Forged Jacket", "Outerwear")
+    forged.pop("source", None)  # blank source -- would have passed the OLD conditional stamp too
+
+    response = client.post(
+        "/api/stylist/items/forged-item/style",
+        json={
+            "user_id": "owner-1",
+            "mode": "style_this",
+            "anchor_item_id": "forged-item",
+            "wardrobe": [forged],
+        },
+    )
+
+    assert response.status_code == 404, (
+        f"a client-supplied wardrobe payload gained ownership trust it must "
+        f"never have. status={response.status_code} body={response.text}"
+    )
+
+
 def test_missing_item_cannot_become_wardrobe_anchor_from_client_source(monkeypatch):
     client = _http_client(monkeypatch, [])
 

@@ -308,18 +308,28 @@ def _inject_anchor(items: List[Dict[str, Any]], anchor: Dict[str, Any]) -> List[
     return [anchor, *items]
 
 
-def _resolve_wardrobe(request: ItemStyleRequest) -> List[Dict[str, Any]]:
+def _resolve_wardrobe(
+    request: ItemStyleRequest,
+) -> "tuple[List[Dict[str, Any]], bool]":
+    """Returns (wardrobe, authenticated_fetch). authenticated_fetch is False
+    for a caller-supplied request.wardrobe payload -- callers MUST use this
+    flag to decide whether stamp_wardrobe_ownership_source may run (see
+    routers.style_boards._resolve_wardrobe, the same trust boundary)."""
     if isinstance(request.wardrobe, list):
-        return sanitize_fashion_wardrobe_items(
-            request.wardrobe, source="stylist.request"
+        return (
+            sanitize_fashion_wardrobe_items(
+                request.wardrobe, source="stylist.request"
+            ),
+            False,
         )
     try:
         rows = AppwriteProxy().list_documents("outfits", user_id=request.user_id) or []
-        return sanitize_fashion_wardrobe_items(
-            rows, source="stylist.appwrite"
+        return (
+            sanitize_fashion_wardrobe_items(rows, source="stylist.appwrite"),
+            True,
         )
     except Exception:
-        return []
+        return [], True
 
 
 def _resolve_anchor(
@@ -341,6 +351,7 @@ def _resolve_style_this_anchor(
     wardrobe: List[Dict[str, Any]],
     *,
     allow_legacy_metadata: bool = False,
+    wardrobe_authenticated: bool = False,
 ) -> Dict[str, Any]:
     """Resolve Style This identity from the authoritative item ID only."""
     requested_id = _txt(request.anchor_item_id or item_id)
@@ -354,8 +365,12 @@ def _resolve_style_this_anchor(
         return {}
     # This row came from the authenticated user's authoritative wardrobe
     # collection. Legacy rows may omit provenance, so derive that missing
-    # field here without accepting client-supplied source metadata.
-    stamp_wardrobe_ownership_source(authoritative)
+    # field here without accepting client-supplied source metadata. Gated on
+    # wardrobe_authenticated: `wardrobe` here can be request.wardrobe (a
+    # caller-supplied payload, see _resolve_wardrobe) which must NEVER gain
+    # ownership trust just by being selected as the anchor.
+    if wardrobe_authenticated:
+        stamp_wardrobe_ownership_source(authoritative)
     return canonical_style_this_anchor(
         authoritative,
         expected_item_id=requested_id,
@@ -1183,7 +1198,14 @@ def style_wardrobe_item(
         return _legacy_build_outfit_cta_failure()
     if mode not in {"build_outfit", "style_this"}:
         mode = "build_outfit"
-    wardrobe = _resolve_wardrobe(request)
+    wardrobe, wardrobe_authenticated = _resolve_wardrobe(request)
+    # http_request is not None means the block above already overwrote
+    # request.wardrobe with this function's OWN authenticated Appwrite fetch
+    # (line ~1175) before _resolve_wardrobe ever ran -- so a list-typed
+    # request.wardrobe reached via the real HTTP route is guaranteed
+    # server-fetched, not client-supplied, even though _resolve_wardrobe's
+    # own isinstance(list) heuristic can't tell the two apart on its own.
+    wardrobe_authenticated = wardrobe_authenticated or http_request is not None
     if mode == "style_this":
         wardrobe = [
             item
@@ -1196,6 +1218,7 @@ def style_wardrobe_item(
             item_id,
             wardrobe,
             allow_legacy_metadata=http_request is None,
+            wardrobe_authenticated=wardrobe_authenticated,
         )
         if mode == "style_this"
         else _resolve_anchor(request, item_id, wardrobe)

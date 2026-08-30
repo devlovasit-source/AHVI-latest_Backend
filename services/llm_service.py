@@ -23,6 +23,7 @@ from brain.response_validator import (
     validate_final_text,
 )
 from prompts.core_prompts import AHVI_SYSTEM_PROMPT
+from services.advice_text_guard import protect_newlines_through
 
 logger = logging.getLogger("ahvi.llm_service")
 
@@ -248,7 +249,16 @@ Task:
         if not text:
             return None
 
-        return tone_engine.apply(text, user_profile=user_profile, signals=signals)
+        # tone_engine.apply() flattens all whitespace including newlines,
+        # which would destroy the bullet line breaks advice-mode callers
+        # (STYLE_ADVICE_FORMAT_CONTRACT) are instructed to return. This is
+        # the shared entry point every Gemini text completion in the app
+        # goes through -- protect newlines here rather than only in the one
+        # caller (services.style_reasoning_engine) that remembered to.
+        return protect_newlines_through(
+            text,
+            lambda t: tone_engine.apply(t, user_profile=user_profile, signals=signals),
+        )
     except Exception as exc:
         # Loud log so we can SEE Gemini auth/model/region failures in
         # Cloud Logging instead of silently falling through to Ollama

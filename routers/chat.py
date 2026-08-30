@@ -3306,13 +3306,32 @@ def _demo_style_board_payload(
         and not response_type
         and not _ahvi_router_style_fallback_enabled()
     ):
-        logger.info("style.fallback.triggered user_id=%s reason=no_cards wardrobe_count=%s", user_id, len(wardrobe))
+        # Distinguish a genuinely-too-small wardrobe (missing_required_slots
+        # against the raw wardrobe -- the same completeness check the
+        # fixed-item path already uses) from any other reason no board came
+        # back (routing/generation hiccup). Only the former is allowed to
+        # claim insufficient_wardrobe -- callers (e.g. Daily Wear) rely on
+        # this to know whether "add more clothes" is the honest message.
+        _missing_roles = missing_required_slots(wardrobe)
+        _reason = "insufficient_wardrobe" if _missing_roles else "missing_outfit_cards"
+        logger.info(
+            "style.fallback.triggered user_id=%s reason=%s wardrobe_count=%s missing_roles=%s",
+            user_id, _reason, len(wardrobe), _missing_roles,
+        )
         response["success"] = False
         response["message"] = (
-            "I couldn't build a reliable style board from your wardrobe right now. "
+            "I found more than one style for you, but there aren't enough pieces in "
+            f"your wardrobe to complete a look yet (missing: {', '.join(_missing_roles)})."
+            if _missing_roles
+            else "I couldn't build a reliable style board from your wardrobe right now. "
             "Please try again."
         )
-        response["type"] = "missing_outfit_cards"
+        response["type"] = _reason
+        response["reason"] = _reason
+        response["status"] = _reason
+        meta = response.get("meta") if isinstance(response.get("meta"), dict) else {}
+        meta["reason"] = _reason
+        response["meta"] = meta
 
     try:
         logger.info(
@@ -5793,12 +5812,25 @@ async def _module_chat_impl(
         or conversation.date_context
     ):
         if not board_authorized:
+            # Same fallback-advice gap as the bottom-of-function catch-all:
+            # a message can land in this block via occasion/date/activity
+            # context alone (not necessarily _is_explicit_style_request),
+            # fail board authorization, and still be an open-ended advice
+            # question (e.g. "How can I dress to look taller?" resolves
+            # conversation.occasion="today" via _ahvi_style_occasion, which
+            # is enough to enter this block, yet has no positive board
+            # intent) -- give it the same deterministic advice check.
+            _fallback_intent = str(
+                (detect_intent(user_message) or {}).get("intent") or ""
+            ).strip().lower()
             return _module_llm_response(
                 module="style",
                 user_message=user_message,
                 history=request.history,
                 context_data=merged_context,
                 user_profile=profile,
+                is_advice=_fallback_intent in _PERSONALIZATION_RELEVANT_TEXT_ONLY_INTENTS
+                or _fallback_intent == "body_proportion_advice",
             )
         wardrobe = (
             merged_context.get("wardrobe")
@@ -5894,12 +5926,24 @@ async def _module_chat_impl(
         )
         return _module_style_response_envelope(module, style_payload)
 
+    # By this point every execution-intent branch above (board_authorized
+    # style/wardrobe/daily_wear generation) has already had first claim on
+    # the message and passed -- so a message still reaching here is not a
+    # "style me" / "use my wardrobe" execution request. Give it a chance at
+    # deterministic (non-LLM-dependent) advice classification so open-ended
+    # advice like height/body-type/skin-tone questions still get
+    # STYLE_ADVICE_FORMAT_CONTRACT's bullet formatting even when the
+    # upstream semantic pre-classifier returns nothing usable for this
+    # phrasing (decision_source=legacy_special_flow).
+    fallback_intent = str((detect_intent(user_message) or {}).get("intent") or "").strip().lower()
     return _module_llm_response(
         module=module,
         user_message=user_message,
         history=request.history,
         context_data=merged_context,
         user_profile=profile,
+        is_advice=fallback_intent in _PERSONALIZATION_RELEVANT_TEXT_ONLY_INTENTS
+        or fallback_intent == "body_proportion_advice",
     )
 
 
