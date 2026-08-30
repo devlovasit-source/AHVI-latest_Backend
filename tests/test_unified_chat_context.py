@@ -570,3 +570,129 @@ def test_red_top_resolves_to_same_item_id_both_modules(monkeypatch):
 
     assert RED_TOP["item_id"] in ids_by_module["style"]
     assert RED_TOP["item_id"] in ids_by_module["wardrobe"]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# LEGACY WARDROBE OWNERSHIP PROVENANCE (P0: named-anchor "trusted source")
+#
+# Regression: a real Appwrite wardrobe document never carries a top-level
+# `source` field (routers/wardrobe_capture.py never writes one), so
+# canonical_item_source() reported "unknown" for every item fetched through
+# the authenticated wardrobe path, and ConstrainedOutfitBuilder rejects an
+# "unknown"-source fixed anchor outright ("A fixed item must include a
+# trusted source."). Fix: _fetch_wardrobe_for_style stamps ownership
+# provenance on rows it fetches from the user's own Appwrite collection
+# (services.style_item_contract.stamp_wardrobe_ownership_source), mirroring
+# the same trust boundary routers.stylist._resolve_style_this_anchor already
+# established. A client-supplied `wardrobe` payload is deliberately NOT
+# stamped -- ownership must come from the authenticated fetch, never from
+# caller-supplied JSON.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _legacy_appwrite_doc(name: str, role: str, item_id: str, **extra) -> Dict[str, Any]:
+    """Shape of a real Appwrite wardrobe document: no top-level `source`
+    field at all -- the exact physical shape that reproduced the P0
+    trusted-source regression for legacy items like "Black Trousers"."""
+    doc = {
+        "id": item_id,
+        "item_id": item_id,
+        "name": name,
+        "category": role,
+        "image_url": f"https://x/{item_id}.png",
+        "masked_url": f"https://x/{item_id}-masked.png",
+    }
+    doc.update(extra)
+    return doc
+
+
+def _fake_appwrite_with_docs(docs):
+    class _Proxy:
+        def list_documents(self, collection, user_id=None, limit=100, offset=0):
+            return [] if offset else list(docs)
+    return _Proxy
+
+
+LEGACY_WHITE_TEE = _legacy_appwrite_doc("White Tee", "top", "legacy-white-tee")
+LEGACY_BLUE_JEANS = _legacy_appwrite_doc("Blue Jeans", "bottom", "legacy-blue-jeans")
+LEGACY_BLACK_TROUSERS = _legacy_appwrite_doc("Black Trousers", "bottom", "legacy-black-trousers")
+LEGACY_BLACK_FLIP_FLOPS = _legacy_appwrite_doc("Black Flip-Flops", "footwear", "legacy-black-flip-flops")
+LEGACY_WHITE_SNEAKERS = _legacy_appwrite_doc("White Sneakers", "footwear", "legacy-white-sneakers")
+
+_LEGACY_COMPLETE_WARDROBE = [
+    LEGACY_WHITE_TEE, LEGACY_BLUE_JEANS, LEGACY_BLACK_TROUSERS,
+    LEGACY_BLACK_FLIP_FLOPS, LEGACY_WHITE_SNEAKERS,
+]
+
+
+def test_legacy_black_trousers_anchor_resolves_and_builds_board(monkeypatch):
+    monkeypatch.setattr(chat, "AppwriteProxy", _fake_appwrite_with_docs(_LEGACY_COMPLETE_WARDROBE))
+
+    result = chat._demo_style_board_payload(
+        "user-1", "Create an outfit using my Black Trousers", None, resolved_occasion="daily",
+    )
+    ids = _card_item_ids(result)
+    assert result.get("success") is True, f"legacy item anchor should build a board. result={result}"
+    assert LEGACY_BLACK_TROUSERS["item_id"] in ids, f"anchor item not preserved. ids={ids} result={result}"
+
+
+def test_legacy_black_flip_flops_anchor_resolves_and_builds_board(monkeypatch):
+    monkeypatch.setattr(chat, "AppwriteProxy", _fake_appwrite_with_docs(_LEGACY_COMPLETE_WARDROBE))
+
+    result = chat._demo_style_board_payload(
+        "user-1", "Create an outfit using my Black Flip-Flops", None, resolved_occasion="daily",
+    )
+    ids = _card_item_ids(result)
+    assert result.get("success") is True, f"legacy item anchor should build a board. result={result}"
+    assert LEGACY_BLACK_FLIP_FLOPS["item_id"] in ids, f"anchor item not preserved. ids={ids} result={result}"
+
+
+def test_legacy_anchor_with_climate_profile_is_unaffected_by_evidence_source(monkeypatch):
+    """Climate Metadata V1 evidence-authority source codes (u/v/d/m/x) live
+    under item['climate_profile'][field]['source'] -- a different namespace
+    from the top-level item['source'] ownership field. A climate_profile
+    carrying an evidence source must never be read as, or interfere with,
+    wardrobe ownership trust."""
+    item_with_climate = _legacy_appwrite_doc(
+        "Black Trousers", "bottom", "legacy-black-trousers-climate",
+        climate_profile={"material": {"value": "cotton", "confidence": 0.9, "source": "v"}},
+    )
+    wardrobe = [LEGACY_WHITE_TEE, item_with_climate, LEGACY_WHITE_SNEAKERS]
+    monkeypatch.setattr(chat, "AppwriteProxy", _fake_appwrite_with_docs(wardrobe))
+
+    result = chat._demo_style_board_payload(
+        "user-1", "Create an outfit using my Black Trousers", None, resolved_occasion="daily",
+    )
+    ids = _card_item_ids(result)
+    assert result.get("success") is True, f"climate_profile must not block anchor trust. result={result}"
+    assert item_with_climate["item_id"] in ids, f"anchor item not preserved. ids={ids} result={result}"
+
+
+def test_client_supplied_wardrobe_item_without_source_remains_untrusted(monkeypatch):
+    """Security: ownership trust must come ONLY from the authenticated
+    server-side wardrobe fetch, never from a caller-supplied `wardrobe`
+    payload. An item with no `source` in a client-supplied list must still
+    be rejected as an untrusted fixed anchor -- and the rejection message
+    must be product-safe, never the raw internal validator string."""
+    monkeypatch.setattr(chat, "AppwriteProxy", _FakeAppwriteProxy)
+    untrusted_item = {
+        "id": "injected-item", "item_id": "injected-item", "name": "Injected Blazer",
+        "category": "outerwear", "image_url": "https://x/injected.png",
+        "masked_url": "https://x/injected-masked.png",
+    }
+    client = _client()
+
+    r = _post_text(
+        client,
+        module_context="wardrobe",
+        message="Create an outfit using my Injected Blazer",
+        wardrobe=[untrusted_item],
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("success") is not True, (
+        f"a client-supplied unknown-source item became a trusted anchor. body={body}"
+    )
+    msg = str(body.get("message") or "")
+    assert "trusted source" not in msg.lower(), f"internal validator string leaked to chat. body={body}"
+    assert body.get("reason") == "unknown_item_source", f"expected typed reason code. body={body}"

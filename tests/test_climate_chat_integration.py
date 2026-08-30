@@ -351,6 +351,7 @@ _ALLOWED_CLIMATE_PROFILE_FILES = {
     os.path.join("tests", "test_climate_metadata.py"),
     os.path.join("tests", "test_climate_chat_integration.py"),
     os.path.join("tests", "test_release_smoke_chat_climate.py"),
+    os.path.join("tests", "test_unified_chat_context.py"),
 }
 
 _FORBIDDEN_CONSUMER_FILES = (

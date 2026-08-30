@@ -29,6 +29,7 @@ from services.style_item_contract import (
     canonical_item_id,
     canonical_item_role,
     canonical_item_source,
+    stamp_wardrobe_ownership_source,
 )
 from services.style_this_anchor import canonical_style_this_anchor
 from services.stylist_knowledge_service import resolve_style_archetypes
@@ -354,8 +355,7 @@ def _resolve_style_this_anchor(
     # This row came from the authenticated user's authoritative wardrobe
     # collection. Legacy rows may omit provenance, so derive that missing
     # field here without accepting client-supplied source metadata.
-    if not _txt(authoritative.get("source")):
-        authoritative["source"] = "wardrobe"
+    stamp_wardrobe_ownership_source(authoritative)
     return canonical_style_this_anchor(
         authoritative,
         expected_item_id=requested_id,

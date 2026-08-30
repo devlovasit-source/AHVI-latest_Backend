@@ -42,6 +42,7 @@ from services.style_item_contract import (
     FixedItemLostError,
     canonical_item_id as _canonical_item_id,
     canonical_item_role as _canonical_item_role,
+    stamp_wardrobe_ownership_source,
 )
 from services.constrained_outfit_builder import (
     ConstrainedOutfitBuilder,
@@ -1622,7 +1623,11 @@ def _fetch_wardrobe_for_style(
                 rows = docs.get("documents") or docs.get("items") or []
             else:
                 rows = docs or []
-            items = [dict(i) for i in rows if isinstance(i, dict)]
+            # This row came from the authenticated user's own wardrobe
+            # collection fetch -- derive missing ownership provenance here
+            # for legacy rows, without accepting client-supplied source
+            # metadata. Mirrors routers.stylist._resolve_style_this_anchor.
+            items = [stamp_wardrobe_ownership_source(dict(i)) for i in rows if isinstance(i, dict)]
         except Exception as exc:
             logger.warning("style wardrobe fetch failed user_id=%s error=%s", user_id, exc)
             items = []
@@ -3056,9 +3061,13 @@ def _ahvi_construct_board_around_fixed_items(
     )
     if not result.get("success"):
         error = result.get("error") if isinstance(result.get("error"), dict) else {}
+        # error["message"] is internal validator/contract phrasing (e.g.
+        # "A fixed item must include a trusted source.") -- never forward it
+        # to chat. The structured code is still logged and returned in
+        # meta/reason for programmatic handling.
         return _ahvi_fixed_item_failure_response(
             str(error.get("code") or "fixed_item_lost").lower(),
-            str(error.get("message") or "I couldn't build a look that keeps the item(s) you named."),
+            "I found the item, but I couldn't build a complete look around it right now.",
             occasion, user_id, len(wardrobe), fixed_items,
         )
 

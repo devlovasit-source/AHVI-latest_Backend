@@ -92,6 +92,19 @@ def is_wardrobe_item(item: Any) -> bool:
     return canonical_item_source(item) == "wardrobe"
 
 
+def stamp_wardrobe_ownership_source(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Derive missing ownership provenance for a row from the authenticated
+    user's own wardrobe fetch.  Call ONLY at that trusted boundary
+    (authenticated user_id + a successful, user-scoped wardrobe collection
+    fetch) -- never on a caller-supplied item payload.  An already-set source
+    is left untouched; this exists for legacy rows that predate explicit
+    source tagging.
+    """
+    if not str(item.get("source") or "").strip():
+        item["source"] = "wardrobe"
+    return item
+
+
 def is_style_asset(item: Any) -> bool:
     return canonical_item_source(item) == "style_asset"
 
