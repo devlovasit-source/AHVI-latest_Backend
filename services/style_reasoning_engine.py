@@ -31,6 +31,38 @@ GENERAL = "general"
 VISUAL_INSPIRATION = "visual_inspiration"
 _ADVICE_MODES = {BODY_PROPORTION_ADVICE, COLOR_ADVICE, OCCASION_ADVICE}
 
+# Shared Style Advice presentation contract -- both open-ended advice
+# boundaries (this module's JSON advice modes, and routers.chat's
+# module-chat free-text advice replies) instruct the model with this same
+# text so a skin-tone/height/body-type answer looks the same regardless of
+# which surface asked. Deliberately NOT a post-processing step (splitting
+# arbitrary prose into bullets after the fact is unreliable) -- the model is
+# asked to produce this shape directly.
+STYLE_ADVICE_FORMAT_CONTRACT = (
+    "Format this advice for scanability: one short opening sentence, then "
+    "3-6 concise bullet points (each on its own line starting with \"- \"), "
+    "then optionally one short closing recommendation. Only use this shape "
+    "for open-ended style advice (skin tone, body proportions, general "
+    "styling questions) -- never for board/outfit-building replies, "
+    "factual counts, clarification questions, or plain conversation."
+)
+
+# tone_engine.apply() flattens all whitespace (including newlines) while
+# scrubbing slang/forbidden phrases -- correct for every other caller's
+# single-line captions, but it would destroy the bullet line breaks advice
+# modes are instructed to return. Rather than adding an advice-aware
+# parameter to that shared, safety-critical module, protect newlines with an
+# invisible sentinel (U+2063 SEPARATOR -- not whitespace, so it survives
+# str.split() and every \s-based regex tone_engine.py uses) before the call
+# and restore them after. tone_engine.py itself stays untouched.
+_ADVICE_NEWLINE_SENTINEL = "⁣"
+
+
+def _protect_newlines_through_tone_engine(text: str, apply_tone) -> str:
+    protected = str(text or "").replace("\n", _ADVICE_NEWLINE_SENTINEL)
+    toned = apply_tone(protected)
+    return str(toned or "").replace(_ADVICE_NEWLINE_SENTINEL, "\n")
+
 _STYLE_REASONING_MODES = {
     GENERAL,
     STYLE_ADVICE,
@@ -5935,10 +5967,12 @@ Personalization rules:
   a clarifying question for the specific missing piece if it materially
   changes the advice.
 
+{STYLE_ADVICE_FORMAT_CONTRACT}
+
 Return ONLY valid JSON:
 {{
   "mode": "{_label}",
-  "stylist_reasoning": string,   // 1-2 sentence human summary
+  "stylist_reasoning": string,   // the fully-formatted advice text above (opening sentence + bullets)
   {_shape},
   "what_to_avoid": [string],
   "confidence": float
@@ -8575,6 +8609,19 @@ def _personality_polish_text(text: Any, *, field: str = "", query: str = "") -> 
     out = str(text or "").strip()
     if not out:
         return out
+    field_key_early = str(field or "").lower()
+    if field_key_early in {"advice", "stylist_reasoning"} and "\n" in out:
+        # A real line break in these two fields only ever survives this far
+        # for already-formatted Style Advice (opening sentence + bullets, see
+        # STYLE_ADVICE_FORMAT_CONTRACT) -- non-advice modes are compacted to
+        # a single line upstream before this runs. Checked structurally
+        # (any newline) rather than sniffing for one bullet marker (e.g.
+        # "- ") so any bullet style the model actually used survives.
+        # Scrub placeholders per line only; never collapse whitespace or
+        # sentence-cap this shape away.
+        return "\n".join(
+            _scrub_visible_style_text(line, query=query) for line in out.split("\n")
+        )
     out = _scrub_visible_style_text(out, query=query)
     for pattern, replacement in _PERSONALITY_ROBOTIC_REPLACEMENTS:
         out = re.sub(pattern, replacement, out, flags=re.IGNORECASE)
@@ -8972,14 +9019,27 @@ def _build_response(
         or "Lean into what already fits well and keep one deliberate detail — "
         "confidence reads as ease, not effort."
     ).strip()
-    polished_advice = tone_engine.apply(
-        raw_advice,
-        user_profile=user_profile,
-        signals={"mode": final_mode, "emotion_state": emotion_state},
-        context=context,
-    )
+    _tone_signals = {"mode": final_mode, "emotion_state": emotion_state}
+    if final_mode in _ADVICE_MODES:
+        polished_advice = _protect_newlines_through_tone_engine(
+            raw_advice,
+            lambda t: tone_engine.apply(
+                t, user_profile=user_profile, signals=_tone_signals, context=context,
+            ),
+        )
+    else:
+        polished_advice = tone_engine.apply(
+            raw_advice,
+            user_profile=user_profile,
+            signals=_tone_signals,
+            context=context,
+        )
     is_multi_event = bool((context or {}).get("multi_event")) or (context or {}).get("occasion") == "multi_event"
-    polished_advice = _compact_reasoning(polished_advice, multi_event=is_multi_event)
+    # Advice modes are instructed (STYLE_ADVICE_FORMAT_CONTRACT) to return
+    # already-formatted opening-sentence-plus-bullets text -- compacting to a
+    # board-caption sentence or two here would destroy that shape.
+    if final_mode not in _ADVICE_MODES:
+        polished_advice = _compact_reasoning(polished_advice, multi_event=is_multi_event)
     transition_plan = None
     if is_multi_event:
         _tp = payload.get("transition_plan")
@@ -9081,12 +9141,21 @@ def _build_response(
             bool(context.get("wardrobe") or context.get("wardrobe_items")),
         )
 
-    polished_advice = _scrub_visible_style_text(polished_advice, query=query)
+    if final_mode in _ADVICE_MODES:
+        # _scrub_visible_style_text collapses all whitespace (including the
+        # newlines the bullet format relies on) -- scrub line-by-line instead
+        # so placeholder cleanup still runs without flattening the bullets,
+        # and skip the two-sentence cap entirely (see STYLE_ADVICE_FORMAT_CONTRACT).
+        polished_advice = "\n".join(
+            _scrub_visible_style_text(line, query=query) for line in polished_advice.split("\n")
+        )
+    else:
+        polished_advice = _scrub_visible_style_text(polished_advice, query=query)
+        # Cap long stylist text fields server-side so the editorial UI never
+        # has to render walls of LLM prose.
+        polished_advice = _two_sentences(polished_advice, max_chars=320)
     confidence_strategy = _scrub_visible_style_text(confidence_strategy, query=query)
     missing_piece_reasoning = _scrub_visible_style_text(missing_piece_reasoning, query=query)
-    # Cap long stylist text fields server-side so the editorial UI never
-    # has to render walls of LLM prose.
-    polished_advice = _two_sentences(polished_advice, max_chars=320)
     confidence_strategy = _two_sentences(confidence_strategy, max_chars=240)
     missing_piece_reasoning = _two_sentences(missing_piece_reasoning, max_chars=200)
     visual_directions = _scrub_visible_style_payload(visual_directions, query=query)

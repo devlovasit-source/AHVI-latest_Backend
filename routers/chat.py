@@ -69,7 +69,11 @@ from services.style_board_mutation_service import (
     board_context_for_semantics,
     handle_board_operation,
 )
-from services.style_reasoning_engine import VISUAL_INSPIRATION, style_reasoning_engine
+from services.style_reasoning_engine import (
+    VISUAL_INSPIRATION,
+    STYLE_ADVICE_FORMAT_CONTRACT,
+    style_reasoning_engine,
+)
 from services.beta_style_bridge import (
     decorate_style_response as decorate_beta_style_response,
     engine_dispatch as beta_style_engine_dispatch,
@@ -4966,12 +4970,15 @@ def _module_llm_response(
     history: List[Dict[str, str]],
     context_data: Dict[str, Any],
     user_profile: Dict[str, Any],
+    is_advice: bool = False,
 ) -> Dict[str, Any]:
     module_key = _normalize_module_name(module)
     system_instruction = _MODULE_CHAT_PROMPTS.get(
         module_key,
         "You are AHVI. Answer directly using the provided context. Do not invent missing data.",
     )
+    if is_advice:
+        system_instruction += "\n\n" + STYLE_ADVICE_FORMAT_CONTRACT
 
     if context_data:
         system_instruction += (
@@ -5360,6 +5367,7 @@ async def _handle_preclassified(
                 history=request.history,
                 context_data=merged_context,
                 user_profile=profile,
+                is_advice=intent in _PERSONALIZATION_RELEVANT_TEXT_ONLY_INTENTS,
             )
             message_text = str(
                 (llm_reply or {}).get("message_text")
