@@ -822,22 +822,6 @@ def _apply_category_defaults(meta: Dict[str, Any], *, base: Dict[str, Any], raw:
         meta["allowed_occasions"] = _add_unique(meta.get("allowed_occasions", []), ["home", "private", "lounge"])
         return meta
 
-    if has_any(["running shorts", "gym shorts", "training shorts", "track", "activewear", "workout", "gym", "running"]):
-        meta.update(
-            {
-                "style_role": "activewear",
-                "formality": "athletic",
-                "visual_noise": meta.get("visual_noise") or "low",
-                "pattern_intensity": meta.get("pattern_intensity") or "none",
-                "statement_level": meta.get("statement_level") or "core",
-            }
-        )
-        meta["blocked_occasions"] = _add_unique(
-            meta.get("blocked_occasions", []),
-            ["office", "client_meeting", "boardroom", "wedding", "formal_event"],
-        )
-        return meta
-
     if has_any(["formal trousers", "tailored pants", "tailored trouser", "slacks"]):
         professional_garment = True
         meta.update({"category": "bottom", "subcategory": "formal_trousers", "formality": "business_casual", "style_role": "businesswear"})
@@ -915,6 +899,22 @@ def _apply_category_defaults(meta: Dict[str, Any], *, base: Dict[str, Any], raw:
             for flag in meta.get("risk_flags", [])
             if flag not in {"too_casual_for_professional"}
         ]
+    elif has_any(["running shorts", "gym shorts", "training shorts", "track", "activewear", "workout", "gym", "running"]):
+        # User-selected Gym is a positive signal, but it cannot override a
+        # hard professional garment classification established above.
+        meta.update(
+            {
+                "style_role": "activewear",
+                "formality": "athletic",
+                "visual_noise": meta.get("visual_noise") or "low",
+                "pattern_intensity": meta.get("pattern_intensity") or "none",
+                "statement_level": meta.get("statement_level") or "core",
+            }
+        )
+        meta["blocked_occasions"] = _add_unique(
+            meta.get("blocked_occasions", []),
+            ["office", "client_meeting", "boardroom", "wedding", "formal_event"],
+        )
 
     if loud:
         meta["visual_noise"] = "high"

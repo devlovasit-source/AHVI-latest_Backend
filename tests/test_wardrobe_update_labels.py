@@ -127,6 +127,26 @@ def test_save_selected_writes_outfit_without_style_metadata_and_upserts_metadata
     assert metadata_calls[0]["source"] == "save_selected"
 
 
+def test_build_appwrite_doc_preserves_gym_label():
+    from services.wardrobe_persistence_service import _build_appwrite_doc
+
+    doc = _build_appwrite_doc(
+        user_id="user_1",
+        file_id="item_gym_top",
+        item={
+            "name": "White Plain Top",
+            "category": "Tops",
+            "sub_category": "Tops",
+            "occasions": ["Gym", "Casual", "Travel", "Sport"],
+        },
+        raw_url="https://example.test/raw.png",
+        masked_url="",
+        normalized_url="https://example.test/catalog.png",
+    )
+
+    assert doc["occasions"] == ["Gym", "Casual", "Travel", "Sport"]
+
+
 def test_metadata_failure_does_not_raise(monkeypatch):
     class FakeProxy:
         def update_document(self, resource, document_id, data):

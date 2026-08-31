@@ -165,6 +165,90 @@ def test_running_shorts_metadata_shape():
     assert "boardroom" in meta["blocked_occasions"]
 
 
+def test_gym_tagged_top_is_workout_eligible():
+    meta = validate_metadata_payload(
+        {},
+        base_item={
+            "name": "White Plain Top",
+            "category": "Tops",
+            "sub_category": "Tops",
+            "occasions": ["Gym", "Casual", "Travel", "Sport"],
+        },
+    )
+
+    assert meta["style_role"] == "activewear"
+    assert meta["formality"] == "athletic"
+    assert "workout" not in meta["blocked_occasions"]
+    assert "gym" not in meta["blocked_occasions"]
+
+
+def test_gym_tag_cannot_override_blazer_workout_exclusion():
+    meta = validate_metadata_payload(
+        {},
+        base_item={
+            "name": "Black Blazer",
+            "category": "Outerwear",
+            "sub_category": "Blazer",
+            "occasions": ["Gym"],
+        },
+    )
+
+    assert meta["style_role"] == "businesswear"
+    assert "workout" in meta["blocked_occasions"]
+    assert "gym" in meta["blocked_occasions"]
+
+
+def test_gym_tag_cannot_override_formal_business_exclusion():
+    meta = validate_metadata_payload(
+        {},
+        base_item={
+            "name": "Formal Button Down Shirt",
+            "category": "Tops",
+            "sub_category": "Shirt",
+            "occasions": ["Gym"],
+        },
+    )
+
+    assert meta["style_role"] == "businesswear"
+    assert "workout" in meta["blocked_occasions"]
+    assert "gym" in meta["blocked_occasions"]
+
+
+def test_activewear_without_gym_tag_remains_workout_eligible():
+    meta = validate_metadata_payload(
+        {},
+        base_item={
+            "name": "Training Tee",
+            "category": "Tops",
+            "sub_category": "Activewear",
+        },
+    )
+
+    assert meta["style_role"] == "activewear"
+    assert "workout" not in meta["blocked_occasions"]
+    assert "gym" not in meta["blocked_occasions"]
+
+
+def test_activewear_preserves_existing_hard_occasion_guards():
+    item = {
+        "name": "Training Tee",
+        "category": "Tops",
+        "sub_category": "Activewear",
+        "occasions": ["Gym"],
+    }
+    meta = validate_metadata_payload({}, base_item=item)
+    item["style_metadata"] = meta
+
+    for occasion in (
+        "office",
+        "client_meeting",
+        "boardroom",
+        "wedding",
+        "formal_event",
+    ):
+        assert item_metadata_v2_reject_reason(item, occasion=occasion)
+
+
 def test_white_trousers_professional_defaults():
     meta = validate_metadata_payload(
         {"formality": "casual", "style_role": "casualwear", "confidence": 0.9},
