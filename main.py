@@ -51,13 +51,19 @@ logger = logging.getLogger("ahvi.main")
 ROUTER_LOAD_STATUS: dict[str, dict[str, Any]] = {}
 REQUIRED_ROUTERS = set(settings.required_routers or [])
 SERVICE_TAG = str(os.getenv("AHVI_SERVICE_TAG") or "board-intel-gap-msg").strip()
-SERVICE_REVISION = str(
-    os.getenv("K_REVISION")
-    or os.getenv("GIT_SHA")
-    or os.getenv("APP_REVISION")
-    or os.getenv("APP_RELEASE")
-    or ""
-).strip()
+
+
+def _runtime_identity() -> dict[str, str]:
+    # K_REVISION is the only value that proves the Cloud Run revision serving
+    # the request. Local fallbacks must not masquerade as that revision.
+    return {
+        "revision": str(os.getenv("K_REVISION") or "").strip() or "unknown",
+        "cloud_run_service": str(os.getenv("K_SERVICE") or "").strip() or "local",
+        "cloud_run_configuration": str(
+            os.getenv("K_CONFIGURATION") or ""
+        ).strip()
+        or "local",
+    }
 
 
 def _mark_router_skipped(module_name: str, reason: str):
@@ -518,10 +524,12 @@ async def request_tracing_middleware(request: Request, call_next):
             pass
     started = perf_counter()
     status_code = 500
+    request_revision = _runtime_identity()["revision"]
     try:
         response = await call_next(request)
         status_code = int(getattr(response, "status_code", 500))
         response.headers["X-Request-ID"] = request_id
+        response.headers["X-AHVI-Revision"] = request_revision
         return response
     except Exception:
         logger.exception(
@@ -534,8 +542,9 @@ async def request_tracing_middleware(request: Request, call_next):
     finally:
         elapsed_ms = int((perf_counter() - started) * 1000)
         logger.info(
-            "request request_id=%s method=%s path=%s status=%s latency_ms=%s",
+            "request request_id=%s revision=%s method=%s path=%s status=%s latency_ms=%s",
             request_id,
+            request_revision,
             request.method,
             request.url.path,
             status_code,
@@ -898,10 +907,11 @@ def root():
 
 
 def _health_identity() -> Dict[str, str]:
+    runtime = _runtime_identity()
     return {
         "service": "ahvi-backend",
         "tag": SERVICE_TAG,
-        "revision": SERVICE_REVISION,
+        **runtime,
     }
 
 
