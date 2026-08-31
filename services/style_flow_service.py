@@ -3,6 +3,7 @@ import hashlib
 import logging
 import math
 import os
+import random
 import re
 import time
 import uuid
@@ -2920,68 +2921,79 @@ def _title_for(card: Dict[str, Any], query: str, index: int, archetype: str = ""
     kind = _occasion_kind(query)
     flags = _occasion_flags(query)
     if kind == "coffee_date":
-        title_by_archetype = {
-            "Hero Look": "Relaxed Oxford",
-            "Safest Option": "Approachable Edit",
-            "Elevated Option": "Soft Coffee Polish",
-            "Relaxed Sharp": "Easy Conversation",
-            "Creative Professional": "Soft Personality",
-            "Backup Option": "Quiet Coffee Fit",
-        }
-        titles = ["Relaxed Oxford", "Easy Conversation", "Soft Coffee Polish", "Approachable Edit"]
+        titles = [
+            "Relaxed Oxford",
+            "Easy Conversation",
+            "Soft Coffee Polish",
+            "Approachable Edit",
+            "Quiet Coffee Fit",
+            "Soft Personality",
+            "Casual Warmth",
+            "Morning Polish",
+            "Café Layer",
+        ]
     elif kind == "client_dinner":
-        title_by_archetype = {
-            "Hero Look": "Client Dinner Polish",
-            "Safest Option": "Composed Evening",
-            "Elevated Option": "Professional Social",
-            "Relaxed Sharp": "After-Work Ease",
-            "Creative Professional": "Measured Personality",
-            "Backup Option": "Quiet Authority",
-        }
-        titles = ["Client Dinner Polish", "Professional Social", "Composed Evening"]
+        titles = [
+            "Client Dinner Polish",
+            "Professional Social",
+            "Composed Evening",
+            "After-Work Ease",
+            "Measured Personality",
+            "Quiet Authority",
+            "Executive Social",
+            "Refined Dining",
+        ]
     elif flags["office"]:
-        title_by_archetype = {
-            "Hero Look": "Boardroom Casual",
-            "Safest Option": "Sharp Daily",
-            "Elevated Option": "Executive Minimal",
-            "Relaxed Sharp": "Clean Friday",
-            "Creative Professional": "Creative Professional",
-            "Backup Option": "Relaxed Sharp",
-        }
-        titles = ["Boardroom Casual", "Sharp Daily", "Creative Professional", "Clean Friday", "Executive Minimal", "Relaxed Sharp"]
+        titles = [
+            "Boardroom Casual",
+            "Sharp Daily",
+            "Creative Professional",
+            "Clean Friday",
+            "Executive Minimal",
+            "Relaxed Sharp",
+            "Tailored Ease",
+            "Modern Workwear",
+            "Desk to Dinner",
+        ]
     elif flags["date"]:
-        title_by_archetype = {
-            "Hero Look": "Date Night Edit",
-            "Safest Option": "Polished Dinner",
-            "Elevated Option": "After-Dark Smart",
-            "Relaxed Sharp": "Confident Casual",
-            "Creative Professional": "Soft Statement",
-            "Backup Option": "Evening Minimal",
-        }
-        titles = ["Date Night Edit", "After-Dark Smart", "Polished Dinner", "Soft Statement", "Evening Minimal", "Confident Casual"]
+        titles = [
+            "Date Night Edit",
+            "After-Dark Smart",
+            "Polished Dinner",
+            "Soft Statement",
+            "Evening Minimal",
+            "Confident Casual",
+            "Subtle Glamour",
+            "Sunset Polish",
+            "Midnight Elegance",
+        ]
     elif flags["party"]:
-        title_by_archetype = {
-            "Hero Look": "After-Hours Edit",
-            "Safest Option": "Clean Contrast",
-            "Elevated Option": "Polished Edge",
-            "Relaxed Sharp": "Statement Ease",
-            "Creative Professional": "Night-Out Sharp",
-            "Backup Option": "Smart Presence",
-        }
-        titles = ["After-Hours Edit", "Statement Ease", "Night-Out Sharp", "Clean Contrast", "Smart Presence", "Polished Edge"]
+        titles = [
+            "After-Hours Edit",
+            "Statement Ease",
+            "Night-Out Sharp",
+            "Clean Contrast",
+            "Smart Presence",
+            "Polished Edge",
+            "Late Night Lounge",
+            "Vibrant Contrast",
+            "Electric Edit",
+        ]
     else:
-        title_by_archetype = {
-            "Hero Look": "Polished Neutral",
-            "Safest Option": "Sharp Daily",
-            "Elevated Option": "Clean Edit",
-            "Relaxed Sharp": "Smart Ease",
-            "Creative Professional": "Refined Casual",
-            "Backup Option": "Signature Fit",
-        }
-        titles = ["Polished Neutral", "Sharp Daily", "Smart Ease", "Clean Edit", "Refined Casual", "Signature Fit"]
-    if archetype in title_by_archetype:
-        return title_by_archetype[archetype]
-    return titles[index % len(titles)]
+        titles = [
+            "Polished Neutral",
+            "Sharp Daily",
+            "Smart Ease",
+            "Clean Edit",
+            "Refined Casual",
+            "Signature Fit",
+            "Effortless Look",
+            "Elevated Basics",
+            "Modern Simplicity",
+            "Balanced Tone",
+            "Curated Minimal",
+        ]
+    return random.choice(titles)
 
 
 _EXPLANATION_MODES = [
@@ -5205,10 +5217,34 @@ def build_style_flow_response(
             target_gender=target_gender,
             context=normalized_occasion or query,
         )
+        try:
+            from services.trend_context_service import annotate_board_with_trend
+            occ = normalized_occasion or query
+            for card in guarded_payload.get("cards", []):
+                if isinstance(card, dict):
+                    annotate_board_with_trend(card, user_gender=target_gender, occasion=occ)
+            data_dict = guarded_payload.get("data")
+            if isinstance(data_dict, dict):
+                for key in ("outfits", "rendered_boards"):
+                    for card in data_dict.get(key, []):
+                        if isinstance(card, dict):
+                            annotate_board_with_trend(card, user_gender=target_gender, occasion=occ)
+        except Exception:
+            logger.debug("style_flow.trend_annotation_failed", exc_info=True)
         return guarded_payload
     except Exception:
         logger.warning("style_flow.gender_guard_failed", exc_info=True)
+        try:
+            from services.trend_context_service import annotate_board_with_trend
+            occ = normalized_occasion or query
+            target_gender = _resolve_asset_gender(query=query, user_profile=profile_for_gender)
+            for card in response_payload.get("cards", []):
+                if isinstance(card, dict):
+                    annotate_board_with_trend(card, user_gender=target_gender, occasion=occ)
+        except Exception:
+            pass
         return response_payload
+
 
 
 # ============================================================================
@@ -5531,6 +5567,13 @@ def _enforce_explicit_roles_on_cards(
 
     kept: List[Dict[str, Any]] = []
     all_missing: set = set()
+    spec_item = None
+    try:
+        from services.style_explicit_roles import find_user_specified_item
+        spec_item = find_user_specified_item(query, pool)
+    except Exception:
+        pass
+
     for card in cards or []:
         fixed, status, missing = enforce_explicit_roles(
             card,
@@ -5540,18 +5583,27 @@ def _enforce_explicit_roles_on_cards(
             occasion=occasion,
         )
         if fixed is None:
-            all_missing.update(missing)
-            logger.warning(
-                "AHVI_EXPLICIT_ROLES_REJECTED missing=%s requested=%s title=%s",
-                sorted(missing), required, _safe_text(card.get("title")) if isinstance(card, dict) else "",
-            )
-            continue
-        if status == "repaired":
-            logger.info(
-                "AHVI_EXPLICIT_ROLES_REPAIRED requested=%s title=%s",
-                required, _safe_text(fixed.get("title")),
-            )
-        kept.append(fixed)
+            fixed = card if isinstance(card, dict) else None
+        if spec_item and isinstance(fixed, dict):
+            spec_id = str(spec_item.get("id") or spec_item.get("item_id") or "")
+            items = list(fixed.get("items") or [])
+            has_spec = any(str(i.get("id") or i.get("item_id") or "") == spec_id for i in items if isinstance(i, dict))
+            if not has_spec:
+                spec_role = str(spec_item.get("explicit_role") or "").lower()
+                replaced = False
+                for idx, item in enumerate(items):
+                    if isinstance(item, dict):
+                        from services.style_explicit_roles import item_explicit_role
+                        if item_explicit_role(item) == spec_role:
+                            items[idx] = spec_item
+                            replaced = True
+                            break
+                if not replaced:
+                    items.append(spec_item)
+                fixed["items"] = items
+                fixed["item_count"] = len(items)
+        if fixed is not None:
+            kept.append(fixed)
 
     if isinstance(enforcement, dict):
         enforcement["repair_attempted"] = True

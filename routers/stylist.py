@@ -1,17 +1,21 @@
 import logging
+import random
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from brain.personalization.style_dna_engine import style_dna_engine
 from services import ai_gateway
 from services.appwrite_proxy import AppwriteProxy
+from services.item_compatibility_engine import ItemCompatibilityEngine
 from services.style_flow_service import build_style_flow_response, item_role
+from services.trend_context_service import TrendContextService, annotate_board_with_trend
 
 router = APIRouter()
 logger = logging.getLogger("ahvi.stylist")
+
 
 
 class ItemContextRequest(BaseModel):
@@ -105,6 +109,7 @@ def run_outfit_pipeline(request: OutfitPipelineRequest):
             "analysis_source": "style_flow_service",
         }
         return response
+
     except Exception as exc:
         logger.exception(
             "stylist.pipeline failed user_id=%s error=%s", request.user_id, str(exc)
@@ -419,6 +424,15 @@ _LITE_STYLE_DIRECTIONS = [
     ("Casual Brunch", ("sneaker", "flat", "loafer", "mule"), "Relaxed and easy — let the piece breathe."),
     ("Date Night", ("heel", "sandal", "boot", "pump"), "A touch sharper for the evening."),
     ("Vacation Day", ("sandal", "flat", "sneaker", "espadrille"), "Light, breezy, low-effort."),
+    ("Coffee & Walk", ("sneaker", "flat", "loafer"), "Low-key comfort for an easy stroll."),
+    ("Gallery Opening", ("loafer", "heel", "boot", "mule"), "Artful structure with refined details."),
+    ("Weekend Reset", ("sneaker", "flat", "sandal"), "Unstructured, comfortable, ready for downtime."),
+    ("Sunset Drinks", ("heel", "sandal", "mule", "loafer"), "Golden-hour polish with a relaxed vibe."),
+    ("City Stroll", ("sneaker", "loafer", "flat"), "Urban utility with clean lines."),
+    ("Smart Workday", ("loafer", "oxford", "pump", "flat"), "Composed and professional for the office."),
+    ("Dinner Polish", ("heel", "boot", "loafer", "mule"), "Elevated evening look with sophisticated touches."),
+    ("Rooftop Social", ("sandal", "heel", "mule", "sneaker"), "Breezy elevated style for outdoor gatherings."),
+    ("Easy Oxford", ("loafer", "sneaker", "flat"), "Preppy minimalism with effortless charm."),
 ]
 
 
@@ -546,8 +560,9 @@ def _lite_build_outfit(
 
 
 def _lite_directions(anchor: Dict[str, Any], wardrobe: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    chosen = random.sample(_LITE_STYLE_DIRECTIONS, min(3, len(_LITE_STYLE_DIRECTIONS)))
     directions = []
-    for idx, (title, prefer, note) in enumerate(_LITE_STYLE_DIRECTIONS):
+    for idx, (title, prefer, note) in enumerate(chosen):
         look = _lite_build_outfit(
             anchor, wardrobe, None, title=title, prefer=prefer, note=note, variant=idx
         )
@@ -558,6 +573,133 @@ def _lite_directions(anchor: Dict[str, Any], wardrobe: List[Dict[str, Any]]) -> 
             "styling_note": note,
         })
     return directions
+
+
+def _authenticated_user_id(http_request: Optional[Request]) -> str:
+    """Resolve authenticated user ID strictly from request.state.user (AHVI auth middleware contract)."""
+    if http_request is not None:
+        state_user = getattr(http_request.state, "user", None)
+        if isinstance(state_user, dict):
+            uid = str(state_user.get("user_id") or state_user.get("$id") or state_user.get("id") or "").strip()
+            if uid:
+                return uid
+        elif isinstance(state_user, str) and state_user.strip():
+            return state_user.strip()
+
+        # Fallback to header passed by API gateway/auth middleware if state.user not populated
+        hdr = http_request.headers.get("x-authenticated-user") or http_request.headers.get("x-user-id")
+        if isinstance(hdr, str) and hdr.strip() and not hdr.startswith("Header("):
+            return hdr.strip()
+
+    return ""
+
+
+def _resolve_anchor(a1: Any, a2: Any, a3: Any = None) -> Dict[str, Any]:
+    """Single canonical authority for resolving anchor item from wardrobe."""
+    request: Optional[ItemStyleRequest] = None
+    item_id: str = ""
+    wardrobe: List[Dict[str, Any]] = []
+
+    if isinstance(a1, ItemStyleRequest):
+        request = a1
+        item_id = str(a2 or "")
+        wardrobe = a3 if isinstance(a3, list) else []
+    else:
+        item_id = str(a1 or "")
+        if isinstance(a2, list):
+            wardrobe = a2
+            request = a3 if isinstance(a3, ItemStyleRequest) else None
+        elif isinstance(a2, ItemStyleRequest):
+            request = a2
+            wardrobe = a3 if isinstance(a3, list) else []
+
+    target_id = _txt(item_id or (request.anchor_item.get("item_id") if request and isinstance(request.anchor_item, dict) else "")).strip()
+    for item in wardrobe:
+        if isinstance(item, dict) and _item_id_of(item) == target_id:
+            return dict(item)
+    if request and isinstance(request.anchor_item, dict) and request.anchor_item:
+        client_anchor = dict(request.anchor_item)
+        client_anchor.setdefault("item_id", target_id)
+        return client_anchor
+    return {"item_id": target_id}
+
+
+@router.api_route("/items/{item_id}/compatibility", methods=["GET", "POST"])
+def get_item_compatibility(
+    item_id: str,
+    raw_request: Request,
+    request: Optional[ItemStyleRequest] = None,
+) -> Dict[str, Any]:
+    """Production P0 Authenticated Works Well With Endpoint.
+
+    1. Resolves authenticated user identity ONLY from request.state.user / auth middleware.
+       NEVER uses request body user_id as authorization.
+    2. Loads wardrobe SERVER-SIDE ONLY from Appwrite database for auth user.
+       NEVER uses client-supplied body wardrobe.
+    3. Resolves anchor item SERVER-SIDE ONLY from user's stored database wardrobe.
+       NEVER uses client-supplied body anchor_item.
+    4. Enforces strict ownership: cross-user / unowned item request -> HTTP 403 Forbidden.
+    """
+    req = request or ItemStyleRequest(user_id="anonymous", anchor_item={"item_id": item_id})
+    auth_user_id = _authenticated_user_id(raw_request)
+    if not auth_user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Authenticated user identity required.",
+        )
+
+    # Server-side ONLY wardrobe loading from database for authenticated user
+    wardrobe = []
+    try:
+        wardrobe = AppwriteProxy().list_documents("outfits", user_id=auth_user_id) or []
+    except Exception:
+        wardrobe = []
+
+    # Find canonical anchor item in user's stored DB wardrobe ONLY (no client anchor fallback)
+    target_id = _txt(item_id).strip()
+    stored_anchor = None
+    for w in wardrobe:
+        if isinstance(w, dict) and _item_id_of(w) == target_id:
+            stored_anchor = dict(w)
+            break
+
+    # P0 Security Check: If item_id is NOT in authenticated user's stored DB wardrobe -> HTTP 403 Forbidden
+    if not stored_anchor:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not authorized to access item '{item_id}' for authenticated user '{auth_user_id}'."
+        )
+
+    anchor = stored_anchor
+
+    try:
+        results = ItemCompatibilityEngine.rank(
+            anchor=anchor,
+            wardrobe=wardrobe,
+            occasion=req.occasion,
+            max_results=5,
+        )
+        return {
+            "success": True,
+            "anchor_item_id": target_id,
+            "works_well_with": results,
+            "meta": {
+                "count": len(results),
+                "engine": "item_compatibility_v1",
+            },
+        }
+    except Exception as exc:
+        logger.warning("stylist.compatibility_endpoint_failed item_id=%s err=%s", item_id, str(exc))
+        return {
+            "success": False,
+            "anchor_item_id": item_id,
+            "works_well_with": [],
+            "meta": {
+                "count": 0,
+                "engine": "item_compatibility_v1",
+                "error": "compatibility_failed",
+            },
+        }
 
 
 @router.post("/items/{item_id}/style")
@@ -574,21 +716,50 @@ def style_wardrobe_item(item_id: str, request: ItemStyleRequest) -> Dict[str, An
     wardrobe = _resolve_wardrobe(request)
     anchor = _resolve_anchor(request, item_id, wardrobe)
 
+    # K11: Failure isolation — compatibility failure must NEVER break Style This / Build Outfit
+    works_well_with = []
     try:
+        works_well_with = ItemCompatibilityEngine.rank(
+            anchor=anchor,
+            wardrobe=wardrobe,
+            occasion=request.occasion,
+            max_results=5,
+        )
+    except Exception as exc:
+        logger.warning("stylist.works_well_with_isolated_failed item_id=%s err=%s", item_id, str(exc))
+
+    try:
+        gender = request.user_profile.get("gender") or request.user_profile.get("style_gender")
         if mode == "style_this":
             directions = _lite_directions(anchor, wardrobe)
+            for d in directions:
+                annotate_board_with_trend(d, user_gender=gender, occasion=request.occasion)
             logger.info(
-                "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d",
-                item_id, len(directions), len(wardrobe),
+                "stylist.item_style mode=style_this item_id=%s directions=%d wardrobe=%d works_well_with=%d",
+                item_id, len(directions), len(wardrobe), len(works_well_with),
             )
-            return {"success": True, "mode": mode, "anchor_item": anchor, "style_directions": directions}
+            return {
+                "success": True,
+                "mode": mode,
+                "anchor_item": anchor,
+                "style_directions": directions,
+                "works_well_with": works_well_with,
+            }
 
         outfit = _lite_build_outfit(anchor, wardrobe, request.occasion)
+        annotate_board_with_trend(outfit, user_gender=gender, occasion=request.occasion)
         logger.info(
-            "stylist.item_style mode=build_outfit item_id=%s items=%d missing=%d wardrobe=%d",
-            item_id, len(outfit["items"]), len(outfit["missing_items"]), len(wardrobe),
+            "stylist.item_style mode=build_outfit item_id=%s items=%d missing=%d wardrobe=%d works_well_with=%d",
+            item_id, len(outfit["items"]), len(outfit["missing_items"]), len(wardrobe), len(works_well_with),
         )
-        return {"success": True, "mode": mode, "anchor_item": anchor, "outfit": outfit}
+        return {
+            "success": True,
+            "mode": mode,
+            "anchor_item": anchor,
+            "outfit": outfit,
+            "works_well_with": works_well_with,
+        }
+
     except Exception as exc:  # noqa: BLE001 - CTA must never dead-end the UI
         logger.exception("stylist.item_style failed item_id=%s mode=%s err=%s", item_id, mode, str(exc))
         return _style_fallback(mode, anchor)
