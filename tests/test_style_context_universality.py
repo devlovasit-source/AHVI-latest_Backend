@@ -93,6 +93,42 @@ def test_ambiguous_context_still_clarifies():
     assert diagnostics["requires_clarification"] is True
 
 
+def test_explicit_gym_replaces_stale_travel_occasion():
+    context, diagnostics = resolve_style_conversation_context(
+        current_message="I need a gym outfit",
+        recent_history=[{"role": "user", "content": "I need a travel outfit"}],
+    )
+
+    assert context.occasion is None
+    assert context.activity == "gym"
+    assert context.activity_type == "training"
+    assert diagnostics["context_used"] == [
+        "current_turn.activity",
+        "current_turn.activity_type",
+    ]
+
+
+def test_ambiguous_follow_up_preserves_stale_travel_occasion():
+    context, _ = resolve_style_conversation_context(
+        current_message="Make another one",
+        recent_history=[{"role": "user", "content": "I need a travel outfit"}],
+    )
+
+    assert context.occasion == "travel"
+    assert context.activity is None
+
+
+def test_explicit_travel_replaces_stale_gym_activity():
+    context, _ = resolve_style_conversation_context(
+        current_message="I need a travel outfit",
+        recent_history=[{"role": "user", "content": "I need a gym outfit"}],
+    )
+
+    assert context.occasion == "travel"
+    assert context.activity is None
+    assert context.activity_type is None
+
+
 def test_deterministic_fast_path_remains_llm_free(monkeypatch):
     monkeypatch.setattr(
         resolver,

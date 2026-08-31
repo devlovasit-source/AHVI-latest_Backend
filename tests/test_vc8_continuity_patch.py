@@ -173,6 +173,28 @@ def test_explicit_current_turn_generation_can_follow_current_board(monkeypatch):
     assert board_calls[0]["resolved_context"]["date_context"] == "tomorrow"
 
 
+def test_explicit_gym_beats_stale_travel_and_builds_board(monkeypatch):
+    board_calls = []
+    client = _module_client(monkeypatch, board_calls)
+
+    response = client.post(
+        "/api/module-chat",
+        json={
+            "domain": "style",
+            "message": "I need a gym outfit",
+            "history": [{"role": "user", "content": "I need a travel outfit"}],
+        },
+    )
+    body = response.json()
+
+    assert response.status_code == 200, body
+    assert body["style_boards"]
+    assert body["meta"]["board_count"] > 0
+    assert board_calls[0]["resolved_context"]["activity"] == "gym"
+    assert board_calls[0]["resolved_context"]["activity_type"] == "training"
+    assert board_calls[0]["resolved_context"]["occasion"] is None
+
+
 def test_api_text_current_board_clarification_beats_legacy_board_generation(monkeypatch):
     board_calls = []
     client = _module_client(monkeypatch, board_calls)

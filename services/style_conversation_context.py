@@ -568,14 +568,15 @@ def resolve_style_conversation_context(
         fill_only=True,
     )
     resolved = resolved.overlay(current)
-    if _is_explicit_context_correction(current_message):
-        # An explicit replacement must not retain the superseded context
-        # dimension from an earlier turn.
-        if current.occasion and not current.activity:
-            resolved.activity = None
-            resolved.activity_type = None
-        elif current.activity and not current.occasion:
-            resolved.occasion = None
+    # A concrete current-turn dimension is authoritative even when the user
+    # does not say "actually" or "instead". Keep unrelated dimensions, but do
+    # not let a carried occasion make an explicit activity look like that old
+    # occasion. Turns with neither dimension remain ordinary context carryover.
+    if current.occasion and not current.activity:
+        resolved.activity = None
+        resolved.activity_type = None
+    elif current.activity and not current.occasion:
+        resolved.occasion = None
     resolved.referent = _resolve_referent(current_message, resolved, semantic_referent)
 
     missing = []
@@ -605,7 +606,9 @@ def resolve_style_conversation_context(
     for field_name in ("date_context", "daypart", "occasion", "activity", "activity_type", "venue"):
         if getattr(current, field_name):
             context_used.append(f"current_turn.{field_name}")
-        elif getattr(carried, field_name) or getattr(history_context, field_name):
+        elif getattr(resolved, field_name) and (
+            getattr(carried, field_name) or getattr(history_context, field_name)
+        ):
             context_used.append(f"conversation.{field_name}")
     if resolved.referent and resolved.referent.get("resolved_to") not in {None, "unresolved"}:
         context_used.append("conversation.referent")
