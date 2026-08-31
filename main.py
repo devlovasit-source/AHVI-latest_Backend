@@ -66,6 +66,24 @@ def _runtime_identity() -> dict[str, str]:
     }
 
 
+def _request_id_for(request: Request) -> str:
+    request_id = str(
+        getattr(request.state, "request_id", "")
+        or request.headers.get("X-Request-ID")
+        or uuid4()
+    ).strip()
+    request.state.request_id = request_id
+    set_request_id(request_id)
+    return request_id
+
+
+def _provenance_headers(request_id: str) -> dict[str, str]:
+    return {
+        "X-Request-ID": request_id,
+        "X-AHVI-Revision": _runtime_identity()["revision"],
+    }
+
+
 def _mark_router_skipped(module_name: str, reason: str):
     required = module_name in REQUIRED_ROUTERS
     ROUTER_LOAD_STATUS[module_name] = {
@@ -437,7 +455,7 @@ _HTTP_ERROR_CODES = {
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    request_id = str(getattr(request.state, "request_id", "") or "")
+    request_id = _request_id_for(request)
     return JSONResponse(
         status_code=400,
         content={
@@ -449,12 +467,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
                 "details": exc.errors(),
             },
         },
+        headers=_provenance_headers(request_id),
     )
 
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    request_id = str(getattr(request.state, "request_id", "") or "")
+    request_id = _request_id_for(request)
     code = _HTTP_ERROR_CODES.get(exc.status_code, "HTTP_ERROR")
     detail = exc.detail
     if isinstance(detail, dict):
@@ -470,12 +489,16 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     }
     if details is not None:
         body["error"]["details"] = details
-    return JSONResponse(status_code=exc.status_code, content=body, headers=exc.headers)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=body,
+        headers={**(exc.headers or {}), **_provenance_headers(request_id)},
+    )
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    request_id = str(getattr(request.state, "request_id", "") or "")
+    request_id = _request_id_for(request)
     logger.exception("Unhandled error on %s", request.url.path, exc_info=exc)
     return JSONResponse(
         status_code=500,
@@ -487,6 +510,7 @@ async def global_exception_handler(request: Request, exc: Exception):
                 "message": "Internal server error",
             },
         },
+        headers=_provenance_headers(request_id),
     )
 
 
@@ -512,10 +536,7 @@ app.add_middleware(StreamBodyLimitMiddleware, max_bytes=settings.upload_max_byte
 
 @app.middleware("http")
 async def request_tracing_middleware(request: Request, call_next):
-    incoming = request.headers.get("X-Request-ID")
-    request_id = str(incoming or "").strip() or str(uuid4())
-    set_request_id(request_id)
-    request.state.request_id = request_id
+    request_id = _request_id_for(request)
     if sentry_sdk and _sentry_client_ready:
         try:
             sentry_sdk.set_tag("request_id", request_id)
@@ -554,6 +575,7 @@ async def request_tracing_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def auth_guard_middleware(request: Request, call_next):
+    request_id = _request_id_for(request)
     if not settings.auth_required:
         return await call_next(request)
     # CORS preflights never carry an Authorization header. Let the CORS
@@ -579,16 +601,16 @@ async def auth_guard_middleware(request: Request, call_next):
     try:
         request.state.user = await get_current_user(request)
     except HTTPException as exc:
-        request_id = str(getattr(request.state, "request_id", "") or "")
         code = _HTTP_ERROR_CODES.get(exc.status_code, "HTTP_ERROR")
         has_auth_header = bool(request.headers.get("authorization"))
         logger.warning(
-            "auth_guard_reject path=%s status=%s reason=%r has_auth_header=%s request_id=%s",
+            "auth_guard_reject path=%s status=%s reason=%r has_auth_header=%s request_id=%s revision=%s",
             path,
             exc.status_code,
             str(exc.detail),
             has_auth_header,
             request_id,
+            _runtime_identity()["revision"],
         )
         return JSONResponse(
             status_code=exc.status_code,
@@ -597,12 +619,14 @@ async def auth_guard_middleware(request: Request, call_next):
                 "request_id": request_id,
                 "error": {"code": code, "message": str(exc.detail or code)},
             },
+            headers=_provenance_headers(request_id),
         )
     return await call_next(request)
 
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
+    request_id = _request_id_for(request)
     if not settings.rate_limit_enabled:
         return await call_next(request)
     if str(request.method or "").upper() == "OPTIONS":
@@ -614,15 +638,17 @@ async def rate_limit_middleware(request: Request, call_next):
             status_code=status_code,
             content={
                 "success": False,
-                "request_id": str(getattr(request.state, "request_id", "") or ""),
+                "request_id": request_id,
                 "error": {
                     "code": "RATE_LIMIT_BACKEND_UNAVAILABLE",
                     "message": "Rate-limit backend unavailable",
                 },
             },
-            headers={"Retry-After": str(settings.rate_limit_window_seconds)},
+            headers={
+                **_provenance_headers(request_id),
+                "Retry-After": str(settings.rate_limit_window_seconds),
+            },
         )
-    request_id = str(getattr(request.state, "request_id", "") or "")
     ip = extract_client_ip(
         request.headers, request.client.host if request.client else None
     )
@@ -668,6 +694,7 @@ async def rate_limit_middleware(request: Request, call_next):
                 },
             },
             headers={
+                **_provenance_headers(request_id),
                 "X-RateLimit-Remaining": str(remaining),
                 "X-RateLimit-Limit": str(settings.rate_limit_max_requests),
                 "X-RateLimit-Window": str(settings.rate_limit_window_seconds),

@@ -52,3 +52,18 @@ def test_revision_header_correlates_a_request_without_exposing_secrets(monkeypat
         "cloud_run_service",
         "cloud_run_configuration",
     }
+
+
+def test_auth_rejection_also_carries_request_provenance(monkeypatch):
+    monkeypatch.setenv("K_REVISION", "ahvi-backend-00042-abc")
+    monkeypatch.setattr(main.settings, "auth_required", True)
+    response = TestClient(main.app).post(
+        "/api/module-chat",
+        headers={"X-Request-ID": "provenance-auth-rejection"},
+        json={"domain": "style", "message": "hello"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["request_id"] == "provenance-auth-rejection"
+    assert response.headers["X-Request-ID"] == "provenance-auth-rejection"
+    assert response.headers["X-AHVI-Revision"] == "ahvi-backend-00042-abc"
