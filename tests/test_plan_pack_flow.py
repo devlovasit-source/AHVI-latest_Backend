@@ -77,10 +77,20 @@ def test_known_packing_items_return_semantic_icon_keys():
     assert sunscreen["source"] == "icon"
     assert sunscreen["iconKey"] == "sunscreen"
     assert sunscreen["assetIcon"] is None
+    assert sunscreen["image_url"].endswith("/mens-assets/skincare/retinol.jpg")
     assert charger["iconKey"] == "charger"
     assert charger["assetIcon"] is None
     assert passport["iconKey"] == "passport"
     assert passport["assetIcon"] is None
+
+
+def test_legacy_checklist_items_include_image_url_alias():
+    response = build_plan_pack_response("Pack for a carry-on trip")
+    essentials = next(card for card in response["cards"] if card["id"] == "packing_essentials")
+    sunscreen = next(item for item in essentials["items"] if item["label"] == "Sunscreen")
+
+    assert sunscreen["image_url"].endswith("/mens-assets/skincare/retinol.jpg")
+    assert sunscreen["imageUrl"] is None
 
 
 def test_plan_pack_module_fetches_wardrobe_and_fails_open(monkeypatch):

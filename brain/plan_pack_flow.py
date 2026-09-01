@@ -217,6 +217,64 @@ def _image_url_from_item(item: Dict[str, Any]) -> str:
     return ""
 
 
+_PACKING_IMAGE_BASE = (
+    "https://pub-43484c7ec0d741cabcac4df01e98344b.r2.dev/mens-assets"
+)
+
+# Curated product imagery for non-wardrobe packing essentials. These are kept
+# separate from the user's wardrobe so toiletries, documents, and tech never
+# accidentally inherit a clothing image.
+_PACKING_IMAGE_ALIASES = {
+    "sunscreen": "skincare/retinol.jpg",
+    "sun screen": "skincare/retinol.jpg",
+    "spf": "skincare/retinol.jpg",
+    "sunglasses": "other_accessories/blacksunglasses.jpg",
+    "lip balm": "skincare/lipbalm.jpg",
+    "toiletries": "skincare/grooming kit.jpg",
+    "toiletry": "skincare/grooming kit.jpg",
+    "face mask": "skincare/facemask.jpg",
+    "power bank": "travel/black powerbank.jpg",
+    "powerbank": "travel/black powerbank.jpg",
+    "charger": "travel/c type charger.jpg",
+    "phone": "travel/c type charger.jpg",
+    "earphone": "travel/wireless earphones.jpg",
+    "headphone": "travel/wireless earphones.jpg",
+    "neck pillow": "travel/blue neck pillow.jpg",
+    "travel pillow": "travel/blue neck pillow.jpg",
+    "water bottle": "travel/blacktumbler.jpg",
+    "hydration": "travel/blacktumbler.jpg",
+    "medicine": "travel/medicalkit.jpg",
+    "first aid": "travel/medicalkit.jpg",
+    "first-aid": "travel/medicalkit.jpg",
+    "umbrella": "travel/foldable umberella.jpg",
+    "document": "travel/documentholder.jpg",
+    "passport": "travel/documentholder.jpg",
+    "ticket": "travel/documentholder.jpg",
+    "visa": "travel/documentholder.jpg",
+    "tops": "tops/whitetshirt.jpg",
+    "top": "tops/whitetshirt.jpg",
+    "shirt": "tops/whiteshirt.jpg",
+    "t-shirt": "tops/whitetshirt.jpg",
+    "bottoms": "bottoms/beigechinos.jpg",
+    "bottom": "bottoms/beigechinos.jpg",
+    "footwear": "footwear/whitesneakers.jpg",
+    "shoes": "footwear/whitesneakers.jpg",
+    "outer layer": "outerwear/blackcoat.jpg",
+    "jacket": "outerwear/blackcoat.jpg",
+    "blazer": "outerwear/blackblazer.jpg",
+    "beachwear": "bottoms/blueswimshorts.jpg",
+    "swimwear": "bottoms/blueswimshorts.jpg",
+}
+
+
+def _packing_image_url(label: str) -> Optional[str]:
+    lowered = str(label or "").lower()
+    for alias, path in _PACKING_IMAGE_ALIASES.items():
+        if alias in lowered:
+            return f"{_PACKING_IMAGE_BASE}/{path}"
+    return None
+
+
 def _matches_wardrobe(label: str, item: Dict[str, Any]) -> bool:
     needle = str(label or "").lower()
     if not needle:
@@ -373,6 +431,7 @@ def _visual_section_item(
             "section": section,
             "category": section,
             "source": "wardrobe",
+            "image_url": image_urls[0] if image_urls else None,
             "image_urls": image_urls,
             "wardrobe_item_ids": wardrobe_ids,
             "assetIcon": None,
@@ -398,6 +457,7 @@ def _visual_section_item(
         "section": section,
         "category": section,
         "source": "icon",
+        "image_url": _packing_image_url(base_label),
         "image_urls": [],
         "wardrobe_item_ids": [],
         "assetIcon": None,
@@ -513,6 +573,7 @@ def _visual_item(
                     "category": category,
                     "checked": False,
                     "imageUrl": image_url,
+                    "image_url": image_url,
                     "assetIcon": None,
                     "source": "wardrobe",
                     "wardrobeItemId": item.get("$id") or item.get("id"),
@@ -523,6 +584,7 @@ def _visual_item(
         "category": category,
         "checked": False,
         "imageUrl": None,
+        "image_url": _packing_image_url(clean),
         "assetIcon": None,
         "iconKey": icon_key or "generic",
         "source": "icon",
