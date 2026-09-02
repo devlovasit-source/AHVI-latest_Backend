@@ -324,6 +324,139 @@ def _rotate_png(image_bytes: bytes, angle_ccw: int) -> Optional[bytes]:
         return None
 
 
+# ── Catalogue identity-drift gate (flag-gated) ───────────────────────────────
+# Nano Banana REGENERATES the garment rather than re-cropping the source photo,
+# so the resulting normalized_url can end up depicting a visibly different-
+# looking item (wrong color family, wrong silhouette, even the wrong garment
+# type) while still scoring fine on score_catalog_quality's structural checks
+# (edge quality / centering / completeness). _catalog_identity_drift() in
+# routers/wardrobe_capture.py already hard-blocks on
+# reason in {"identity_drift", "wrong_garment_type"} - this gate is the ONE
+# place that actually produces that reason. Without it the hard-block is dead
+# code: nothing else in this codebase ever sets it.
+#
+# Deliberately NOT folded into score_catalog_quality's color_distance check:
+# that check is a crude whole-image average-color diff already proven to
+# false-positive on legitimate patterned/recolored regeneration (see the
+# _catalog_identity_drift comment in wardrobe_capture.py). This gate instead
+# asks a vision model the actual question a shopper would ask - "is this
+# still the same item" - and is deliberately tolerant of shading/print/
+# lighting drift, only flagging a confident category/silhouette/color-family
+# mismatch.
+def _identity_check_enabled() -> bool:
+    return str(os.getenv("CATALOG_IDENTITY_CHECK", "false")).strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _identity_confidence_min() -> float:
+    try:
+        return float(os.getenv("CATALOG_IDENTITY_CONFIDENCE_MIN", "0.75") or 0.75)
+    except (TypeError, ValueError):
+        return 0.75
+
+
+_IDENTITY_MATCH_ALLOWED = {"match", "mismatch", "uncertain"}
+
+
+def _classify_identity_match(
+    original_bytes: bytes,
+    generated_bytes: bytes,
+    category: Any,
+    meta: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Vision comparison of the generated catalogue image against the source
+    photo/cutout it was regenerated from.
+
+    Returns {match, confidence, evidence}. FAIL-SAFE, but in the OPPOSITE
+    direction from _classify_orientation: any error, timeout, unavailable
+    client, or unparseable response returns match="uncertain" with
+    confidence 0, and callers must treat "uncertain" as PASS. Orientation
+    blocks on "uncertain" because a sideways catalogue is actively wrong to
+    show; here, a missing/failed signal must not turn every catalog
+    generation into a forced cutout fallback - only a *confident* mismatch
+    should reject.
+    """
+    if genai is None or types is None:
+        return {"match": "uncertain", "confidence": 0.0, "evidence": "genai_unavailable"}
+    cat = normalize_catalog_category(category)
+    meta = meta or {}
+    color = str(meta.get("color_name") or meta.get("color") or "").strip()
+    name = str(meta.get("name") or meta.get("label") or "").strip()
+    anchor_bits = [f"category={cat}"]
+    if color:
+        anchor_bits.append(f"color={color}")
+    if name:
+        anchor_bits.append(f"name={name}")
+    prompt = (
+        "The FIRST image is the original source photo/cutout of a wardrobe "
+        "item. The SECOND image is a regenerated e-commerce catalog product "
+        "photo that is supposed to depict the exact same physical item "
+        f"({', '.join(anchor_bits)}).\n\n"
+        "Decide whether the second image still shows the SAME item as the "
+        "first - same category/type (e.g. sneaker vs sandal vs boot, same "
+        "garment type), same broad silhouette, same broad color family. "
+        "Minor AI-regeneration differences in exact shading, fine print "
+        "detail, or studio lighting are EXPECTED and must NOT count as a "
+        "mismatch - only flag a mismatch if a shopper would say 'that is a "
+        "different item'.\n\n"
+        "Return JSON only:\n"
+        '{"match":"match|mismatch|uncertain","confidence":0.0-1.0,'
+        '"evidence":"short reason code"}'
+    )
+    try:
+        model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash"
+        try:
+            to_s = int(os.getenv("CATALOG_IDENTITY_TIMEOUT_SECONDS", "12") or 12)
+        except (TypeError, ValueError):
+            to_s = 12
+        http_kwargs: Dict[str, Any] = {"api_version": "v1"}
+        http_fields = getattr(types.HttpOptions, "model_fields", {}) or {}
+        if not http_fields or "timeout" in http_fields:
+            http_kwargs["timeout"] = int(to_s * 1000)
+        client = genai.Client(
+            vertexai=True,
+            project=_vertex_project(),
+            location=_vertex_location(),
+            http_options=types.HttpOptions(**http_kwargs),
+        )
+        cfg_fields = getattr(types.GenerateContentConfig, "model_fields", {}) or {}
+        ckw: Dict[str, Any] = {}
+        if not cfg_fields or "temperature" in cfg_fields:
+            ckw["temperature"] = 0
+        if not cfg_fields or "candidate_count" in cfg_fields:
+            ckw["candidate_count"] = 1
+        if not cfg_fields or "response_mime_type" in cfg_fields:
+            ckw["response_mime_type"] = "application/json"
+        original_part = types.Part.from_bytes(data=original_bytes, mime_type="image/png")
+        generated_part = types.Part.from_bytes(data=generated_bytes, mime_type="image/png")
+        resp = client.models.generate_content(
+            model=model,
+            contents=[prompt, original_part, generated_part],
+            config=types.GenerateContentConfig(**ckw),
+        )
+        text = (getattr(resp, "text", None) or "").strip()
+        data = json.loads(text)
+        m = str(data.get("match") or "uncertain").strip().lower()
+        if m not in _IDENTITY_MATCH_ALLOWED:
+            m = "uncertain"
+        try:
+            c = float(data.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            c = 0.0
+        return {
+            "match": m,
+            "confidence": max(0.0, min(1.0, c)),
+            "evidence": str(data.get("evidence") or "")[:60],
+        }
+    except Exception as exc:  # noqa: BLE001 - fail-safe: never block on infra failure
+        return {
+            "match": "uncertain",
+            "confidence": 0.0,
+            "evidence": f"error:{type(exc).__name__}",
+        }
+
+
 def _build_catalog_prompt(category: Any, metadata: Optional[Dict[str, Any]] = None) -> str:
     meta = metadata or {}
     cat = normalize_catalog_category(category)
@@ -2078,6 +2211,46 @@ def generate_catalog_png(
             original_bytes=cutout_bytes,
             item_metadata=_provider_validation_metadata(meta, category),
         )
+        # Identity-drift gate: only spend a vision call on candidates that
+        # already passed the cheap structural checks. A confident mismatch
+        # here overrides "ok" so the item falls through to the cutout
+        # fallback below instead of saving a wrong-looking regenerated image.
+        if _identity_check_enabled() and generated_validation.get("ok"):
+            identity = _classify_identity_match(
+                cutout_bytes, provider_result.image_bytes, category, meta
+            )
+            logger.info(
+                "ahvi.capture.catalog.identity_check_%s item_id=%s category=%s "
+                "confidence=%.2f evidence=%s",
+                identity.get("match", "uncertain"),
+                meta.get("item_id"),
+                category,
+                float(identity.get("confidence") or 0.0),
+                identity.get("evidence", ""),
+            )
+            if (
+                identity.get("match") == "mismatch"
+                and float(identity.get("confidence") or 0.0) >= _identity_confidence_min()
+            ):
+                generated_validation = {
+                    **generated_validation,
+                    "ok": False,
+                    "reason": "wrong_garment_type",
+                    "identity_check": identity,
+                }
+                provider_result = CatalogProviderResult(
+                    False,
+                    reason="identity_mismatch",
+                    provider=provider_result.provider,
+                )
+                logger.warning(
+                    "ahvi.capture.catalog.identity_mismatch_rejected item_id=%s "
+                    "category=%s confidence=%.2f evidence=%s",
+                    meta.get("item_id"),
+                    category,
+                    float(identity.get("confidence") or 0.0),
+                    identity.get("evidence", ""),
+                )
         vertex_demo_accepted = (
             provider_result.provider in {"vertex_imagen", "nanobanana"}
             and not generated_validation.get("ok")
