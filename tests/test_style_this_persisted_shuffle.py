@@ -830,6 +830,46 @@ def test_shuffle_never_selects_not_board_ready_item_and_reasoning_matches_select
         assert new_top["name"] in result["styling_note"], "reasoning must name the actually-selected item"
 
 
+def test_shuffle_reasoning_uses_changed_slot_not_first_unchanged_locked_item():
+    items = [
+        _item("top-1", "White Shirt", "Tops"),
+        _item("bottom-1", "Blue Jeans", "Bottoms"),
+        _item("shoe-1", "White Sneakers", "Footwear"),
+    ]
+    strategy = {"direction_title": "Focused Edit", "reasoning_intent": "intentional"}
+    registered = shuffle_service.register_board(
+        board_id="changed-slot-reasoning-board",
+        revision=1,
+        scenario="style_this",
+        source_policy="wardrobe",
+        anchor_item_id="top-1",
+        style_strategy=strategy,
+        items=items,
+        user_id="owner-1",
+    )
+    assert registered["ok"] is True
+
+    result = shuffle_service.shuffle_board(
+        board_id="changed-slot-reasoning-board",
+        revision=1,
+        locked_items=[items[0], items[1]],
+        shuffle_slots=["footwear"],
+        exclude_item_ids=["shoe-1"],
+        source_policy="inherit",
+        wardrobe=_wardrobe(),
+        context={"board_items": items},
+        user_id="owner-1",
+    )
+
+    assert result["success"] is True
+    assert result["changed_slots"] == ["footwear"]
+    changed_footwear = next(
+        item for item in result["board_items"] if item.get("slot") == "footwear"
+    )
+    assert changed_footwear["name"] in result["styling_note"]
+    assert "Blue Jeans" not in result["styling_note"]
+
+
 # ------------------------------------------------------------------- device
 # gate regression: a real persisted Style This board, Shuffle the accessory
 # slot onto a candidate whose ONLY board-safe field is a form the pre-fix

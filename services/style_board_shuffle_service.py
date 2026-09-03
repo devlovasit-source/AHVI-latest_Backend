@@ -638,7 +638,12 @@ def shuffle_board(
             (item for item in out_items if canonical_item_id(item) == new_anchor_id),
             None,
         )
-        new_styling_note = build_styling_note(anchor_for_note, out_items, stored_style_strategy)
+        new_styling_note = build_styling_note(
+            anchor_for_note,
+            out_items,
+            stored_style_strategy,
+            changed_slots=result.get("changed_slots", []),
+        )
 
     # --- Atomic commit: create the immutable revision N+1 document ----------
     # Creating the deterministic (board_id, N+1) document IS the claim; a
