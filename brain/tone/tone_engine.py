@@ -10,6 +10,7 @@ _CONTEXT_MODE_ALIASES = {
     "general": "conversation",
     "general_chat": "conversation",
     "style": "styling",
+    "style_reasoning": "styling",
     "wardrobe": "styling",
     "daily_wear": "styling",
     "calendar": "planning",

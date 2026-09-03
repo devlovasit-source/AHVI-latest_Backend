@@ -26,6 +26,7 @@ from services.stylist_knowledge_service import (
 )
 from services.style_asset_contract import enrich_style_asset_rows, resolve_style_asset_image
 from services.style_conversation_context import activity_compatibility_issues
+from brain.response_validator import looks_truncated as _looks_truncated
 
 GENERAL = "general"
 VISUAL_INSPIRATION = "visual_inspiration"
@@ -6401,6 +6402,25 @@ def _two_sentences(text: Any, *, max_chars: int = 240) -> str:
     return short
 
 
+def _complete_style_text(text: Any, *, max_chars: int, fallback: str) -> str:
+    """Cap with `_two_sentences`, then guard against grammatically hanging
+    endings (e.g. "...while.") that the length cap alone won't catch.
+
+    Salvages the leading complete sentence(s) when possible; only falls back
+    to a deterministic Style copy when nothing usable survives.
+    """
+    capped = _two_sentences(text, max_chars=max_chars)
+    if not capped or not _looks_truncated(capped):
+        return capped
+    sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.split(capped) if s.strip()]
+    complete = [s for s in sentences if not _looks_truncated(s)]
+    if complete:
+        salvaged = " ".join(complete).strip()
+        if salvaged and not _looks_truncated(salvaged):
+            return salvaged
+    return fallback
+
+
 _DIRECTION_ADJECTIVES: dict[str, list[str]] = {
     # archetype name (lower) -> 3 adjectives. Falls back to a generic triad.
     "modern professional": ["Confident", "Structured", "Approachable"],
@@ -9015,7 +9035,11 @@ def _build_response(
         or "Lean into what already fits well and keep one deliberate detail — "
         "confidence reads as ease, not effort."
     ).strip()
-    _tone_signals = {"mode": final_mode, "emotion_state": emotion_state}
+    _tone_signals = {
+        "context_mode": "styling",
+        "mode": final_mode,
+        "emotion_state": emotion_state,
+    }
     if final_mode in _ADVICE_MODES:
         polished_advice = _protect_newlines_through_tone_engine(
             raw_advice,
@@ -9148,12 +9172,28 @@ def _build_response(
     else:
         polished_advice = _scrub_visible_style_text(polished_advice, query=query)
         # Cap long stylist text fields server-side so the editorial UI never
-        # has to render walls of LLM prose.
-        polished_advice = _two_sentences(polished_advice, max_chars=320)
+        # has to render walls of LLM prose, and guard against grammatically
+        # hanging endings (e.g. "...while.") the cap alone won't catch.
+        polished_advice = _complete_style_text(
+            polished_advice,
+            max_chars=320,
+            fallback=_fallback_advice(query, final_mode, category),
+        )
     confidence_strategy = _scrub_visible_style_text(confidence_strategy, query=query)
     missing_piece_reasoning = _scrub_visible_style_text(missing_piece_reasoning, query=query)
-    confidence_strategy = _two_sentences(confidence_strategy, max_chars=240)
-    missing_piece_reasoning = _two_sentences(missing_piece_reasoning, max_chars=200)
+    confidence_strategy = _complete_style_text(
+        confidence_strategy,
+        max_chars=240,
+        fallback=(
+            "Lean into what already fits well and keep one deliberate detail — "
+            "confidence reads as ease, not effort."
+        ),
+    )
+    missing_piece_reasoning = _complete_style_text(
+        missing_piece_reasoning,
+        max_chars=200,
+        fallback=_fallback_missing_piece(query, category),
+    )
     visual_directions = _scrub_visible_style_payload(visual_directions, query=query)
     # Editorial polish: add direction_name, adjectives, badge, curated_for,
     # short_note, complete_the_look_copy. Additive — keeps legacy fields.
