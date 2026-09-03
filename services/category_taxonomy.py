@@ -12,6 +12,7 @@ deduplicate the underlying keyword tables so they cannot drift apart again.
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Dict, Iterable, List, Tuple
 
@@ -539,6 +540,24 @@ def infer_style_attributes(item: dict) -> Dict[str, object]:
         occasion_fitness.update({"office": 0.1, "date": 0.2, "wedding": 0.1})
     if any(x in text for x in ("loafer", "oxford", "derby", "formal", "leather sneaker", "minimal sneaker")):
         occasion_fitness.update({"office": max(occasion_fitness["office"], 0.85), "date": max(occasion_fitness["date"], 0.75)})
+    # Strong Indian occasion signals are garment-specific. Do not promote a
+    # plain everyday kurta or every Traditional-category item to a celebration.
+    indian_festive_signal = any(
+        token in text for token in ("saree", "sari", "lehenga", "anarkali", "sherwani")
+    ) or (
+        "kurta" in text
+        and any(
+            token in text
+            for token in ("festive", "occasion", "wedding", "embroidered", "embellished", "brocade", "sequin")
+        )
+    ) or any(token in text for token in ("festive ethnic set", "festive set", "occasion set"))
+    if indian_festive_signal:
+        occasion_fitness.update(
+            {
+                "wedding": max(occasion_fitness["wedding"], 0.85),
+                "party": max(occasion_fitness["party"], 0.75),
+            }
+        )
 
     return {
         "formality": formality,
@@ -547,6 +566,42 @@ def infer_style_attributes(item: dict) -> Dict[str, object]:
         "silhouette_family": silhouette_family,
         "occasion_fitness": occasion_fitness,
     }
+
+
+def occasions_backfill_enabled() -> bool:
+    """Return whether empty occasion lists may use deterministic backfill."""
+    return str(os.getenv("WARDROBE_DERIVE_OCCASIONS", "true")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def derive_occasions_from_fitness(
+    occasion_fitness: Dict[str, object] | None,
+    *,
+    minimum: float | None = None,
+    limit: int = 4,
+) -> List[str]:
+    """Convert existing deterministic occasion fitness into canonical tags."""
+    if not isinstance(occasion_fitness, dict):
+        return []
+    if minimum is None:
+        try:
+            minimum = float(os.getenv("WARDROBE_DERIVE_OCCASIONS_MIN", "0.6"))
+        except (TypeError, ValueError):
+            minimum = 0.6
+    ranked = sorted(
+        (
+            (str(key), float(value))
+            for key, value in occasion_fitness.items()
+            if isinstance(value, (int, float))
+        ),
+        key=lambda pair: pair[1],
+        reverse=True,
+    )
+    return [key for key, value in ranked if value >= minimum][:limit]
 
 
 # Items shot away from the face — a worn/selfie photo of these does NOT include
@@ -580,6 +635,8 @@ __all__ = (
     "CHAT_EXPLICIT_MAP",
     "categorize_for_chat",
     "infer_style_attributes",
+    "derive_occasions_from_fitness",
+    "occasions_backfill_enabled",
     "normalize_category_from_label",
     "is_face_risk_category",
 )

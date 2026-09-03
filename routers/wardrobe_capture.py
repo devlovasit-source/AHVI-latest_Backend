@@ -566,8 +566,10 @@ def _image_to_png_bytes(image: Image.Image) -> bytes:
 from services.category_taxonomy import (
     CANONICAL_CATEGORIES as _CANONICAL_CATEGORIES,
     CANONICAL_CATEGORY_KEYWORDS as _CANONICAL_CATEGORY_KEYWORDS,
+    derive_occasions_from_fitness as _derive_occasions_from_fitness,
     infer_style_attributes as _infer_style_attributes,
     normalize_category_from_label as _shared_normalize_category_from_label,
+    occasions_backfill_enabled as _occasions_backfill_enabled,
 )
 
 
@@ -2663,6 +2665,25 @@ def _merge_validator_into_preview(
     return out
 
 
+def _apply_deterministic_occasion_fallback(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Fill empty preview occasions from the shared deterministic fitness map.
+
+    Existing detector or validator occasions remain authoritative. Privacy and
+    private-wear filtering still run later in the normal preview pipeline.
+    """
+    if not isinstance(item, dict) or item.get("occasions"):
+        return item
+    if not _occasions_backfill_enabled():
+        return item
+    fitness = item.get("occasion_fitness")
+    if not isinstance(fitness, dict):
+        fitness = _infer_style_attributes(item).get("occasion_fitness")
+    derived = _derive_occasions_from_fitness(fitness)
+    if derived:
+        item["occasions"] = derived
+    return item
+
+
 async def _apply_preview_metadata_validator(
     detected: Dict[str, Any],
     *,
@@ -2690,7 +2711,7 @@ async def _apply_preview_metadata_validator(
             "reason": reason,
             "confidence": None,
         }
-        return _enforce_preview_taxonomy(detected), state
+        return _apply_deterministic_occasion_fallback(_enforce_preview_taxonomy(detected)), state
     try:
         from services.agent_metadata_validator import validate_wardrobe_metadata
 
@@ -2712,6 +2733,7 @@ async def _apply_preview_metadata_validator(
         merged = apply_metadata_guard(merged, source="capture_preview_validator")
         # Deterministic taxonomy override wins over an empty/failed validator.
         merged = _enforce_preview_taxonomy(merged)
+        merged = _apply_deterministic_occasion_fallback(merged)
         merged["metadata_validator"] = {
             "used": True,
             "reason": reason,
@@ -2736,7 +2758,7 @@ async def _apply_preview_metadata_validator(
             "reason": f"failed:{str(exc)[:80]}",
             "confidence": None,
         }
-        return _enforce_preview_taxonomy(detected), "failed"
+        return _apply_deterministic_occasion_fallback(_enforce_preview_taxonomy(detected)), "failed"
 
 
 @router.post("/analyze")

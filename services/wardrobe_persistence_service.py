@@ -9,7 +9,13 @@ import requests
 
 from services.embedding_service import embedding_service
 from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
-from services.category_taxonomy import infer_style_attributes, normalize_category_from_label, is_face_risk_category
+from services.category_taxonomy import (
+    derive_occasions_from_fitness,
+    infer_style_attributes,
+    is_face_risk_category,
+    normalize_category_from_label,
+    occasions_backfill_enabled,
+)
 from services.qdrant_service import qdrant_service
 from services.wardrobe_taxonomy import normalize as _taxonomy_normalize
 from services.wardrobe_intelligence_service import (
@@ -891,25 +897,9 @@ def _build_appwrite_doc(
     # validator only runs for risky/low-confidence items). Derive from the
     # already-computed occasion_fitness scores so every item gets meaningful
     # tags. Only fills when empty — never overrides occasions already set.
-    if not occasions and str(
-        os.getenv("WARDROBE_DERIVE_OCCASIONS", "true")
-    ).strip().lower() in {"1", "true", "yes", "on"}:
-        try:
-            _occ_min = float(os.getenv("WARDROBE_DERIVE_OCCASIONS_MIN", "0.6"))
-        except (TypeError, ValueError):
-            _occ_min = 0.6
+    if not occasions and occasions_backfill_enabled():
         _fitness = style_attrs.get("occasion_fitness") if isinstance(style_attrs, dict) else None
-        if isinstance(_fitness, dict):
-            _ranked = sorted(
-                (
-                    (str(k), float(v))
-                    for k, v in _fitness.items()
-                    if isinstance(v, (int, float))
-                ),
-                key=lambda kv: kv[1],
-                reverse=True,
-            )
-            occasions = [k for k, v in _ranked if v >= _occ_min][:4]
+        occasions = derive_occasions_from_fitness(_fitness)
 
     # Must match Appwrite outfits collection schema exactly.
     # Keep raw_url out of the Appwrite document unless the collection schema
