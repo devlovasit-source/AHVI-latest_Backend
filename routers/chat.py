@@ -282,7 +282,7 @@ def lightweight_chat(text: str, *, user_profile: dict | None = None) -> str:
     elif "how are you" in lower or lower in {"hi", "hello", "hey"}:
         raw = "I’m here. Ask me for an outfit, a capsule, or talk it through."
     else:
-        raw = "I can help with style, planning, and wardrobe. Tell me what you want to solve."
+        raw = "I’m listening. Tell me what you’re dealing with, and we can take it one step at a time."
 
     try:
         from brain.tone.tone_engine import tone_engine as _tone
@@ -291,7 +291,7 @@ def lightweight_chat(text: str, *, user_profile: dict | None = None) -> str:
         toned = _tone.apply(
             raw,
             user_profile=user_profile or {},
-            signals={"context_mode": "professional", "emotion_state": "neutral"},
+            signals={"context_mode": "conversation", "emotion_state": "neutral"},
         )
         polished = _polish(toned, fallback=raw)
         try:
@@ -781,17 +781,47 @@ def _is_help_identity_request(text: str) -> bool:
     q = re.sub(r"[^a-z0-9\s]", " ", str(text or "").lower())
     q = re.sub(r"\s+", " ", q).strip()
     return q in {
-        "what can you do",
         "who are you",
         "what are you",
         "what is ahvi",
+        "tell me about ahvi",
         "tell me about yourself",
-        "how can you help",
-        "help",
-        "what do you do",
-        "what are your features",
+        "what can you do",
+        "what else can you do",
+        "what else can you assist with",
         "what can ahvi do",
+        "what else can ahvi do",
+        "what can ahvi help me with",
+        "what are your features",
+        "how can you help",
+        "how can you help me",
+        "help",
+        "can you help me",
+        "could you help me",
+        "what do you do",
+        "who owns ahvi",
+        "who are the owners of ahvi",
+        "who founded ahvi",
+        "who created ahvi",
+        "which company owns ahvi",
+        "who runs ahvi",
     }
+
+
+def _is_revenge_request(text: str) -> bool:
+    q = re.sub(r"\s+", " ", str(text or "").lower()).strip()
+    return "revenge" in q or bool(
+        re.search(r"\b(?:hurt|harm|attack|hit|beat|kill)\b", q)
+        and re.search(r"\b(?:them|him|her|someone|somebody)\b", q)
+    )
+
+
+def _safe_revenge_response() -> str:
+    return (
+        "I can't help you hurt or get revenge on them. If you're angry right now, "
+        "I can help you figure out what to say, whether to confront them, or how "
+        "to walk away without making things worse."
+    )
 
 
 _STYLE_PRIORITY_WORDS = (
@@ -1034,10 +1064,36 @@ def _ahvi_greeting_response(module_context: str = ""):
 def _ahvi_help_identity_response(text: str, module_context: str = ""):
     q = re.sub(r"[^a-z0-9\s]", " ", str(text or "").lower())
     q = re.sub(r"\s+", " ", q).strip()
-    if q in {"who are you", "what are you", "what is ahvi", "tell me about yourself"}:
+    if q in {
+        "who owns ahvi",
+        "who are the owners of ahvi",
+        "who founded ahvi",
+        "who created ahvi",
+        "which company owns ahvi",
+        "who runs ahvi",
+    }:
+        message = "I don't have verified ownership information for AHVI available here."
+        chips = [
+            {"label": "Today's Outfit", "value": "Outfit for today"},
+            {"label": "Plan My Day", "value": "Plan my day"},
+            {"label": "Meals", "value": "Eat today"},
+            {"label": "Workout", "value": "Today's workout"},
+        ]
+    elif q in {"who are you", "what are you", "tell me about yourself"}:
         message = (
             "I'm AHVI, your personal assistant for Style, Planning, and Preparation. "
             "I help you get dressed, organize your day, and prepare for what’s coming next."
+        )
+        chips = [
+            {"label": "Today's Outfit", "value": "Outfit for today"},
+            {"label": "Plan My Day", "value": "Plan my day"},
+            {"label": "Meals", "value": "Eat today"},
+            {"label": "Workout", "value": "Today's workout"},
+        ]
+    elif q in {"what is ahvi", "tell me about ahvi"}:
+        message = (
+            "AHVI is a personal assistant for Style, Planning, and Preparation. "
+            "It helps you get dressed, organize your day, and prepare for events or trips."
         )
         chips = [
             {"label": "Today's Outfit", "value": "Outfit for today"},
@@ -3758,20 +3814,27 @@ def _llm_chat_response(
         "Keep replies concise, fresh, and helpful."
     )
 
-    try:
-        message = chat_completion(
-            _build_llm_messages(messages, english_input),
-            system_instruction=system_instruction,
-            user_profile=user_profile,
-            signals={
-                "context_mode": module_context or "chat",
-                "user_message_style": user_message_style,
-            },
-            timeout_seconds=45,
-            options={"temperature": 0.65, "max_output_tokens": 320},
-            usecase="general_chat",
-        )
+    if _is_revenge_request(english_input):
+        message = _safe_revenge_response()
+        mode = "safety_chat_bypass"
+    else:
+        message = None
         mode = "llm_chat"
+
+    try:
+        if message is None:
+            message = chat_completion(
+                _build_llm_messages(messages, english_input),
+                system_instruction=system_instruction,
+                user_profile=user_profile,
+                signals={
+                    "context_mode": module_context or "chat",
+                    "user_message_style": user_message_style,
+                },
+                timeout_seconds=45,
+                options={"temperature": 0.65, "max_output_tokens": 320},
+                usecase="general_chat",
+            )
     except Exception as exc:
         logger.warning("chat.llm_response_failed user_id=%s error=%s", user_id, str(exc)[:180])
         message = lightweight_chat(english_input)

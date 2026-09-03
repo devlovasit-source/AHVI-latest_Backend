@@ -5,6 +5,23 @@ import json
 
 _logger = logging.getLogger("ahvi.tone_engine")
 
+_CONTEXT_MODE_ALIASES = {
+    "chat": "conversation",
+    "general": "conversation",
+    "general_chat": "conversation",
+    "style": "styling",
+    "wardrobe": "styling",
+    "daily_wear": "styling",
+    "calendar": "planning",
+    "planner": "planning",
+}
+
+
+def normalize_context_mode(value: str) -> str:
+    """Map caller-specific labels to the tone engine's canonical contexts."""
+    mode = str(value or "general").strip().lower().replace("-", "_")
+    return _CONTEXT_MODE_ALIASES.get(mode, mode)
+
 
 # Forbidden phrases that need a softened replacement rather than removal.
 _FORBIDDEN_SOFTEN_MAP = {
@@ -58,7 +75,7 @@ class ToneEngine:
         # 1. BASE DETECTION
         # -------------------------
         generation = self._detect_generation(user_profile)
-        context_mode = signals.get("context_mode", "general")
+        context_mode = normalize_context_mode(signals.get("context_mode", "general"))
         emotion = signals.get("emotion_state", "neutral")
         user_message_style = (
             signals.get("user_message_style", {})
@@ -129,7 +146,7 @@ class ToneEngine:
         user_profile = user_profile or {}
         signals = signals or {}
         generation = self._detect_generation(user_profile)
-        context_mode = signals.get("context_mode", "general")
+        context_mode = normalize_context_mode(signals.get("context_mode", "general"))
         rules = (
             self.config.get("context_modes", {}).get(context_mode, {})
             if isinstance(self.config, dict)

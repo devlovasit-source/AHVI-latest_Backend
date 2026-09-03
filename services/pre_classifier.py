@@ -149,9 +149,22 @@ _COLOR_PATTERNS = (
 )
 
 _GREETING_PHRASES = frozenset({"hi", "hello", "hey", "good morning", "good evening"})
-_IDENTITY_PHRASES = frozenset({
-    "who are you", "what are you", "what is ahvi", "tell me about yourself",
-    "what can you do", "help", "can you help me", "could you help me",
+_ASSISTANT_IDENTITY_PHRASES = frozenset({
+    "who are you", "what are you", "tell me about yourself",
+})
+_PRODUCT_IDENTITY_PHRASES = frozenset({
+    "what is ahvi", "tell me about ahvi",
+})
+_CAPABILITY_PHRASES = frozenset({
+    "what can you do", "what else can you do", "what else can you assist with",
+    "what can ahvi do", "what else can ahvi do", "what can ahvi help me with",
+    "what are your features",
+    "how can you help", "how can you help me", "help", "can you help me",
+    "could you help me", "what do you do",
+})
+_OWNERSHIP_PHRASES = frozenset({
+    "who owns ahvi", "who are the owners of ahvi", "who founded ahvi",
+    "who created ahvi", "which company owns ahvi", "who runs ahvi",
 })
 _SMALL_TALK_PHRASES = frozenset({
     "how are you", "how are you doing", "thanks", "thank you",
@@ -239,12 +252,22 @@ def classify_message(text: str) -> Optional[Dict[str, str]]:
             "action": "respond_greeting",
             "response_mode": "text_only",
         }
-    if hay in _IDENTITY_PHRASES:
+    help_type = None
+    if hay in _ASSISTANT_IDENTITY_PHRASES:
+        help_type = "assistant_identity"
+    elif hay in _PRODUCT_IDENTITY_PHRASES:
+        help_type = "product_identity"
+    elif hay in _CAPABILITY_PHRASES:
+        help_type = "product_capabilities"
+    elif hay in _OWNERSHIP_PHRASES:
+        help_type = "product_ownership"
+    if help_type:
         return {
             "domain": "style",
             "intent": "help_identity",
             "action": "respond_identity",
             "response_mode": "text_only",
+            "help_type": help_type,
         }
     if hay in _SMALL_TALK_PHRASES:
         return {
