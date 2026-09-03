@@ -120,7 +120,10 @@ def test_direction_titles_and_reasons_are_archetype_and_item_specific():
         note = direction["styling_note"]
         assert "White Shirt" in note
         assert any(name in note for name in selected_names if name != "White Shirt")
-        assert direction["title"] in note
+        # The styling note references the strategy/archetype identity
+        # (style_strategy.direction_title), not the presentation-layer
+        # explicit board title -- those are separate fields now.
+        assert direction["style_strategy"]["direction_title"] in note
 
 
 def test_registration_rejects_mixed_source_policy():

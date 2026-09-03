@@ -15,6 +15,18 @@ _HANGING_ENDINGS = {
     "so", "of", "in", "on", "as", "if", "than", "then",
 }
 
+# Phrase-level detectors for constructions that end in valid terminal
+# punctuation and a word outside _HANGING_ENDINGS, but are still
+# grammatically incomplete because the phrasal verb is missing its
+# object/complement (e.g. "...might feel out." — feel out OF WHAT?).
+# Deliberately narrow: "stands out.", "head out.", "worked out.", "lights
+# are out.", "feel off." must all keep validating as complete, so this
+# matches only "feel(s/ing) out" as the sentence's final words, not any
+# sentence merely containing or ending in "out".
+_HANGING_PHRASE_PATTERNS = (
+    re.compile(r"\bfeel(?:s|ing)?\s+out[.!?]*$", re.IGNORECASE),
+)
+
 _FORBIDDEN_STARTERS = (
     "Sure!",
     "Absolutely!",
@@ -88,6 +100,12 @@ def looks_truncated(text: str) -> bool:
     # Hanging connector words.
     last_word = re.split(r"\s+", stripped)[-1].strip(".,;:!?'\"()[]").lower()
     if last_word in _HANGING_ENDINGS:
+        return True
+
+    # Hanging phrasal constructions (e.g. "...might feel out.") that end in
+    # valid terminal punctuation and a word outside _HANGING_ENDINGS but are
+    # still missing a required object/complement.
+    if any(pattern.search(stripped) for pattern in _HANGING_PHRASE_PATTERNS):
         return True
 
     # Unclosed code fence.

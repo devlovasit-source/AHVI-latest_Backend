@@ -844,7 +844,11 @@ def _lite_directions(
     )
     directions = []
     for idx, strategy in enumerate(selected[:3]):
-        title = _txt(strategy.get("direction_title")) or f"Style Edit {idx + 1}"
+        title = (
+            _txt(strategy.get("explicit_title"))
+            or _txt(strategy.get("direction_title"))
+            or f"Style Edit {idx + 1}"
+        )
         look = _lite_build_outfit(
             anchor, wardrobe, None, title=title,
             variant=idx, weather=weather, strategy=strategy,

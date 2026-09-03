@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 from prompts.core_prompts import AHVI_SYSTEM_PROMPT
 from prompts.styling_prompts import OCCASION_INTERPRETER_PROMPT
 from services.ai_gateway import generate_text, parse_json_object
+from services.category_taxonomy import infer_style_attributes
 
 
 STYLE_ADVICE = "style_advice"
@@ -1422,6 +1423,44 @@ def select_archetypes(*, anchor=None, occasion="", style_keywords=None,
     return chosen
 
 
+# style_archetype answers "what style family is this" (e.g. "Refined
+# Weekend") and two materially different boards may legitimately share one.
+# explicit_title answers "what is this particular board" and must not
+# collapse just because the archetype did. Descriptors reuse
+# category_taxonomy.infer_style_attributes -- the anchor-derived signal
+# already computed elsewhere in the backend -- instead of a second naming
+# system.
+_BOARD_TITLE_DESCRIPTORS: Dict[str, str] = {
+    "structured": "Structured",
+    "classic": "Tailored",
+    "relaxed": "Easy",
+    "street-smart": "Off-Duty",
+    "expressive": "Bold",
+    "minimal": "Clean",
+    "polished": "Refined",
+    "slim": "Sleek",
+    "one-piece": "Elevated",
+    "clean": "Effortless",
+}
+
+
+def _explicit_board_title(anchor: Dict[str, Any], archetype_name: str) -> str:
+    """Derive a per-board editorial title from the anchor garment, distinct
+    from the archetype identity. Falls back to the archetype name when the
+    anchor carries no usable signal at all."""
+    name = str(archetype_name or "").strip()
+    if not anchor.get("name") and not anchor.get("category") and not anchor.get("sub_category"):
+        return name
+    attrs = infer_style_attributes(anchor)
+    descriptor = (
+        _BOARD_TITLE_DESCRIPTORS.get(str(attrs.get("silhouette_family") or ""))
+        or _BOARD_TITLE_DESCRIPTORS.get(str(attrs.get("aesthetic_cluster") or ""))
+    )
+    if not descriptor or not name or descriptor.lower() in name.lower():
+        return name
+    return f"{descriptor} {name}"
+
+
 def resolve_style_archetypes(
     context: Any,
     anchor_item: Optional[Dict[str, Any]] = None,
@@ -1523,6 +1562,7 @@ def resolve_style_archetypes(
             {
                 "archetype_id": _norm(name).replace(" ", "_"),
                 "direction_title": title,
+                "explicit_title": _explicit_board_title(anchor, title),
                 "formality": arch.get("formality"),
                 "palette": [str(v) for v in arch.get("palette") or [] if str(v).strip()],
                 "avoid": [str(v) for v in arch.get("avoid_items") or [] if str(v).strip()],
