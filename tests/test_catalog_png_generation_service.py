@@ -1035,3 +1035,198 @@ def test_persistence_payload_maps_catalog_png_to_normalized_url(monkeypatch):
     assert "catalog_provider" not in doc
     assert "catalog_quality_score" not in doc
     assert "catalog_generation_version" not in doc
+
+
+# ── Identity-drift gate ───────────────────────────────────────────────────
+# _catalog_identity_drift() in routers/wardrobe_capture.py already hard-blocks
+# on reason in {"identity_drift", "wrong_garment_type"}, but nothing ever
+# produced that reason - the gate was unreachable. These tests cover the
+# producer: _classify_identity_match() + its wiring into generate_catalog_png.
+
+
+class _NanobananaEcho(pngsvc.CatalogProvider):
+    """Fake nanobanana provider that just echoes the input cutout back as the
+    'generated' image, so validate_catalog_png always scores it as ok - the
+    only thing under test is the identity-check override, not the scorer."""
+
+    name = "nanobanana"
+
+    def generate(self, **kwargs):
+        return pngsvc.CatalogProviderResult(
+            True, image_bytes=kwargs["cutout_bytes"], provider=self.name
+        )
+
+
+def test_identity_check_disabled_by_default(monkeypatch):
+    # Flag defaults off, matching every other vision gate in this module
+    # (orientation, etc) - safe rollout, opt-in per environment.
+    assert pngsvc._identity_check_enabled() is False
+    assert pngsvc._identity_confidence_min() == 0.75
+
+
+def test_classify_identity_match_fails_safe_without_client(monkeypatch):
+    # Force the "no client" path deterministically instead of relying on the
+    # ambient environment lacking google-genai/Vertex credentials - if the
+    # SDK/creds happen to be present (e.g. in CI), the un-mocked call could
+    # attempt a real Vertex request instead of failing fast.
+    monkeypatch.setattr(pngsvc, "genai", None)
+    result = pngsvc._classify_identity_match(
+        _garment_png(), _garment_png(), "footwear", {"name": "Sneaker"}
+    )
+    assert result["match"] == "uncertain"
+    assert result["confidence"] == 0.0
+    assert result["evidence"] == "genai_unavailable"
+
+
+def test_confident_identity_mismatch_forces_cutout_fallback(monkeypatch):
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setenv("CATALOG_PROVIDER", "vertex_imagen")
+    monkeypatch.setenv("CATALOG_IDENTITY_CHECK", "true")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _NanobananaEcho())
+    monkeypatch.setattr(
+        pngsvc,
+        "_classify_identity_match",
+        lambda *a, **k: {"match": "mismatch", "confidence": 0.9, "evidence": "wrong_shoe_type"},
+    )
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={"item_id": "shoe-1", "name": "White Sneaker", "category": "footwear"},
+    )
+
+    # Must NOT save the AI-regenerated image under a "catalog_generated"
+    # status - falls back to the deterministic cutout instead.
+    assert result["status"] == "fallback_cutout"
+    assert result["reason"] == "identity_mismatch"
+    assert result["catalog_provider"] != "nanobanana"
+
+
+def test_confident_identity_match_allows_catalog_generated(monkeypatch):
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setenv("CATALOG_PROVIDER", "vertex_imagen")
+    monkeypatch.setenv("CATALOG_IDENTITY_CHECK", "true")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _NanobananaEcho())
+    monkeypatch.setattr(
+        pngsvc,
+        "_classify_identity_match",
+        lambda *a, **k: {"match": "match", "confidence": 0.95, "evidence": "ok"},
+    )
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={"item_id": "shoe-2", "name": "White Sneaker", "category": "footwear"},
+    )
+
+    assert result["status"] == "catalog_generated"
+    assert result["catalog_provider"] == "nanobanana"
+
+
+def test_identity_check_skipped_when_flag_off(monkeypatch):
+    # Flag OFF must reproduce today's behavior exactly, even if the (mocked)
+    # classifier would have reported a mismatch - opt-in rollout, zero
+    # behavior change until an environment explicitly turns this on.
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setenv("CATALOG_PROVIDER", "vertex_imagen")
+    monkeypatch.setenv("CATALOG_IDENTITY_CHECK", "false")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _NanobananaEcho())
+    calls = []
+
+    def _spy(*a, **k):
+        calls.append(1)
+        return {"match": "mismatch", "confidence": 0.99, "evidence": "should_not_run"}
+
+    monkeypatch.setattr(pngsvc, "_classify_identity_match", _spy)
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={"item_id": "shoe-3", "name": "White Sneaker", "category": "footwear"},
+    )
+
+    assert not calls, "identity classifier must not run when the flag is off"
+    assert result["status"] == "catalog_generated"
+
+
+def test_low_confidence_identity_mismatch_does_not_block(monkeypatch):
+    # A low-confidence mismatch must not reject - only a confident one
+    # (>= CATALOG_IDENTITY_CONFIDENCE_MIN) should override "ok".
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setenv("CATALOG_PROVIDER", "vertex_imagen")
+    monkeypatch.setenv("CATALOG_IDENTITY_CHECK", "true")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _NanobananaEcho())
+    monkeypatch.setattr(
+        pngsvc,
+        "_classify_identity_match",
+        lambda *a, **k: {"match": "mismatch", "confidence": 0.4, "evidence": "unsure"},
+    )
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={"item_id": "shoe-4", "name": "White Sneaker", "category": "footwear"},
+    )
+
+    assert result["status"] == "catalog_generated"
+
+
+def test_confident_identity_mismatch_disables_bad_crop_demo_acceptance(monkeypatch):
+    # Regression: the identity check previously only ran when
+    # generated_validation["ok"] was True, so a non-ok-but-demo-acceptable
+    # candidate (reason="bad_crop", waved through by
+    # _vertex_demo_accepts_generated_validation) bypassed the gate entirely
+    # and could still reach "catalog_generated". The check must run on any
+    # acceptance path - ok OR demo-acceptable - and a confident mismatch must
+    # revoke demo acceptance too, not just the ok flag.
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setenv("CATALOG_PROVIDER", "vertex_imagen")
+    monkeypatch.setenv("CATALOG_IDENTITY_CHECK", "true")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _NanobananaEcho())
+    monkeypatch.setattr(
+        pngsvc,
+        "validate_catalog_png",
+        lambda *a, **k: {"ok": False, "reason": "bad_crop", "score": 60, "checks": {}},
+    )
+    # Sanity: confirm this validation really is demo-acceptable on its own,
+    # so the test is actually exercising the bypass path and not a no-op.
+    assert pngsvc._vertex_demo_accepts_generated_validation(
+        {"ok": False, "reason": "bad_crop", "score": 60, "checks": {}}
+    ) is True
+    monkeypatch.setattr(
+        pngsvc,
+        "_classify_identity_match",
+        lambda *a, **k: {"match": "mismatch", "confidence": 0.9, "evidence": "wrong_shoe_type"},
+    )
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={"item_id": "shoe-5", "name": "White Sneaker", "category": "footwear"},
+    )
+
+    assert result["status"] == "fallback_cutout"
+    assert result["status"] != "catalog_generated"
+
+
+def test_bad_crop_demo_acceptance_still_works_without_identity_mismatch(monkeypatch):
+    # Companion to the regression test above: confirm the identity gate
+    # doesn't collaterally break the existing bad_crop demo-acceptance
+    # relaxation when there ISN'T a confident mismatch.
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setenv("CATALOG_PROVIDER", "vertex_imagen")
+    monkeypatch.setenv("CATALOG_IDENTITY_CHECK", "true")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _NanobananaEcho())
+    monkeypatch.setattr(
+        pngsvc,
+        "validate_catalog_png",
+        lambda *a, **k: {"ok": False, "reason": "bad_crop", "score": 60, "checks": {}},
+    )
+    monkeypatch.setattr(
+        pngsvc,
+        "_classify_identity_match",
+        lambda *a, **k: {"match": "match", "confidence": 0.95, "evidence": "ok"},
+    )
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={"item_id": "shoe-6", "name": "White Sneaker", "category": "footwear"},
+    )
+
+    assert result["status"] == "catalog_generated"
+    assert result["reason"] == "demo_accept_background"

@@ -47,6 +47,12 @@ AGENT_METADATA_VALIDATOR_MODEL: "gemini-3.5-flash"
 AGENT_METADATA_VALIDATOR_TIMEOUT_SECONDS: "12"
 AGENT_METADATA_LOW_CONFIDENCE_THRESHOLD: "0.55"
 
+# Catalog image generation - identity verification (BUILD2016 follow-up)
+# Off by default in code; must be explicitly enabled per environment once
+# staging validation confirms an acceptable false-positive rate.
+CATALOG_IDENTITY_CHECK: "true"          # enable for beta release
+CATALOG_IDENTITY_CONFIDENCE_MIN: "0.75" # only override after staging tuning
+
 # Token budgets
 AHVI_LLM_TOKENS_QUICK_CHAT: "500"
 AHVI_LLM_TOKENS_STYLE_ADVICE: "900"
@@ -97,4 +103,5 @@ gcloud beta run services logs tail ahvi-backend --region asia-south1
 
 ```bash
 gcloud run services update-traffic ahvi-backend --to-revisions=PREVIOUS_REVISION_ID=100 --region asia-south1
+```
 ```
