@@ -68,6 +68,115 @@ def test_curated_for_unknown_occasion_uses_default():
     assert len(out) == 3
 
 
+# ---------- _complete_style_text (completeness guard) ----------
+
+def test_complete_style_text_rejects_hanging_ending():
+    out = engine._complete_style_text(
+        "This works well while.", max_chars=320, fallback="FALLBACK"
+    )
+    assert not out.endswith("while.")
+    assert out == "FALLBACK"
+
+
+def test_complete_style_text_does_not_escape_hanging_and():
+    out = engine._complete_style_text(
+        "Balanced proportions and.", max_chars=320, fallback="FALLBACK"
+    )
+    assert out != "Balanced proportions and."
+
+
+def test_complete_style_text_passes_through_complete_sentence():
+    out = engine._complete_style_text(
+        "Clean and intentional.", max_chars=320, fallback="FALLBACK"
+    )
+    assert out == "Clean and intentional."
+
+
+def test_complete_style_text_preserves_two_complete_sentences():
+    text = "Use structured layers for authority. Keep the palette restrained."
+    out = engine._complete_style_text(text, max_chars=320, fallback="FALLBACK")
+    assert out == text
+
+
+def test_complete_style_text_salvages_leading_sentence_from_hanging_paragraph():
+    text = (
+        "For the office, the priority is to convey confidence and professionalism "
+        "without feeling overly rigid. These directions balance structure with "
+        "comfort, ensuring you look sharp and ready for the day's demands while."
+    )
+    out = engine._complete_style_text(text, max_chars=320, fallback="FALLBACK")
+    assert out == (
+        "For the office, the priority is to convey confidence and professionalism "
+        "without feeling overly rigid."
+    )
+    assert not out.endswith("while.")
+
+
+def test_complete_style_text_long_valid_text_stays_word_safe():
+    text = "x" * 600 + ". y" * 5
+    out = engine._complete_style_text(text, max_chars=240, fallback="FALLBACK")
+    assert len(out) <= 241
+    assert out.endswith("…")
+
+
+# ---------- Style tone context ----------
+
+def test_style_reasoning_normalizes_to_styling_tone_mode():
+    from brain.tone.tone_engine import normalize_context_mode
+
+    assert normalize_context_mode("style_reasoning") == "styling"
+
+
+def test_style_generation_advice_polish_uses_styling_context_mode(monkeypatch):
+    captured = {}
+    real_apply = engine.tone_engine.apply
+
+    def _spy_apply(text, user_profile=None, signals=None, context=None):
+        captured["signals"] = dict(signals or {})
+        return real_apply(text, user_profile=user_profile, signals=signals, context=context)
+
+    monkeypatch.setattr(engine.tone_engine, "apply", _spy_apply)
+    engine._build_response(
+        query="What should I wear to office tomorrow?",
+        mode="style_advice",
+        category=None,
+        tone=None,
+        formality=None,
+        occasion=None,
+        confidence=0.8,
+        ai_payload={"stylist_reasoning": "Clean and intentional."},
+        user_profile={},
+        context={},
+    )
+    assert captured.get("signals", {}).get("context_mode") == "styling"
+
+
+def test_office_outfit_advice_end_to_end_does_not_leak_hanging_ending():
+    hanging_reasoning = (
+        "For the office, the priority is to convey confidence and professionalism "
+        "without feeling overly rigid. These directions balance structure with "
+        "comfort, ensuring you look sharp and ready for the day's demands while."
+    )
+    response = engine._build_response(
+        query="What should I wear to office tomorrow?",
+        mode="style_advice",
+        category=None,
+        tone=None,
+        formality=None,
+        occasion=None,
+        confidence=0.8,
+        ai_payload={"stylist_reasoning": hanging_reasoning},
+        user_profile={},
+        context={},
+    )
+    assert response["mode"] == "style_advice"
+    advice = response["advice"]
+    assert advice
+    assert not engine._looks_truncated(advice)
+    assert not advice.endswith("while.")
+    assert response["stylist_reasoning"] == advice
+
+
 # ---------- wardrobe match pct ----------
 
 def test_wardrobe_match_pct_full_overlap():
