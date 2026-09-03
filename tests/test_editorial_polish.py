@@ -177,6 +177,32 @@ def test_office_outfit_advice_end_to_end_does_not_leak_hanging_ending():
     assert response["stylist_reasoning"] == advice
 
 
+def test_office_outfit_advice_salvages_live_hanging_phrase_regression():
+    # Exact live regression paragraph from the PR#54 follow-up audit — the
+    # word-list hanging-ending check alone does not catch "...might feel out."
+    live_reasoning = (
+        "For the office, the priority is always to look polished and capable. "
+        "We'll focus on creating distinct looks that feel intentional and appropriate, "
+        "avoiding anything too casual or overly formal that might feel out."
+    )
+    response = engine._build_response(
+        query="What should I wear to office tomorrow?",
+        mode="style_advice",
+        category=None,
+        tone=None,
+        formality=None,
+        occasion=None,
+        confidence=0.8,
+        ai_payload={"stylist_reasoning": live_reasoning},
+        user_profile={},
+        context={},
+    )
+    advice = response["advice"]
+    assert advice
+    assert "might feel out" not in advice
+    assert not engine._looks_truncated(advice)
+
+
 # ---------- wardrobe match pct ----------
 
 def test_wardrobe_match_pct_full_overlap():
