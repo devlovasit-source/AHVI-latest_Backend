@@ -2211,11 +2211,20 @@ def generate_catalog_png(
             original_bytes=cutout_bytes,
             item_metadata=_provider_validation_metadata(meta, category),
         )
-        # Identity-drift gate: only spend a vision call on candidates that
-        # already passed the cheap structural checks. A confident mismatch
-        # here overrides "ok" so the item falls through to the cutout
-        # fallback below instead of saving a wrong-looking regenerated image.
-        if _identity_check_enabled() and generated_validation.get("ok"):
+        vertex_demo_accepted = (
+            provider_result.provider in {"vertex_imagen", "nanobanana"}
+            and not generated_validation.get("ok")
+            and _vertex_demo_accepts_generated_validation(generated_validation)
+        )
+        # Identity-drift gate: run on any candidate that is on a path to final
+        # acceptance - either it passed validation outright (ok=True) or it's
+        # about to be waved through anyway via the demo-acceptance relaxation
+        # (e.g. reason="bad_crop"). Skipping the demo-accepted branch would
+        # leave an acceptance path that never gets checked, defeating the
+        # point of the gate. Only spend the vision call on candidates that are
+        # actually eligible to be saved - no point checking something that's
+        # getting rejected regardless.
+        if _identity_check_enabled() and (generated_validation.get("ok") or vertex_demo_accepted):
             identity = _classify_identity_match(
                 cutout_bytes, provider_result.image_bytes, category, meta
             )
@@ -2238,6 +2247,10 @@ def generate_catalog_png(
                     "reason": "wrong_garment_type",
                     "identity_check": identity,
                 }
+                # A confident mismatch must also revoke demo-acceptance -
+                # otherwise a bad_crop-relaxed candidate would still slip
+                # through the acceptance check below untouched.
+                vertex_demo_accepted = False
                 provider_result = CatalogProviderResult(
                     False,
                     reason="identity_mismatch",
@@ -2251,11 +2264,6 @@ def generate_catalog_png(
                     float(identity.get("confidence") or 0.0),
                     identity.get("evidence", ""),
                 )
-        vertex_demo_accepted = (
-            provider_result.provider in {"vertex_imagen", "nanobanana"}
-            and not generated_validation.get("ok")
-            and _vertex_demo_accepts_generated_validation(generated_validation)
-        )
         if generated_validation.get("ok") or vertex_demo_accepted:
             return {
                 "success": True,

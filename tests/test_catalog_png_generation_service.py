@@ -1065,13 +1065,17 @@ def test_identity_check_disabled_by_default(monkeypatch):
 
 
 def test_classify_identity_match_fails_safe_without_client(monkeypatch):
-    # No vertex creds / no genai module in test env -> must return "uncertain"
-    # with confidence 0, NEVER a false "match" or false "mismatch".
+    # Force the "no client" path deterministically instead of relying on the
+    # ambient environment lacking google-genai/Vertex credentials - if the
+    # SDK/creds happen to be present (e.g. in CI), the un-mocked call could
+    # attempt a real Vertex request instead of failing fast.
+    monkeypatch.setattr(pngsvc, "genai", None)
     result = pngsvc._classify_identity_match(
         _garment_png(), _garment_png(), "footwear", {"name": "Sneaker"}
     )
     assert result["match"] == "uncertain"
     assert result["confidence"] == 0.0
+    assert result["evidence"] == "genai_unavailable"
 
 
 def test_confident_identity_mismatch_forces_cutout_fallback(monkeypatch):
@@ -1161,3 +1165,68 @@ def test_low_confidence_identity_mismatch_does_not_block(monkeypatch):
     )
 
     assert result["status"] == "catalog_generated"
+
+
+def test_confident_identity_mismatch_disables_bad_crop_demo_acceptance(monkeypatch):
+    # Regression: the identity check previously only ran when
+    # generated_validation["ok"] was True, so a non-ok-but-demo-acceptable
+    # candidate (reason="bad_crop", waved through by
+    # _vertex_demo_accepts_generated_validation) bypassed the gate entirely
+    # and could still reach "catalog_generated". The check must run on any
+    # acceptance path - ok OR demo-acceptable - and a confident mismatch must
+    # revoke demo acceptance too, not just the ok flag.
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setenv("CATALOG_PROVIDER", "vertex_imagen")
+    monkeypatch.setenv("CATALOG_IDENTITY_CHECK", "true")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _NanobananaEcho())
+    monkeypatch.setattr(
+        pngsvc,
+        "validate_catalog_png",
+        lambda *a, **k: {"ok": False, "reason": "bad_crop", "score": 60, "checks": {}},
+    )
+    # Sanity: confirm this validation really is demo-acceptable on its own,
+    # so the test is actually exercising the bypass path and not a no-op.
+    assert pngsvc._vertex_demo_accepts_generated_validation(
+        {"ok": False, "reason": "bad_crop", "score": 60, "checks": {}}
+    ) is True
+    monkeypatch.setattr(
+        pngsvc,
+        "_classify_identity_match",
+        lambda *a, **k: {"match": "mismatch", "confidence": 0.9, "evidence": "wrong_shoe_type"},
+    )
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={"item_id": "shoe-5", "name": "White Sneaker", "category": "footwear"},
+    )
+
+    assert result["status"] == "fallback_cutout"
+    assert result["status"] != "catalog_generated"
+
+
+def test_bad_crop_demo_acceptance_still_works_without_identity_mismatch(monkeypatch):
+    # Companion to the regression test above: confirm the identity gate
+    # doesn't collaterally break the existing bad_crop demo-acceptance
+    # relaxation when there ISN'T a confident mismatch.
+    monkeypatch.setenv("WARDROBE_CATALOG_PROVIDER", "nanobanana")
+    monkeypatch.setenv("CATALOG_PROVIDER", "vertex_imagen")
+    monkeypatch.setenv("CATALOG_IDENTITY_CHECK", "true")
+    monkeypatch.setattr(pngsvc, "_provider_for", lambda name: _NanobananaEcho())
+    monkeypatch.setattr(
+        pngsvc,
+        "validate_catalog_png",
+        lambda *a, **k: {"ok": False, "reason": "bad_crop", "score": 60, "checks": {}},
+    )
+    monkeypatch.setattr(
+        pngsvc,
+        "_classify_identity_match",
+        lambda *a, **k: {"match": "match", "confidence": 0.95, "evidence": "ok"},
+    )
+
+    result = pngsvc.generate_catalog_png(
+        _garment_png(),
+        item_metadata={"item_id": "shoe-6", "name": "White Sneaker", "category": "footwear"},
+    )
+
+    assert result["status"] == "catalog_generated"
+    assert result["reason"] == "demo_accept_background"
