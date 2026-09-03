@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 # deterministic, non-zero unit vector satisfies Qdrant's cosine-distance
 # collection schema without requiring a real embedding model.
 USER_MEMORY_VECTOR_DIMENSION = 512
+PIXEL_ONLY_VECTOR_KIND = "pixel_only"
 
 
 def user_memory_sentinel_vector():
@@ -168,7 +169,7 @@ class QdrantService:
     # =========================
     def upsert_item(self, item_id, vector, payload):
         if not self._ensure():
-            return
+            return False
 
         vector = self._fit_vector(vector)
         if len(vector) != self.vector_size:
@@ -177,7 +178,7 @@ class QdrantService:
                 len(vector) if vector else 0,
                 self.vector_size,
             )
-            return
+            return False
 
         vector = self._normalize(vector)
 
@@ -193,9 +194,13 @@ class QdrantService:
                         payload=payload,
                     )
                 ],
+                wait=True,
             )
         except Exception:
             logger.exception("Qdrant upsert failed")
+            return False
+
+        return True
 
     # =========================
     # 🔥 BATCH UPSERT (NEW)
@@ -254,7 +259,15 @@ class QdrantService:
                     FieldCondition(key="category", match=MatchValue(value=category))
                 )
 
-            query_filter = Filter(must=must)
+            query_filter = Filter(
+                must=must,
+                must_not=[
+                    FieldCondition(
+                        key="vector_kind",
+                        match=MatchValue(value=PIXEL_ONLY_VECTOR_KIND),
+                    )
+                ],
+            )
 
             results = self.client.search(
                 collection_name=self.collection,
@@ -278,7 +291,13 @@ class QdrantService:
             return []
 
     def _search_collection(
-        self, collection_name, vector, user_id, limit=5, score_threshold=0.6
+        self,
+        collection_name,
+        vector,
+        user_id,
+        limit=5,
+        score_threshold=0.6,
+        exclude_pixel_only=False,
     ):
         if not self._ensure() or not vector:
             return []
@@ -295,6 +314,14 @@ class QdrantService:
         vector = self._normalize(vector)
 
         try:
+            must_not = []
+            if exclude_pixel_only:
+                must_not.append(
+                    FieldCondition(
+                        key="vector_kind",
+                        match=MatchValue(value=PIXEL_ONLY_VECTOR_KIND),
+                    )
+                )
             results = self.client.search(
                 collection_name=collection_name,
                 query_vector=vector,
@@ -304,7 +331,8 @@ class QdrantService:
                         FieldCondition(
                             key="userId", match=MatchValue(value=str(user_id))
                         )
-                    ]
+                    ],
+                    must_not=must_not,
                 ),
             )
             return [
@@ -320,7 +348,7 @@ class QdrantService:
             logger.exception(
                 "Qdrant duplicate search failed collection=%s", collection_name
             )
-            return []
+            return None
 
     def find_duplicate(self, vector, user_id, threshold=0.97):
         if not vector:
@@ -338,7 +366,17 @@ class QdrantService:
             user_id,
             limit=1,
             score_threshold=float(threshold),
+            exclude_pixel_only=True,
         )
+        if matches is None:
+            return {
+                "checked": False,
+                "is_duplicate": False,
+                "reason": None,
+                "confidence": 0.0,
+                "matched_item_id": None,
+                "score": 0.0,
+            }
         if not matches:
             return {
                 "checked": True,
@@ -378,6 +416,15 @@ class QdrantService:
             limit=1,
             score_threshold=float(threshold),
         )
+        if matches is None:
+            return {
+                "checked": False,
+                "is_duplicate": False,
+                "reason": None,
+                "confidence": 0.0,
+                "matched_item_id": None,
+                "score": 0.0,
+            }
         if not matches:
             return {
                 "checked": True,
@@ -402,7 +449,7 @@ class QdrantService:
 
     def upsert_image_vector(self, item_id, vector, payload):
         if not self._ensure():
-            return
+            return False
 
         vector = self._fit_vector(vector)
         if not vector or len(vector) != self.vector_size:
@@ -411,7 +458,7 @@ class QdrantService:
                 len(vector) if vector else 0,
                 self.vector_size,
             )
-            return
+            return False
 
         vector = self._normalize(vector)
         payload = dict(payload or {})
@@ -427,17 +474,31 @@ class QdrantService:
                         payload=payload,
                     )
                 ],
+                wait=True,
             )
         except Exception:
             logger.exception("Qdrant image upsert failed")
+            return False
+
+        return True
 
     def upsert_wardrobe_item(self, item):
         item = dict(item or {})
         item_id = str(item.get("id") or "").strip()
         vector = item.get("embedding") or item.get("vector") or []
         vector = self._fit_vector(vector)
-        if not item_id or not vector or len(vector) != self.vector_size:
-            return
+        pixel_only = False
+        if not item_id:
+            return False
+        if not vector:
+            if not item.get("pixel_hash"):
+                return False
+            # Qdrant's collection requires a vector; the payload carries the
+            # authoritative pixel hash for duplicate lookup.
+            vector = [1.0] + [0.0] * (self.vector_size - 1)
+            pixel_only = True
+        if len(vector) != self.vector_size:
+            return False
 
         payload = {
             "userId": item.get("userId"),
@@ -448,20 +509,26 @@ class QdrantService:
             "pixel_hash": item.get("pixel_hash"),
             "qdrant_point_id": item_id,
         }
+        if pixel_only:
+            payload["vector_kind"] = PIXEL_ONLY_VECTOR_KIND
         payload = {k: v for k, v in payload.items() if v is not None}
-        self.upsert_item(item_id, vector, payload)
+        return self.upsert_item(item_id, vector, payload)
 
     def delete_item(self, item_id):
         if not self._ensure() or not item_id:
-            return
+            return False
+        deleted = True
         for collection_name in (self.collection, self.image_collection):
             try:
                 self.client.delete(
                     collection_name=collection_name,
                     points_selector=[item_id],
+                    wait=True,
                 )
             except Exception:
+                deleted = False
                 logger.exception("Qdrant delete failed collection=%s", collection_name)
+        return deleted
 
     # =========================
     # 🔥 FAST PIXEL DUPLICATE
@@ -522,8 +589,9 @@ class QdrantService:
             }
 
         except Exception:
+            logger.exception("Qdrant pixel duplicate search failed")
             return {
-                "checked": True,
+                "checked": False,
                 "is_duplicate": False,
                 "reason": None,
                 "confidence": 0.0,

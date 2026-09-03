@@ -4789,6 +4789,22 @@ def delete_selected(http_request: Request, request: DeleteSelectedRequest):
         appwrite_result = _ahvi_delete_outfit_doc(doc_id)
 
         if appwrite_result.get("ok"):
+            try:
+                qdrant_deleted = qdrant_service.delete_item(doc_id)
+                if not qdrant_deleted:
+                    logger.warning(
+                        "ahvi.delete_selected.qdrant_cleanup_failed user_id=%s item_id=%s",
+                        user_id,
+                        doc_id,
+                    )
+            except Exception:
+                # Match the single-item helper's fail-open delete behavior and
+                # keep the existing bulk response shape.
+                logger.exception(
+                    "ahvi.delete_selected.qdrant_cleanup_failed user_id=%s item_id=%s",
+                    user_id,
+                    doc_id,
+                )
             deleted.append(
                 {
                     "id": doc_id,

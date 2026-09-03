@@ -1150,7 +1150,7 @@ def persist_selected_items(
                     )
                 )
 
-                qdrant_service.upsert_wardrobe_item(
+                qdrant_upsert_result = qdrant_service.upsert_wardrobe_item(
                     {
                         "id": file_id,
                         "userId": user_id,
@@ -1169,6 +1169,7 @@ def persist_selected_items(
                         "occasion_fitness": style_attrs.get("occasion_fitness"),
                     }
                 )
+                qdrant_indexed = bool(qdrant_upsert_result)
                 if image_embedding:
                     qdrant_service.upsert_image_vector(
                         file_id,
@@ -1191,7 +1192,7 @@ def persist_selected_items(
                         },
                     )
                 try:
-                    created["qdrant_indexed"] = True
+                    created["qdrant_indexed"] = qdrant_indexed
                 except Exception:  # noqa: BLE001 — marker is best-effort
                     pass
             except Exception as exc:
@@ -1533,6 +1534,7 @@ def delete_wardrobe_item(
         collection_id=source_collection,
         database_id=source_database,
     )
+    qdrant_deleted = bool(qdrant_service.delete_item(item_id))
     log.info(
         "ahvi.wardrobe.delete.main_deleted user_id=%s item_id=%s collection=%s",
         user_id,
@@ -1555,6 +1557,7 @@ def delete_wardrobe_item(
         "success": True,
         "deleted_item_id": item_id,
         "metadata_deleted": metadata_deleted,
+        "qdrant_deleted": qdrant_deleted,
         "item": existing,
     }
 
