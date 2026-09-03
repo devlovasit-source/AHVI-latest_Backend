@@ -203,6 +203,33 @@ def test_office_outfit_advice_salvages_live_hanging_phrase_regression():
     assert not engine._looks_truncated(advice)
 
 
+def test_office_outfit_advice_salvages_live_without_being_regression():
+    # Second live regression: a different Gemini generation on the same
+    # prompt trailed off with "...without being." instead of "...feel out."
+    live_reasoning = (
+        "For the office, the priority is always to look polished and capable. "
+        "We will focus on creating distinct looks that balance professionalism "
+        "with comfort, ensuring you feel confident and ready for any task, "
+        "without being."
+    )
+    response = engine._build_response(
+        query="What should I wear to office tomorrow?",
+        mode="style_advice",
+        category=None,
+        tone=None,
+        formality=None,
+        occasion=None,
+        confidence=0.8,
+        ai_payload={"stylist_reasoning": live_reasoning},
+        user_profile={},
+        context={},
+    )
+    advice = response["advice"]
+    assert advice
+    assert "without being" not in advice
+    assert not engine._looks_truncated(advice)
+
+
 # ---------- wardrobe match pct ----------
 
 def test_wardrobe_match_pct_full_overlap():

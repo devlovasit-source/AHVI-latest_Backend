@@ -67,3 +67,43 @@ def test_plain_complete_sentence_is_not_truncated():
 
 def test_feel_balanced_is_not_truncated():
     assert looks_truncated("The proportions feel balanced.") is False
+
+
+# ---------- hanging phrase: unfinished copular gerund after a subordinator ----------
+
+def test_without_being_is_truncated():
+    assert looks_truncated("That works without being.") is True
+
+
+def test_without_being_with_lead_in_is_truncated():
+    assert looks_truncated("This can feel polished without being.") is True
+
+
+def test_live_without_being_regression_paragraph_flagged():
+    text = (
+        "For the office, the priority is always to look polished and capable. "
+        "We will focus on creating distinct looks that balance professionalism "
+        "with comfort, ensuring you feel confident and ready for any task, "
+        "without being."
+    )
+    assert looks_truncated(text) is True
+
+
+# ---------- negative cases: valid sentences with/without "being" ----------
+
+def test_being_prepared_matters_is_not_truncated():
+    assert looks_truncated("Being prepared matters.") is False
+
+
+def test_left_without_looking_is_not_truncated():
+    assert looks_truncated("She left without looking.") is False
+
+
+def test_crossed_without_stopping_is_not_truncated():
+    assert looks_truncated("He crossed without stopping.") is False
+
+
+def test_without_being_with_complement_is_not_truncated():
+    assert looks_truncated(
+        "This avoids anything too casual without being overly formal."
+    ) is False

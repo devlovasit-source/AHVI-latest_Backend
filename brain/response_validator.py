@@ -23,8 +23,16 @@ _HANGING_ENDINGS = {
 # are out.", "feel off." must all keep validating as complete, so this
 # matches only "feel(s/ing) out" as the sentence's final words, not any
 # sentence merely containing or ending in "out".
+#
+# Unfinished copular gerund after a subordinator/preposition (e.g.
+# "...without being." — without being WHAT?). Narrow on purpose: only the
+# specific subordinators below, immediately followed by bare "being" as the
+# sentence's final word. "Being prepared matters." (sentence-initial),
+# "without looking."/"without stopping." (a different, complete gerund), and
+# "without being overly formal." (has its complement) must all stay valid.
 _HANGING_PHRASE_PATTERNS = (
     re.compile(r"\bfeel(?:s|ing)?\s+out[.!?]*$", re.IGNORECASE),
+    re.compile(r"\b(?:without|while|before|after)\s+being[.!?]*$", re.IGNORECASE),
 )
 
 _FORBIDDEN_STARTERS = (
