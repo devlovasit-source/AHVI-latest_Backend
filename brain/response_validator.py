@@ -11,8 +11,8 @@ _MULTISPACE_RE = re.compile(r"[ \t]{2,}")
 _TERMINAL_PUNCT_RE = re.compile(r"[.!?…]['\")\]]?$")
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…])\s+(?=[A-Z\"'(\[])")
 _HANGING_ENDINGS = {
-    "and", "or", "but", "because", "with", "for", "to", "like", "while",
-    "so", "of", "in", "on", "as", "if", "than", "then",
+    "and", "or", "but", "because", "with", "without", "for", "to", "like",
+    "including", "while", "so", "of", "in", "on", "as", "if", "than", "then",
 }
 
 # Grammatical class: a sentence whose final word is a bare contracted
@@ -72,31 +72,49 @@ _TRAILING_ADJUNCT_RE = re.compile(
     r"|\s*\b(?:without|while|before|after)\s+\w+ing\s+(?:a|an|the)[.!?]*$",
     re.IGNORECASE,
 )
+
+# Comma + bare terminal gerund/modifier with no complement (e.g. "...modern
+# and refined, avoiding." -- avoiding WHAT?). Narrow: the gerund must be the
+# ENTIRE remainder after the last comma, nothing else before the terminal
+# punctuation -- a real participial modifier with its object stays valid:
+# "...refined, avoiding loud contrasts." does not match since more text
+# follows "avoiding" before the sentence ends.
+# ponytail: a genuinely complete manner-participle with no object (e.g. "She
+# left, smiling.") would also trip this -- same heuristic-vs-parser tradeoff
+# as the trailing-adjunct check above; no valid-negative of that shape has
+# been proven live, so it isn't special-cased.
+_COMMA_GERUND_RE = re.compile(r",\s*\w+ing[.!?]*$", re.IGNORECASE)
+
 _HANGING_PHRASE_PATTERNS = (
     re.compile(r"\bfeel(?:s|ing)?\s+out[.!?]*$", re.IGNORECASE),
     _TRAILING_ADJUNCT_RE,
+    _COMMA_GERUND_RE,
 )
+
+_TERMINAL_MODIFIER_PATTERNS = (_TRAILING_ADJUNCT_RE, _COMMA_GERUND_RE)
 
 
 def salvage_before_trailing_adjunct(text: str) -> str | None:
-    """If `text` ends in a bare/underspecified subordinate adjunct (e.g.
-    "...while maintaining." / "...while maintaining a."), strip that clause
-    and return the leading sentence -- but only when what remains is itself
-    grammatically complete. Never invents the missing complement; returns
-    None when there's nothing safe to salvage.
+    """If `text` ends in a bare/underspecified terminal modifier -- a
+    subordinate adjunct missing its complement ("...while maintaining a.")
+    or a comma-delimited gerund missing its object ("...refined, avoiding.")
+    -- strip that clause and return the leading sentence, but only when what
+    remains is itself grammatically complete. Never invents the missing
+    complement; returns None when there's nothing safe to salvage.
     """
     if not isinstance(text, str):
         return None
     original = text.strip()
-    salvaged = _TRAILING_ADJUNCT_RE.sub("", original).rstrip()
-    salvaged = salvaged.rstrip(",;:-–— ")
-    if not salvaged or salvaged == original:
-        return None
-    if not _TERMINAL_PUNCT_RE.search(salvaged):
-        salvaged += "."
-    if looks_truncated(salvaged):
-        return None
-    return salvaged
+    for pattern in _TERMINAL_MODIFIER_PATTERNS:
+        salvaged = pattern.sub("", original).rstrip()
+        salvaged = salvaged.rstrip(",;:-–— ")
+        if not salvaged or salvaged == original:
+            continue
+        if not _TERMINAL_PUNCT_RE.search(salvaged):
+            salvaged += "."
+        if not looks_truncated(salvaged):
+            return salvaged
+    return None
 
 _FORBIDDEN_STARTERS = (
     "Sure!",

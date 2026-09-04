@@ -104,8 +104,18 @@ def looks_truncated_safe(text: str) -> bool:
         return False
 
 
+_GUARD_TRUNCATION_SAFE_FALLBACK = "This looks well put together and balanced."
+
+
 def _guard_truncation(text: str, *, usecase: Optional[str]) -> str:
-    """Validate LLM output; trim to last complete sentence if truncated."""
+    """Validate LLM output; trim to last complete sentence if truncated.
+
+    Never returns the original malformed text as its own fallback -- doing
+    so both ships the known-bad text and (since callers compare `guarded !=
+    original` to decide whether to retry) silently suppresses
+    RETRY_ON_TRUNCATION. If `polish_final_text`'s own salvage/fallback still
+    looks truncated, escalate to a hardcoded deterministic safe string.
+    """
     if not text:
         return text
     try:
@@ -116,7 +126,10 @@ def _guard_truncation(text: str, *, usecase: Optional[str]) -> str:
                 usecase,
                 len(text or ""),
             )
-            return polish_final_text(text, fallback=text)
+            repaired = polish_final_text(text)
+            if looks_truncated_safe(repaired) or repaired == text:
+                repaired = _GUARD_TRUNCATION_SAFE_FALLBACK
+            return repaired
         return result.get("text") or text
     except Exception:
         return text
@@ -242,6 +255,26 @@ Task:
             contents=full_prompt,
             config=config,
         )
+
+        # Diagnostic only -- never used to alter model config or behavior.
+        # No prompt/user content logged, only the SDK's own termination/usage
+        # metadata (when the SDK exposes it) so a future truncation incident
+        # can be told apart from a genuinely malformed completion.
+        try:
+            candidates = getattr(response, "candidates", None) or []
+            finish_reason = getattr(candidates[0], "finish_reason", None) if candidates else None
+            usage = getattr(response, "usage_metadata", None)
+            logger.info(
+                "ahvi.llm.gemini_generation_diagnostics model=%s configured_max_output_tokens=%d "
+                "finish_reason=%s prompt_token_count=%s candidates_token_count=%s",
+                GEMINI_MODEL,
+                max_output_tokens,
+                finish_reason,
+                getattr(usage, "prompt_token_count", None),
+                getattr(usage, "candidates_token_count", None),
+            )
+        except Exception:
+            pass
 
         text = (response.text or "").strip()
         if not text:
