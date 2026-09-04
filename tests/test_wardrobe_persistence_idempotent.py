@@ -115,3 +115,82 @@ def test_existing_masked_url_is_preserved_without_aliasing_other_fields():
     assert doc["image_url"] == "https://raw.test/item-1.png"
     assert doc["masked_url"] == "https://masked.test/item-1.png"
     assert doc["normalized_url"] == "https://catalog.test/item-1.png"
+
+
+# ---------------------------------------------------------------------------
+# normalized_url raw-alias regression (Phase 2A) - a wardrobe item whose
+# backend record never got a genuinely distinct processed/catalog asset must
+# never persist normalized_url == a known raw/original URL. Live-reproduced
+# via the "Refined Ease" Style Board device bug: normalized_url and image_url
+# resolved to the identical raw upload, and the (now-fixed) Flutter resolver
+# had trusted it as a safe catalog_fallback. See
+# lib/util/wardrobe_image_resolver.dart commit e8a53d6 (frontend fix) and
+# services/style_board_image_readiness.py (this repo's read-boundary half).
+#
+# These tests characterize CURRENT (pre-fix) behavior and are expected to
+# FAIL against _build_appwrite_doc until Phase 3 adds the raw-alias guard.
+
+
+# A1 - raw alias must not persist.
+def test_normalized_url_aliasing_raw_image_is_rejected():
+    doc = _image_doc(
+        raw_url="https://raw.test/item-1.png",
+        normalized_url="https://raw.test/item-1.png",
+    )
+
+    assert doc["image_url"] == "https://raw.test/item-1.png"
+    assert doc["normalized_url"] == ""
+
+
+# A2 - distinct normalized URL must persist (legitimate processed asset).
+def test_distinct_normalized_url_is_preserved():
+    doc = _image_doc(
+        raw_url="https://raw.test/item-1.png",
+        normalized_url="https://catalog.test/item-1.png",
+    )
+
+    assert doc["image_url"] == "https://raw.test/item-1.png"
+    assert doc["normalized_url"] == "https://catalog.test/item-1.png"
+
+
+# A3 - raw-only input stays raw-only; no normalized_url is manufactured.
+def test_raw_only_item_does_not_manufacture_normalized_url():
+    doc = _image_doc(raw_url="https://raw.test/item-1.png")
+
+    assert doc["image_url"] == "https://raw.test/item-1.png"
+    assert doc["normalized_url"] == ""
+
+
+# A4 - the invariant is "never aliases ANY known raw/original representation",
+# not merely "!= image_url". Here raw_url (not item['image_url']) is the
+# aliased field, and item['image_url'] is a different placeholder value -
+# normalized_url must still be rejected because it aliases raw_url.
+def test_normalized_url_aliasing_raw_url_param_is_rejected_even_when_image_url_differs():
+    doc = persistence._build_appwrite_doc(
+        user_id="user-1",
+        file_id="item-1",
+        item={
+            "name": "Blue Shirt",
+            "category": "Tops",
+            "image_url": "https://placeholder.test/not-the-raw-url.png",
+        },
+        raw_url="https://raw.test/item-1.png",
+        masked_url="",
+        normalized_url="https://raw.test/item-1.png",
+    )
+
+    assert doc["normalized_url"] == ""
+
+
+# A4b - canonical-equivalent alias (differs only by query token/fragment,
+# same _board_url_identity()) must also be rejected, not just exact-string
+# matches. Mirrors the identity semantics already covered in
+# tests/test_style_board_image_readiness.py's URL-identity alias parity
+# section.
+def test_normalized_url_aliasing_raw_via_canonical_identity_is_rejected():
+    doc = _image_doc(
+        raw_url="https://raw.test/item-1.png?token=abc",
+        normalized_url="https://raw.test/item-1.png?token=xyz",
+    )
+
+    assert doc["normalized_url"] == ""

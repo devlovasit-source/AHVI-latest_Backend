@@ -42,18 +42,16 @@ def test_normalized_url_renderable():
     assert result["reason"] == "catalog_normalized"
 
 
-def test_normalized_url_equal_to_image_url_still_renderable():
-    # Device blocker (readiness-gate final device gate): unlike masked_url,
-    # normalized_url is never alias-checked against image_url - it matches
-    # the Flutter wardrobe_image_resolver contract, which admits its
-    # unconditional normalized_url candidates without an alias check
-    # (normalized_url represents a regenerated catalog shot, not a raw
-    # upload copy, by contract - even when a given item's value happens to
-    # be identical to its image_url).
+def test_normalized_url_equal_to_image_url_not_renderable():
+    # Corrected contract (was: still_renderable): normalized_url IS now
+    # alias-checked against image_url, matching the Flutter
+    # wardrobe_image_resolver frontend fix (commit e8a53d6). A wardrobe item
+    # whose backend record never got a genuinely distinct processed asset
+    # must not have its raw upload classified as a safe catalog source.
     item = {"image_url": _RAW, "normalized_url": _RAW}
     result = resolve_board_image_candidate(item)
-    assert result["renderable"] is True
-    assert result["selected_field"] == "normalized_url"
+    assert result["selected_field"] != "normalized_url"
+    assert result["renderable"] is False
 
 
 # D. valid RMBG processed_url + completed status -> renderable
@@ -318,19 +316,18 @@ def test_trailing_slash_difference_stays_distinct():
     assert is_board_renderable(item) is True
 
 
-def test_normalized_url_still_never_alias_checked_against_raw():
-    """Guard against over-normalizing: normalized_url keeps its existing
-    unconditional catalog contract - it must not start being rejected via
-    the new identity check just because its host/path happens to match the
-    raw image_url (that guarantee predates this fix and Flutter doesn't
-    alias-check normalized_url against image_url either)."""
+def test_normalized_url_now_alias_checked_against_raw_via_identity():
+    """Corrected contract (was: still_never_alias_checked_against_raw):
+    normalized_url is now alias-checked using the same _board_url_identity()
+    semantics as every other candidate field - a query-token-only difference
+    from image_url is still the same underlying resource and must be
+    rejected, not just exact-string matches."""
     item = {
         "image_url": "https://cdn.test/item.png?sig=abc",
         "normalized_url": "https://cdn.test/item.png?sig=xyz",
     }
     result = resolve_board_image_candidate(item)
-    assert result["renderable"] is True
-    assert result["selected_field"] == "normalized_url"
+    assert result["selected_field"] != "normalized_url"
 
 
 def test_genuine_masked_image_with_query_difference_from_unrelated_raw():
@@ -448,6 +445,54 @@ def test_prepare_board_item_raw_plus_aliased_masked_rejected():
     }
     prepared = prepare_board_item(raw)
     assert is_board_renderable(prepared) is False
+
+
+# ---------------------------------------------------------------------------
+# Phase 2B - normalized_url raw-alias legacy read-boundary regression. These
+# characterize CURRENT (pre-fix) behavior and are expected to FAIL until
+# Phase 3 removes the unconditional _CATALOG_FIELDS carve-out in
+# resolve_board_image_candidate(). See test_normalized_url_equal_to_image_url
+# _still_renderable and test_normalized_url_still_never_alias_checked_against
+# _raw above for the existing tests that currently lock in the bug and will
+# need updating in Phase 3.
+
+
+# B1 - legacy normalized_url == raw image must be rejected.
+def test_legacy_normalized_url_equal_to_raw_is_rejected():
+    item = {"image_url": _RAW, "normalized_url": _RAW}
+    result = resolve_board_image_candidate(item)
+    assert result["selected_field"] != "normalized_url"
+    assert result["renderable"] is False
+
+
+# B2 - canonical-equivalent alias (query-token difference) rejected, proving
+# this is _board_url_identity()-based, not raw-string-only comparison.
+def test_legacy_normalized_url_canonical_equivalent_alias_is_rejected():
+    item = {
+        "image_url": "https://cdn.test/item.png?token=abc",
+        "normalized_url": "https://cdn.test/item.png?token=xyz",
+    }
+    result = resolve_board_image_candidate(item)
+    assert result["selected_field"] != "normalized_url"
+    assert result["renderable"] is False
+
+
+# B3 - distinct normalized_url remains board-safe (control).
+def test_distinct_normalized_url_remains_board_safe():
+    item = {"image_url": _RAW, "normalized_url": _CAT}
+    result = resolve_board_image_candidate(item)
+    assert result["renderable"] is True
+    assert result["selected_field"] == "normalized_url"
+    assert result["reason"] == "catalog_normalized"
+
+
+# B4 - an aliased normalized_url must not sink an otherwise-usable item: a
+# genuinely distinct masked_url must still be selected.
+def test_aliased_normalized_url_falls_through_to_genuine_masked_url():
+    item = {"image_url": _RAW, "normalized_url": _RAW, "masked_url": _MASK}
+    result = resolve_board_image_candidate(item)
+    assert result["renderable"] is True
+    assert result["selected_field"] == "masked_url"
 
 
 def test_prepare_board_item_style_asset_untouched():

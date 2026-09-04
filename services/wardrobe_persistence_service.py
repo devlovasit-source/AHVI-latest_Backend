@@ -28,6 +28,7 @@ from services.wardrobe_intelligence_service import (
     CLIMATE_PROFILE_VERSION,
 )
 from services.wardrobe_suitability import apply_metadata_guard
+from services.style_board_image_readiness import _board_url_identity, _RAW_ALIAS_KEYS
 
 logger = logging.getLogger("ahvi.wardrobe_persistence")
 
@@ -924,7 +925,23 @@ def _build_appwrite_doc(
         final_image_url = normalized_url or masked_url or raw_url
         stored_image_url = raw_url or item.get("image_url") or item.get("imageUrl") or final_image_url
         stored_masked_url = masked_url
-        stored_normalized_url = normalized_url
+        # Invariant: normalized_url must never persist as an alias of any
+        # known raw/original representation for this item (raw_url param,
+        # or any of _RAW_ALIAS_KEYS on the incoming item dict - image_url,
+        # raw_url, url, original_image_url, preview_url and camelCase
+        # variants). Reuses style_board_image_readiness's canonical URL
+        # identity so both persistence and read-boundary agree on the same
+        # alias definition - see that module's _board_url_identity().
+        _raw_identities = {
+            _board_url_identity(candidate)
+            for candidate in [raw_url, *[item.get(key) for key in _RAW_ALIAS_KEYS]]
+            if candidate
+        }
+        stored_normalized_url = (
+            ""
+            if normalized_url and _board_url_identity(normalized_url) in _raw_identities
+            else normalized_url
+        )
     pixel_hash = _safe_text(
         item.get("pixel_hash") or item.get("pixelHash") or item.get("masked_pixel_hash")
     )
