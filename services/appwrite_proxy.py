@@ -91,6 +91,11 @@ class AppwriteProxy:
             ),
             "saved_boards": os.getenv("APPWRITE_COLLECTION_SAVED_BOARDS", "")
             or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_SAVED_BOARDS", ""),
+            "style_board_states": (
+                os.getenv("APPWRITE_COLLECTION_STYLE_BOARD_STATES", "")
+                or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_STYLE_BOARD_STATES", "")
+                or "style_board_states"
+            ),
             "skincare": os.getenv("APPWRITE_COLLECTION_SKINCARE", "")
             or os.getenv("EXPO_PUBLIC_APPWRITE_COLLECTION_SKINCARE", ""),
             "skincare_profiles": (
@@ -220,6 +225,8 @@ class AppwriteProxy:
             "jobs": "userId",
             "notification_devices": "userId",
             "notification_reminders": "userId",
+            "notification_preferences": "userId",
+            "style_board_states": "userId",
             "wear_events": "userId",
         }
 
@@ -227,6 +234,7 @@ class AppwriteProxy:
             "outfits": {"method": "orderDesc", "attribute": "$createdAt"},
             "wardrobe_style_metadata": {"method": "orderDesc", "attribute": "$updatedAt"},
             "style_assets": {"method": "orderDesc", "attribute": "$updatedAt"},
+            "style_board_states": {"method": "orderDesc", "attribute": "$createdAt"},
             "plans": None,
             "calendar_events": None,
             "saved_boards": {"method": "orderDesc", "attribute": "$createdAt"},
@@ -251,6 +259,7 @@ class AppwriteProxy:
                 "attribute": "updatedAtISO",
             },
             "notification_reminders": {"method": "orderAsc", "attribute": "sendAtISO"},
+            "notification_preferences": {"method": "orderDesc", "attribute": "$createdAt"},
             "wear_events": {"method": "orderDesc", "attribute": "occurredAtISO"},
         }
 
@@ -700,6 +709,7 @@ class AppwriteProxy:
         *,
         user_id: Optional[str] = None,
         occasion: Optional[str] = None,
+        queries: Optional[List[Any]] = None,
         limit: int = 100,
         offset: int = 0,
         return_meta: bool = False,
@@ -718,10 +728,19 @@ class AppwriteProxy:
         query_tokens: List[Any] = []
         if order_query:
             query_tokens.append(order_query)
-        if user_field and user_id:
-            query_tokens.append(self._equal_query(user_field, str(user_id)))
+        if user_id:
+            if user_field:
+                query_tokens.append(self._equal_query(user_field, str(user_id)))
+            else:
+                logger.warning(
+                    "list_documents called with user_id=%s on resource=%s without mapped user_field",
+                    user_id,
+                    resource,
+                )
         if occasion:
             query_tokens.append(self._equal_query("occasion", str(occasion)))
+        if queries:
+            query_tokens.extend(queries)
 
         page = self._list_documents_page(
             collection_id,
@@ -733,7 +752,7 @@ class AppwriteProxy:
         total = page.get("total")
         used_query_syntax = bool(page.get("used_query_syntax"))
 
-        filters_requested = bool((user_field and user_id) or occasion)
+        filters_requested = bool(user_id or occasion or queries)
         low_result_with_filter = (
             filters_requested and safe_offset == 0 and len(docs) <= 1
         )

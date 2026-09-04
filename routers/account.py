@@ -29,7 +29,7 @@ router = APIRouter(prefix="/account", tags=["Account"])
 class AccountDeleteRequest(BaseModel):
     confirmation: str = Field(
         ...,
-        description="Confirmation token to prevent accidental deletion. Must be 'DELETE'.",
+        description="Confirmation token to prevent accidental deletion. Must be 'DELETE' or 'CONFIRM'.",
         min_length=1,
         max_length=20,
     )
@@ -48,7 +48,8 @@ def handle_delete_account(
     """Request soft deletion of the authenticated account.
 
     Sets the account status to 'pending_deletion' with a 45-day grace period
-    and revokes all active Appwrite user sessions.
+    and revokes all active Appwrite user sessions. Requires confirmation token
+    'DELETE' or 'CONFIRM'.
     """
     user_id = require_user(http_request)
 
@@ -56,7 +57,7 @@ def handle_delete_account(
     if confirmation_token not in {"DELETE", "CONFIRM"}:
         raise HTTPException(
             status_code=400,
-            detail="Confirmation required. To schedule deletion, set confirmation='DELETE'.",
+            detail="Confirmation required. To schedule deletion, set confirmation='DELETE' or 'CONFIRM'.",
         )
 
     try:

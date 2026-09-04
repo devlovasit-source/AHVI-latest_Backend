@@ -176,6 +176,35 @@ def _validate_token_sync(token: str) -> Dict[str, Any]:
     }
 
 
+def _restore_account_if_pending_deletion(user_id: str, request: Optional[Request] = None) -> None:
+    """Restores an account to active status if it was pending deletion, exempting status/deletion management routes."""
+    uid = str(user_id or "").strip()
+    if not uid:
+        return
+    if request is not None:
+        try:
+            path = str(request.url.path or "")
+            if any(path.endswith(ep) for ep in ("/account/delete", "/account/status", "/account/cancel-delete")):
+                return
+        except Exception:
+            pass
+    try:
+        from services.account_deletion_service import (
+            ACCOUNT_STATUS_PENDING_DELETION,
+            cancel_account_deletion,
+            get_account_deletion_status,
+        )
+        status = get_account_deletion_status(uid)
+        if status.get("account_status") == ACCOUNT_STATUS_PENDING_DELETION:
+            if not status.get("is_expired"):
+                logger.info("User %s active while pending deletion; auto-cancelling deletion schedule", uid)
+                cancel_account_deletion(uid)
+            else:
+                logger.warning("User %s active but deletion grace period has expired", uid)
+    except Exception as exc:
+        logger.warning("Error checking/cancelling pending deletion for user %s: %s", uid, exc)
+
+
 # =========================
 # MAIN AUTH
 # =========================
@@ -192,11 +221,17 @@ async def get_current_user(request: Request):
     if cached is not None:
         if _is_negative_payload(cached):
             raise HTTPException(status_code=401, detail="Invalid or expired token")
+        user_id = cached.get("user_id")
+        if user_id:
+            await asyncio.to_thread(_restore_account_if_pending_deletion, user_id, request)
         request.state.user = cached
         return cached
 
     try:
         payload = await asyncio.to_thread(_validate_token_sync, token)
+        user_id = payload.get("user_id")
+        if user_id:
+            await asyncio.to_thread(_restore_account_if_pending_deletion, user_id, request)
 
         # 🔹 cache success
         await _cache_set(token, payload)

@@ -48,14 +48,42 @@ def find_expired_accounts(limit: int = 50) -> List[Dict[str, Any]]:
 
     # Attempt 1: Query using Appwrite queries if index is supported
     try:
-        from appwrite.query import Query
-        queries = [
-            Query.equal("account_status", ACCOUNT_STATUS_PENDING_DELETION),
-            Query.less_than_equal("deletion_scheduled_at", now_iso),
-            Query.limit(limit),
+        query_tokens = [
+            {"method": "equal", "attribute": "account_status", "values": [ACCOUNT_STATUS_PENDING_DELETION]},
+            {"method": "lessThanEqual", "attribute": "deletion_scheduled_at", "values": [now_iso]},
         ]
-        result = proxy.list_documents("users", limit=limit)
-        # Note: AppwriteProxy handles query candidates; we additionally filter locally to guarantee precision
+        page = proxy._list_documents_page(
+            proxy._collection_id("users"),
+            page_limit=min(limit, 100),
+            offset=0,
+            queries=query_tokens,
+        )
+        docs = page.get("documents", [])
+        if docs and page.get("used_query_syntax"):
+            for doc in docs:
+                if not isinstance(doc, dict):
+                    continue
+                status = str(doc.get("account_status") or "").strip().lower()
+                if status != ACCOUNT_STATUS_PENDING_DELETION:
+                    continue
+                scheduled_raw = doc.get("deletion_scheduled_at")
+                if not scheduled_raw:
+                    continue
+                scheduled_dt = _parse_iso(str(scheduled_raw))
+                if scheduled_dt and scheduled_dt <= now:
+                    uid = str(doc.get("userId") or doc.get("user_id") or doc.get("$id") or "").strip()
+                    if uid:
+                        expired_accounts.append({
+                            "user_id": uid,
+                            "deletion_requested_at": doc.get("deletion_requested_at"),
+                            "deletion_scheduled_at": scheduled_raw,
+                            "deletion_reason": doc.get("deletion_reason"),
+                        })
+                        if len(expired_accounts) >= limit:
+                            break
+            if expired_accounts:
+                logger.info("Found %d expired accounts via indexed query", len(expired_accounts))
+                return expired_accounts
     except Exception as exc:
         logger.debug("Indexed query fallback to collection scan: %s", exc)
 

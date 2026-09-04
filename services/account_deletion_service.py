@@ -371,12 +371,12 @@ def execute_hard_purge(user_id: str) -> Dict[str, Any]:
 
         proxy = AppwriteProxy()
 
+        # Only collections that store per-user data (style_assets is excluded as it is a global catalog)
         target_collections = [
             "chat_threads",
             "chat_messages",
             "outfits",
             "wardrobe_style_metadata",
-            "style_assets",
             "saved_boards",
             "style_board_states",
             "wear_events",
@@ -404,6 +404,11 @@ def execute_hard_purge(user_id: str) -> Dict[str, Any]:
         total_db_deleted = 0
         for res in target_collections:
             del_in_res = 0
+            owner_field = proxy.user_field_map.get(res)
+            if not owner_field:
+                logger.warning("Skipping target collection %s during purge: no mapped owner field", res)
+                continue
+
             try:
                 while True:
                     docs_resp = proxy.list_documents(res, user_id=uid, limit=100)
@@ -415,7 +420,26 @@ def execute_hard_purge(user_id: str) -> Dict[str, Any]:
                     if not docs:
                         break
                     for doc in docs:
-                        doc_id = str((doc or {}).get("$id") or (doc or {}).get("id") or "").strip()
+                        if not isinstance(doc, dict):
+                            continue
+                        doc_id = str(doc.get("$id") or doc.get("id") or "").strip()
+                        # Cross-tenant safety check: verify ownership before deletion
+                        doc_owner = str(
+                            doc.get(owner_field)
+                            or doc.get("userId")
+                            or doc.get("user_id")
+                            or ""
+                        ).strip()
+                        if doc_owner != uid:
+                            logger.warning(
+                                "Safety check blocked deletion: doc %s in %s belongs to %s, not %s",
+                                doc_id,
+                                res,
+                                doc_owner,
+                                uid,
+                            )
+                            continue
+
                         if doc_id:
                             try:
                                 proxy.delete_document(res, doc_id)
