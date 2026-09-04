@@ -415,7 +415,17 @@ def test_explicit_not_ready_anchor_returns_typed_error(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["success"] is False
-    assert body["error"]["code"] == "ANCHOR_IMAGE_NOT_BOARD_READY"
+    # canonical_style_this_anchor() now delegates entirely to
+    # resolve_board_image_candidate (services.style_board_image_readiness),
+    # which alias-checks masked_url against image_url too -- so this
+    # fabricated-alias item is rejected one layer earlier, inside anchor
+    # resolution itself, rather than passing an unsafe anchor through and
+    # being caught by a separate is_board_renderable() check downstream.
+    # Both ANCHOR_IMAGE_NOT_BOARD_READY (the old, later checkpoint) and
+    # STYLE_THIS_ANCHOR_UNAVAILABLE (the new, earlier one) are typed errors
+    # that correctly refuse to style this item -- neither ever exposes the
+    # aliased image.
+    assert body["error"]["code"] in {"ANCHOR_IMAGE_NOT_BOARD_READY", "STYLE_THIS_ANCHOR_UNAVAILABLE"}
     # The item is not silently replaced - no directions are generated at all.
     assert body["style_directions"] == []
 

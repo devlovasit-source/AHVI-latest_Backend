@@ -70,10 +70,14 @@ _CANDIDATE_FIELDS: tuple[tuple[str, Optional[tuple[str, str]]], ...] = (
     ("processedUrl", ("image_status", "rmbg_complete")),
 )
 
-# normalized_url is a lower-priority, unconditional catalog-tier candidate -
-# a framed product/catalog shot, not a transparent cutout. Kept and
-# renderable, but never earns "cutout_ready" status.
-_CATALOG_FIELDS = ("normalized_url", "normalizedUrl")
+# normalized_url/catalog_image_url are lower-priority, unconditional
+# catalog-tier candidates - a framed product/catalog shot, not a transparent
+# cutout. Kept and renderable, but never earn "cutout_ready" status.
+# catalog_image_url added ahead of normalized_url so services.style_this_anchor
+# (the sole other candidate-priority consumer, now delegating to this module
+# entirely) preserves its pre-existing catalog_image_url > normalized_url
+# preference instead of losing that field's coverage outright.
+_CATALOG_FIELDS = ("catalog_image_url", "catalogImageUrl", "normalized_url", "normalizedUrl")
 
 
 def _text(value: Any) -> str:

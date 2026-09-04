@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Mapping, Optional
 
 from services.style_asset_contract import adapt_style_asset
+from services.style_board_image_readiness import resolve_board_image_candidate
 from services.style_item_contract import (
     canonical_accessory_type,
     canonical_item_id,
@@ -13,26 +14,28 @@ from services.style_item_contract import (
 )
 
 
-_SAFE_IMAGE_FIELDS = (
-    "board_image_url",
-    "boardImageUrl",
-    "cutout_url",
-    "cutoutUrl",
-    "catalog_image_url",
-    "catalogImageUrl",
-    "normalized_url",
-    "normalizedUrl",
-    "masked_url",
-    "maskedUrl",
-    "image_url",
-    "imageUrl",
-)
 _RAW_IMAGE_FIELDS = (
     "raw_url",
     "raw_image_url",
     "original_upload_url",
     "upload_url",
 )
+
+# Maps resolve_board_image_candidate's selected_field to this module's
+# source_kind/expected_transparent semantics -- NOT a second priority list.
+# The order candidates are considered in is decided entirely by
+# services.style_board_image_readiness.resolve_board_image_candidate (the
+# single authority for board image safety); this only classifies WHICH kind
+# of field won, after that module already picked it.
+_CUTOUT_FIELDS = {
+    "board_image_url", "boardImageUrl", "cutout_url", "cutoutUrl",
+    "transparent_url", "transparentUrl",
+    "transparent_image_url", "transparentImageUrl",
+    "rmbg_url", "rmbgUrl", "processed_url", "processedUrl",
+}
+_MASKED_FIELDS = {"masked_url", "maskedUrl"}
+_CATALOG_ONLY_FIELDS = {"catalog_image_url", "catalogImageUrl"}
+_NORMALIZED_FIELDS = {"normalized_url", "normalizedUrl"}
 
 
 def _text(value: Any) -> str:
@@ -64,14 +67,14 @@ def canonical_style_this_anchor(
     if source == "style_asset":
         source_item = adapt_style_asset(source_item)
 
-    safe_field = ""
-    safe_image_url = ""
-    for field in _SAFE_IMAGE_FIELDS:
-        value = _text(source_item.get(field))
-        if value:
-            safe_field = field
-            safe_image_url = value
-            break
+    # Single authority for board image safety: never re-decide priority or
+    # alias-safety here. A field that aliases image_url/raw fields (e.g. a
+    # legacy record where normalized_url == image_url) is never selected,
+    # even if a genuinely distinct field like masked_url exists and would
+    # otherwise be shadowed by a naive field-priority list.
+    candidate = resolve_board_image_candidate(source_item)
+    safe_field = candidate["selected_field"] if candidate["renderable"] else ""
+    safe_image_url = candidate["selected_url"] if candidate["renderable"] else ""
     if not safe_image_url:
         # A row containing only an upload/raw marker is not board-safe.
         if any(_text(source_item.get(field)) for field in _RAW_IMAGE_FIELDS):
@@ -83,16 +86,16 @@ def canonical_style_this_anchor(
     if role == "unknown":
         return None
 
-    if safe_field in {"board_image_url", "boardImageUrl", "cutout_url", "cutoutUrl"}:
+    if safe_field in _CUTOUT_FIELDS:
         default_source_kind = "style_asset_cutout" if source == "style_asset" else "wardrobe_cutout"
         default_transparent = True
-    elif safe_field in {"catalog_image_url", "catalogImageUrl"}:
+    elif safe_field in _CATALOG_ONLY_FIELDS:
         default_source_kind = "catalog_fallback"
         default_transparent = False
-    elif safe_field in {"normalized_url", "normalizedUrl"}:
+    elif safe_field in _NORMALIZED_FIELDS:
         default_source_kind = "style_asset_processed" if source == "style_asset" else "wardrobe_processed"
         default_transparent = False
-    elif safe_field in {"masked_url", "maskedUrl"}:
+    elif safe_field in _MASKED_FIELDS:
         default_source_kind = "wardrobe_masked"
         default_transparent = True
     else:
