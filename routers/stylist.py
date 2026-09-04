@@ -597,12 +597,16 @@ def _lite_image(item: Dict[str, Any]) -> str:
     # with image_url == masked_url, which is_board_renderable() correctly
     # treats as fabricated provenance (masked_url aliasing the raw photo) -
     # rejecting a genuinely renderable item because this function manufactured
-    # the appearance of aliasing. normalized_url is the one safe exception:
-    # it's an unconditional, never-alias-checked catalog field by contract
-    # (see services.style_board_image_readiness).
+    # the appearance of aliasing. normalized_url used to be preferred
+    # unconditionally here on the premise that it was a never-alias-checked
+    # catalog field; services.style_board_image_readiness now alias-checks
+    # it too, so preferring it whenever a genuine raw image_url already
+    # exists would manufacture image_url == normalized_url - the exact same
+    # fabricated-provenance shape is_board_renderable() rejects. Only fall
+    # back to normalized_url when there's no explicit raw image_url.
     return _txt(
-        item.get("normalized_url") or item.get("normalizedUrl")
-        or item.get("image_url") or item.get("imageUrl")
+        item.get("image_url") or item.get("imageUrl")
+        or item.get("normalized_url") or item.get("normalizedUrl")
     )
 
 
@@ -1001,7 +1005,19 @@ def _register_style_this_direction(
         source_item = wardrobe_by_id.get(item_id, {})
         current = {**item, **source_item}
         if item_id == anchor_id:
-            current = {**current, **anchor}
+            # Exclude image_url/normalized_url from this merge: `anchor` came
+            # from canonical_style_this_anchor(), which deliberately sets
+            # anchor["image_url"] = safe_image_url (whatever field won) for
+            # its own CTA-gating purposes (see the comment above this
+            # function's caller). Carrying that over here would overwrite
+            # `current`'s already-correct raw image_url/normalized_url (from
+            # source_item just above) with a manufactured self-alias, which
+            # is_board_renderable() then rejects as fabricated provenance.
+            anchor_extra = {
+                k: v for k, v in anchor.items()
+                if k not in ("image_url", "imageUrl", "normalized_url", "normalizedUrl")
+            }
+            current = {**current, **anchor_extra}
         if isinstance(item.get("position"), dict):
             current["position"] = dict(item["position"])
         current_id = canonical_item_id(current)

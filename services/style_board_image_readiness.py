@@ -150,19 +150,22 @@ def resolve_board_image_candidate(item: Any) -> Dict[str, Any]:
 
     for field in _CATALOG_FIELDS:
         value = _text(item.get(field))
-        # Unconditional, unlike the cutout fields above: the Flutter
-        # wardrobe_image_resolver's normalized_url candidates never
-        # alias-check against image_url either (normalized_url is always a
-        # regenerated catalog/product shot, never a raw upload copy, by the
-        # contract those fields represent) - matching that here, not
-        # inventing a stricter rule the frontend doesn't itself enforce.
-        if value:
-            return {
-                "renderable": True,
-                "selected_field": field,
-                "selected_url": value,
-                "reason": "catalog_normalized",
-            }
+        # normalized_url is a lower-priority, unconditional catalog-tier
+        # candidate - a framed product/catalog shot, not a transparent
+        # cutout - but it MUST still be alias-checked against known raw
+        # fields. lib/util/wardrobe_image_resolver.dart's frontend fix
+        # (commit e8a53d6) closed exactly this gap: a wardrobe item whose
+        # backend record never got a genuinely distinct processed asset can
+        # have normalized_url aliased to the same raw upload as image_url,
+        # which must never be classified as board-safe.
+        if not value or value in aliases or _board_url_identity(value) in alias_identities:
+            continue
+        return {
+            "renderable": True,
+            "selected_field": field,
+            "selected_url": value,
+            "reason": "catalog_normalized",
+        }
 
     return {
         "renderable": False,
