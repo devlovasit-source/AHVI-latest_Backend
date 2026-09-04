@@ -111,8 +111,18 @@ def canonical_style_this_anchor(
             "role": role,
             "slot": role,
             "source": source,
+            # Deliberately NOT "image_url": safe_image_url. image_url is a
+            # provenance-bearing field (the raw/original upload, if one
+            # exists) and must survive untouched -- `anchor = dict(source_item)`
+            # above already carries it through unchanged. Overwriting it with
+            # the winning presentation field (often normalized_url) made
+            # image_url == normalized_url for any item without its own
+            # distinct raw photo, which services.style_board_image_readiness's
+            # raw-alias guard then correctly rejected as fabricated
+            # provenance -- a false positive on a genuinely board-safe item.
+            # safe_image_url is the caller-facing "best presentation" result;
+            # routers/stylist.py already reads it via that dedicated field.
             "safe_image_url": safe_image_url,
-            "image_url": safe_image_url,
             "source_kind": _text(source_item.get("source_kind")) or default_source_kind,
             "expected_transparent": (
                 source_item.get("expected_transparent")
