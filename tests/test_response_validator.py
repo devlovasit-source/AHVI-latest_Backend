@@ -107,3 +107,65 @@ def test_without_being_with_complement_is_not_truncated():
     assert looks_truncated(
         "This avoids anything too casual without being overly formal."
     ) is False
+
+
+# ---------- hanging class: bare contracted subject+auxiliary/copula ----------
+
+def test_meeting_or_is_truncated():
+    assert looks_truncated(
+        "These looks balance professional polish with modern comfort, "
+        "ensuring you feel confident and appropriate for any meeting or."
+    ) is True
+
+
+def test_ensuring_youre_is_truncated():
+    assert looks_truncated(
+        "Focus on clean silhouettes and smart details that project "
+        "confidence and efficiency, ensuring you're."
+    ) is True
+
+
+def test_so_youre_is_truncated():
+    assert looks_truncated("Keep the silhouette clean so you're.") is True
+
+
+def test_and_youre_is_truncated():
+    assert looks_truncated("Choose the blazer and you're.") is True
+
+
+def test_comma_were_is_truncated():
+    assert looks_truncated("Once the layers are balanced, we're.") is True
+
+
+def test_ive_alone_is_truncated():
+    assert looks_truncated("I've.") is True
+
+
+def test_youll_alone_is_truncated():
+    assert looks_truncated("You'll.") is True
+
+
+# ---------- negative cases: contraction present but sentence is complete ----------
+
+def test_youre_ready_for_meeting_is_not_truncated():
+    assert looks_truncated("You're ready for the meeting.") is False
+
+
+def test_were_keeping_palette_neutral_is_not_truncated():
+    assert looks_truncated("We're keeping the palette neutral.") is False
+
+
+def test_youll_feel_polished_is_not_truncated():
+    assert looks_truncated("You'll feel polished.") is False
+
+
+def test_ive_kept_styling_minimal_is_not_truncated():
+    assert looks_truncated("I've kept the styling minimal.") is False
+
+
+def test_blazer_youre_wearing_is_not_truncated():
+    assert looks_truncated("The blazer you're wearing works well.") is False
+
+
+def test_direction_youre_after_is_not_truncated():
+    assert looks_truncated("That's the direction you're after.") is False

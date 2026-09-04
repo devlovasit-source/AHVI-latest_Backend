@@ -15,6 +15,21 @@ _HANGING_ENDINGS = {
     "so", "of", "in", "on", "as", "if", "than", "then",
 }
 
+# Grammatical class: a sentence whose final word is a bare contracted
+# subject+auxiliary/copula (e.g. "...so you're.") is missing its complement,
+# the same incompleteness as _HANGING_ENDINGS' bare prepositions/conjunctions
+# -- just a different part of speech. Checked via the same end-anchored
+# last-word extraction below, so "You're ready for the meeting." (contraction
+# mid-sentence) and "...you're after." (complement present, different final
+# word) both stay valid; only the bare contraction as the sentence's very
+# last token trips it.
+_HANGING_CONTRACTED_AUX = {
+    "i'm",
+    "you're", "we're", "they're",
+    "i've", "you've", "we've", "they've",
+    "i'll", "you'll", "we'll", "they'll",
+}
+
 # Phrase-level detectors for constructions that end in valid terminal
 # punctuation and a word outside _HANGING_ENDINGS, but are still
 # grammatically incomplete because the phrasal verb is missing its
@@ -105,9 +120,9 @@ def looks_truncated(text: str) -> bool:
     if stripped[-1] in {",", ":", ";", "-", "–", "—"}:
         return True
 
-    # Hanging connector words.
+    # Hanging connector words / bare contracted auxiliaries missing a complement.
     last_word = re.split(r"\s+", stripped)[-1].strip(".,;:!?'\"()[]").lower()
-    if last_word in _HANGING_ENDINGS:
+    if last_word in _HANGING_ENDINGS or last_word in _HANGING_CONTRACTED_AUX:
         return True
 
     # Hanging phrasal constructions (e.g. "...might feel out.") that end in
