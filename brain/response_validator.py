@@ -30,6 +30,13 @@ _HANGING_CONTRACTED_AUX = {
     "i'll", "you'll", "we'll", "they'll",
 }
 
+# Grammatical class: a sentence whose final word is a bare terminal article
+# ("a"/"an"/"the") is missing the noun it introduces -- an article can never
+# legitimately be the last word of a complete sentence. End-anchored via the
+# same last-word check, so "the outfit" (article followed by its noun) never
+# trips this; only the article as the sentence's very last token does.
+_HANGING_BARE_ARTICLES = {"a", "an", "the"}
+
 # Phrase-level detectors for constructions that end in valid terminal
 # punctuation and a word outside _HANGING_ENDINGS, but are still
 # grammatically incomplete because the phrasal verb is missing its
@@ -39,16 +46,57 @@ _HANGING_CONTRACTED_AUX = {
 # matches only "feel(s/ing) out" as the sentence's final words, not any
 # sentence merely containing or ending in "out".
 #
-# Unfinished copular gerund after a subordinator/preposition (e.g.
-# "...without being." — without being WHAT?). Narrow on purpose: only the
-# specific subordinators below, immediately followed by bare "being" as the
-# sentence's final word. "Being prepared matters." (sentence-initial),
-# "without looking."/"without stopping." (a different, complete gerund), and
-# "without being overly formal." (has its complement) must all stay valid.
+# Unfinished trailing adjunct: a subordinator (without/while/before/after)
+# followed by a gerund that's missing its object/complement. Two narrow,
+# distinct shapes -- NOT a broad "any gerund clause is invalid" regex,
+# which would wrongly flag genuinely complete bare-intransitive adjuncts
+# like "without looking." / "without stopping." (existing valid cases):
+#   1. subordinator + a SPECIFIC bare gerund ("being"/"maintaining") with
+#      nothing after it (e.g. "...while maintaining."). Limited to the
+#      gerunds proven to fail live, same precedent as "being" already was
+#      -- not every transitive gerund, so "without looking."/"without
+#      stopping." (intransitive, complete without an object) stay valid.
+#   2. subordinator + ANY gerund + a bare trailing article (e.g. "...while
+#      maintaining a." / "...while keeping the."). Safe to generalize to
+#      any verb here: "<gerund> + a/an/the" as a sentence's last words is
+#      never grammatically complete regardless of which verb it is.
+# Both require real text after the gerund to stay valid: "while maintaining
+# a polished silhouette.", "while keeping the palette neutral.", "without
+# looking overly formal.", "after adding a lightweight layer." all keep
+# validating as complete.
+# ponytail: shape 1's whitelist only covers "being"/"maintaining" -- a new
+# bare transitive gerund (e.g. "while balancing.") would slip through until
+# added here; extend the alternation if that shape shows up live.
+_TRAILING_ADJUNCT_RE = re.compile(
+    r"\s*\b(?:without|while|before|after)\s+(?:being|maintaining)[.!?]*$"
+    r"|\s*\b(?:without|while|before|after)\s+\w+ing\s+(?:a|an|the)[.!?]*$",
+    re.IGNORECASE,
+)
 _HANGING_PHRASE_PATTERNS = (
     re.compile(r"\bfeel(?:s|ing)?\s+out[.!?]*$", re.IGNORECASE),
-    re.compile(r"\b(?:without|while|before|after)\s+being[.!?]*$", re.IGNORECASE),
+    _TRAILING_ADJUNCT_RE,
 )
+
+
+def salvage_before_trailing_adjunct(text: str) -> str | None:
+    """If `text` ends in a bare/underspecified subordinate adjunct (e.g.
+    "...while maintaining." / "...while maintaining a."), strip that clause
+    and return the leading sentence -- but only when what remains is itself
+    grammatically complete. Never invents the missing complement; returns
+    None when there's nothing safe to salvage.
+    """
+    if not isinstance(text, str):
+        return None
+    original = text.strip()
+    salvaged = _TRAILING_ADJUNCT_RE.sub("", original).rstrip()
+    salvaged = salvaged.rstrip(",;:-–— ")
+    if not salvaged or salvaged == original:
+        return None
+    if not _TERMINAL_PUNCT_RE.search(salvaged):
+        salvaged += "."
+    if looks_truncated(salvaged):
+        return None
+    return salvaged
 
 _FORBIDDEN_STARTERS = (
     "Sure!",
@@ -114,15 +162,31 @@ def looks_truncated(text: str) -> bool:
         return True
     stripped = text.strip()
     if len(stripped) < 8:
-        return True
+        # A short label/noun ending in a single capitalized letter ("Plan
+        # A.", "Vitamin A.") is a complete short sentence, not a truncated
+        # one -- the length heuristic alone can't tell those apart, so give
+        # it the same case-sensitive single-letter exemption the bare-article
+        # check below relies on.
+        short_last_word = re.split(r"\s+", stripped)[-1].strip(".,;:!?'\"()[]")
+        if not (len(short_last_word) == 1 and short_last_word.isupper()):
+            return True
 
     # Trailing connector punctuation.
     if stripped[-1] in {",", ":", ";", "-", "–", "—"}:
         return True
 
-    # Hanging connector words / bare contracted auxiliaries missing a complement.
-    last_word = re.split(r"\s+", stripped)[-1].strip(".,;:!?'\"()[]").lower()
+    # Hanging connector words / bare contracted auxiliaries missing a
+    # complement.
+    last_word_raw = re.split(r"\s+", stripped)[-1].strip(".,;:!?'\"()[]")
+    last_word = last_word_raw.lower()
     if last_word in _HANGING_ENDINGS or last_word in _HANGING_CONTRACTED_AUX:
+        return True
+
+    # Bare terminal article missing its noun -- case-sensitive on purpose:
+    # the function word "a"/"an"/"the" is essentially never capitalized
+    # mid-sentence, so lowercasing here would misclassify a capitalized
+    # single-letter label/noun ("Plan A.", "Vitamin A.") as the article.
+    if last_word_raw in _HANGING_BARE_ARTICLES:
         return True
 
     # Hanging phrasal constructions (e.g. "...might feel out.") that end in

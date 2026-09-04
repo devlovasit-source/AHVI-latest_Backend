@@ -48,6 +48,28 @@ def test_malformed_contracted_aux_bullet_dropped():
     assert len(lines) == 3
 
 
+def test_malformed_trailing_adjunct_bullet_salvaged_not_dropped():
+    """Unlike a bare hanging ending (or./you're.) with nothing worth keeping,
+    a bullet with a malformed trailing adjunct has a genuinely complete
+    clause before it -- that clause should survive, not the whole bullet
+    get dropped."""
+    text = (
+        "Opening sentence.\n"
+        "- Keep the blazer structured.\n"
+        "- Move through the day with ease while maintaining a.\n"
+        "- Use clean leather shoes."
+    )
+    result = _complete_advice_lines(text, query="office", fallback=FALLBACK)
+    lines = result.split("\n")
+
+    assert "Opening sentence." in lines
+    assert "- Keep the blazer structured." in lines
+    assert "- Move through the day with ease." in lines
+    assert "- Use clean leather shoes." in lines
+    assert not any("maintaining" in line for line in lines)
+    assert len(lines) == 4
+
+
 def test_all_lines_malformed_falls_back():
     text = "- This ends or.\n- This ends and."
     result = _complete_advice_lines(text, query="office", fallback=FALLBACK)
