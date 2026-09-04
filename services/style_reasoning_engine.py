@@ -6421,6 +6421,45 @@ def _complete_style_text(text: Any, *, max_chars: int, fallback: str) -> str:
     return fallback
 
 
+_BULLET_MARKERS = ("- ", "* ", "• ")
+
+
+def _complete_advice_lines(text: Any, *, query: str, fallback: str) -> str:
+    """Line-aware completeness guard for advice-mode prose.
+
+    `_complete_style_text` re-flows its whole input through `_two_sentences`,
+    which would collapse the multi-line bullet shape STYLE_ADVICE_FORMAT_CONTRACT
+    asks the model for. Advice-mode text needs the same grammatical-completeness
+    guarantee without that collapse, so each non-empty line is scrubbed and
+    guarded independently: whatever bullet marker the model used ("-", "*",
+    or "•") is preserved verbatim, the line's body is repaired/salvaged via
+    the existing `_complete_style_text` + `looks_truncated` machinery, and a
+    line that can't be repaired into a complete sentence is dropped rather
+    than shown mid-thought. Falls back to the deterministic Style copy only
+    if nothing survives at all.
+    """
+    kept: list[str] = []
+    for raw_line in str(text or "").split("\n"):
+        line = _scrub_visible_style_text(raw_line, query=query).strip()
+        if not line:
+            continue
+        bullet_prefix = ""
+        body = line
+        for marker in _BULLET_MARKERS:
+            if line.startswith(marker):
+                bullet_prefix = marker
+                body = line[len(marker):].strip()
+                break
+        if not body:
+            continue
+        repaired = _complete_style_text(body, max_chars=max(len(body), 1), fallback="")
+        if not repaired:
+            continue
+        kept.append(f"{bullet_prefix}{repaired}")
+    joined = "\n".join(kept).strip()
+    return joined if joined else fallback
+
+
 _DIRECTION_ADJECTIVES: dict[str, list[str]] = {
     # archetype name (lower) -> 3 adjectives. Falls back to a generic triad.
     "modern professional": ["Confident", "Structured", "Approachable"],
@@ -9163,11 +9202,14 @@ def _build_response(
 
     if final_mode in _ADVICE_MODES:
         # _scrub_visible_style_text collapses all whitespace (including the
-        # newlines the bullet format relies on) -- scrub line-by-line instead
-        # so placeholder cleanup still runs without flattening the bullets,
-        # and skip the two-sentence cap entirely (see STYLE_ADVICE_FORMAT_CONTRACT).
-        polished_advice = "\n".join(
-            _scrub_visible_style_text(line, query=query) for line in polished_advice.split("\n")
+        # newlines the bullet format relies on) -- _complete_advice_lines scrubs
+        # and guards line-by-line instead of re-flowing the whole blob through
+        # _two_sentences, so placeholder cleanup and completeness-guarding both
+        # run without flattening the bullets (see STYLE_ADVICE_FORMAT_CONTRACT).
+        polished_advice = _complete_advice_lines(
+            polished_advice,
+            query=query,
+            fallback=_fallback_advice(query, final_mode, category),
         )
     else:
         polished_advice = _scrub_visible_style_text(polished_advice, query=query)
