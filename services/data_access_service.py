@@ -61,7 +61,11 @@ def get_user_profile(*, user_id):
 
     try:
         doc = AppwriteProxy().get_document("users", uid)
-        return _ahvi_strip_appwrite_meta(doc) if isinstance(doc, dict) else {}
+        if isinstance(doc, dict):
+            doc_id = str(doc.get("$id") or doc.get("id") or "").strip()
+            doc_uid = str(doc.get("userId") or doc.get("user_id") or "").strip()
+            if doc_id == uid or doc_uid == uid or (not doc_uid and doc_id == uid):
+                return _ahvi_strip_appwrite_meta(doc)
     except Exception:
         pass
 
@@ -73,7 +77,11 @@ def get_user_profile(*, user_id):
             else docs or []
         )
         if rows and isinstance(rows[0], dict):
-            return _ahvi_strip_appwrite_meta(rows[0])
+            row = rows[0]
+            row_uid = str(row.get("userId") or row.get("user_id") or "").strip()
+            row_id = str(row.get("$id") or row.get("id") or "").strip()
+            if row_uid == uid or row_id == uid:
+                return _ahvi_strip_appwrite_meta(row)
     except Exception:
         pass
 

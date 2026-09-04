@@ -98,3 +98,56 @@ gcloud beta run services logs tail ahvi-backend --region asia-south1
 ```bash
 gcloud run services update-traffic ahvi-backend --to-revisions=PREVIOUS_REVISION_ID=100 --region asia-south1
 ```
+
+## 6. Scheduled Account Purge Job (Cloud Scheduler + Cloud Run Job)
+
+To enforce the 45-day account deletion lifecycle and execute permanent hard purges (Cloudflare R2, Qdrant vectors, Appwrite DB, and Appwrite Auth), deploy a scheduled Cloud Run Job.
+
+### A. Create the Cloud Run Job
+
+Deploy the job targeting the purge script using the same runtime image and environment variables:
+
+```bash
+# Enable required Google Cloud services
+gcloud services enable cloudscheduler.googleapis.com run.googleapis.com
+
+# Create the Cloud Run Job
+gcloud run jobs create ahvi-purge-expired-accounts \
+  --source . \
+  --region asia-south1 \
+  --command python \
+  --args scripts/purge_expired_accounts.py \
+  --memory 2Gi \
+  --cpu 1 \
+  --max-retries 1 \
+  --task-timeout 600 \
+  --env-vars-file deploy/env.yaml \
+  --service-account ahvi-backend-runtime@ahvi-485510.iam.gserviceaccount.com
+```
+
+### B. Schedule Daily Execution with Cloud Scheduler
+
+Trigger the job daily (e.g. at 03:00 UTC):
+
+```bash
+gcloud scheduler jobs create http ahvi-purge-expired-accounts-daily \
+  --location asia-south1 \
+  --schedule "0 3 * * *" \
+  --time-zone "UTC" \
+  --uri "https://asia-south1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/ahvi-485510/jobs/ahvi-purge-expired-accounts:run" \
+  --http-method POST \
+  --oauth-service-account-email ahvi-backend-runtime@ahvi-485510.iam.gserviceaccount.com
+```
+
+### C. Manual Run & Log Inspection
+
+To run a dry-run or execute immediately:
+
+```bash
+# Execute job manually in Google Cloud
+gcloud run jobs execute ahvi-purge-expired-accounts --region asia-south1 --wait
+
+# Inspect execution logs
+gcloud beta run jobs executions logs tail --region asia-south1
+```
+

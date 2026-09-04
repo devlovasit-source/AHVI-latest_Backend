@@ -164,6 +164,7 @@ home_router = _load_optional_router("routers.home")
 diet_router = _load_optional_router("routers.diet")
 lens_similar_router = _load_optional_router("routers.lens_similar")
 contacts_router = _load_optional_router("routers.ahvi_contacts")
+account_router = _load_optional_router("routers.account")
 
 # AI
 ai_router = _load_optional_router("api.ai")
@@ -769,6 +770,9 @@ if lens_similar_router:
 
 if contacts_router:
     app.include_router(contacts_router, prefix="/api/contacts", tags=["contacts"])
+
+if account_router:
+    app.include_router(account_router, prefix="/api")
 
 if stylist_router:
     app.include_router(stylist_router, prefix="/api/stylist")
