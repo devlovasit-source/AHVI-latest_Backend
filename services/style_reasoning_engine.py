@@ -6467,6 +6467,55 @@ def _complete_advice_lines(text: Any, *, query: str, fallback: str) -> str:
     return joined if joined else fallback
 
 
+def _enforce_final_style_completeness(
+    response: Dict[str, Any], *, query: str, mode: str, category: str | None
+) -> Dict[str, Any]:
+    """Last-boundary completeness gate for the user-visible Style prose.
+
+    `advice` and `stylist_reasoning` are already guarded earlier in
+    `_build_response` (via `_complete_advice_lines`/`_complete_style_text`),
+    but `apply_personality_text_polish_to_final_payload` and
+    `apply_gender_guard_to_final_payload` both run AFTER that and can
+    re-touch the text -- in particular `_personality_sentence_cap`'s blind
+    word/char re-capping (see `_personality_polish_text`) can slice a
+    single-paragraph advice string mid-clause and reintroduce exactly the
+    hanging endings the earlier guard already removed. This re-validates
+    whatever those two steps produced instead of trusting it stayed clean.
+
+    routers.chat._style_reasoning_chat_response copies `reasoning["advice"]`
+    verbatim into message/message_text/response/text, so fixing this one
+    field here is the single canonical source for all five user-visible
+    aliases -- no separate cleanup needed at the routers/chat boundary.
+    Never leaves a value `looks_truncated` flags: salvages a safe prefix
+    first, falls back to the deterministic Style copy only if nothing
+    survives.
+    """
+    if not isinstance(response, dict):
+        return response
+    advice = response.get("advice")
+    if not isinstance(advice, str) or not advice:
+        return response
+
+    fallback = _fallback_advice(query, mode, category)
+    if "\n" in advice:
+        final_text = _complete_advice_lines(advice, query=query, fallback=fallback)
+    else:
+        final_text = advice
+        if _looks_truncated(final_text):
+            final_text = _complete_style_text(
+                final_text, max_chars=max(len(final_text), 1), fallback=fallback
+            )
+
+    # Defense in depth: whichever branch ran, never let a still-truncated
+    # value leave this function, even if a helper above has a latent bug.
+    if _looks_truncated(final_text):
+        final_text = fallback
+
+    response["advice"] = final_text
+    response["stylist_reasoning"] = final_text
+    return response
+
+
 _DIRECTION_ADJECTIVES: dict[str, list[str]] = {
     # archetype name (lower) -> 3 adjectives. Falls back to a generic triad.
     "modern professional": ["Confident", "Structured", "Approachable"],
@@ -9366,6 +9415,9 @@ def _build_response(
         response,
         target_gender=asset_gender,
         context=str(payload.get("occasion") or occasion or category or query),
+    )
+    guarded = _enforce_final_style_completeness(
+        guarded, query=query, mode=final_mode, category=category
     )
     return guarded
 

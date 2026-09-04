@@ -292,3 +292,48 @@ def test_salvage_returns_none_when_nothing_precedes_adjunct():
 
 def test_salvage_returns_none_for_clean_text():
     assert salvage_before_trailing_adjunct("This is already complete.") is None
+
+
+# ---------- hanging class: comma + bare terminal gerund missing its object ----------
+
+def test_comma_avoiding_is_truncated():
+    assert looks_truncated("Keep it modern and refined, avoiding.") is True
+
+
+def test_live_comma_avoiding_paragraph_still_truncated():
+    assert looks_truncated(
+        "This works by focusing on intentional pairings that feel modern "
+        "and refined, avoiding."
+    ) is True
+
+
+def test_comma_avoiding_with_object_is_not_truncated():
+    assert looks_truncated(
+        "Keep it modern and refined, avoiding loud contrasts."
+    ) is False
+
+
+def test_salvage_strips_comma_gerund():
+    assert salvage_before_trailing_adjunct(
+        "Keep it modern and refined, avoiding."
+    ) == "Keep it modern and refined."
+
+
+def test_salvage_comma_gerund_with_object_returns_none():
+    assert salvage_before_trailing_adjunct(
+        "Keep it modern and refined, avoiding loud contrasts."
+    ) is None
+
+
+# ---------- RUN5 enforcement: the known-detected case must never escape ----------
+
+def test_run5_and_is_detected():
+    assert looks_truncated(
+        "allowing you to move through your day with confidence and."
+    ) is True
+
+
+def test_run4_comma_avoiding_is_detected():
+    assert looks_truncated(
+        "focusing on intentional pairings that feel modern and refined, avoiding."
+    ) is True
