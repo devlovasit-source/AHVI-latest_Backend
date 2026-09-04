@@ -592,22 +592,20 @@ def _lite_role(item: Dict[str, Any]) -> str:
 
 def _lite_image(item: Dict[str, Any]) -> str:
     # Raw/display fallback only - deliberately does NOT fall back to
-    # masked_url/cutout_url/etc. If it did, an item whose only board-safe
-    # field is e.g. masked_url (no distinct raw upload photo) would end up
-    # with image_url == masked_url, which is_board_renderable() correctly
-    # treats as fabricated provenance (masked_url aliasing the raw photo) -
-    # rejecting a genuinely renderable item because this function manufactured
-    # the appearance of aliasing. normalized_url used to be preferred
-    # unconditionally here on the premise that it was a never-alias-checked
-    # catalog field; services.style_board_image_readiness now alias-checks
-    # it too, so preferring it whenever a genuine raw image_url already
-    # exists would manufacture image_url == normalized_url - the exact same
-    # fabricated-provenance shape is_board_renderable() rejects. Only fall
-    # back to normalized_url when there's no explicit raw image_url.
-    return _txt(
-        item.get("image_url") or item.get("imageUrl")
-        or item.get("normalized_url") or item.get("normalizedUrl")
-    )
+    # normalized_url/masked_url/cutout_url/etc. Any of those falling back
+    # into image_url manufactures image_url == <processed field>, which
+    # is_board_renderable() correctly treats as fabricated provenance -
+    # rejecting a genuinely renderable item because this function
+    # manufactured the appearance of aliasing. normalized_url was
+    # historically treated as a safe exception (unconditional,
+    # never-alias-checked by contract) but services.style_board_image_readiness
+    # now alias-checks it too, so it no longer gets special treatment here -
+    # image_url must only ever carry genuine raw/original provenance. A
+    # prior version of this fix fell back to normalized_url only when no raw
+    # image_url existed, but that still manufactures image_url ==
+    # normalized_url for a processed-only item (no raw upload at all) and
+    # is_board_renderable() rejects it the same way - no fallback is safe.
+    return _txt(item.get("image_url") or item.get("imageUrl"))
 
 
 def _lite_item(item: Dict[str, Any], role: str) -> Dict[str, Any]:
