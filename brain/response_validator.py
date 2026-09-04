@@ -162,20 +162,31 @@ def looks_truncated(text: str) -> bool:
         return True
     stripped = text.strip()
     if len(stripped) < 8:
-        return True
+        # A short label/noun ending in a single capitalized letter ("Plan
+        # A.", "Vitamin A.") is a complete short sentence, not a truncated
+        # one -- the length heuristic alone can't tell those apart, so give
+        # it the same case-sensitive single-letter exemption the bare-article
+        # check below relies on.
+        short_last_word = re.split(r"\s+", stripped)[-1].strip(".,;:!?'\"()[]")
+        if not (len(short_last_word) == 1 and short_last_word.isupper()):
+            return True
 
     # Trailing connector punctuation.
     if stripped[-1] in {",", ":", ";", "-", "–", "—"}:
         return True
 
-    # Hanging connector words / bare contracted auxiliaries / bare articles
-    # missing a complement.
-    last_word = re.split(r"\s+", stripped)[-1].strip(".,;:!?'\"()[]").lower()
-    if (
-        last_word in _HANGING_ENDINGS
-        or last_word in _HANGING_CONTRACTED_AUX
-        or last_word in _HANGING_BARE_ARTICLES
-    ):
+    # Hanging connector words / bare contracted auxiliaries missing a
+    # complement.
+    last_word_raw = re.split(r"\s+", stripped)[-1].strip(".,;:!?'\"()[]")
+    last_word = last_word_raw.lower()
+    if last_word in _HANGING_ENDINGS or last_word in _HANGING_CONTRACTED_AUX:
+        return True
+
+    # Bare terminal article missing its noun -- case-sensitive on purpose:
+    # the function word "a"/"an"/"the" is essentially never capitalized
+    # mid-sentence, so lowercasing here would misclassify a capitalized
+    # single-letter label/noun ("Plan A.", "Vitamin A.") as the article.
+    if last_word_raw in _HANGING_BARE_ARTICLES:
         return True
 
     # Hanging phrasal constructions (e.g. "...might feel out.") that end in

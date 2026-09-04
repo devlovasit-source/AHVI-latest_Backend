@@ -193,6 +193,36 @@ def test_choose_the_blazer_is_not_truncated():
     assert looks_truncated("Choose the blazer.") is False
 
 
+# ---------- bare-article false positive: capitalized single-letter label/noun ----------
+
+def test_plan_a_is_not_truncated():
+    assert looks_truncated("Plan A.") is False
+
+
+def test_option_a_is_not_truncated():
+    assert looks_truncated("Option A.") is False
+
+
+def test_vitamin_a_is_not_truncated():
+    assert looks_truncated("Vitamin A.") is False
+
+
+def test_use_plan_a_is_not_truncated():
+    assert looks_truncated("Use Plan A.") is False
+
+
+def test_take_vitamin_a_is_not_truncated():
+    assert looks_truncated("Take vitamin A.") is False
+
+
+def test_lowercase_a_still_truncated_even_capitalized_label_valid():
+    """The case-sensitivity fix must not weaken the original bare-article
+    detection -- only a capitalized single-letter label is exempt."""
+    assert looks_truncated("Finish with a.") is True
+    assert looks_truncated("Choose an.") is True
+    assert looks_truncated("Layer with the.") is True
+
+
 # ---------- hanging class: unfinished trailing adjunct (subordinator + bare gerund) ----------
 
 def test_while_maintaining_is_truncated():
