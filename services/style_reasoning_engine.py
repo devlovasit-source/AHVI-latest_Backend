@@ -27,6 +27,7 @@ from services.stylist_knowledge_service import (
 from services.style_asset_contract import enrich_style_asset_rows, resolve_style_asset_image
 from services.style_conversation_context import activity_compatibility_issues
 from brain.response_validator import looks_truncated as _looks_truncated
+from brain.response_validator import salvage_before_trailing_adjunct as _salvage_before_trailing_adjunct
 
 GENERAL = "general"
 VISUAL_INSPIRATION = "visual_inspiration"
@@ -6418,6 +6419,12 @@ def _complete_style_text(text: Any, *, max_chars: int, fallback: str) -> str:
         salvaged = " ".join(complete).strip()
         if salvaged and not _looks_truncated(salvaged):
             return salvaged
+    # No complete sentence survived whole -- try trimming a malformed
+    # trailing adjunct (e.g. "...while maintaining a.") off the end and
+    # keeping the clause before it, rather than discarding everything.
+    adjunct_salvaged = _salvage_before_trailing_adjunct(capped)
+    if adjunct_salvaged:
+        return adjunct_salvaged
     return fallback
 
 

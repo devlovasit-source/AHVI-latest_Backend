@@ -3,7 +3,7 @@ hanging-construction detector (the "...might feel out." PR#54 follow-up)."""
 
 from __future__ import annotations
 
-from brain.response_validator import looks_truncated
+from brain.response_validator import looks_truncated, salvage_before_trailing_adjunct
 
 
 # ---------- hanging phrase: "feel(s/ing) out" missing its complement ----------
@@ -169,3 +169,96 @@ def test_blazer_youre_wearing_is_not_truncated():
 
 def test_direction_youre_after_is_not_truncated():
     assert looks_truncated("That's the direction you're after.") is False
+
+
+# ---------- hanging class: bare terminal article ("a"/"an"/"the") ----------
+
+def test_finish_the_outfit_with_a_is_truncated():
+    assert looks_truncated("Finish the outfit with a.") is True
+
+
+def test_choose_an_is_truncated():
+    assert looks_truncated("Choose an.") is True
+
+
+def test_layer_with_the_is_truncated():
+    assert looks_truncated("Layer with the.") is True
+
+
+def test_article_followed_by_noun_is_not_truncated():
+    assert looks_truncated("Finish the outfit with a blazer.") is False
+
+
+def test_choose_the_blazer_is_not_truncated():
+    assert looks_truncated("Choose the blazer.") is False
+
+
+# ---------- hanging class: unfinished trailing adjunct (subordinator + bare gerund) ----------
+
+def test_while_maintaining_is_truncated():
+    assert looks_truncated(
+        "This works well while maintaining."
+    ) is True
+
+
+def test_while_maintaining_a_is_truncated():
+    assert looks_truncated(
+        "Move through the day with ease while maintaining a."
+    ) is True
+
+
+def test_live_meeting_or_paragraph_still_truncated():
+    assert looks_truncated(
+        "These looks balance professional polish with modern comfort, "
+        "ensuring you feel confident and appropriate for any meeting or."
+    ) is True
+
+
+def test_while_keeping_the_is_truncated():
+    assert looks_truncated("Keep it simple while keeping the.") is True
+
+
+def test_while_maintaining_a_polished_silhouette_is_not_truncated():
+    assert looks_truncated(
+        "Choose tailored pieces while maintaining a polished silhouette."
+    ) is False
+
+
+def test_while_keeping_the_palette_neutral_is_not_truncated():
+    assert looks_truncated(
+        "Layer with confidence while keeping the palette neutral."
+    ) is False
+
+
+def test_without_looking_overly_formal_is_not_truncated():
+    assert looks_truncated(
+        "Soften the blazer without looking overly formal."
+    ) is False
+
+
+def test_after_adding_a_lightweight_layer_is_not_truncated():
+    assert looks_truncated(
+        "The look feels complete after adding a lightweight layer."
+    ) is False
+
+
+# ---------- salvage: safe prefix extraction before a malformed trailing adjunct ----------
+
+def test_salvage_strips_bare_while_maintaining():
+    assert salvage_before_trailing_adjunct(
+        "Keep the look polished while maintaining."
+    ) == "Keep the look polished."
+
+
+def test_salvage_strips_while_maintaining_a():
+    assert salvage_before_trailing_adjunct(
+        "Move through the day with ease while maintaining a."
+    ) == "Move through the day with ease."
+
+
+def test_salvage_returns_none_when_nothing_precedes_adjunct():
+    assert salvage_before_trailing_adjunct("While maintaining a.") is None
+
+
+def test_salvage_returns_none_for_clean_text():
+    assert salvage_before_trailing_adjunct("This is already complete.") is None
