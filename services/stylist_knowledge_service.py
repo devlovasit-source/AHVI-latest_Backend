@@ -343,6 +343,7 @@ def is_style_advice_request(text: Any) -> bool:
         "pitch",
         "meeting",
         "travel",
+        "vacation",
         "interview",
         "dinner",
         "brunch",
@@ -394,8 +395,25 @@ def is_style_advice_request(text: Any) -> bool:
     if _has_any(q, compact_markers) and _has_any(q, occasionish):
         return True
 
-    short_occasionish = tuple(x for x in occasionish if x not in {"today", "tomorrow"})
-    if len(q.split()) <= 4 and _has_any(q, short_occasionish):
+    # Bare 1-2 word occasion names are a deliberate, narrow shortcut for the
+    # specific ceremony/ceremony-adjacent and professional-speaking terms
+    # called out above ("Haldi", "Sangeet", "Diwali party", "conference
+    # talk", "keynote") -- product already treats naming one of these alone
+    # as a styling ask. It must NOT extend to generic occasion words (office,
+    # work, dinner, date, party, wedding, meeting, ...): those appear just as
+    # often in ordinary emotional/conversational sentences ("Work was
+    # horrible today", "The wedding was exhausting") that have zero styling
+    # intent, so requiring an explicit style word for them (line above) is
+    # the only safe rule.
+    _bare_occasion_shortcut_terms = (
+        "conference", "conference talk", "presentation", "seminar",
+        "panel discussion", "panel", "keynote",
+        "haldi", "mehendi", "mehndi", "sangeet", "engagement", "reception",
+        "shaadi", "baraat", "roka", "nikah", "diwali", "eid", "navratri",
+        "holi", "pongal", "onam", "festive", "festival", "puja", "pooja",
+        "mandir", "darshan", "memorial", "condolence",
+    )
+    if len(q.split()) <= 2 and _has_any(q, _bare_occasion_shortcut_terms):
         return True
 
     return False
