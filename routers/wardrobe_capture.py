@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 import requests
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
+from services.physical_garment_analysis_service import analyze_garment
 from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
@@ -1420,6 +1421,8 @@ def _strip_internal_preview_fields(item: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(item)
     out.pop("label_source", None)
     out.pop("metadata_validator", None)
+    out.pop("physical_garment_analysis", None)
+
     reasoning = str(out.get("reasoning") or "")
     if "heuristic" in reasoning or "vision:gemini_multi" in reasoning:
         out["reasoning"] = "auto_detected"
@@ -2646,7 +2649,64 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             )
         else:
             vision = _vision_extract_attributes("", raw_label, "")
+        # ------------------------------------------------------------------
+        # Phase 1: Physical garment observation
+        # ------------------------------------------------------------------
+        physical_analysis = {
+            "status": "disabled",
+            "provider": "",
+            "model": "",
+            "latency_ms": 0,
+            "confidence_summary": {},
+            "failure_reason": "",
+            "observations": {},
+        }
 
+        try:
+            physical_crop_bytes = _decode_inline_image(
+                item.get("raw_image_base64")
+            )
+
+            if not physical_crop_bytes:
+                physical_crop_bytes = _decode_inline_image(
+                    item.get("masked_image_base64")
+                )
+
+            # Only analyze an actual garment crop/cutout.
+            # Do not turn the full-image fallback into physical garment
+            # analysis because it can contain a person/background.
+            if (
+                physical_crop_bytes
+                and str(item.get("crop_source") or "").strip().lower()
+                in {"gemini", "hybrid"}
+            ):
+                physical_analysis = await _asyncio.to_thread(
+                    analyze_garment,
+                    physical_crop_bytes,
+                    {
+                        "name": vision.get("name") or raw_label,
+                        "category": category,
+                        "sub_category": sub_category,
+                    },
+                    request_id,
+                )
+
+        except Exception as exc:
+            # Physical analysis is explicitly fail-open.
+            logger.warning(
+                "ahvi.capture.physical_analysis.failed "
+                "item_id=%s reason=%s",
+                item.get("item_id"),
+                exc.__class__.__name__,
+            )
+
+        if physical_analysis.get("status") == "success":
+            logger.info(
+                "ahvi.capture.physical_analysis.completed "
+                "item_id=%s latency_ms=%s",
+                item.get("item_id"),
+                physical_analysis.get("latency_ms"),
+            )
         # Gemini item without a usable category (edge case): keep at least
         # the Gemini name/color as vision signal when enrichment was
         # heuristic, so the item does not degrade to "Review item".
@@ -2805,6 +2865,11 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
                 or item.get("masked_url")
                 or item.get("raw_url")
             ),
+            "physical_garment_observations": (
+                physical_analysis.get("observations")
+                if physical_analysis.get("status") == "success"
+                else None
+            ),
             "raw_file_name": item.get("raw_file_name"),
             "masked_file_name": item.get("masked_file_name"),
             "normalized_file_name": item.get("normalized_file_name"),
@@ -2814,6 +2879,7 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             "pixel_hash": pixel_hash,
             "duplicate": duplicate,
             "image_embedding": embedding,
+            "physical_garment_analysis": physical_analysis,
         }
         detected = _apply_headwear_ocr_guard(
             detected,

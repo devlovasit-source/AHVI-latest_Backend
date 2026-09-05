@@ -106,6 +106,78 @@ def test_save_selected_runs_separate_rmbg_and_sets_masked_urls(monkeypatch):
         assert item["imageUrl"] == f"https://preview.test/{item['item_id']}.png"
         assert item["cropUrl"] == f"https://crop.test/{item['item_id']}.png"
 
+def test_save_selected_preserves_physical_garment_observations_and_does_not_reanalyze(
+    monkeypatch,
+):
+    async def _remove_bg(raw):
+        return b"masked-" + raw
+
+    persisted = _wire(monkeypatch, _remove_bg)
+
+    analyze_calls = []
+
+    def _analyze(*args, **kwargs):
+        analyze_calls.append((args, kwargs))
+        raise AssertionError(
+            "physical garment analysis must not run during save-selected"
+        )
+
+    monkeypatch.setattr(wc, "analyze_garment", _analyze)
+
+    item = _item("trousers")
+    item["name"] = "Black Trousers"
+    item["category"] = "Bottoms"
+    item["sub_category"] = "Trousers"
+    item["physical_garment_observations"] = {
+        "fabric_weight": {
+            "value": "medium",
+            "confidence": 0.90,
+        },
+        "fabric_structure": {
+            "value": "woven",
+            "confidence": 0.88,
+        },
+        "fit": {
+            "value": "regular",
+            "confidence": 0.85,
+        },
+        "drape": {
+            "value": "structured",
+            "confidence": 0.80,
+        },
+        "coverage_level": {
+            "value": "full_length",
+            "confidence": 0.95,
+        },
+        "lining": {
+            "value": "unknown",
+            "confidence": 0.0,
+        },
+        "surface_texture": {
+            "value": "smooth",
+            "confidence": 0.90,
+        },
+        "material_family_candidates": [],
+    }
+
+    request = wc.SaveSelectedRequest(
+        user_id="user-1",
+        selected_item_ids=["trousers"],
+        detected_items=[item],
+    )
+
+    result = _save_selected(_Request(), request)
+
+    assert result["success"] is True
+    assert result["saved_count"] == 1
+    assert len(analyze_calls) == 0
+
+    saved = persisted["items"][0]
+
+    assert saved["physical_garment_observations"]["fabric_weight"]["value"] == "medium"
+    assert saved["physical_garment_observations"]["fabric_structure"]["value"] == "woven"
+    assert saved["physical_garment_observations"]["fit"]["value"] == "regular"
+    assert saved["physical_garment_observations"]["coverage_level"]["value"] == "full_length"
 
 def test_save_selected_rmbg_failure_falls_back_without_failing_save(monkeypatch):
     async def _remove_bg(_raw):

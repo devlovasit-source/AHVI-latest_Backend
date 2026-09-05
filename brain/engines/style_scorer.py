@@ -787,6 +787,558 @@ def score_occasion_compatibility(
         "min_required_score": min_required,
     }
 
+# ============================================================
+# FABRIC & SEASON INTELLIGENCE
+# ============================================================
+# Converts fabric/material metadata into normalized performance
+# properties and evaluates those properties against weather,
+# season, activity, occasion, and user fabric preferences.
+#
+# Scores are intentionally conservative. Missing fabric metadata
+# remains neutral instead of inventing fabric characteristics.
+# ============================================================
+
+FABRIC_PROPERTIES: Dict[str, Dict[str, float]] = {
+    "linen": {
+        "breathability": 0.95,
+        "moisture_wicking": 0.55,
+        "drying_speed": 0.80,
+        "insulation": 0.20,
+        "water_resistance": 0.10,
+        "weight": 0.25,
+        "stretch": 0.10,
+        "wrinkle_tendency": 0.85,
+        "drape": 0.80,
+    },
+    "cotton": {
+        "breathability": 0.80,
+        "moisture_wicking": 0.45,
+        "drying_speed": 0.45,
+        "insulation": 0.35,
+        "water_resistance": 0.10,
+        "weight": 0.40,
+        "stretch": 0.20,
+        "wrinkle_tendency": 0.50,
+        "drape": 0.70,
+    },
+    "wool": {
+        "breathability": 0.65,
+        "moisture_wicking": 0.65,
+        "drying_speed": 0.45,
+        "insulation": 0.90,
+        "water_resistance": 0.35,
+        "weight": 0.65,
+        "stretch": 0.25,
+        "wrinkle_tendency": 0.25,
+        "drape": 0.75,
+    },
+    "cashmere": {
+        "breathability": 0.65,
+        "moisture_wicking": 0.55,
+        "drying_speed": 0.35,
+        "insulation": 0.95,
+        "water_resistance": 0.20,
+        "weight": 0.45,
+        "stretch": 0.25,
+        "wrinkle_tendency": 0.20,
+        "drape": 0.90,
+    },
+    "polyester": {
+        "breathability": 0.45,
+        "moisture_wicking": 0.75,
+        "drying_speed": 0.90,
+        "insulation": 0.35,
+        "water_resistance": 0.45,
+        "weight": 0.30,
+        "stretch": 0.35,
+        "wrinkle_tendency": 0.10,
+        "drape": 0.55,
+    },
+    "nylon": {
+        "breathability": 0.45,
+        "moisture_wicking": 0.65,
+        "drying_speed": 0.90,
+        "insulation": 0.30,
+        "water_resistance": 0.70,
+        "weight": 0.30,
+        "stretch": 0.35,
+        "wrinkle_tendency": 0.10,
+        "drape": 0.55,
+    },
+    "denim": {
+        "breathability": 0.35,
+        "moisture_wicking": 0.25,
+        "drying_speed": 0.25,
+        "insulation": 0.55,
+        "water_resistance": 0.20,
+        "weight": 0.75,
+        "stretch": 0.20,
+        "wrinkle_tendency": 0.15,
+        "drape": 0.45,
+    },
+    "silk": {
+        "breathability": 0.75,
+        "moisture_wicking": 0.40,
+        "drying_speed": 0.55,
+        "insulation": 0.45,
+        "water_resistance": 0.05,
+        "weight": 0.20,
+        "stretch": 0.10,
+        "wrinkle_tendency": 0.40,
+        "drape": 0.95,
+    },
+    "leather": {
+        "breathability": 0.25,
+        "moisture_wicking": 0.10,
+        "drying_speed": 0.20,
+        "insulation": 0.65,
+        "water_resistance": 0.55,
+        "weight": 0.80,
+        "stretch": 0.15,
+        "wrinkle_tendency": 0.10,
+        "drape": 0.40,
+    },
+    "suede": {
+        "breathability": 0.30,
+        "moisture_wicking": 0.10,
+        "drying_speed": 0.15,
+        "insulation": 0.55,
+        "water_resistance": 0.05,
+        "weight": 0.65,
+        "stretch": 0.10,
+        "wrinkle_tendency": 0.10,
+        "drape": 0.45,
+    },
+    "fleece": {
+        "breathability": 0.45,
+        "moisture_wicking": 0.65,
+        "drying_speed": 0.75,
+        "insulation": 0.85,
+        "water_resistance": 0.25,
+        "weight": 0.55,
+        "stretch": 0.35,
+        "wrinkle_tendency": 0.10,
+        "drape": 0.50,
+    },
+    "canvas": {
+        "breathability": 0.35,
+        "moisture_wicking": 0.20,
+        "drying_speed": 0.25,
+        "insulation": 0.45,
+        "water_resistance": 0.35,
+        "weight": 0.75,
+        "stretch": 0.05,
+        "wrinkle_tendency": 0.25,
+        "drape": 0.30,
+    },
+    "jersey": {
+        "breathability": 0.70,
+        "moisture_wicking": 0.45,
+        "drying_speed": 0.55,
+        "insulation": 0.35,
+        "water_resistance": 0.10,
+        "weight": 0.35,
+        "stretch": 0.75,
+        "wrinkle_tendency": 0.20,
+        "drape": 0.75,
+    },
+    "knit": {
+        "breathability": 0.55,
+        "moisture_wicking": 0.40,
+        "drying_speed": 0.35,
+        "insulation": 0.65,
+        "water_resistance": 0.15,
+        "weight": 0.55,
+        "stretch": 0.65,
+        "wrinkle_tendency": 0.15,
+        "drape": 0.70,
+    },
+}
+
+
+FABRIC_ALIASES: Dict[str, str] = {
+    "pure linen": "linen",
+    "linen blend": "linen",
+    "linen cotton": "linen",
+    "cotton blend": "cotton",
+    "organic cotton": "cotton",
+    "pima cotton": "cotton",
+    "merino": "wool",
+    "merino wool": "wool",
+    "cashmere wool": "cashmere",
+    "poly": "polyester",
+    "polyamide": "nylon",
+    "jean": "denim",
+    "denim cotton": "denim",
+    "genuine leather": "leather",
+    "faux leather": "leather",
+    "vegan leather": "leather",
+    "microfleece": "fleece",
+    "fleece knit": "fleece",
+}
+
+
+def _normalize_fabric(value: Any) -> str:
+    """Resolve raw fabric/material text to a known fabric family."""
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+
+    for alias, canonical in FABRIC_ALIASES.items():
+        if alias in text:
+            return canonical
+
+    for fabric in FABRIC_PROPERTIES:
+        if fabric in text:
+            return fabric
+
+    return ""
+
+
+def _item_fabric(item: Dict[str, Any]) -> str:
+    """Extract fabric from the common wardrobe metadata fields."""
+    if not isinstance(item, dict):
+        return ""
+
+    for key in ("fabric", "material", "composition", "textile"):
+        value = item.get(key)
+        fabric = _normalize_fabric(value)
+        if fabric:
+            return fabric
+
+    # Some wardrobe records put the material in the item name/title.
+    for key in ("name", "label", "title", "description"):
+        fabric = _normalize_fabric(item.get(key))
+        if fabric:
+            return fabric
+
+    return ""
+
+
+def _fabric_context(context: Dict[str, Any]) -> Tuple[str, str]:
+    """Return (climate_bucket, activity_bucket)."""
+    ctx = context or {}
+
+    weather_text = " ".join(
+        str(ctx.get(key) or "").lower()
+        for key in (
+            "weather",
+            "condition",
+            "weather_bucket",
+            "season",
+            "temperature",
+            "climate",
+        )
+    )
+
+    if any(x in weather_text for x in (
+        "rain",
+        "rainy",
+        "monsoon",
+        "wet",
+        "storm",
+        "showers",
+    )):
+        climate = "rainy"
+    elif any(x in weather_text for x in (
+        "humid",
+        "hot humid",
+        "tropical",
+    )):
+        climate = "hot_humid"
+    elif any(x in weather_text for x in (
+        "hot",
+        "summer",
+        "heat",
+        "warm",
+    )):
+        climate = "hot_dry"
+    elif any(x in weather_text for x in (
+        "cold",
+        "winter",
+        "chilly",
+        "freezing",
+        "snow",
+    )):
+        climate = "cold"
+    elif any(x in weather_text for x in (
+        "ac",
+        "air conditioned",
+        "air-conditioned",
+        "indoor",
+    )):
+        climate = "indoor_ac"
+    else:
+        climate = "mild"
+
+    activity_text = " ".join(
+        str(ctx.get(key) or "").lower()
+        for key in (
+            "activity",
+            "activity_type",
+            "intent",
+            "occasion",
+            "query",
+            "user_query",
+        )
+    )
+
+    if any(x in activity_text for x in (
+        "workout",
+        "gym",
+        "running",
+        "training",
+        "cardio",
+        "yoga",
+        "fitness",
+        "pilates",
+    )):
+        activity = "workout"
+    elif any(x in activity_text for x in (
+        "travel",
+        "airport",
+        "flight",
+        "road trip",
+        "trip",
+    )):
+        activity = "travel"
+    elif any(x in activity_text for x in (
+        "walk",
+        "walking",
+        "hiking",
+        "outdoor",
+    )):
+        activity = "walking"
+    else:
+        activity = "everyday"
+
+    return climate, activity
+
+
+def _fabric_user_preference_score(
+    fabric: str,
+    context: Dict[str, Any],
+) -> Tuple[float, List[str]]:
+    """Apply explicit fabric preferences from Style DNA when available."""
+    if not fabric:
+        return 0.0, []
+
+    dna = (context or {}).get("style_dna") or {}
+    if not isinstance(dna, dict):
+        return 0.0, []
+
+    preferred = {
+        str(x).strip().lower()
+        for x in (
+            dna.get("favorite_fabrics")
+            or dna.get("preferred_fabrics")
+            or dna.get("comfort_fabrics")
+            or []
+        )
+        if str(x).strip()
+    }
+
+    avoided = {
+        str(x).strip().lower()
+        for x in (
+            dna.get("avoided_fabrics")
+            or []
+        )
+        if str(x).strip()
+    }
+
+    if fabric in {_normalize_fabric(x) for x in preferred}:
+        return 0.20, [f"fabric_preference:{fabric}"]
+
+    if fabric in {_normalize_fabric(x) for x in avoided}:
+        return -0.25, [f"fabric_avoidance:{fabric}"]
+
+    return 0.0, []
+
+
+def _score_fabric_properties(
+    fabric: str,
+    climate: str,
+    activity: str,
+) -> Tuple[float, List[str], List[str]]:
+    """Score one fabric against climate and activity."""
+    props = FABRIC_PROPERTIES.get(fabric)
+    if not props:
+        return 0.5, [], []
+
+    score = 0.5
+    boosts: List[str] = []
+    penalties: List[str] = []
+
+    if climate == "hot_humid":
+        score += (props["breathability"] - 0.5) * 0.45
+        score += (props["moisture_wicking"] - 0.5) * 0.25
+        score += (props["drying_speed"] - 0.5) * 0.20
+        score -= max(0.0, props["insulation"] - 0.5) * 0.30
+
+        if props["breathability"] >= 0.75:
+            boosts.append("breathable_for_hot_humid_weather")
+        if props["insulation"] >= 0.75:
+            penalties.append("too_insulating_for_hot_weather")
+
+    elif climate == "hot_dry":
+        score += (props["breathability"] - 0.5) * 0.40
+        score += (props["weight"] - 0.5) * -0.20
+        score -= max(0.0, props["insulation"] - 0.5) * 0.30
+
+        if props["breathability"] >= 0.75:
+            boosts.append("breathable_for_hot_weather")
+
+    elif climate == "cold":
+        score += (props["insulation"] - 0.5) * 0.55
+        score += (props["weight"] - 0.5) * 0.20
+
+        if props["insulation"] >= 0.75:
+            boosts.append("insulating_for_cold_weather")
+        if props["insulation"] <= 0.25:
+            penalties.append("low_insulation_for_cold_weather")
+
+    elif climate == "rainy":
+        score += (props["water_resistance"] - 0.5) * 0.45
+        score += (props["drying_speed"] - 0.5) * 0.25
+
+        if props["water_resistance"] >= 0.60:
+            boosts.append("rain_resistant")
+        if props["water_resistance"] <= 0.15:
+            penalties.append("poor_rain_resistance")
+
+    elif climate == "indoor_ac":
+        score += (props["insulation"] - 0.5) * 0.25
+        score += (props["breathability"] - 0.5) * 0.15
+
+    else:  # mild
+        score += (props["breathability"] - 0.5) * 0.15
+        score += (props["drape"] - 0.5) * 0.10
+
+    if activity == "workout":
+        score += (props["moisture_wicking"] - 0.5) * 0.35
+        score += (props["drying_speed"] - 0.5) * 0.30
+
+        if props["moisture_wicking"] >= 0.70:
+            boosts.append("moisture_wicking_for_activity")
+        if props["drying_speed"] >= 0.75:
+            boosts.append("fast_drying_for_activity")
+
+    elif activity == "walking":
+        score += (props["breathability"] - 0.5) * 0.15
+        score += (props["weight"] - 0.5) * -0.15
+
+    elif activity == "travel":
+        score += (props["wrinkle_tendency"] - 0.5) * -0.15
+        score += (props["weight"] - 0.5) * -0.10
+
+        if props["wrinkle_tendency"] <= 0.25:
+            boosts.append("travel_friendly_low_wrinkle")
+
+    return max(0.0, min(1.0, score)), boosts, penalties
+
+
+def score_fabric_season_compatibility(
+    outfit: Dict[str, Any],
+    context: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Score fabric suitability against climate, season, activity,
+    occasion, and explicit user fabric preferences.
+
+    Missing fabric metadata is neutral rather than penalized.
+    """
+    items = []
+    if isinstance(outfit, dict):
+        raw_items = outfit.get("items") or []
+        if isinstance(raw_items, list):
+            items = [i for i in raw_items if isinstance(i, dict)]
+
+    if not items:
+        return {
+            "score": 0.5,
+            "raw_score": 0.0,
+            "boosts": [],
+            "penalties": [],
+            "reason": "fabric_no_items",
+            "climate": "mild",
+            "activity": "everyday",
+            "known_fabrics": [],
+            "metadata_coverage": 0.0,
+        }
+
+    climate, activity = _fabric_context(context)
+
+    scores: List[float] = []
+    boosts: List[str] = []
+    penalties: List[str] = []
+    known_fabrics: List[str] = []
+    preference_delta = 0.0
+
+    for item in items:
+        fabric = _item_fabric(item)
+
+        if not fabric:
+            continue
+
+        known_fabrics.append(fabric)
+
+        item_score, item_boosts, item_penalties = _score_fabric_properties(
+            fabric,
+            climate,
+            activity,
+        )
+
+        pref_delta, pref_reasons = _fabric_user_preference_score(
+            fabric,
+            context,
+        )
+
+        item_score = max(0.0, min(1.0, item_score + pref_delta))
+
+        scores.append(item_score)
+        boosts.extend(item_boosts)
+        boosts.extend(pref_reasons)
+        penalties.extend(item_penalties)
+        preference_delta += pref_delta
+
+    if not scores:
+        return {
+            "score": 0.5,
+            "raw_score": 0.0,
+            "boosts": [],
+            "penalties": [],
+            "reason": "fabric_metadata_missing",
+            "climate": climate,
+            "activity": activity,
+            "known_fabrics": [],
+            "metadata_coverage": 0.0,
+        }
+
+    score = sum(scores) / len(scores)
+    metadata_coverage = len(scores) / max(len(items), 1)
+
+    # Do not allow fabric intelligence to dominate the entire scorer.
+    raw_score = (score - 0.5) * 4.0
+
+    if boosts:
+        reason = boosts[0]
+    elif penalties:
+        reason = penalties[0]
+    else:
+        reason = f"fabric_fit:{climate}"
+
+    return {
+        "score": round(score, 3),
+        "raw_score": round(raw_score, 3),
+        "boosts": list(dict.fromkeys(boosts))[:5],
+        "penalties": list(dict.fromkeys(penalties))[:5],
+        "reason": reason,
+        "climate": climate,
+        "activity": activity,
+        "known_fabrics": list(dict.fromkeys(known_fabrics)),
+        "metadata_coverage": round(metadata_coverage, 3),
+    }
 
 def score_weather_compatibility(
     outfit: Dict[str, Any], context: Dict[str, Any]
@@ -1132,6 +1684,7 @@ class UnifiedStyleScorer:
             "occasion_item": 0.0,
             "occasion_compatibility": 0.0,
             "weather_compatibility": 0.0,
+            "fabric_season_compatibility": 0.0,
             "metadata_richness": 0.0,
         }
 
@@ -1155,23 +1708,62 @@ class UnifiedStyleScorer:
             reasons.append("graph_pairing_strong")
 
         outfit_view = {"items": items}
-        occasion_result = score_occasion_compatibility(outfit_view, context)
-        weather_result = score_weather_compatibility(outfit_view, context)
+
+        occasion_result = score_occasion_compatibility(
+            outfit_view,
+            context,
+        )
+
+        weather_result = score_weather_compatibility(
+            outfit_view,
+            context,
+        )
+
+        fabric_result = score_fabric_season_compatibility(
+            outfit_view,
+            context,
+        )
+
         breakdown["occasion_compatibility"] = (
             (float(occasion_result.get("score") or 0.5) - 0.5) * 8.0
         )
+
         breakdown["weather_compatibility"] = (
             (float(weather_result.get("score") or 0.5) - 0.5) * 3.0
         )
+
+        breakdown["fabric_season_compatibility"] = float(
+            fabric_result.get("raw_score") or 0.0
+        )
+
         if occasion_result.get("boosts"):
             reasons.append(f"occasion_fit:{occasion_result['boosts'][0]}")
         if occasion_result.get("penalties"):
             warnings.extend(
                 f"occasion_penalty:{p}" for p in occasion_result["penalties"][:3]
             )
-        if occasion_result.get("reject"):
-            warnings.append(f"occasion_reject:{occasion_result.get('reason') or 'low_fit'}")
+        if fabric_result.get("boosts"):
+            reasons.append(
+                f"fabric_fit:{fabric_result['boosts'][0]}"
+            )
 
+        if fabric_result.get("penalties"):
+            warnings.extend(
+                f"fabric_penalty:{p}"
+                for p in fabric_result["penalties"][:3]
+            )
+
+        if fabric_result.get("reason"):
+            logger.info(
+                "AHVI_FABRIC_INTELLIGENCE "
+                "climate=%s activity=%s score=%.3f coverage=%.3f fabrics=%s reason=%s",
+                fabric_result.get("climate"),
+                fabric_result.get("activity"),
+                float(fabric_result.get("score") or 0.5),
+                float(fabric_result.get("metadata_coverage") or 0.0),
+                fabric_result.get("known_fabrics"),
+                fabric_result.get("reason"),
+            )
         for item in items:
             color = color_normalizer.normalize(item.get("color") or item.get("color_code"))
             item_type = str(item.get("type") or item.get("sub_category") or "").lower()
@@ -1384,6 +1976,7 @@ class UnifiedStyleScorer:
             "occasion_penalties": occasion_result.get("penalties", []),
             "occasion_reject": occasion_result.get("reject", False),
             "weather_compatibility": weather_result,
+            "fabric_season_compatibility": fabric_result,
         }
 
     def _graph_score(self, items: List[Dict[str, Any]], graph: Dict[str, Any]) -> float:

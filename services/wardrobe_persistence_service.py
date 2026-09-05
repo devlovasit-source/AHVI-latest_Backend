@@ -420,6 +420,52 @@ def _style_metadata_payload(
             exc_info=True,
         )
 
+    # Climate Metadata V1 — additive, describes the garment only. Carries
+    # forward any prior evidence (including user_confirmed material, for
+    # apparel or footwear alike) so re-saves / re-enrichment / backfill never
+    # regress stronger evidence.
+    try:
+        existing_climate = fetch_existing_climate_profile(item_id)
+        # vision_result (when present) must be the CURRENT, positively-
+        # provenanced vision detector output for this exact item — never the
+        # stored item_payload text itself, which may be user-edited/stale.
+        # See extract_vision_observed_climate_properties for the provenance
+        # check this feeds.
+        vision_evidence = (
+            item_payload.get("vision_result") if isinstance(item_payload, dict) else None
+        )
+        climate_profile = build_climate_profile(
+            item_payload if isinstance(item_payload, dict) else {},
+            vision_evidence=vision_evidence,
+            existing_profile=existing_climate,
+            physical_observations=(
+                item_payload.get("physical_garment_observations")
+                if isinstance(item_payload, dict)
+                else None
+            ),
+        )
+        if agent_climate_profile:
+            climate_profile = merge_climate_profile(climate_profile, agent_climate_profile)
+        if explicit_material is not None:
+            material_tuple = user_confirmed_material_tuple(explicit_material)
+            if material_tuple is not None:
+                # Explicit, intentional user correction — the ONE place an
+                # equal-authority ("u" over an existing "u") replacement is
+                # allowed. Never merge_climate_profile() here: that path is
+                # generic/automated and keeps ties on the existing value.
+                climate_profile = apply_user_climate_edit(
+                    climate_profile, "material", material_tuple
+                )
+        style_meta["climate_profile"] = climate_profile
+        style_meta["climate_profile_version"] = CLIMATE_PROFILE_VERSION
+    except Exception:
+        logging.getLogger("ahvi.wardrobe_persistence").warning(
+            "ahvi.climate.build_failed item=%s user=%s",
+            item_id,
+            user_id,
+            exc_info=True,
+        )
+
     return {
         "item_id": _safe_text(item_id),
         "userId": _safe_text(user_id),
