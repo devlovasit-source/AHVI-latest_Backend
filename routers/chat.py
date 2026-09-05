@@ -21,7 +21,7 @@ except Exception:
     run_heavy_audio_task = None
 
 from brain.orchestrator import ahvi_orchestrator
-from brain.intent_engine import detect_intent
+from brain.intent_engine import detect_action_ambiguity, detect_intent
 from brain.plan_pack_flow import build_plan_pack_response
 from brain.tone.tone_engine import tone_engine
 from brain.outfit_pipeline import save_feedback
@@ -5197,6 +5197,29 @@ def _preclassified_clarification_reply(pre: Dict[str, Any]) -> Dict[str, Any]:
     return response
 
 
+def _ambiguous_context_clarification_reply(ambiguity: Dict[str, Any]) -> Dict[str, Any]:
+    """A bare context noun ("Dinner tonight") is genuinely ambiguous across
+    Style/Diet/Planning -- ask once instead of guessing a module. Reuses the
+    same envelope shape as _preclassified_clarification_reply, but is not
+    Style-scoped (domain/module are neutral, not defaulted to "style")."""
+    message = ambiguity["message"]
+    return {
+        "success": True,
+        "type": "clarification",
+        "domain": "general",
+        "module": "chat",
+        "intent": "clarification",
+        "message": message,
+        "message_text": message,
+        "response": message,
+        "cards": [],
+        "chips": ambiguity["chips"],
+        "data": {"intent": "clarification", "missing_information": ["action"]},
+        "requires_clarification": True,
+        "meta": {"mode": "ambiguous_context_clarification"},
+    }
+
+
 def _style_conversation_resolution(
     request: "ModuleChatRequest",
     *,
@@ -6643,6 +6666,21 @@ def _text_chat_impl(request: TextChatRequest, http_request: Request):
             },
             user_id=user_id,
         )
+
+    # A bare context noun ("Dinner tonight") is genuinely ambiguous across
+    # Style/Diet/Planning -- ask once instead of guessing. Only reachable
+    # when nothing above (Style follow-up/board context, organize_hub, an
+    # explicit style/diet/plan intent) already claimed the message, so an
+    # established module conversation always outranks this.
+    if early_intent == "general" and not _multi_event_route:
+        _ambiguity = detect_action_ambiguity(user_input)
+        if _ambiguity:
+            logger.info(
+                "chat.intent.route intent=ambiguous_context noun=%s path=clarification text=%r",
+                _ambiguity["noun"],
+                user_input[:80],
+            )
+            return _ambiguous_context_clarification_reply(_ambiguity)
 
     # -------------------------
     # MODULE SUMMARY CARD FAST PATH

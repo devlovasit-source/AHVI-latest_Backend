@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Dict, Any
 
 from services.ai_gateway import generate_text, parse_json_object
@@ -16,10 +17,97 @@ from services.stylist_knowledge_service import (
 logger = logging.getLogger("ahvi.intent_engine")
 
 
-INTENT_PROMPT = """
-You are an intent classification engine for an AI stylist and organizer app.
+# Words that name a topic AHVI could plausibly act on in more than one way
+# (Style, Diet, or Planning) -- grouped so one clarification question/chip
+# set can serve every noun in the group instead of one-off phrasing per word.
+_AMBIGUOUS_CONTEXT_GROUPS = {
+    "meal": {
+        "nouns": ("dinner", "lunch", "breakfast"),
+        "question": "are you thinking about what to eat, what to wear, or planning the evening",
+        "chips": (("What to eat", "what should i eat for {noun}"),
+                  ("What to wear", "what should i wear for {noun}"),
+                  ("Plan my day", "plan my day")),
+    },
+    "event": {
+        "nouns": ("wedding", "party"),
+        "question": "do you want help with your outfit, preparation, or plans",
+        "chips": (("Style me", "style me for the {noun}"),
+                  ("Help me prepare", "help me prepare for the {noun}"),
+                  ("Plan / checklist", "create a checklist for the {noun}")),
+    },
+    "work": {
+        "nouns": ("work", "office", "meeting"),
+        "question": "are you thinking outfit, schedule, or something else",
+        "chips": (("What to wear", "what should i wear to {noun}"),
+                  ("Plan my day", "plan my day")),
+    },
+    "date": {
+        "nouns": ("date",),
+        "question": "are you thinking what to wear or how to plan the evening",
+        "chips": (("What to wear", "what should i wear for a {noun}"),
+                  ("Plan the evening", "plan my evening")),
+    },
+    "travel": {
+        "nouns": ("vacation",),
+        "question": "are you thinking what to pack or how to plan the trip",
+        "chips": (("What to wear", "what should i wear for {noun}"),
+                  ("Plan my trip", "create a checklist for my trip")),
+    },
+}
+_AMBIGUOUS_CONTEXT_NOUNS = {
+    noun: group for group in _AMBIGUOUS_CONTEXT_GROUPS.values() for noun in group["nouns"]
+}
+_AMBIGUOUS_TIME_QUALIFIERS = (
+    "today", "tonight", "tomorrow", "this evening", "this morning",
+    "this weekend", "next weekend", "this week", "next week",
+)
+_AMBIGUOUS_STOPWORDS = {"the", "a", "an", "my"}
 
-Return ONLY JSON.
+
+def detect_action_ambiguity(text: str) -> Dict[str, Any] | None:
+    """A bare context noun ("Dinner tonight") names a TOPIC, not a request --
+    it is genuinely ambiguous across Style/Diet/Planning and should ask one
+    clarifying question rather than guess a module or answer as if it were
+    an opinion. Distinguishing signal: after removing the context noun, any
+    time qualifier, and a couple of stopwords, nothing is left -- there is
+    no verb, no opinion, no other content word. A real sentence ("Dinner was
+    terrible") always leaves something behind ("was", "terrible") and must
+    NOT be treated as ambiguous.
+    """
+    normalized = " ".join(str(text or "").lower().replace("'", "").split())
+    if not normalized:
+        return None
+    # Word-boundary matched: short nouns like "work"/"date" would otherwise
+    # false-match inside ordinary words ("homework", "update", "candidate").
+    matched_noun = next(
+        (n for n in _AMBIGUOUS_CONTEXT_NOUNS if re.search(rf"\b{n}\b", normalized)),
+        None,
+    )
+    if not matched_noun:
+        return None
+    remainder = re.sub(rf"\b{matched_noun}\b", " ", normalized, count=1)
+    for phrase in _AMBIGUOUS_TIME_QUALIFIERS:
+        remainder = remainder.replace(phrase, " ", 1)
+    leftover_tokens = [tok for tok in remainder.split() if tok not in _AMBIGUOUS_STOPWORDS]
+    if leftover_tokens:
+        return None
+    group = _AMBIGUOUS_CONTEXT_NOUNS[matched_noun]
+    phrase = " ".join(word.capitalize() if i == 0 else word for i, word in enumerate(normalized.split()))
+    return {
+        "noun": matched_noun,
+        "message": f"{phrase} — {group['question']}?",
+        "chips": [
+            {"label": label, "value": template.format(noun=matched_noun)}
+            for label, template in group["chips"]
+        ],
+    }
+
+
+INTENT_PROMPT = """
+You are an intent classification engine for AHVI, a personal assistant for
+Style, Planning, Preparation, Wardrobe, Meals, Fitness, and daily life.
+
+Return ONLY valid JSON.
 
 Schema:
 {
@@ -34,24 +122,363 @@ Schema:
   "confidence": 0.0-1.0
 }
 
-Rules:
-- "morning plan / daily cards / today plan / tomorrow preview" -> daily_dependency
-- "what should I wear today" -> daily_outfit
-- wedding/party/event -> occasion_outfit
-- "show styles / casual / trending" -> explore_styles
-- "how many tops do I have / count my wardrobe items" -> wardrobe_query
-- "try this / try on" -> try_on
-- "organize / life planner / bills / medicines / calendar / workout / skincare / contacts / goals" -> organize_hub
-- "plan trip / pack for travel / wedding checklist / business travel packing" -> plan_pack
-- Style advice questions ("what should I wear...", "what is appropriate...", "how should I dress...", "what works for...") -> style_advice
-- Open-ended pairing questions ("what to pair with", "what goes with", "how to style", "ways to wear") -> style_pairing
-- Color/body questions ("what colors suit...", "skin tone", "body shape", "broad shoulders") -> color_body_advice
-- Style concept questions ("what is smart casual", "explain color harmony") -> style_education
-- Explicit wardrobe usage only ("use my wardrobe", "from my wardrobe", "with my clothes", "build a look from my closet") -> wardrobe_style
-- Explicit shopping/missing-piece requests ("what should I buy", "recommend shoes", "complete this look") -> shopping_assist
-- Wardrobe styling should only run when the user explicitly asks to use wardrobe/clothes/items/closet or style a saved/uploaded item.
-- Fill slots if clearly mentioned
-- If unsure -> general
+CORE PRINCIPLE:
+
+INTENT answers:
+"What does the user want AHVI to do?"
+
+SLOTS answer:
+"What is the situation or context about?"
+
+Context words may populate slots, but MUST NOT by themselves determine intent.
+
+Words such as:
+work, office, dinner, lunch, breakfast, wedding, party, meeting,
+date, vacation, travel, gym, event
+
+may describe context.
+
+Do NOT infer a module only because one of these words is present.
+
+==================================================
+GENERAL / CONVERSATIONAL
+==================================================
+
+Conversational, emotional, descriptive, retrospective, or opinion statements
+should normally be classified as general unless the user also expresses a
+clear actionable request.
+
+Examples:
+
+"Work was horrible today"
+-> general
+
+"Dinner was terrible"
+-> general
+
+"The wedding was exhausting"
+-> general
+
+"The party was boring"
+-> general
+
+"I hate going to the office"
+-> general
+
+"Lunch was amazing"
+-> general
+
+"That meeting went badly"
+-> general
+
+"Vacation was exhausting"
+-> general
+
+==================================================
+AMBIGUOUS CONTEXT
+==================================================
+
+If the user provides context but does not state what they want AHVI to do,
+do NOT guess a module.
+
+Examples:
+
+"Dinner tonight"
+-> general
+
+"Wedding tomorrow"
+-> general
+
+"Work tomorrow"
+-> general
+
+"Party tonight"
+-> general
+
+"Lunch tomorrow"
+-> general
+
+"Vacation next week"
+-> general
+
+"Meeting tomorrow"
+-> general
+
+"Date tonight"
+-> general
+
+These may be handled by a downstream clarification layer.
+
+You may still populate relevant slots when clearly inferable.
+
+Example:
+
+"Wedding tomorrow"
+-> intent=general
+-> slots.occasion="wedding"
+
+Do not force Style, Diet, or Planning merely from the context.
+
+==================================================
+STYLE
+==================================================
+
+Route to Style only when the user clearly asks for clothing, styling,
+outfit, dressing, pairing, appearance, or wardrobe help.
+
+Examples:
+
+"What should I wear today?"
+-> daily_outfit
+
+"What should I wear to work?"
+-> style_advice
+
+"What should I wear for dinner tonight?"
+-> style_advice
+
+"Style me for a wedding"
+-> occasion_outfit
+
+"Give me an outfit for the party"
+-> occasion_outfit
+
+"Help me dress for dinner"
+-> style_advice
+
+"What goes with these trousers?"
+-> style_pairing
+
+"How do I style this shirt?"
+-> style_pairing
+
+"Use my wardrobe for dinner"
+-> wardrobe_style
+
+"Build a look from my closet"
+-> wardrobe_style
+
+"What colors suit my skin tone?"
+-> color_body_advice
+
+"What is smart casual?"
+-> style_education
+
+"Show me casual styles"
+-> explore_styles
+
+"Show me trending styles"
+-> explore_styles
+
+IMPORTANT:
+
+Do NOT classify bare occasion/context nouns as Style.
+
+Examples:
+
+"Wedding tomorrow"
+-> general
+
+"Office tomorrow"
+-> general
+
+"Party tonight"
+-> general
+
+"Casual"
+-> general unless the wording clearly requests style exploration
+
+==================================================
+MEALS / DIET
+==================================================
+
+Route to the meal planner only when the user clearly asks for meal, diet,
+nutrition, food-planning, or eating guidance.
+
+Examples:
+
+"What should I eat tonight?"
+-> organize_hub
+-> slots.module="meal_planner"
+
+"Plan my dinner"
+-> organize_hub
+-> slots.module="meal_planner"
+
+"Create a meal plan"
+-> organize_hub
+-> slots.module="meal_planner"
+
+"Suggest a healthy lunch"
+-> organize_hub
+-> slots.module="meal_planner"
+
+"Give me a high-protein breakfast"
+-> organize_hub
+-> slots.module="meal_planner"
+
+"Help me with my diet"
+-> organize_hub
+-> slots.module="meal_planner"
+
+IMPORTANT:
+
+Do NOT infer meal_planner from meal names alone.
+
+Examples:
+
+"Dinner was terrible"
+-> general
+
+"Lunch was awful"
+-> general
+
+"Breakfast was amazing"
+-> general
+
+"Dinner tonight"
+-> general
+
+"Lunch tomorrow"
+-> general
+
+==================================================
+PLANNING / CALENDAR
+==================================================
+
+Route to Planning or Calendar only when the user clearly asks AHVI to plan,
+schedule, organize, add, remind, or create an event.
+
+Examples:
+
+"Plan my day tomorrow"
+-> organize_hub
+-> slots.module="calendar"
+
+"Schedule my work day"
+-> organize_hub
+-> slots.module="calendar"
+
+"Add a meeting tomorrow at 4 PM"
+-> organize_hub
+-> slots.module="calendar"
+
+"Remind me about my appointment"
+-> organize_hub
+-> slots.module="calendar"
+
+IMPORTANT:
+
+Do NOT infer Planning merely from a date, time, meeting, work, or event noun.
+
+Examples:
+
+"Meeting tomorrow"
+-> general
+
+"Work tomorrow"
+-> general
+
+"Party tonight"
+-> general
+
+==================================================
+PLAN / PACK / PREPARATION
+==================================================
+
+Use plan_pack when the user clearly asks to prepare, pack, or create a
+checklist for travel or an event.
+
+Examples:
+
+"Pack for the wedding"
+-> plan_pack
+
+"Create a checklist for my trip"
+-> plan_pack
+
+"Help me prepare for a business trip"
+-> plan_pack
+
+Do NOT classify "Wedding tomorrow" or "Vacation next week" as plan_pack
+unless preparation or packing intent is explicit.
+
+==================================================
+OTHER ROUTING RULES
+==================================================
+
+- "morning plan", "daily cards", "today plan", "tomorrow preview"
+  -> daily_dependency
+
+- Explicit wardrobe count/query:
+  "How many tops do I have?"
+  "Count my wardrobe items"
+  -> wardrobe_query
+
+- Explicit try-on:
+  "Try this on"
+  "Show me how this would look on me"
+  -> try_on
+
+- Explicit shopping or missing-piece requests:
+  "What should I buy?"
+  "Recommend shoes for this look"
+  "What am I missing?"
+  -> shopping_assist
+
+- Explicit organization requests for medicines, bills, workout, skincare,
+  contacts, or goals
+  -> organize_hub with the appropriate module
+
+==================================================
+FOLLOW-UP CONTEXT
+==================================================
+
+When history clearly establishes an active module or task, preserve that context
+for natural follow-ups even when the new message does not repeat domain words.
+
+Examples:
+
+Previous:
+"Plan my dinner"
+
+Follow-up:
+"Make it lighter"
+-> preserve meal-planner context
+
+Previous:
+"What should I wear for dinner?"
+
+Follow-up:
+"Make it less formal"
+-> preserve Style context
+
+Previous:
+"Plan my day tomorrow"
+
+Follow-up:
+"Add my meeting at 4"
+-> preserve Planning context
+
+Do not apply a fresh context-noun guess when an active module is already clear.
+
+==================================================
+FINAL SAFETY RULE
+==================================================
+
+Do not infer Style merely from an occasion.
+Do not infer Diet merely from a meal name.
+Do not infer Planning merely from a date/time or event noun.
+
+If the requested action is unclear:
+-> intent=general
+
+If unsure:
+-> intent=general
+
+Fill slots only when they are clearly supported by the text.
+
+Return ONLY valid JSON.
 
 User:
 """
@@ -415,11 +842,26 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
         "meal today",
         "diet today",
         "meal plan",
-        "breakfast",
-        "lunch",
-        "dinner",
     )
-    if style_mode != STYLE_ADVICE and _has_any(*diet_phrases):
+    # Bare meal-time nouns (breakfast/lunch/dinner) name the TOPIC of a
+    # sentence, not what the user wants AHVI to do with it -- "Dinner was
+    # terrible" is conversation, not a meal-planning request. Diet only
+    # admits on those nouns when a genuine action/planning word co-occurs,
+    # or when "diet"/"nutrition"/"calories" are named directly (those ARE
+    # the ask, not just a topic word).
+    _diet_action_words = (
+        "plan", "suggest", "recommend", "create", "build", "give me",
+        "help me", "healthy", "high protein", "high-protein", "low carb",
+        "low-carb",
+    )
+    # Word-boundary matched: "eat" is short enough to false-match inside
+    # ordinary words ("create", "repeat", "wheat") as a plain substring.
+    _diet_context_words = ("breakfast", "lunch", "dinner", "eat", "eating")
+    has_diet_action_intent = _has_any("diet", "nutrition", "calories") or (
+        any(action in t for action in _diet_action_words)
+        and any(re.search(rf"\b{context}\b", t) for context in _diet_context_words)
+    )
+    if style_mode != STYLE_ADVICE and (_has_any(*diet_phrases) or has_diet_action_intent):
         slots["module"] = "meal_planner"
         return {"intent": "organize_hub", "slots": slots, "confidence": 0.9}
 
@@ -746,13 +1188,6 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
     if any(x in t for x in daily_words):
         return {"intent": "daily_dependency", "slots": slots, "confidence": 0.8}
 
-    if any(x in t for x in ["wedding", "party", "event"]):
-        return {
-            "intent": "occasion_outfit",
-            "slots": slots or {"occasion": "event"},
-            "confidence": 0.7,
-        }
-
     if any(x in t for x in ["try", "try on", "virtual try", "preview this"]):
         return {"intent": "try_on", "slots": slots, "confidence": 0.72}
 
@@ -771,7 +1206,6 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
         "organize",
         "life board",
         "meal planner",
-        "meal",
         "diet",
         "nutrition",
         "medicine",
@@ -786,10 +1220,13 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
         "life goals",
         "goals",
     ]
-    if any(x in t for x in organize_words):
+    # Bare "meal" is a topic word, not an ask (see has_diet_action_intent
+    # above) -- it only admits Diet here alongside "meal planner"/"diet"/
+    # "nutrition" or a genuine action word, matching the diet_phrases guard.
+    if any(x in t for x in organize_words) or has_diet_action_intent:
         if "life board" in t:
             slots["module"] = "life_boards"
-        elif "meal" in t or "diet" in t or "nutrition" in t:
+        elif "meal planner" in t or "diet" in t or "nutrition" in t or has_diet_action_intent:
             slots["module"] = "meal_planner"
         elif "med" in t:
             slots["module"] = "medicines"
