@@ -112,10 +112,10 @@ class AttentionArbitrator:
 
         for action in user_actions:
             if action.status == "PENDING" and action.deliver_after is not None and action.is_deliverable:
+                routed = delivery_router.route_candidate_action(action)
                 action.status = "DELIVERED"
                 action.deliver_after = None
                 candidate_action_store.save_action(action)
-                routed = delivery_router.route_candidate_action(action)
                 delivered_outputs.append(routed)
                 logger.info(
                     "AHVI_ATTENTION_DEFERRED_ACTION_REDELIVERED action_id=%s user_id=%s channel=%s status=%s",
@@ -124,6 +124,7 @@ class AttentionArbitrator:
                     routed.get("channel"),
                     action.status,
                 )
+
 
 
         return delivered_outputs
