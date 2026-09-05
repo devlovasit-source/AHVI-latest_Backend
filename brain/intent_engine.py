@@ -103,6 +103,33 @@ def detect_action_ambiguity(text: str) -> Dict[str, Any] | None:
     }
 
 
+# Bare meal-time nouns (breakfast/lunch/dinner) name the TOPIC of a sentence,
+# not what the user wants AHVI to do with it -- "Dinner was terrible" is
+# conversation, not a meal-planning request. Diet only admits on those nouns
+# when a genuine action/planning word co-occurs, or when
+# "diet"/"nutrition"/"calories" are named directly (those ARE the ask, not
+# just a topic word). Shared by every deterministic diet-admission
+# chokepoint (brain/intent_engine.py's own fallback, and routers/chat.py's
+# separate visual-board fast path) so the rule lives in exactly one place.
+_DIET_ACTION_WORDS = (
+    "plan", "suggest", "recommend", "create", "build", "give me",
+    "help me", "healthy", "high protein", "high-protein", "low carb",
+    "low-carb",
+)
+# Word-boundary matched: "eat" is short enough to false-match inside
+# ordinary words ("create", "repeat", "wheat") as a plain substring.
+_DIET_CONTEXT_WORDS = ("breakfast", "lunch", "dinner", "eat", "eating")
+
+
+def has_diet_action_intent(text: str) -> bool:
+    t = str(text or "").lower()
+    if any(w in t for w in ("diet", "nutrition", "calories")):
+        return True
+    return any(action in t for action in _DIET_ACTION_WORDS) and any(
+        re.search(rf"\b{context}\b", t) for context in _DIET_CONTEXT_WORDS
+    )
+
+
 INTENT_PROMPT = """
 You are an intent classification engine for AHVI, a personal assistant for
 Style, Planning, Preparation, Wardrobe, Meals, Fitness, and daily life.
@@ -843,25 +870,7 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
         "diet today",
         "meal plan",
     )
-    # Bare meal-time nouns (breakfast/lunch/dinner) name the TOPIC of a
-    # sentence, not what the user wants AHVI to do with it -- "Dinner was
-    # terrible" is conversation, not a meal-planning request. Diet only
-    # admits on those nouns when a genuine action/planning word co-occurs,
-    # or when "diet"/"nutrition"/"calories" are named directly (those ARE
-    # the ask, not just a topic word).
-    _diet_action_words = (
-        "plan", "suggest", "recommend", "create", "build", "give me",
-        "help me", "healthy", "high protein", "high-protein", "low carb",
-        "low-carb",
-    )
-    # Word-boundary matched: "eat" is short enough to false-match inside
-    # ordinary words ("create", "repeat", "wheat") as a plain substring.
-    _diet_context_words = ("breakfast", "lunch", "dinner", "eat", "eating")
-    has_diet_action_intent = _has_any("diet", "nutrition", "calories") or (
-        any(action in t for action in _diet_action_words)
-        and any(re.search(rf"\b{context}\b", t) for context in _diet_context_words)
-    )
-    if style_mode != STYLE_ADVICE and (_has_any(*diet_phrases) or has_diet_action_intent):
+    if style_mode != STYLE_ADVICE and (_has_any(*diet_phrases) or has_diet_action_intent(t)):
         slots["module"] = "meal_planner"
         return {"intent": "organize_hub", "slots": slots, "confidence": 0.9}
 
@@ -1223,10 +1232,10 @@ def _fallback_intent(text: str) -> Dict[str, Any]:
     # Bare "meal" is a topic word, not an ask (see has_diet_action_intent
     # above) -- it only admits Diet here alongside "meal planner"/"diet"/
     # "nutrition" or a genuine action word, matching the diet_phrases guard.
-    if any(x in t for x in organize_words) or has_diet_action_intent:
+    if any(x in t for x in organize_words) or has_diet_action_intent(t):
         if "life board" in t:
             slots["module"] = "life_boards"
-        elif "meal planner" in t or "diet" in t or "nutrition" in t or has_diet_action_intent:
+        elif "meal planner" in t or "diet" in t or "nutrition" in t or has_diet_action_intent(t):
             slots["module"] = "meal_planner"
         elif "med" in t:
             slots["module"] = "medicines"

@@ -21,7 +21,7 @@ except Exception:
     run_heavy_audio_task = None
 
 from brain.orchestrator import ahvi_orchestrator
-from brain.intent_engine import detect_action_ambiguity, detect_intent
+from brain.intent_engine import detect_action_ambiguity, detect_intent, has_diet_action_intent
 from brain.plan_pack_flow import build_plan_pack_response
 from brain.tone.tone_engine import tone_engine
 from brain.outfit_pipeline import save_feedback
@@ -4354,7 +4354,7 @@ def _is_plan_pack_request(message: str) -> bool:
 # instead of plain text. Keyword lists mirror the AHVI routing spec.
 _VB_DIET_KEYWORDS = (
     "diet", "meal plan", "meal-plan", "what should i eat", "what to eat",
-    "breakfast", "lunch", "dinner", "high protein", "high-protein",
+    "high protein", "high-protein",
     "vegetarian meal", "vegan meal", "weight loss food", "meal idea", "meal ideas",
 )
 _VB_PACK_KEYWORDS = (
@@ -4381,7 +4381,11 @@ def _detect_visual_board_type(message: str, module: str = "") -> str:
         return ""
     if _is_plan_pack_request(text):
         return "packing_checklist"
-    if any(k in text for k in _VB_DIET_KEYWORDS):
+    # Bare "breakfast"/"lunch"/"dinner" name the topic, not the ask -- reuse
+    # the same admission rule as brain.intent_engine's deterministic router
+    # so a message like "Dinner was terrible" doesn't hit a second,
+    # independent bare-noun match here.
+    if any(k in text for k in _VB_DIET_KEYWORDS) or has_diet_action_intent(text):
         return "diet_plan"
     if any(k in text for k in _VB_PACK_KEYWORDS):
         return "packing_checklist"
