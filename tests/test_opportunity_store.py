@@ -143,3 +143,23 @@ def test_claim_lease_and_reclaim() -> None:
     assert len(reclaimed) == 1
     assert reclaimed[0].id == opp.id
     assert reclaimed[0].status == OpportunityStatus.AVAILABLE
+
+
+def test_database_409_conflict_atomic_rejection(monkeypatch) -> None:
+    """Verify that when Appwrite returns a 409 Conflict / duplicate ID error, save_opportunity atomically rejects duplicate."""
+    store = OpportunityStore()
+    opp = Opportunity.create(
+        user_id="usr_409_test",
+        opportunity_type="test_type",
+        timeline_item_id="item_409",
+        trigger_window="win_409",
+    )
+
+    def mock_create_document(*args, **kwargs):
+        raise Exception("AppwriteProxyError: 409 Document already exists with ID")
+
+    monkeypatch.setattr("services.appwrite_proxy.AppwriteProxy.create_document", mock_create_document)
+
+    saved = store.save_opportunity(opp)
+    assert saved is False
+

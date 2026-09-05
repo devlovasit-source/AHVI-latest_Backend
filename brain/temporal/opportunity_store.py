@@ -84,6 +84,15 @@ class OpportunityStore:
             proxy.create_document("opportunities", payload, document_id=opportunity.id)
             return True
         except Exception as exc:
+            err_str = str(exc).lower()
+            if any(k in err_str for k in ("409", "already_exists", "conflict", "duplicate")):
+                logger.info(
+                    "AHVI_OPPORTUNITY_STORE_ATOMIC_DUPLICATE_REJECTED id=%s key=%s err=%s",
+                    opportunity.id,
+                    opportunity.idempotency_key,
+                    str(exc),
+                )
+                return False
             logger.debug(
                 "AHVI_OPPORTUNITY_STORE_APPWRITE_PERSIST_WARN id=%s key=%s err=%s",
                 opportunity.id,
@@ -91,6 +100,7 @@ class OpportunityStore:
                 str(exc),
             )
             return True
+
 
     def _doc_to_opportunity(self, doc: Dict[str, Any], default_id: str = "") -> Opportunity:
         opp_id = str(doc.get("$id") or doc.get("id") or default_id)

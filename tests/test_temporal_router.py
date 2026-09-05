@@ -83,3 +83,38 @@ def test_arbitrate_endpoint() -> None:
     assert data["success"] is True
     assert data["user_id"] == "usr_api_test"
     assert data["output_count"] == 1
+
+
+def test_user_enumeration_and_all_users_cron_sweep(monkeypatch) -> None:
+    """Test list_active_user_ids and system-wide temporal_all_users_background_sweep_task."""
+    from services.data_access_service import list_active_user_ids
+    from worker import temporal_all_users_background_sweep_task
+
+    def mock_list_documents(self, resource, **kwargs):
+        if resource == "users":
+            return [
+                {"$id": "usr_enum_1"},
+                {"$id": "usr_enum_2"},
+            ]
+        return []
+
+
+    monkeypatch.setattr("services.appwrite_proxy.AppwriteProxy.list_documents", mock_list_documents)
+
+    uids = list_active_user_ids()
+    assert uids == ["usr_enum_1", "usr_enum_2"]
+
+    delays = []
+
+    def mock_delay(user_id="", request_id=""):
+        delays.append(user_id)
+        return True
+
+    monkeypatch.setattr("worker.temporal_background_sweep_task.delay", mock_delay)
+
+    res = temporal_all_users_background_sweep_task()
+    assert res["status"] == "success"
+    assert res["users_enumerated"] == 2
+    assert res["tasks_dispatched"] == 2
+    assert delays == ["usr_enum_1", "usr_enum_2"]
+

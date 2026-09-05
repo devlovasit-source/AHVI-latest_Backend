@@ -142,3 +142,36 @@ def test_persistent_candidate_action_deferral_and_resume() -> None:
     user_actions = candidate_action_store.query_user_actions(user_id)
     assert len(user_actions) >= 1
     assert any(a.id == "act_def_99" for a in user_actions)
+
+
+def test_deferred_candidate_action_redelivery_sweep() -> None:
+    """Verify that deferred actions (deliver_after <= now) are scanned by AttentionArbitrator and routed through DeliveryRouter."""
+    user_id = "usr_redelivery_test"
+    now = datetime.now(timezone.utc)
+    past = now - timedelta(minutes=5)
+
+    action = CandidateAction(
+        id="act_due_101",
+        user_id=user_id,
+        source_opportunity_id="opp_due_101",
+        source_module="calendar",
+        action_type="due_meeting",
+        priority=4,
+        urgency=0.8,
+        attention_cost=0.3,
+        deliver_after=past,
+        expires_at=now + timedelta(hours=1),
+        payload={"title": "Important Sync"},
+    )
+    candidate_action_store.save_action(action)
+
+    redelivered = attention_arbitrator.scan_and_deliver_due_deferred_actions(user_id)
+    assert len(redelivered) == 1
+    assert redelivered[0]["action_id"] == "act_due_101"
+    assert redelivered[0]["channel"] == "SYSTEM_REMINDER"
+    assert redelivered[0]["target_surface"] == "home_ui"
+
+    updated = candidate_action_store.get_action("act_due_101")
+    assert updated is not None
+    assert updated.deliver_after is None
+

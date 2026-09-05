@@ -49,9 +49,14 @@ class DeliveryRouter:
         )
         return delivery_payload
 
+    def route_candidate_action(self, action: CandidateAction) -> Dict[str, Any]:
+        """Alias for route_action to route a single CandidateAction."""
+        return self.route_action(action)
+
     def route_batch(self, actions: List[CandidateAction]) -> List[Dict[str, Any]]:
         """Route a batch of arbitrated candidate actions."""
         return [self.route_action(a) for a in actions if isinstance(a, CandidateAction)]
+
 
 
 # Global singleton

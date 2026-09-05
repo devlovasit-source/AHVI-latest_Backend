@@ -96,6 +96,36 @@ class AttentionArbitrator:
         """Alias for arbitrate method."""
         return self.arbitrate(actions, max_delivery=max_delivery)
 
+    def scan_and_deliver_due_deferred_actions(self, user_id: str) -> List[Dict[str, Any]]:
+        """
+        Scan stored candidate actions for user_id where deliver_after <= now and route them through DeliveryRouter.
+        Ensures deferred actions are actively re-evaluated and delivered upon background sweep or restart.
+        """
+        from brain.temporal.delivery_router import delivery_router
+
+        uid = str(user_id or "").strip()
+        if not uid:
+            return []
+
+        user_actions = candidate_action_store.query_user_actions(uid)
+        delivered_outputs: List[Dict[str, Any]] = []
+
+        for action in user_actions:
+            if action.deliver_after is not None and action.is_deliverable:
+                action.deliver_after = None
+                candidate_action_store.save_action(action)
+                routed = delivery_router.route_candidate_action(action)
+                delivered_outputs.append(routed)
+                logger.info(
+                    "AHVI_ATTENTION_DEFERRED_ACTION_REDELIVERED action_id=%s user_id=%s channel=%s",
+                    action.id,
+                    uid,
+                    routed.get("channel"),
+                )
+
+        return delivered_outputs
+
+
 
 # Global singleton
 attention_arbitrator = AttentionArbitrator()

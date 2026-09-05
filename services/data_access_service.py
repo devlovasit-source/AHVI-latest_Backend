@@ -25,6 +25,40 @@ def upsert_user_profile(*, user_id: str, payload: Dict[str, Any]):
         return proxy.create_document("users", payload, document_id=user_id)
 
 
+def list_active_user_ids(*, limit: int = 100) -> list[str]:
+    """
+    Enumerates active user IDs from the system/admin user profile collection ('users').
+    Provides the explicit user enumeration source for system-wide background tasks,
+    ensuring cross-tenant domain collections are NEVER queried in an unscoped cross-tenant manner.
+    """
+    try:
+        docs = AppwriteProxy().list_documents("users", limit=limit)
+        if isinstance(docs, dict):
+            rows = docs.get("documents") or docs.get("items") or []
+        elif isinstance(docs, list):
+            rows = docs
+        else:
+            rows = []
+        user_ids = []
+        for doc in rows:
+            if not isinstance(doc, dict):
+                continue
+            uid = str(
+                doc.get("$id")
+                or doc.get("userId")
+                or doc.get("user_id")
+                or doc.get("id")
+                or ""
+            ).strip()
+            if uid and uid not in user_ids:
+                user_ids.append(uid)
+        return user_ids
+    except Exception:
+        return []
+
+
+
+
 # ================= AHVI STYLE PROFILE PATCH V2 BEGIN =================
 
 

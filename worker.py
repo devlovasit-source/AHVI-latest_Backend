@@ -359,13 +359,51 @@ def dispatch_due_reminders_task(self, window_seconds: int = 60, request_id: str 
         _retry_or_fail(self, e, request_id=request_id)
 
 
+@celery_app.task(name="temporal_all_users_background_sweep_task", bind=True)
+def temporal_all_users_background_sweep_task(self, request_id: str = ""):
+    """
+    System-wide periodic cron sweep task that enumerates active user IDs from the system
+    user profile index ('users') and dispatches isolated background sweeps per user.
+    Guarantees domain collections are NEVER queried in an unscoped cross-tenant manner.
+    """
+    from services.data_access_service import list_active_user_ids
+
+    _mark_started(self, request_id=request_id)
+    try:
+        user_ids = list_active_user_ids()
+        dispatched = 0
+        for uid in user_ids:
+            temporal_background_sweep_task.delay(user_id=uid, request_id=request_id)
+            dispatched += 1
+
+        _mark_succeeded(
+            self,
+            {
+                "task": "temporal_all_users_background_sweep_task",
+                "users_enumerated": len(user_ids),
+                "tasks_dispatched": dispatched,
+            },
+            request_id=request_id,
+        )
+        return {
+            "status": "success",
+            "users_enumerated": len(user_ids),
+            "tasks_dispatched": dispatched,
+        }
+    except Exception as e:
+        logger.exception("TEMPORAL ALL USERS BACKGROUND SWEEP TASK ERROR")
+        _retry_or_fail(self, e, request_id=request_id)
+
+
 @celery_app.task(name="temporal_background_sweep_task", bind=True)
 def temporal_background_sweep_task(self, user_id: str = "", request_id: str = ""):
     """
-    Executes background temporal intelligence evaluation, cleanup, and crash recovery for a specific user_id.
+    Executes background temporal intelligence evaluation, cleanup, crash recovery, and
+    deferred action redelivery sweep for a specific user_id.
     Explicitly user-bound in background context — no un-scoped global reads.
     """
     from brain.temporal.aggregation_service import aggregation_service
+    from brain.temporal.attention_arbitrator import attention_arbitrator
     from brain.temporal.opportunity_engine import opportunity_engine
     from brain.temporal.retention_worker import retention_worker
     from brain.temporal.signals import signal_emitter
@@ -388,6 +426,9 @@ def temporal_background_sweep_task(self, user_id: str = "", request_id: str = ""
         # Step 4: Process signals with logical idempotency
         opps = opportunity_engine.process_signals(signals)
 
+        # Step 5: Scan and deliver due deferred candidate actions
+        redelivered_actions = attention_arbitrator.scan_and_deliver_due_deferred_actions(uid)
+
         _mark_succeeded(
             self,
             {
@@ -396,6 +437,7 @@ def temporal_background_sweep_task(self, user_id: str = "", request_id: str = ""
                 "items_count": len(items),
                 "signals_count": len(signals),
                 "opportunities_created": len(opps),
+                "redelivered_actions_count": len(redelivered_actions),
                 "cleanup_metrics": cleanup_metrics,
             },
             request_id=request_id,
@@ -406,8 +448,10 @@ def temporal_background_sweep_task(self, user_id: str = "", request_id: str = ""
             "items_count": len(items),
             "signals_count": len(signals),
             "opportunities_created": len(opps),
+            "redelivered_actions_count": len(redelivered_actions),
             "cleanup_metrics": cleanup_metrics,
         }
     except Exception as e:
         logger.exception("TEMPORAL BACKGROUND SWEEP TASK ERROR user_id=%s", uid)
-        _retry_or_fail(self, e, request_id=request_id)
+        _retry_or_fail(self, e, request_id=request_id)
+
