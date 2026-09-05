@@ -85,12 +85,27 @@ def resolve_style_asset_image(row: Mapping[str, Any]) -> Dict[str, Any]:
 
     candidates: List[tuple[str, str, bool]] = []
     if style_asset:
+        # Style assets can pass through this resolver more than once (e.g. a
+        # visual-inspiration direction is resolved once via
+        # _apply_board_image_fields, then re-resolved when the itemized board
+        # contract is built). By the second pass, image_url/imageUrl may
+        # already hold the SELECTED url from the first pass, not the true raw
+        # source -- so checking cutout/board candidates against the full
+        # image_url-derived raw_aliases set produces a false-positive
+        # self-alias and drops the genuine cutout in favor of the actual raw
+        # catalog_image_url. catalog_image_url is never overwritten by this
+        # resolver (it always reflects the literal persisted field), so it is
+        # the one stable raw reference to check style-asset candidates
+        # against, independent of how many times this function has already
+        # run on the row.
+        style_asset_raw_aliases = {catalog_url} if catalog_url else set()
+
         cutout_url = _first_text(row, "cutout_url", "cutoutUrl")
-        if cutout_url and cutout_url not in raw_aliases and _cutout_status_ready(row):
+        if cutout_url and cutout_url not in style_asset_raw_aliases and _cutout_status_ready(row):
             candidates.append(("cutout_url", cutout_url, True))
 
         board_url = _first_text(row, "board_image_url", "boardImageUrl")
-        if board_url and board_url not in raw_aliases and _cutout_status_ready(row):
+        if board_url and board_url not in style_asset_raw_aliases and _cutout_status_ready(row):
             candidates.append(("board_image_url", board_url, True))
 
         candidates.extend(

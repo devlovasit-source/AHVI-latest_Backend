@@ -4215,7 +4215,12 @@ def _apply_board_image_fields(target: Dict[str, Any], asset: Dict[str, Any]) -> 
     if _asset_text(asset.get("board_r2_key") or asset.get("boardR2Key")):
         target["board_r2_key"] = _asset_text(asset.get("board_r2_key") or asset.get("boardR2Key"))
     target["board_image_status"] = resolved.get("board_status") or "catalog_fallback"
-    for key in ("selected_field", "source_kind", "expected_transparent", "requires_frame"):
+    # _board_image_resolution names this key "source_field"; the emitted
+    # contract field is "selected_field" -- map it explicitly instead of
+    # copying by identical key name (which silently no-ops).
+    if resolved.get("source_field"):
+        target["selected_field"] = resolved["source_field"]
+    for key in ("source_kind", "expected_transparent", "requires_frame"):
         if key in resolved and resolved[key] not in (None, ""):
             target[key] = resolved[key]
     return target
