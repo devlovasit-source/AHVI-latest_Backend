@@ -34,6 +34,7 @@ class CandidateAction(BaseModel):
     attention_cost: float = Field(default=0.5, ge=0.0, le=1.0, description="Estimated cognitive/interruption cost (0.0 to 1.0)")
     deliver_after: Optional[datetime] = Field(default=None, description="Earliest delivery timestamp for batching/deferral")
     expires_at: Optional[datetime] = Field(default=None, description="Expiration timestamp after which action is void")
+    status: str = Field(default="PENDING", description="Lifecycle status: PENDING, DELIVERED, DEFERRED, EXPIRED")
     payload: Dict[str, Any] = Field(default_factory=dict, description="Action payload for UI rendering or execution")
 
     @property
@@ -47,14 +48,15 @@ class CandidateAction(BaseModel):
 
     @property
     def is_deliverable(self) -> bool:
-        """Check if candidate action has reached its deliver_after timestamp and is not expired."""
-        if self.is_expired:
+        """Check if candidate action has reached its deliver_after timestamp and is not expired or already delivered."""
+        if str(self.status or "").upper() in ("DELIVERED", "EXPIRED") or self.is_expired:
             return False
         if self.deliver_after:
             now = datetime.now(timezone.utc)
             after = self.deliver_after if self.deliver_after.tzinfo else self.deliver_after.replace(tzinfo=timezone.utc)
             return now >= after
         return True
+
 
     @property
     def composite_score(self) -> float:

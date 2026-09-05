@@ -58,6 +58,7 @@ class CandidateActionStore:
             "attention_cost": action.attention_cost,
             "deliver_after": action.deliver_after.isoformat() if action.deliver_after else None,
             "expires_at": action.expires_at.isoformat() if action.expires_at else None,
+            "status": action.status,
             "payload": action.payload,
         }
 
@@ -92,8 +93,10 @@ class CandidateActionStore:
             attention_cost=float(doc.get("attention_cost") or doc.get("attentionCost") or 0.5),
             deliver_after=_parse_dt(doc.get("deliver_after") or doc.get("deliverAfter")),
             expires_at=_parse_dt(doc.get("expires_at") or doc.get("expiresAt")),
+            status=str(doc.get("status") or "PENDING"),
             payload=doc.get("payload") if isinstance(doc.get("payload"), dict) else {},
         )
+
 
     def get_action(self, action_id: str) -> Optional[CandidateAction]:
         """Fetch candidate action by ID."""

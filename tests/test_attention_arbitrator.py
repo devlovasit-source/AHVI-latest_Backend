@@ -173,5 +173,11 @@ def test_deferred_candidate_action_redelivery_sweep() -> None:
 
     updated = candidate_action_store.get_action("act_due_101")
     assert updated is not None
+    assert updated.status == "DELIVERED"
     assert updated.deliver_after is None
+
+    # A subsequent sweep run must find 0 actions to redeliver (preventing infinite duplicate redeliveries)
+    second_run = attention_arbitrator.scan_and_deliver_due_deferred_actions(user_id)
+    assert len(second_run) == 0
+
 
