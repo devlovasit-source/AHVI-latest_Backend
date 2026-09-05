@@ -181,3 +181,38 @@ def test_deferred_candidate_action_redelivery_sweep() -> None:
     assert len(second_run) == 0
 
 
+def test_deferred_candidate_action_routing_failure_preserves_pending_status(monkeypatch) -> None:
+    """Verify that if DeliveryRouter returns None or success=False, status remains PENDING for future retry."""
+    user_id = "usr_routing_fail_test"
+    now = datetime.now(timezone.utc)
+    past = now - timedelta(minutes=5)
+
+    action = CandidateAction(
+        id="act_fail_202",
+        user_id=user_id,
+        source_opportunity_id="opp_fail_202",
+        source_module="calendar",
+        action_type="failing_delivery",
+        priority=4,
+        urgency=0.8,
+        attention_cost=0.3,
+        deliver_after=past,
+        expires_at=now + timedelta(hours=1),
+    )
+    candidate_action_store.save_action(action)
+
+    monkeypatch.setattr(
+        "brain.temporal.delivery_router.delivery_router.route_candidate_action",
+        lambda act: None,
+    )
+
+    redelivered = attention_arbitrator.scan_and_deliver_due_deferred_actions(user_id)
+    assert len(redelivered) == 0
+
+    updated = candidate_action_store.get_action("act_fail_202")
+    assert updated is not None
+    assert updated.status == "PENDING"
+    assert updated.deliver_after is not None
+
+
+
