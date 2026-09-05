@@ -207,9 +207,12 @@ def _call_gemini_text(
 
     tone = tone_engine.build_prompt_tone(user_profile, signals)
 
+    # The model's persona/behavior comes from config.system_instruction below
+    # (caller-supplied instruction, falling back to the global AHVI_SYSTEM_PROMPT
+    # only when the caller didn't provide one). Embedding AHVI_SYSTEM_PROMPT here
+    # too would re-inject the global styling-centric persona into every call's
+    # content regardless of what system_instruction was actually resolved.
     full_prompt = f"""
-{AHVI_SYSTEM_PROMPT}
-
 Tone instruction:
 {tone.get("tone_instruction", "")}
 
@@ -349,6 +352,7 @@ def generate_text(
     timeout_seconds: int = 30,
     options: Optional[Dict[str, Any]] = None,
     usecase: Optional[str] = None,
+    system_instruction: Optional[str] = None,
     **kwargs,
 ) -> str:
     """
@@ -377,6 +381,7 @@ def generate_text(
             signals=signals,
             temperature=float((options or {}).get("temperature", 0.35)),
             max_output_tokens=requested_tokens,
+            system_instruction=system_instruction,
             timeout_seconds=timeout_seconds,
         )
         if gemini_text:
@@ -395,6 +400,7 @@ def generate_text(
                     signals=signals,
                     temperature=float((options or {}).get("temperature", 0.35)),
                     max_output_tokens=retry_tokens,
+                    system_instruction=system_instruction,
                     timeout_seconds=timeout_seconds,
                 )
                 if retry_text:
@@ -403,9 +409,10 @@ def generate_text(
         logger.warning("llm.generate_text provider=gemini returned empty; falling back usecase=%s", usecase)
 
     tone = tone_engine.build_prompt_tone(user_profile, signals)
+    effective_system_instruction = system_instruction or AHVI_SYSTEM_PROMPT
 
     full_prompt = f"""
-{AHVI_SYSTEM_PROMPT}
+{effective_system_instruction}
 
 Tone: {tone.get("tone_instruction", "")}
 
@@ -459,9 +466,6 @@ def chat_completion(
 ) -> str:
     lines: List[str] = []
 
-    if system_instruction:
-        lines.append(f"System:\n{system_instruction}")
-
     for message in messages or []:
         role = str(message.get("role") or "user").strip()
         content = str(message.get("content") or "").strip()
@@ -477,6 +481,7 @@ def chat_completion(
         model=model,
         timeout_seconds=timeout_seconds,
         options=options,
+        system_instruction=system_instruction or None,
         usecase=usecase,
     )
 
