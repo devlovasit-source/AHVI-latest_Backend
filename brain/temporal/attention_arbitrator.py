@@ -2,7 +2,7 @@
 
 Ranks, suppresses, merges, batches, or defers competing CandidateAction items
 so individual module brains do not independently control user interruption.
-Uses deliver_after and expires_at fields for batch/deferral behavior.
+Uses deliver_after and expires_at fields for batch/deferral behavior with durable persistence.
 """
 
 from __future__ import annotations
@@ -12,12 +12,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from brain.temporal.attention_models import CandidateAction
+from brain.temporal.candidate_action_store import candidate_action_store
 
 logger = logging.getLogger("ahvi.temporal.attention_arbitrator")
 
 
 class AttentionArbitrator:
-    """Arbitrator layer managing candidate action ranking, suppression, and deferral."""
+    """Arbitrator layer managing candidate action ranking, suppression, and durable deferral."""
 
     def filter_deliverable(self, actions: List[CandidateAction]) -> List[CandidateAction]:
         """Filter out candidate actions that are expired or not yet deliverable."""
@@ -50,9 +51,10 @@ class AttentionArbitrator:
         return sorted(actions, key=lambda a: a.composite_score, reverse=True)
 
     def defer_action(self, action: CandidateAction, defer_duration: timedelta) -> CandidateAction:
-        """Defer a candidate action by setting its deliver_after timestamp."""
+        """Defer a candidate action by setting deliver_after and persisting to durable store."""
         now = datetime.now(timezone.utc)
         action.deliver_after = now + defer_duration
+        candidate_action_store.save_action(action)
         logger.info(
             "AHVI_ATTENTION_ACTION_DEFERRED action_id=%s deliver_after=%s",
             action.id,
@@ -68,6 +70,10 @@ class AttentionArbitrator:
         """Full arbitration pipeline: filter deliverable, suppress duplicates, rank, and cap."""
         if not actions:
             return []
+
+        # Save all incoming candidate actions to durable store
+        for act in actions:
+            candidate_action_store.save_action(act)
 
         deliverable = self.filter_deliverable(actions)
         suppressed = self.suppress_duplicates(deliverable)
@@ -89,7 +95,6 @@ class AttentionArbitrator:
     ) -> List[CandidateAction]:
         """Alias for arbitrate method."""
         return self.arbitrate(actions, max_delivery=max_delivery)
-
 
 
 # Global singleton

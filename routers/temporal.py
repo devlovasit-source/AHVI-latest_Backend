@@ -2,13 +2,14 @@
 
 Exposes unified timeline streams, temporal context queries, opportunity registry,
 live shadow mode evaluation, and attention arbitration API endpoints.
+Enforces strict multi-tenant authentication and user scoping.
 """
 
 from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from brain.temporal.aggregation_service import aggregation_service
@@ -17,30 +18,37 @@ from brain.temporal.attention_models import CandidateAction
 from brain.temporal.context_engine import context_engine
 from brain.temporal.opportunity_store import opportunity_store
 from brain.temporal.shadow_mode import shadow_evaluator
+from middleware.auth_middleware import get_current_user
 
 logger = logging.getLogger("ahvi.routers.temporal")
 
 router = APIRouter(prefix="/api/temporal", tags=["Temporal Intelligence"])
 
 
+def _user_id(user: Any) -> str:
+    """Extract authenticated user identity from principal dictionary."""
+    if isinstance(user, dict):
+        uid = str(user.get("user_id") or user.get("$id") or user.get("id") or "").strip()
+        if uid:
+            return uid
+    raise HTTPException(status_code=401, detail="Missing authenticated user")
+
+
 class ShadowModeEvalRequest(BaseModel):
-    user_id: str = Field(default="shadow_user", description="Target user ID")
     raw_events: List[Dict[str, Any]] = Field(default_factory=list, description="Raw calendar events list")
     triaged_diff_keys: Optional[List[str]] = Field(default=None, description="Optional list of triaged diff keys")
 
 
 class ArbitrationRequest(BaseModel):
-    user_id: str = Field(default="user_1", description="Target user ID")
     candidate_actions: List[CandidateAction] = Field(default_factory=list, description="List of candidate actions to arbitrate")
 
 
 @router.get("/timeline")
 def get_unified_timeline(
-    request: Request,
-    user_id: Optional[str] = Query(default=None, description="Target user ID"),
+    user=Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Fetch the unified, aggregated timeline stream across all module adapters."""
-    uid = user_id or getattr(request.state, "user", {}).get("id") or "default_user"
+    """Fetch the unified, aggregated timeline stream for the authenticated user."""
+    uid = _user_id(user)
     items = aggregation_service.fetch_unified_timeline(uid)
     return {
         "success": True,
@@ -52,12 +60,11 @@ def get_unified_timeline(
 
 @router.get("/context")
 def get_temporal_context(
-    request: Request,
-    user_id: Optional[str] = Query(default=None, description="Target user ID"),
-    window_hours: float = Query(default=24.0, description="Lookahead window in hours"),
+    window_hours: float = 24.0,
+    user=Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Query current activity and upcoming activities from Temporal Context Engine."""
-    uid = user_id or getattr(request.state, "user", {}).get("id") or "default_user"
+    """Query current activity and upcoming activities for the authenticated user."""
+    uid = _user_id(user)
     timeline_items = aggregation_service.fetch_unified_timeline(uid)
 
     current_act = context_engine.get_current_activity(uid, items=timeline_items)
@@ -76,11 +83,10 @@ def get_temporal_context(
 
 @router.get("/opportunities")
 def get_user_opportunities(
-    request: Request,
-    user_id: Optional[str] = Query(default=None, description="Target user ID"),
+    user=Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Query persisted opportunities for a user from OpportunityStore."""
-    uid = user_id or getattr(request.state, "user", {}).get("id") or "default_user"
+    """Query persisted opportunities for the authenticated user."""
+    uid = _user_id(user)
     opps = opportunity_store.query_user_opportunities(uid)
     return {
         "success": True,
@@ -91,11 +97,15 @@ def get_user_opportunities(
 
 
 @router.post("/evaluate-shadow-mode")
-def evaluate_shadow_mode(payload: ShadowModeEvalRequest) -> Dict[str, Any]:
+def evaluate_shadow_mode(
+    payload: ShadowModeEvalRequest,
+    user=Depends(get_current_user),
+) -> Dict[str, Any]:
     """Execute side-by-side comparison between legacy Calendar Intelligence and Temporal Context Engine."""
+    uid = _user_id(user)
     res = shadow_evaluator.evaluate_events(
         raw_events=payload.raw_events,
-        user_id=payload.user_id,
+        user_id=uid,
         triaged_diff_keys=payload.triaged_diff_keys,
     )
     return {
@@ -105,12 +115,18 @@ def evaluate_shadow_mode(payload: ShadowModeEvalRequest) -> Dict[str, Any]:
 
 
 @router.post("/arbitrate")
-def arbitrate_attention(payload: ArbitrationRequest) -> Dict[str, Any]:
-    """Arbitrate competing candidate actions to prevent user notification fatigue."""
-    arbitrated = attention_arbitrator.arbitrate_actions(payload.candidate_actions)
+def arbitrate_attention(
+    payload: ArbitrationRequest,
+    user=Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Arbitrate competing candidate actions for the authenticated user."""
+    uid = _user_id(user)
+    # Ensure all actions belong to authenticated user
+    actions = [act for act in payload.candidate_actions if act.user_id == uid]
+    arbitrated = attention_arbitrator.arbitrate_actions(actions)
     return {
         "success": True,
-        "user_id": payload.user_id,
+        "user_id": uid,
         "input_count": len(payload.candidate_actions),
         "output_count": len(arbitrated),
         "arbitrated_actions": [act.model_dump() for act in arbitrated],

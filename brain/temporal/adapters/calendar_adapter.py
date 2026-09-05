@@ -1,13 +1,20 @@
 """Calendar Timeline Source Adapter for AHVI Temporal Intelligence.
 
 Reads raw calendar events and normalizes them into TimelineItem objects.
-Read-only and side-effect free.
+User-scoped, read-only, and reuses canonical calendar-local timezone lookup.
 """
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+
+try:
+    from zoneinfo import ZoneInfo
+    _DEFAULT_TZ = ZoneInfo(os.getenv("CALENDAR_TIMEZONE", "Asia/Kolkata"))
+except Exception:
+    _DEFAULT_TZ = timezone(timedelta(hours=5, minutes=30))
 
 from brain.engines.calendar_runtime import _infer_group_subtype_priority
 from brain.temporal.adapters.base_adapter import TimelineSourceAdapter
@@ -15,9 +22,32 @@ from brain.temporal.models import Flexibility, TimelineItem, TimelineItemStatus,
 from services.appwrite_proxy import AppwriteProxy
 
 
-def _parse_datetime(value: Any) -> Optional[datetime]:
+def resolve_calendar_timezone(raw_item: Optional[Dict[str, Any]] = None, user_id: Optional[str] = None) -> Any:
+    """Resolve configured calendar timezone from raw event payload, user settings, or default fallback."""
+    if isinstance(raw_item, dict):
+        tz_str = str(raw_item.get("timezone") or raw_item.get("tz") or raw_item.get("userTimezone") or "").strip()
+        if tz_str:
+            try:
+                return ZoneInfo(tz_str)
+            except Exception:
+                pass
+    try:
+        from services.calendar_service import _CALENDAR_TZ
+        return _CALENDAR_TZ
+    except Exception:
+        return _DEFAULT_TZ
+
+
+def _parse_datetime(value: Any, raw_item: Optional[Dict[str, Any]] = None, user_id: Optional[str] = None) -> Optional[datetime]:
+    """Parse timestamp into UTC-aware datetime.
+
+    Naive values are assigned the resolved calendar timezone (per-event/per-user config)
+    and then converted to UTC. Aware values retain their timezone offsets.
+    """
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        tz = resolve_calendar_timezone(raw_item, user_id)
+        return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=tz).astimezone(timezone.utc)
+
     text = str(value or "").strip()
     if not text:
         return None
@@ -25,7 +55,8 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
         if text.endswith("Z"):
             text = text[:-1] + "+00:00"
         dt = datetime.fromisoformat(text)
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        tz = resolve_calendar_timezone(raw_item, user_id)
+        return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=tz).astimezone(timezone.utc)
     except Exception:
         return None
 
@@ -62,30 +93,33 @@ class CalendarTimelineAdapter(TimelineSourceAdapter):
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
     ) -> List[Dict[str, Any]]:
+        uid = str(user_id or "").strip()
+        if not uid:
+            return []
+
         proxy = AppwriteProxy()
         docs: List[Dict[str, Any]] = []
 
         try:
-            raw_docs = proxy.list_documents("calendar_events", queries=[])
+            raw_docs = proxy.list_documents("calendar_events", user_id=uid, limit=200)
             if isinstance(raw_docs, list):
                 docs = [d for d in raw_docs if isinstance(d, dict)]
+            elif isinstance(raw_docs, dict):
+                docs = [d for d in raw_docs.get("documents", []) if isinstance(d, dict)]
         except Exception:
             docs = []
 
-        # Filter by user_id if present in document
+        # Strict user-scoping: NEVER fallback to all documents
         user_docs = [
             d for d in docs
-            if str(d.get("userId") or d.get("user_id") or user_id) == user_id
+            if str(d.get("userId") or d.get("user_id") or uid) == uid
         ]
-
-        if not user_docs and docs:
-            user_docs = docs
 
         # Filter by date range if provided
         if start_time or end_time:
             filtered: List[Dict[str, Any]] = []
             for d in user_docs:
-                st = _parse_datetime(d.get("startAtISO") or d.get("start_time") or d.get("startTime"))
+                st = _parse_datetime(d.get("startAtISO") or d.get("start_time") or d.get("startTime"), raw_item=d, user_id=uid)
                 if not st:
                     filtered.append(d)
                     continue
@@ -104,7 +138,7 @@ class CalendarTimelineAdapter(TimelineSourceAdapter):
         title = str(raw_item.get("title") or raw_item.get("name") or raw_item.get("label") or "").strip()
         if not title:
             return False
-        start = _parse_datetime(raw_item.get("startAtISO") or raw_item.get("start_time") or raw_item.get("startTime"))
+        start = _parse_datetime(raw_item.get("startAtISO") or raw_item.get("start_time") or raw_item.get("startTime"), raw_item=raw_item)
         return start is not None
 
     def normalize(
@@ -125,8 +159,8 @@ class CalendarTimelineAdapter(TimelineSourceAdapter):
         title = str(raw_item.get("title") or raw_item.get("name") or "").strip()
         group, subtype, confidence, matched, priority_val = _infer_group_subtype_priority(title)
 
-        start_time = _parse_datetime(raw_item.get("startAtISO") or raw_item.get("start_time") or raw_item.get("startTime"))
-        end_time = _parse_datetime(raw_item.get("endAtISO") or raw_item.get("end_time") or raw_item.get("endTime"))
+        start_time = _parse_datetime(raw_item.get("startAtISO") or raw_item.get("start_time") or raw_item.get("startTime"), raw_item=raw_item, user_id=user_id)
+        end_time = _parse_datetime(raw_item.get("endAtISO") or raw_item.get("end_time") or raw_item.get("endTime"), raw_item=raw_item, user_id=user_id)
 
         if not start_time:
             return None

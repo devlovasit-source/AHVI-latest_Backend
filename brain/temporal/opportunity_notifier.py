@@ -2,13 +2,15 @@
 
 Implements the "Push to Wake, Pull to Consume" event pattern, notifying subscribed
 module brains and downstream consumers when new opportunities become available.
+Supports durable crash recovery and replay of unconsumed opportunities from OpportunityStore.
 """
 
 from __future__ import annotations
 
 import logging
 from typing import Callable, List, Optional
-from brain.temporal.opportunity_models import Opportunity
+from brain.temporal.opportunity_models import Opportunity, OpportunityStatus
+from brain.temporal.opportunity_store import opportunity_store
 
 logger = logging.getLogger("ahvi.temporal.opportunity_notifier")
 
@@ -16,7 +18,7 @@ OpportunityHandler = Callable[[Opportunity], None]
 
 
 class OpportunityNotifier:
-    """Event publisher notifying subscribers of available opportunities."""
+    """Event publisher notifying subscribers of available opportunities with crash recovery."""
 
     def __init__(self) -> None:
         self._subscribers: List[OpportunityHandler] = []
@@ -53,6 +55,23 @@ class OpportunityNotifier:
             notified_count,
         )
         return notified_count
+
+    def recover_and_replay_unclaimed(self, user_id: str) -> int:
+        """Crash recovery: Re-read AVAILABLE opportunities from durable store and notify consumers."""
+        unclaimed = opportunity_store.query_user_opportunities(user_id, status=OpportunityStatus.AVAILABLE)
+        replayed_count = 0
+
+        for opp in unclaimed:
+            if not opp.is_lease_expired and opp.status == OpportunityStatus.AVAILABLE:
+                self.notify_opportunity_available(opp)
+                replayed_count += 1
+
+        logger.info(
+            "AHVI_OPPORTUNITY_NOTIFIER_RECOVERY_COMPLETE user_id=%s replayed=%d",
+            user_id,
+            replayed_count,
+        )
+        return replayed_count
 
 
 # Global singleton

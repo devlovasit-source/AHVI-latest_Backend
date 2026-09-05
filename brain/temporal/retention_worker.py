@@ -1,7 +1,8 @@
 """Retention and Expiry Worker for AHVI Temporal Intelligence.
 
 Enforces configurable operational retention policies across TimelineItems,
-TemporalSignals, and Opportunities. Backed by environment-driven settings.
+TemporalSignals, and Opportunities. Automatically reclaims expired consumer claim leases
+and replays unclaimed opportunities.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 from brain.temporal.opportunity_models import OpportunityStatus
+from brain.temporal.opportunity_notifier import opportunity_notifier
 from brain.temporal.opportunity_store import opportunity_store
 
 logger = logging.getLogger("ahvi.temporal.retention_worker")
@@ -36,17 +38,23 @@ def get_retention_settings() -> Dict[str, int]:
 
 
 class RetentionWorker:
-    """Worker handling periodic TTL cleanup of temporal records."""
+    """Worker handling periodic TTL cleanup and consumer lease recovery."""
 
     def __init__(self) -> None:
         self.settings = get_retention_settings()
 
     def run_cleanup(self, user_id: str) -> Dict[str, int]:
-        """Execute cleanup pass for a specific user and return metrics."""
+        """Execute cleanup pass, reclaim expired leases, and replay unclaimed opportunities."""
         now = datetime.now(timezone.utc)
         settings = get_retention_settings()
 
-        # Opportunity expiry & post-resolution retention
+        # Step 1: Reclaim expired consumer leases
+        reclaimed_leases = opportunity_store.reclaim_expired_leases(user_id)
+
+        # Step 2: Auto recovery & replay unconsumed opportunities
+        replayed_count = opportunity_notifier.recover_and_replay_unclaimed(user_id)
+
+        # Step 3: Opportunity expiry & post-resolution retention
         cleaned_opps = 0
         opps = opportunity_store.query_user_opportunities(user_id)
         post_res_cutoff = now - timedelta(days=settings["OPPORTUNITY_RETENTION_POST_RESOLUTION_DAYS"])
@@ -68,14 +76,18 @@ class RetentionWorker:
                     cleaned_opps += 1
 
         logger.info(
-            "AHVI_TEMPORAL_RETENTION_CLEANUP user_id=%s expired_opportunities=%d settings=%s",
+            "AHVI_TEMPORAL_RETENTION_CLEANUP user_id=%s reclaimed_leases=%d replayed=%d expired_opps=%d settings=%s",
             user_id,
+            len(reclaimed_leases),
+            replayed_count,
             cleaned_opps,
             settings,
         )
 
         return {
             "opportunities_cleaned": cleaned_opps,
+            "reclaimed_leases": len(reclaimed_leases),
+            "replayed_notifications": replayed_count,
             "past_days_limit": settings["TIMELINE_ITEM_RETENTION_PAST_DAYS"],
             "future_days_limit": settings["TIMELINE_ITEM_RETENTION_FUTURE_DAYS"],
             "signal_ttl_hours": settings["TEMPORAL_SIGNAL_TTL_HOURS"],

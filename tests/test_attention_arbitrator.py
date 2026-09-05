@@ -1,8 +1,9 @@
-"""Unit tests for Attention Arbitrator, candidate action ranking, suppression, and deferrals."""
+"""Unit tests for Attention Arbitrator, candidate action ranking, suppression, and durable deferrals."""
 
 from datetime import datetime, timedelta, timezone
-from brain.temporal.attention_arbitrator import AttentionArbitrator
+from brain.temporal.attention_arbitrator import AttentionArbitrator, attention_arbitrator
 from brain.temporal.attention_models import CandidateAction
+from brain.temporal.candidate_action_store import candidate_action_store
 
 
 def test_candidate_action_deliverability_and_expiry() -> None:
@@ -106,3 +107,38 @@ def test_attention_arbitrator_pipeline() -> None:
     assert len(arbitrated) == 2
     assert arbitrated[0].id == "act_high"
     assert arbitrated[1].id == "act_workout"
+
+
+def test_persistent_candidate_action_deferral_and_resume() -> None:
+    """Test that CandidateActions deferred by AttentionArbitrator are written to CandidateActionStore and survive process restarts."""
+    user_id = "usr_defer_test"
+    now = datetime.now(timezone.utc)
+
+    action = CandidateAction(
+        id="act_def_99",
+        user_id=user_id,
+        source_opportunity_id="opp_def_99",
+        source_module="skincare",
+        action_type="night_routine",
+        priority=3,
+        urgency=0.6,
+        attention_cost=0.3,
+    )
+
+    # Defer action by 15 minutes
+    deferred = attention_arbitrator.defer_action(action, timedelta(minutes=15))
+    assert deferred.deliver_after > now
+
+    # Verify action is in durable CandidateActionStore
+    stored = candidate_action_store.get_action("act_def_99")
+    assert stored is not None
+    assert stored.id == "act_def_99"
+    assert stored.deliver_after == deferred.deliver_after
+
+    # Simulate process restart by clearing memory cache
+    candidate_action_store.clear_cache()
+
+    # Re-query user actions; must survive process restart
+    user_actions = candidate_action_store.query_user_actions(user_id)
+    assert len(user_actions) >= 1
+    assert any(a.id == "act_def_99" for a in user_actions)

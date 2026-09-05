@@ -357,3 +357,57 @@ def dispatch_due_reminders_task(self, window_seconds: int = 60, request_id: str 
     except Exception as e:
         logger.exception("NOTIFICATIONS DISPATCH ERROR")
         _retry_or_fail(self, e, request_id=request_id)
+
+
+@celery_app.task(name="temporal_background_sweep_task", bind=True)
+def temporal_background_sweep_task(self, user_id: str = "", request_id: str = ""):
+    """
+    Executes background temporal intelligence evaluation, cleanup, and crash recovery for a specific user_id.
+    Explicitly user-bound in background context — no un-scoped global reads.
+    """
+    from brain.temporal.aggregation_service import aggregation_service
+    from brain.temporal.opportunity_engine import opportunity_engine
+    from brain.temporal.retention_worker import retention_worker
+    from brain.temporal.signals import signal_emitter
+
+    uid = str(user_id or "").strip()
+    if not uid:
+        return {"status": "skipped", "reason": "missing_user_id"}
+
+    _mark_started(self, request_id=request_id, user_id=uid)
+    try:
+        # Step 1: Cleanup and auto-reclaim leases / replay unconsumed opportunities
+        cleanup_metrics = retention_worker.run_cleanup(uid)
+
+        # Step 2: Fetch user-bound unified timeline
+        items = aggregation_service.fetch_unified_timeline(uid)
+
+        # Step 3: Emit signals
+        signals = signal_emitter.emit_signals_for_items(items)
+
+        # Step 4: Process signals with logical idempotency
+        opps = opportunity_engine.process_signals(signals)
+
+        _mark_succeeded(
+            self,
+            {
+                "task": "temporal_background_sweep_task",
+                "user_id": uid,
+                "items_count": len(items),
+                "signals_count": len(signals),
+                "opportunities_created": len(opps),
+                "cleanup_metrics": cleanup_metrics,
+            },
+            request_id=request_id,
+        )
+        return {
+            "status": "success",
+            "user_id": uid,
+            "items_count": len(items),
+            "signals_count": len(signals),
+            "opportunities_created": len(opps),
+            "cleanup_metrics": cleanup_metrics,
+        }
+    except Exception as e:
+        logger.exception("TEMPORAL BACKGROUND SWEEP TASK ERROR user_id=%s", uid)
+        _retry_or_fail(self, e, request_id=request_id)
