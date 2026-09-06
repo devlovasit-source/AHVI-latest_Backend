@@ -448,10 +448,16 @@ def _style_metadata_payload(
         vision_evidence = (
             item_payload.get("vision_result") if isinstance(item_payload, dict) else None
         )
+        physical_observations = (
+            item_payload.get("physical_garment_observations")
+            if isinstance(item_payload, dict)
+            else None
+        )
         climate_profile = build_climate_profile(
             item_payload if isinstance(item_payload, dict) else {},
             vision_evidence=vision_evidence,
             existing_profile=existing_climate,
+            physical_observations=physical_observations,
         )
         if agent_climate_profile:
             climate_profile = merge_climate_profile(climate_profile, agent_climate_profile)
@@ -467,6 +473,8 @@ def _style_metadata_payload(
                 )
         style_meta["climate_profile"] = climate_profile
         style_meta["climate_profile_version"] = CLIMATE_PROFILE_VERSION
+        if physical_observations is not None:
+            style_meta["physical_garment_observations"] = physical_observations
     except Exception:
         logging.getLogger("ahvi.wardrobe_persistence").warning(
             "ahvi.climate.build_failed item=%s user=%s",

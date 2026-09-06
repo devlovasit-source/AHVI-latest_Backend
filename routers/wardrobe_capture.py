@@ -26,6 +26,7 @@ from services.embedding_service import encode_metadata
 from services.hybrid_detection_service import run_hybrid_detection
 from services.image_embedding_service import encode_image_url
 from services.image_fingerprint import compute_hash_from_base64, compute_hash_from_url
+from services.physical_garment_analysis_service import analyze_garment
 from services.qdrant_service import qdrant_service
 from services.r2_storage import R2Storage
 from services.wardrobe_persistence_service import (
@@ -1647,6 +1648,7 @@ def _strip_internal_preview_fields(item: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(item)
     out.pop("label_source", None)
     out.pop("metadata_validator", None)
+    out.pop("physical_garment_analysis", None)
     reasoning = str(out.get("reasoning") or "")
     if "heuristic" in reasoning or "vision:gemini_multi" in reasoning:
         out["reasoning"] = "auto_detected"
@@ -2870,6 +2872,61 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
 
     items = []
     validator_states: list[str] = []
+    import asyncio as _asyncio
+
+    physical_sem = _asyncio.Semaphore(4)
+
+    async def _run_physical_analysis(
+        crop_bytes: Optional[bytes],
+        detector_meta: Dict[str, Any],
+        item_id: Any,
+    ) -> Dict[str, Any]:
+        default_analysis = {
+            "status": "disabled",
+            "provider": "",
+            "model": "",
+            "latency_ms": 0,
+            "confidence_summary": {},
+            "failure_reason": "",
+            "observations": {},
+        }
+        if not crop_bytes:
+            return default_analysis
+
+        async with physical_sem:
+            try:
+                res = await _asyncio.to_thread(
+                    analyze_garment,
+                    crop_bytes,
+                    detector_meta,
+                    request_id,
+                )
+                if isinstance(res, dict) and res.get("status") == "success":
+                    logger.info(
+                        "ahvi.capture.physical_analysis.completed item_id=%s latency_ms=%s",
+                        item_id,
+                        res.get("latency_ms"),
+                    )
+                return res if isinstance(res, dict) else default_analysis
+            except Exception as exc:
+                logger.warning(
+                    "ahvi.capture.physical_analysis.failed item_id=%s reason=%s",
+                    item_id,
+                    exc.__class__.__name__,
+                )
+                return {
+                    "status": "error",
+                    "provider": "ollama",
+                    "model": "",
+                    "latency_ms": 0,
+                    "confidence_summary": {},
+                    "failure_reason": exc.__class__.__name__,
+                    "observations": {},
+                }
+
+    prepared_entries: List[Dict[str, Any]] = []
+    physical_tasks = []
+
     for item in detected_items:
         item = _try_upload_inline_images(dict(item))
         raw_label = str(item.get("label") or "Item")
@@ -2878,7 +2935,6 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
 
         masked_b64 = str(item.get("masked_image_base64") or "")
         # Sync helpers — offload so the event loop is free under concurrency.
-        import asyncio as _asyncio
 
         gemini_trusted = (
             item.get("source") == "gemini_multi"
@@ -2949,6 +3005,87 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             fallback_category=category,
             fallback_sub_category=sub_category,
         )
+
+        physical_crop_bytes = _decode_inline_image(item.get("raw_image_base64"))
+        if not physical_crop_bytes:
+            physical_crop_bytes = _decode_inline_image(item.get("masked_image_base64"))
+
+        crop_source = str(item.get("crop_source") or (
+            "gemini" if item.get("source") == "gemini_multi" else "hybrid"
+        )).strip().lower()
+
+        if physical_crop_bytes and crop_source in {"gemini", "hybrid"}:
+            physical_tasks.append(
+                _run_physical_analysis(
+                    physical_crop_bytes,
+                    {
+                        "name": vision.get("name") or raw_label,
+                        "category": category,
+                        "sub_category": sub_category,
+                    },
+                    item.get("item_id"),
+                )
+            )
+        else:
+            async def _disabled():
+                return {
+                    "status": "disabled",
+                    "provider": "",
+                    "model": "",
+                    "latency_ms": 0,
+                    "confidence_summary": {},
+                    "failure_reason": "",
+                    "observations": {},
+                }
+            physical_tasks.append(_disabled())
+
+        prepared_entries.append({
+            "item": item,
+            "raw_label": raw_label,
+            "category": category,
+            "sub_category": sub_category,
+            "category_corrected": category_corrected,
+            "fallback_color_code": fallback_color_code,
+            "vision": vision,
+        })
+
+    physical_results = (
+        await _asyncio.gather(*physical_tasks, return_exceptions=True)
+        if physical_tasks
+        else []
+    )
+
+    for entry, physical_res in zip(prepared_entries, physical_results):
+        item = entry["item"]
+        raw_label = entry["raw_label"]
+        category = entry["category"]
+        sub_category = entry["sub_category"]
+        category_corrected = entry["category_corrected"]
+        fallback_color_code = entry["fallback_color_code"]
+        vision = entry["vision"]
+
+        if isinstance(physical_res, Exception):
+            physical_analysis = {
+                "status": "error",
+                "provider": "ollama",
+                "model": "",
+                "latency_ms": 0,
+                "confidence_summary": {},
+                "failure_reason": physical_res.__class__.__name__,
+                "observations": {},
+            }
+        elif isinstance(physical_res, dict):
+            physical_analysis = physical_res
+        else:
+            physical_analysis = {
+                "status": "disabled",
+                "provider": "",
+                "model": "",
+                "latency_ms": 0,
+                "confidence_summary": {},
+                "failure_reason": "",
+                "observations": {},
+            }
 
         color_code = (
             await _asyncio.to_thread(
@@ -3079,9 +3216,15 @@ async def analyze_capture(http_request: Request, request: CaptureAnalyzeRequest)
             "raw_image_base64": item.get("raw_image_base64"),
             "masked_image_base64": item.get("masked_image_base64"),
             "upload_error": item.get("upload_error") or "",
+            "physical_garment_observations": (
+                physical_analysis.get("observations")
+                if physical_analysis.get("status") == "success"
+                else None
+            ),
             "pixel_hash": pixel_hash,
             "duplicate": duplicate,
             "image_embedding": embedding,
+            "physical_garment_analysis": physical_analysis,
         }
         detected = _apply_headwear_ocr_guard(
             detected,
