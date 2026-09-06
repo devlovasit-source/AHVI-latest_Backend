@@ -825,3 +825,142 @@ def test_backfill_use_agent_is_explicit_opt_in(monkeypatch):
 
     backfill.run(dry_run=False, all_users=True, use_agent=True)
     assert called["agent"] is True
+
+
+def test_style_metadata_payload_writes_physical_garment_observations(monkeypatch):
+    import json
+    import services.wardrobe_persistence_service as persistence
+
+    monkeypatch.setattr(persistence, "_agent_metadata_enabled", lambda: False)
+    monkeypatch.setattr(
+        persistence,
+        "fetch_existing_climate_profile",
+        lambda item_id: {},
+    )
+
+    payload = persistence._style_metadata_payload(
+        item_id="item_1",
+        user_id="user_1",
+        item_payload={
+            "name": "Trousers",
+            "category": "Bottoms",
+            "sub_category": "Trousers",
+            "physical_garment_observations": {
+                "fabric_weight": {
+                    "value": "medium",
+                    "confidence": 0.90,
+                },
+                "fabric_structure": {
+                    "value": "woven",
+                    "confidence": 0.90,
+                },
+                "fit": {
+                    "value": "regular",
+                    "confidence": 0.90,
+                },
+                "drape": {
+                    "value": "structured",
+                    "confidence": 0.70,
+                },
+                "coverage_level": {
+                    "value": "full_length",
+                    "confidence": 0.95,
+                },
+                "lining": {
+                    "value": "unknown",
+                    "confidence": 0.0,
+                },
+                "surface_texture": {
+                    "value": "smooth",
+                    "confidence": 0.90,
+                },
+                "material_family_candidates": [
+                    {
+                        "value": "cotton_like",
+                        "confidence": 0.80,
+                    }
+                ],
+            },
+        },
+    )
+
+    meta = json.loads(payload["style_metadata"])
+    climate = meta["climate_profile"]
+
+    assert climate["fabric_weight"] == ["medium", 2, "v"]
+    assert climate["fabric_structure"] == ["woven", 2, "v"]
+    assert climate["fit"] == ["regular", 2, "v"]
+    assert climate["coverage_level"] == ["full_length", 2, "v"]
+
+    # Verify material_family_candidates retained candidate value and confidence
+    assert meta["physical_garment_observations"]["material_family_candidates"] == [
+        {"value": "cotton_like", "confidence": 0.80}
+    ]
+
+
+def test_physical_observations_never_override_user_material(monkeypatch):
+    import json
+    import services.wardrobe_persistence_service as persistence
+
+    monkeypatch.setattr(persistence, "_agent_metadata_enabled", lambda: False)
+    monkeypatch.setattr(
+        persistence,
+        "fetch_existing_climate_profile",
+        lambda item_id: {
+            "material": ["linen", 3, "u"],
+        },
+    )
+
+    payload = persistence._style_metadata_payload(
+        item_id="item_1",
+        user_id="user_1",
+        item_payload={
+            "name": "Linen Trousers",
+            "category": "Bottoms",
+            "sub_category": "Trousers",
+            "physical_garment_observations": {
+                "fabric_weight": {
+                    "value": "medium",
+                    "confidence": 0.90,
+                },
+                "fabric_structure": {
+                    "value": "woven",
+                    "confidence": 0.90,
+                },
+                "fit": {
+                    "value": "regular",
+                    "confidence": 0.90,
+                },
+                "drape": {
+                    "value": "structured",
+                    "confidence": 0.80,
+                },
+                "coverage_level": {
+                    "value": "full_length",
+                    "confidence": 0.95,
+                },
+                "lining": {
+                    "value": "unknown",
+                    "confidence": 0.0,
+                },
+                "surface_texture": {
+                    "value": "smooth",
+                    "confidence": 0.90,
+                },
+                "material_family_candidates": [
+                    {
+                        "value": "cotton_like",
+                        "confidence": 0.80,
+                    }
+                ],
+            },
+        },
+    )
+
+    meta = json.loads(payload["style_metadata"])
+    climate = meta["climate_profile"]
+
+    # User-confirmed material must NEVER be overridden by physical observations
+    assert climate["material"] == ["linen", 3, "u"]
+    assert climate["fabric_weight"] == ["medium", 2, "v"]
+    assert climate["fabric_structure"] == ["woven", 2, "v"]

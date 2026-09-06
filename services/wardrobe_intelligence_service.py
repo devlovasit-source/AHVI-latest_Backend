@@ -236,6 +236,16 @@ _CLIMATE_AUTHORITY = {
 # fiber/material identity from visual or categorical evidence.
 CLIMATE_NON_AUTOMATED_KEYS = {"material"}
 
+PHYSICAL_OBSERVATION_KEYS = {
+    "fabric_weight",
+    "fabric_structure",
+    "fit",
+    "drape",
+    "coverage_level",
+    "lining",
+    "surface_texture",
+}
+
 APPAREL_CLIMATE_KEYS = (
     "material",
     "fabric_weight",
@@ -245,6 +255,10 @@ APPAREL_CLIMATE_KEYS = (
     "fit",
     "layering_role",
     "water_resistance",
+    "fabric_structure",
+    "drape",
+    "lining",
+    "surface_texture",
 )
 
 # material is a cross-garment property (leather boots, suede loafers, canvas
@@ -469,6 +483,65 @@ def extract_vision_observed_climate_properties(
     }
 
 
+def map_physical_garment_observations(
+    observations: Any,
+    *,
+    min_confidence: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Convert validated physical observations into Climate Metadata evidence.
+
+    Physical vision evidence uses the existing vision authority:
+        [value, medium-confidence, "v"]
+
+    Exact material is intentionally never produced here.
+    """
+    if not isinstance(observations, dict):
+        return {}
+
+    if min_confidence is None:
+        from services.physical_garment_analysis_service import (
+            PHYSICAL_ANALYSIS_MIN_CONFIDENCE,
+        )
+
+        min_confidence = PHYSICAL_ANALYSIS_MIN_CONFIDENCE
+
+    result: Dict[str, Any] = {}
+
+    for key in PHYSICAL_OBSERVATION_KEYS:
+        raw = observations.get(key)
+
+        if not isinstance(raw, dict):
+            continue
+
+        value = raw.get("value")
+        confidence = raw.get("confidence")
+
+        if value == CLIMATE_UNKNOWN_VALUE:
+            continue
+
+        if value is None:
+            continue
+
+        try:
+            confidence = float(confidence)
+        except Exception:
+            continue
+
+        if not 0.0 <= confidence <= 1.0:
+            continue
+
+        if confidence < min_confidence:
+            continue
+
+        result[key] = [
+            str(value),
+            CLIMATE_CONFIDENCE_MEDIUM,
+            CLIMATE_SOURCE_VISION,
+        ]
+
+    return result
+
+
 def derive_deterministic_climate_properties(
     item: Dict[str, Any], *, footwear: bool
 ) -> Dict[str, Any]:
@@ -583,6 +656,7 @@ def build_climate_profile(
     *,
     vision_evidence: Optional[Dict[str, Any]] = None,
     existing_profile: Optional[Dict[str, Any]] = None,
+    physical_observations: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Pure deterministic climate_profile producer for one garment.
 
@@ -611,4 +685,11 @@ def build_climate_profile(
     profile = merge_climate_profile(
         profile, extract_vision_observed_climate_properties(vision_evidence, footwear=footwear)
     )
+
+    # 4. Add physical garment observations from dedicated physical analysis service.
+    physical_properties = map_physical_garment_observations(physical_observations)
+    for key, candidate in physical_properties.items():
+        if key in keys:
+            profile[key] = merge_climate_value(profile.get(key), candidate)
+
     return profile
