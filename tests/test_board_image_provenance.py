@@ -2,6 +2,15 @@
 
 A raw image_url (often a selfie/mirror photo) must never be promoted to
 board_image_url + cutout_ready. Only real transparent cutouts earn cutout_ready.
+
+CONTRACT CHANGE (canonical read contract): an item with NO board-safe
+processed asset is now skipped outright rather than kept with its forged
+cutout fields scrubbed. Previously such an item stayed on the board carrying
+its raw image_url, which is how a raw-bucket object reached the wire (live
+case: "Black Loafers"). The five raw-only cases below therefore assert
+exclusion; that is strictly stronger than the old "kept but not cutout_ready"
+guarantee they used to make, and the intent - raw is never board-renderable -
+is unchanged.
 """
 from services.style_flow_service import (
     _adapt_board_item,
@@ -14,12 +23,10 @@ _CAT = "https://cdn/catalog_jeans.png"
 
 
 def test_raw_selfie_not_promoted_to_board_cutout():
-    # Device failure: image_url is a selfie, no cutout/normalized.
-    e = _adapt_board_item({"name": "Blue shirt", "role": "top", "image_url": _SELFIE})
-    assert e is not None  # role kept
-    assert e.get("board_image_url") is None  # NOT copied
-    assert e.get("board_status") != "cutout_ready"  # NOT stamped ready
-    assert e["image_url"] == _SELFIE  # raw preserved (frontend guard omits it)
+    # Device failure: image_url is a selfie, no cutout/normalized. The item has
+    # no board-safe asset at all, so it is excluded rather than served with the
+    # selfie in image_url.
+    assert _adapt_board_item({"name": "Blue shirt", "role": "top", "image_url": _SELFIE}) is None
 
 
 def test_masked_cutout_wins_over_raw():
@@ -40,11 +47,11 @@ def test_raw_plus_catalog_keeps_catalog_not_cutout():
 
 
 def test_bare_board_image_url_without_provenance_not_trusted():
-    e = _adapt_board_item(
+    # A board_image_url that merely aliases the raw upload is fabricated
+    # provenance and leaves the item with no board-safe asset -> excluded.
+    assert _adapt_board_item(
         {"name": "X", "role": "top", "board_image_url": _SELFIE, "image_url": _SELFIE}
-    )
-    assert e.get("board_image_url") is None  # bare board_image_url stripped
-    assert e.get("board_status") != "cutout_ready"
+    ) is None
 
 
 def test_transparent_field_earns_cutout_ready():
@@ -64,21 +71,19 @@ def test_no_image_at_all_skipped():
 
 
 def test_forged_cutout_ready_is_scrubbed_for_raw_only():
-    # Upstream falsely stamped cutout_ready on a raw item -> must be removed.
-    e = _adapt_board_item(
+    # Upstream falsely stamped cutout_ready on a raw item. The forged status
+    # buys it nothing: with no real processed asset the item is excluded.
+    assert _adapt_board_item(
         {"name": "Y", "role": "top", "image_url": _SELFIE, "board_status": "cutout_ready"}
-    )
-    assert e.get("board_status") != "cutout_ready"
+    ) is None
 
 
 def test_masked_url_aliasing_raw_is_not_a_cutout():
     # Device blocker: row.setdefault("masked_url", image) copies the raw selfie
     # into masked_url. That fabricated cutout must NOT be trusted as board-ready.
-    e = _adapt_board_item(
+    assert _adapt_board_item(
         {"name": "Black T-Shirt", "role": "top", "image_url": _SELFIE, "masked_url": _SELFIE}
-    )
-    assert e.get("board_image_url") is None
-    assert e.get("board_status") != "cutout_ready"
+    ) is None
 
 
 def test_enrich_pulls_catalog_from_wardrobe_record():
@@ -119,9 +124,9 @@ def test_bare_cutout_url_without_status_not_trusted():
     by_id = {"tee-1": {"item_id": "tee-1", "cutout_url": _MASK}}
     piece = {"item_id": "tee-1", "name": "Black T-Shirt", "role": "top",
              "image_url": _SELFIE, "masked_url": _SELFIE}
-    e = _adapt_board_item(_enrich_board_piece_from_wardrobe(piece, by_id))
-    assert e.get("board_image_url") is None
-    assert e.get("board_status") != "cutout_ready"
+    # cutout_url is not trusted without cutout_status="ready", and masked_url
+    # aliases the selfie, so nothing board-safe remains -> excluded.
+    assert _adapt_board_item(_enrich_board_piece_from_wardrobe(piece, by_id)) is None
 
 
 def test_enrich_no_matching_record_is_unchanged():

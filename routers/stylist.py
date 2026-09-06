@@ -21,7 +21,10 @@ from services.auth_helpers import enforce_owner
 from services.constrained_outfit_builder import constrained_outfit_builder
 from services.style_flow_service import build_style_flow_response, item_role
 from services.location_weather_context import resolve_location_weather_context
-from services.style_board_image_readiness import is_board_renderable, project_board_image_fields
+from services.style_board_image_readiness import (
+    is_board_renderable,
+    serialize_wardrobe_board_item,
+)
 from services.style_board_reasoning import FALLBACK_STYLING_NOTE, build_styling_note
 from services.style_board_shuffle_service import _default_position, register_board
 from services.style_item_contract import (
@@ -590,36 +593,50 @@ def _lite_role(item: Dict[str, Any]) -> str:
     return "unknown"
 
 
-def _lite_image(item: Dict[str, Any]) -> str:
-    # Raw/display fallback only - deliberately does NOT fall back to
-    # masked_url/cutout_url/etc. If it did, an item whose only board-safe
-    # field is e.g. masked_url (no distinct raw upload photo) would end up
-    # with image_url == masked_url, which is_board_renderable() correctly
-    # treats as fabricated provenance (masked_url aliasing the raw photo) -
-    # rejecting a genuinely renderable item because this function manufactured
-    # the appearance of aliasing. normalized_url is the one safe exception:
-    # it's an unconditional, never-alias-checked catalog field by contract
-    # (see services.style_board_image_readiness).
-    return _txt(
-        item.get("normalized_url") or item.get("normalizedUrl")
-        or item.get("image_url") or item.get("imageUrl")
-    )
+# Board-image fields serialize_wardrobe_board_item() owns. Carried onto the
+# lite item verbatim so the canonical read contract - not this function - is
+# the only thing that decides what a board surface may show.
+_BOARD_IMAGE_KEYS = (
+    "image_url",
+    "masked_url",
+    "normalized_url",
+    "cutout_url",
+    "cutout_status",
+    "board_image_url",
+    "board_status",
+    "rmbg_url",
+    "processed_url",
+    "image_status",
+    "transparent_image_url",
+    "safe_image_url",
+    "safe_image_source",
+    "board_ready",
+    "expected_transparent",
+    "selected_field",
+    "source_kind",
+    "original_image_url",
+)
 
 
 def _lite_item(item: Dict[str, Any], role: str) -> Dict[str, Any]:
-    return {
+    entry = {
         "item_id": _item_id_of(item),
         "name": _txt(item.get("name") or item.get("label")) or "Item",
         "category": _txt(item.get("category")),
-        "image_url": _lite_image(item),
         "role": role,
         "owned": True,
-        # Carry the winning board-safe field (+ required status) under its
-        # own canonical name so a downstream is_board_renderable() check on
-        # THIS item still finds it - collapsing to image_url-only here is
-        # exactly how a renderable item became an empty hanger.
-        **project_board_image_fields(item),
     }
+    # The canonical read contract supplies image_url (the board-safe asset,
+    # never the raw upload), the winning field under its own canonical name,
+    # and the frozen-snapshot provenance triple the Flutter resolver needs to
+    # accept a rewritten image_url. A not-board-ready item contributes NO
+    # image fields at all rather than degrading to its raw upload.
+    serialized = serialize_wardrobe_board_item(item)
+    if serialized is not None:
+        for key in _BOARD_IMAGE_KEYS:
+            if key in serialized:
+                entry[key] = serialized[key]
+    return entry
 
 
 def _lite_group(wardrobe: List[Dict[str, Any]], exclude_id: str) -> Dict[str, List[Dict[str, Any]]]:
@@ -1048,20 +1065,19 @@ def _register_style_this_direction(
         # NOT canonical_image_url() here: it falls back to masked_url, which
         # for an item with no distinct raw photo makes image_url == masked_url
         # - is_board_renderable() then rejects it as fabricated provenance.
-        # _lite_image() uses the same restricted (normalized_url / raw
-        # image_url only) fallback _lite_item already applied, so this can't
-        # re-introduce that collision. canonical_image_url() itself is left
-        # unchanged - it's a general "display image" helper used elsewhere
-        # for non-board comparisons, not specific to board serialization.
-        image_url = _lite_image(current)
-        if image_url:
-            current["image_url"] = image_url
-        # Re-project the winning board-safe field(s) explicitly: the
-        # wardrobe_by_id merge above already carries them through in the
-        # common case, but this makes the guarantee direct rather than
-        # incidental, so registration can never hand back an item that was
-        # renderable before this function and isn't after it.
-        current.update(project_board_image_fields(current))
+        # serialize_wardrobe_board_item() is the one authority that resolves
+        # this: it sets image_url to the board-safe asset ONLY alongside the
+        # frozen-snapshot provenance the client needs to accept it, and drops
+        # image_url entirely when no distinct upload exists. canonical_image_url()
+        # itself is left unchanged - it's a general "display image" helper used
+        # elsewhere for non-board comparisons, not board serialization.
+        _serialized = serialize_wardrobe_board_item(current)
+        if _serialized is not None:
+            for _key in _BOARD_IMAGE_KEYS:
+                if _key in _serialized:
+                    current[_key] = _serialized[_key]
+                else:
+                    current.pop(_key, None)
         if role == "accessory" and not current.get("accessory_type"):
             current["accessory_type"] = canonical_accessory_type(current)
         if not isinstance(current.get("position"), dict):

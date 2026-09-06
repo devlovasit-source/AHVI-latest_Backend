@@ -10,7 +10,10 @@ from typing import Any, Dict, List, Optional
 
 from brain.engines.outfit_quality_guard import is_complete_board
 from services.category_taxonomy import infer_style_attributes
-from services.style_board_image_readiness import resolve_board_image_candidate
+from services.style_board_image_readiness import (
+    resolve_board_image_candidate,
+    serialize_wardrobe_board_item,
+)
 from services.style_item_contract import canonical_item_role
 from services.wardrobe_suitability import outfit_contains_private_wear
 
@@ -4254,7 +4257,21 @@ def _adapt_board_item(_it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         _it.get("image_url") or _it.get("raw_url") or _it.get("url") or ""
     ).strip()
     _candidate = resolve_board_image_candidate(_it)
-    _entry = {**_it, "name": _name, "role": _it.get("role") or ""}
+    # Board admission: an item with no board-safe processed asset is skipped
+    # outright. It used to be kept and served with its raw image_url, which is
+    # how a raw-bucket object reached the wire (live case: "Black Loafers").
+    _serialized = serialize_wardrobe_board_item(_it)
+    if _serialized is None:
+        logger.info(
+            "AHVI_BOARD_IMAGE_PROVENANCE role=%s has_cutout=False has_normalized=%s "
+            "has_raw=%s selected=raw_rejected board_status=none rejected_raw=%s",
+            _it.get("role") or "unknown",
+            bool(_it.get("normalized_url")),
+            bool(_raw),
+            bool(_raw),
+        )
+        return None
+    _entry = {**_serialized, "name": _name, "role": _it.get("role") or ""}
     if _candidate["renderable"] and _candidate["reason"] == "processed_cutout":
         _entry["board_image_url"] = _candidate["selected_url"]
         _entry["board_status"] = "cutout_ready"
@@ -4264,10 +4281,8 @@ def _adapt_board_item(_it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         _entry.pop("board_image_url", None)
         if _entry.get("board_status") == "cutout_ready":
             _entry.pop("board_status", None)
-        _selected = "catalog" if _candidate["renderable"] else "raw_rejected"
-        _rejected_raw = bool(_raw) and _selected == "raw_rejected"
-    if not (_entry.get("board_image_url") or _it.get("normalized_url") or _raw):
-        return None
+        _selected = "catalog"
+        _rejected_raw = False
     logger.info(
         "AHVI_BOARD_IMAGE_PROVENANCE role=%s has_cutout=%s has_normalized=%s "
         "has_raw=%s selected=%s board_status=%s rejected_raw=%s",
@@ -4773,8 +4788,15 @@ def finalize_style_response_payload(
         if _board_items:
             _card["board_items"] = _board_items
         # Additive styling-intent brief for the frontend board renderer.
+        # Falls back to the card's own items when no piece survived board
+        # admission: the brief describes styling INTENT (hero role, layout,
+        # per-role proportions) and must not change just because an item's
+        # image wasn't board-ready. Without this, a card whose pieces were all
+        # dropped would hit _build_composition_brief's empty-roles path and
+        # emit the full default proportions map - inventing dress/outerwear
+        # roles the look never had.
         _card["composition_brief"] = _build_composition_brief(
-            _card.get("board_items") or _board_items,
+            _card.get("board_items") or _board_items or _card.get("items"),
             normalized_occasion,
         )
 

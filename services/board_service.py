@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -11,6 +12,7 @@ from fastapi import HTTPException
 from services.appwrite_proxy import AppwriteProxy, AppwriteProxyError
 from services.r2_storage import R2Storage, R2StorageError
 from services.image_normalizer import normalize_style_board_image_bytes
+from services.style_board_image_readiness import serialize_wardrobe_board_item
 
 
 # =========================
@@ -60,16 +62,125 @@ def decode_image_base64(value: str) -> tuple[bytes, str]:
 # =========================
 # READ APIs
 # =========================
+def _decode_outfit_items(value: Any) -> Optional[List[Dict[str, Any]]]:
+    """saved_boards.outfitItems is a JSON array persisted as a string, which
+    Appwrite stores exploded into one array element per character. Rejoin and
+    parse; return None when the value isn't that shape."""
+    if isinstance(value, list) and value and all(isinstance(v, str) for v in value):
+        text = "".join(value)
+    elif isinstance(value, str):
+        text = value
+    else:
+        return None
+    try:
+        items = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    return items if isinstance(items, list) and all(isinstance(i, dict) for i in items) else None
+
+
+def reenrich_saved_board_items(
+    items: List[Dict[str, Any]], wardrobe_by_id: Dict[str, Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Re-resolve each saved board item against the CURRENT wardrobe record.
+
+    A saved board froze whatever asset was resolvable at save time. For items
+    saved before catalog/RMBG processing completed, that frozen asset is the
+    raw upload (source_kind "original"), and re-serving it puts a raw photo on
+    a visual board. Where the wardrobe record now has a board-safe asset, use
+    it; where it does not, strip the image rather than substituting raw.
+
+    Pure: mutates nothing, persists nothing.
+    """
+    out: List[Dict[str, Any]] = []
+    for item in items:
+        item_id = str(item.get("id") or item.get("item_id") or "").strip()
+        record = wardrobe_by_id.get(item_id) if item_id else None
+        if not isinstance(record, dict):
+            out.append(dict(item))
+            continue
+        serialized = serialize_wardrobe_board_item(record)
+        merged = dict(item)
+        if serialized is None:
+            # No longer board-ready. Never fall back to the stale raw image.
+            for key in ("image_url", "imageUrl", "safe_image_url", "masked_url",
+                        "normalized_url", "board_image_url", "original_image_url"):
+                merged.pop(key, None)
+            merged["board_ready"] = False
+            merged["expected_transparent"] = False
+            out.append(merged)
+            continue
+        for key in _SAVED_BOARD_IMAGE_KEYS:
+            if key in serialized:
+                merged[key] = serialized[key]
+            else:
+                merged.pop(key, None)
+        out.append(merged)
+    return out
+
+
+_SAVED_BOARD_IMAGE_KEYS = (
+    "image_url", "masked_url", "normalized_url", "board_image_url", "board_status",
+    "cutout_url", "cutout_status", "safe_image_url", "safe_image_source",
+    "board_ready", "expected_transparent", "selected_field", "source_kind",
+    "original_image_url",
+)
+
+
 def list_saved_boards(
     *, user_id: str, occasion: Optional[str] = None, limit: int = 100
 ):
     proxy = AppwriteProxy()
-    return proxy.list_documents(
+    docs = proxy.list_documents(
         "saved_boards",
         user_id=user_id,
         occasion=clean_occasion(occasion) if occasion else None,
         limit=limit,
     )
+    return _apply_canonical_image_contract(proxy, user_id, docs)
+
+
+def _apply_canonical_image_contract(
+    proxy: AppwriteProxy, user_id: str, docs: Any
+) -> Any:
+    """Overlay the canonical wardrobe image contract onto saved board items.
+
+    Computed response-only: no Appwrite document is written. A wardrobe read
+    failure leaves the stored documents untouched rather than failing the
+    list - the client's own resolver still rejects a raw-provenance item.
+    """
+    if not isinstance(docs, list) or not docs:
+        return docs
+    if not any(_decode_outfit_items(d.get("outfitItems")) for d in docs if isinstance(d, dict)):
+        return docs
+    try:
+        wardrobe = proxy.list_documents("outfits", user_id=user_id, limit=500)
+    except AppwriteProxyError as exc:
+        logger.warning("boards.reenrich wardrobe fetch failed user_id=%s error=%s", user_id, exc)
+        return docs
+    wardrobe_by_id: Dict[str, Dict[str, Any]] = {}
+    for record in wardrobe if isinstance(wardrobe, list) else []:
+        if not isinstance(record, dict):
+            continue
+        for key in ("$id", "id", "item_id", "image_id"):
+            ident = str(record.get(key) or "").strip()
+            if ident:
+                wardrobe_by_id.setdefault(ident, record)
+    if not wardrobe_by_id:
+        return docs
+    enriched = []
+    for doc in docs:
+        if not isinstance(doc, dict):
+            enriched.append(doc)
+            continue
+        items = _decode_outfit_items(doc.get("outfitItems"))
+        if items is None:
+            enriched.append(doc)
+            continue
+        updated = dict(doc)
+        updated["outfitItems"] = reenrich_saved_board_items(items, wardrobe_by_id)
+        enriched.append(updated)
+    return enriched
 
 
 def list_life_boards(*, user_id: str, limit: int = 100):

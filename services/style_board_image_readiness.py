@@ -275,9 +275,169 @@ def prepare_board_item(raw: Any) -> Dict[str, Any]:
     return norm
 
 
+# Explicit raw-provenance fields. Unlike _RAW_ALIAS_KEYS this deliberately
+# EXCLUDES the generic image_url: a privacy/catalog-only wardrobe row stores
+# its catalog asset in image_url and has no raw upload at all, so presence of
+# image_url alone is not evidence that a raw photo exists.
+_EXPLICIT_RAW_KEYS = (
+    "raw_url", "rawUrl",
+    "original_image_url", "originalImageUrl",
+    "preview_url", "previewUrl",
+)
+
+# source_kind values the Flutter resolver (lib/util/wardrobe_image_resolver.dart
+# frozenValidated) accepts as genuinely board-safe cutout provenance.
+_SOURCE_KIND_CUTOUT = "processed_cutout"
+_SOURCE_KIND_CATALOG = "catalog_fallback"
+
+
+def canonicalize_wardrobe_image_contract(record: Any) -> Dict[str, Any]:
+    """The ONE read-side wardrobe image contract.
+
+    Mirrors canonicalize_wardrobe_image_write() (services.wardrobe_persistence_
+    service) on the read path, for records that were written before that gate
+    existed. Returns:
+
+      image_url            persisted legacy value, untouched (may be raw)
+      masked_url           validated cutout field, or "" when absent/aliased
+      normalized_url       validated catalog field, or "" when absent
+      safe_image_url       board-safe presentation asset, or "" (never raw)
+      safe_image_source    winning field name, "catalog", or "none"
+      board_ready          safe_image_url != ""
+      expected_transparent True only for real cutout provenance
+
+    Selection is delegated to resolve_board_image_candidate() so this can
+    never diverge from the admission gate Style This/Shuffle already use.
+    """
+    item = record if isinstance(record, dict) else {}
+    candidate = resolve_board_image_candidate(item)
+    renderable = bool(candidate["renderable"])
+    selected_url = _text(candidate["selected_url"]) if renderable else ""
+    is_cutout = renderable and candidate["reason"] == "processed_cutout"
+
+    winning_field = _CANONICAL_FIELD_NAMES.get(
+        candidate["selected_field"], candidate["selected_field"]
+    ) if renderable else None
+
+    has_explicit_raw = any(_text(item.get(k)) for k in _EXPLICIT_RAW_KEYS)
+    has_masked = bool(_text(item.get("masked_url")) or _text(item.get("maskedUrl")))
+    generic = _text(item.get("image_url") or item.get("imageUrl"))
+    # Privacy/catalog-only: nothing raw and nothing masked was ever persisted,
+    # so the catalog asset is the item's only image by design (CASE 7 of the
+    # write contract). Determined from provenance, never from the filename -
+    # a raw upload can legitimately be named catalog_*.png.
+    #
+    # The generic image_url must be absent or BE the winning catalog asset. An
+    # image_url naming some other object is unexplained provenance - most
+    # likely the raw upload, as in the legacy "Black Loafers" row - and such a
+    # record is a mixed legacy record, not a catalog-only one.
+    catalog_only = (
+        renderable
+        and not is_cutout
+        and not has_explicit_raw
+        and not has_masked
+        and (not generic or _board_url_identity(generic) == _board_url_identity(selected_url))
+    )
+
+    if not renderable:
+        source = "none"
+    elif catalog_only:
+        source = "catalog"
+    else:
+        source = winning_field or "none"
+
+    # Only report masked_url when masked_url itself won. A different cutout
+    # field winning (cutout_url/rmbg_url/...) must not be re-badged as a mask.
+    masked_url = selected_url if (is_cutout and winning_field == "masked_url") else ""
+
+    return {
+        "image_url": _text(item.get("image_url") or item.get("imageUrl")),
+        "masked_url": masked_url,
+        "normalized_url": _text(item.get("normalized_url") or item.get("normalizedUrl")),
+        "safe_image_url": selected_url,
+        "safe_image_source": source,
+        "board_ready": bool(selected_url),
+        "expected_transparent": is_cutout,
+    }
+
+
+def serialize_wardrobe_board_item(record: Any) -> Optional[Dict[str, Any]]:
+    """Wire representation of a wardrobe item for a VISUAL board surface.
+
+    Returns None when the item is not board-ready - callers must skip it and
+    pick the next compatible item rather than degrading to the raw upload.
+
+    The response-level `image_url` is set to the board-safe asset, NOT the
+    persisted one: legacy wardrobe rows store a raw-bucket object there (live
+    example: "Black Loafers", whose masked_url/normalized_url are genuine
+    cutouts) and every board surface used to emit it verbatim.
+
+    Raw provenance is preserved separately in original_image_url, which is
+    also load-bearing for the client: lib/util/wardrobe_image_resolver.dart
+    only exempts image_url from its raw-alias veto when the payload is a
+    "frozen snapshot" - selected_field AND source_kind AND one of
+    original_image_url/raw_url/preview_url. Emitting the rewritten image_url
+    WITHOUT that triple is precisely the ce4ade1 device regression (the mask
+    is rejected as a self-alias and the item renders an empty hanger), so the
+    three fields must always travel together.
+    """
+    item = record if isinstance(record, dict) else {}
+
+    # Style assets are a DIFFERENT object contract (see services.style_asset_
+    # contract): image_url is the selected board presentation and
+    # catalog_image_url is the stable catalog reference, neither of which is a
+    # user upload. Rewriting image_url here would regress that contract, so
+    # they pass through untouched - only their admission is checked.
+    if _text(item.get("source")) == "style_asset" or item.get("is_style_asset") is True:
+        return dict(item) if is_board_renderable(item) else None
+
+    contract = canonicalize_wardrobe_image_contract(item)
+    if not contract["board_ready"]:
+        return None
+
+    safe = contract["safe_image_url"]
+    entry = dict(item)
+    entry.update(project_board_image_fields(item))
+    entry["safe_image_url"] = safe
+    entry["safe_image_source"] = contract["safe_image_source"]
+    entry["board_ready"] = True
+    entry["expected_transparent"] = contract["expected_transparent"]
+    entry["selected_field"] = contract["safe_image_source"]
+    entry["source_kind"] = _SOURCE_KIND_CUTOUT if contract["expected_transparent"] else _SOURCE_KIND_CATALOG
+
+    # Only record original_image_url when the upload genuinely differs from
+    # the selected asset. Its absence tells the client that image_url is the
+    # sole provenance and must keep its veto - the same rule _toStyleBoardData
+    # applies on the Flutter side.
+    original = _text(item.get("image_url") or item.get("imageUrl"))
+    for key in _EXPLICIT_RAW_KEYS:
+        original = original or _text(item.get(key))
+
+    if original and _board_url_identity(original) != _board_url_identity(safe):
+        # Distinct upload provenance exists: publish the frozen-snapshot
+        # triple, which is what licenses the rewritten image_url client-side.
+        entry["original_image_url"] = original
+        entry["image_url"] = safe
+    else:
+        # No provenance distinct from the selected asset (masked-only item,
+        # or privacy/catalog-only row). Publishing image_url == safe here
+        # WITHOUT an original_image_url is not a frozen snapshot, so the
+        # client would see the winning field aliasing image_url and reject it
+        # as a fabricated cutout - the empty-hanger regression. Drop the
+        # generic field instead and let the winning field stand alone. No raw
+        # can leak: there is no raw on this record to leak.
+        entry.pop("original_image_url", None)
+        entry.pop("originalImageUrl", None)
+        entry.pop("image_url", None)
+        entry.pop("imageUrl", None)
+    return entry
+
+
 __all__ = [
     "is_board_renderable",
     "resolve_board_image_candidate",
     "project_board_image_fields",
     "prepare_board_item",
+    "canonicalize_wardrobe_image_contract",
+    "serialize_wardrobe_board_item",
 ]
