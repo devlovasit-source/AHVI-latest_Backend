@@ -4235,6 +4235,51 @@ def _enrich_board_piece_from_wardrobe(
     return merged
 
 
+# Image fields the canonical read contract owns on a serialized item.
+_CANONICAL_IMAGE_KEYS = (
+    "image_url", "imageUrl", "masked_url", "maskedUrl", "normalized_url",
+    "cutout_url", "cutout_status", "board_image_url", "board_status",
+    "rmbg_url", "processed_url", "image_status", "transparent_image_url",
+    "safe_image_url", "safe_image_source", "board_ready", "expected_transparent",
+    "selected_field", "source_kind", "original_image_url",
+)
+
+
+def _overlay_canonical_image_fields(item: Dict[str, Any]) -> None:
+    """Replace `item`'s image fields with the canonical board-safe contract.
+
+    Membership is never changed - a not-board-ready item keeps its name, role
+    and slot but loses every image field rather than keeping its raw upload.
+    """
+    serialized = serialize_wardrobe_board_item(item)
+    if serialized is None:
+        for key in _CANONICAL_IMAGE_KEYS:
+            item.pop(key, None)
+        item["board_ready"] = False
+        return
+    for key in _CANONICAL_IMAGE_KEYS:
+        if key in serialized:
+            item[key] = serialized[key]
+        else:
+            item.pop(key, None)
+
+
+def _canonicalize_card_items(card: Dict[str, Any], wardrobe_by_id: Dict[str, Dict[str, Any]]) -> None:
+    for item in card.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        enriched = _enrich_board_piece_from_wardrobe(item, wardrobe_by_id)
+        if enriched is not item:
+            item.update(enriched)
+        _overlay_canonical_image_fields(item)
+
+
+def _canonicalize_board_items(card: Dict[str, Any]) -> None:
+    for item in card.get("board_items") or []:
+        if isinstance(item, dict):
+            _overlay_canonical_image_fields(item)
+
+
 def _adapt_board_item(_it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Provenance-safe board item for the flat-lay board. Returns None to skip.
 
@@ -4769,7 +4814,15 @@ def finalize_style_response_payload(
     for _card in cards:
         if not isinstance(_card, dict):
             continue
+        # `items` is the look's garment list; `board_items` is the visual board
+        # built from it. Both are serialized to the client and both used to
+        # carry the persisted image_url, which for a legacy row is the raw
+        # upload. Canonicalize `items` in place too - membership is untouched
+        # (roles/slots and the "n of m locked" counts depend on it), only the
+        # image fields are replaced with the board-safe contract.
+        _canonicalize_card_items(_card, _wardrobe_by_id)
         if _card.get("board_items"):
+            _canonicalize_board_items(_card)
             # Pieces already present; still attach the additive composition brief.
             _card["composition_brief"] = _build_composition_brief(
                 _card.get("board_items"),

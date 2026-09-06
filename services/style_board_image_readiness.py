@@ -80,8 +80,37 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+# Generic display fields that are raw provenance for an ordinary wardrobe row
+# but NOT for a frozen board snapshot, where they hold the already-selected
+# processed asset. Mirrors the isFrozenSnapshot carve-out in
+# lib/util/wardrobe_image_resolver.dart.
+_GENERIC_ALIAS_KEYS = ("image_url", "imageUrl")
+
+
+def _is_frozen_snapshot(item: Dict[str, Any]) -> bool:
+    """True when `item` is a board payload this contract already serialized.
+
+    Exactly the client's rule (wardrobe_image_resolver.dart isFrozenSnapshot):
+    selected_field AND source_kind AND some explicit raw provenance. On such an
+    item image_url is the SELECTED asset, not the upload, so treating it as a
+    raw alias would make the very field it was copied from look fabricated -
+    and a second serialization pass would demote a real cutout to catalog.
+
+    Safety is unchanged: the explicit raw fields stay in the alias set, so a
+    snapshot whose "processed" asset genuinely is the upload is still rejected.
+    """
+    return bool(
+        _text(item.get("selected_field"))
+        and _text(item.get("source_kind"))
+        and any(_text(item.get(k)) for k in _EXPLICIT_RAW_KEYS)
+    )
+
+
 def _raw_aliases(item: Dict[str, Any]) -> set:
-    return {_text(item.get(k)) for k in _RAW_ALIAS_KEYS if _text(item.get(k))}
+    keys = _RAW_ALIAS_KEYS
+    if _is_frozen_snapshot(item):
+        keys = tuple(k for k in _RAW_ALIAS_KEYS if k not in _GENERIC_ALIAS_KEYS)
+    return {_text(item.get(k)) for k in keys if _text(item.get(k))}
 
 
 def _board_url_identity(url: Any) -> str:
@@ -409,9 +438,15 @@ def serialize_wardrobe_board_item(record: Any) -> Optional[Dict[str, Any]]:
     # the selected asset. Its absence tells the client that image_url is the
     # sole provenance and must keep its veto - the same rule _toStyleBoardData
     # applies on the Flutter side.
-    original = _text(item.get("image_url") or item.get("imageUrl"))
+    # Explicit raw fields outrank the generic image_url. That ordering is what
+    # makes this function idempotent: re-serializing an already-serialized item
+    # (image_url == safe, original_image_url == the upload) still finds the real
+    # upload and keeps the rewrite, instead of concluding image_url == safe
+    # means "no distinct provenance" and dropping both fields.
+    original = ""
     for key in _EXPLICIT_RAW_KEYS:
         original = original or _text(item.get(key))
+    original = original or _text(item.get("image_url") or item.get("imageUrl"))
 
     if original and _board_url_identity(original) != _board_url_identity(safe):
         # Distinct upload provenance exists: publish the frozen-snapshot

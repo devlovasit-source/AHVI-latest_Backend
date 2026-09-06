@@ -27,7 +27,10 @@ from services.style_board_image_readiness import (  # noqa: E402
     canonicalize_wardrobe_image_contract,
     serialize_wardrobe_board_item,
 )
-from services.style_flow_service import _adapt_board_item  # noqa: E402
+from services.style_flow_service import (  # noqa: E402
+    _adapt_board_item,
+    _canonicalize_card_items,
+)
 from services.board_service import (  # noqa: E402
     _decode_outfit_items,
     reenrich_saved_board_items,
@@ -206,6 +209,76 @@ def test_privacy_catalog_only_board_item_has_no_self_aliased_image_url():
 # --------------------------------------------------------------------------
 # Masked-only record (no raw upload) - must not regress to an empty hanger
 # --------------------------------------------------------------------------
+
+def test_serializer_is_idempotent():
+    """Re-serializing an already-serialized item must not lose the rewrite.
+
+    original_image_url is stronger provenance than the generic image_url; if
+    image_url were consulted first, a second pass would see image_url == safe,
+    conclude there is no distinct upload, and drop both fields - silently
+    un-doing the fix wherever two serialization passes overlap.
+    """
+    once = serialize_wardrobe_board_item(_loafers())
+    twice = serialize_wardrobe_board_item(once)
+    assert twice is not None
+    assert twice["image_url"] == LOAFERS_MASK
+    assert twice["original_image_url"] == LOAFERS_RAW
+    assert twice["safe_image_url"] == LOAFERS_MASK
+    assert twice["source_kind"] == "processed_cutout"
+
+
+def test_frozen_snapshot_exemption_does_not_admit_a_real_selfie():
+    """The frozen-snapshot carve-out exempts image_url from the raw-alias veto.
+
+    It must NOT exempt the actual upload: a snapshot whose "mask" is genuinely
+    the raw photo still has to be rejected, or the carve-out becomes a way to
+    dress a selfie up as a cutout by attaching two metadata fields.
+    """
+    selfie = f"{RAW_HOST}/raw_selfie.png"
+    forged = {
+        "item_id": "forged-1",
+        "name": "Forged",
+        "selected_field": "masked_url",
+        "source_kind": "processed_cutout",
+        "image_url": selfie,
+        "masked_url": selfie,
+        "original_image_url": selfie,
+    }
+    contract = canonicalize_wardrobe_image_contract(forged)
+    assert contract["safe_image_url"] == ""
+    assert contract["board_ready"] is False
+    assert serialize_wardrobe_board_item(forged) is None
+
+
+def test_card_items_list_is_canonicalized_not_only_board_items():
+    """Live leak: cards[n].board_items was fixed but cards[n].items still
+    carried the raw upload in image_url - both lists reach the client."""
+    card = {"title": "Look", "items": [_loafers()]}
+    _canonicalize_card_items(card, {})
+    item = card["items"][0]
+    assert item["image_url"] == LOAFERS_MASK
+    assert item["image_url"] != LOAFERS_RAW
+    assert item["safe_image_url"] == LOAFERS_MASK
+    assert item["original_image_url"] == LOAFERS_RAW
+
+
+def test_card_items_keep_membership_but_lose_images_when_unready():
+    """Membership drives roles/slots and the "n of m locked" counts, so an
+    unready item stays in the list - it just carries no image at all."""
+    card = {"title": "Look", "items": [_raw_only()]}
+    _canonicalize_card_items(card, {})
+    item = card["items"][0]
+    assert item["name"] == "Unprocessed Shirt"
+    assert item["board_ready"] is False
+    assert item.get("image_url", "") == ""
+    assert RAW_HOST not in json_dumps_safe(item)
+
+
+def json_dumps_safe(obj) -> str:
+    import json
+
+    return json.dumps(obj, default=str)
+
 
 def test_saved_board_reenriches_stale_raw_item_from_current_wardrobe():
     """PHASE 9: a board saved before processing finished froze the raw upload
