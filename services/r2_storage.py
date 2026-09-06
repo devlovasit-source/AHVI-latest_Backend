@@ -190,19 +190,30 @@ class R2Storage:
         # Long-term style-board quality:
         # Store a 1024x1024 transparent PNG for composition, while keeping
         # raw + masked URLs for audit/backward compatibility.
-        normalized_image_bytes = masked_image_bytes
-        if normalize_wardrobe_image_bytes is not None:
-            try:
-                normalized_image_bytes = normalize_wardrobe_image_bytes(
-                    masked_image_bytes or raw_image_bytes,
-                    canvas_size=1024,
-                    object_fill=0.82,
-                    output_format="PNG",
-                )
-            except Exception:
-                # Never break wardrobe upload because normalization failed.
-                # Fallback keeps the old masked image behavior.
-                normalized_image_bytes = masked_image_bytes or raw_image_bytes
+        #
+        # CANONICAL CONTRACT: a normalized asset is board-safe, so it must
+        # never originate from raw bytes. Previously both the normalize input
+        # and the failure fallback were `masked_image_bytes or raw_image_bytes`,
+        # so a missing/failed mask silently published the raw upload under
+        # wardrobe_{id}_normalized.png -- a filename that reads as processed.
+        # Downstream that becomes a board-safe candidate and puts an original
+        # photo on a Style Board. If there is no mask there is no normalized
+        # asset; a trusted catalog image is generated separately.
+        normalized_image_bytes: Optional[bytes] = None
+        if masked_image_bytes:
+            normalized_image_bytes = masked_image_bytes
+            if normalize_wardrobe_image_bytes is not None:
+                try:
+                    normalized_image_bytes = normalize_wardrobe_image_bytes(
+                        masked_image_bytes,
+                        canvas_size=1024,
+                        object_fill=0.82,
+                        output_format="PNG",
+                    )
+                except Exception:
+                    # Never break wardrobe upload because normalization failed.
+                    # Falling back to the mask keeps provenance processed.
+                    normalized_image_bytes = masked_image_bytes
 
         client = self._client()
 
@@ -221,36 +232,59 @@ class R2Storage:
 
         with ThreadPoolExecutor(max_workers=3, thread_name_prefix="r2-upload") as ex:
             futures = [
-                ex.submit(_put, self.raw_bucket, raw_file_name, raw_image_bytes),
-                ex.submit(
-                    _put, self.wardrobe_bucket, masked_file_name, masked_image_bytes
-                ),
-                ex.submit(
-                    _put,
-                    self.wardrobe_bucket,
-                    normalized_file_name,
-                    normalized_image_bytes,
-                ),
+                ex.submit(_put, self.raw_bucket, raw_file_name, raw_image_bytes)
             ]
+            # Only publish processed objects that actually exist. Writing an
+            # empty or raw-derived object under a wardrobe_* name is what made
+            # provenance unreadable downstream.
+            if masked_image_bytes:
+                futures.append(
+                    ex.submit(
+                        _put, self.wardrobe_bucket, masked_file_name, masked_image_bytes
+                    )
+                )
+            if normalized_image_bytes:
+                futures.append(
+                    ex.submit(
+                        _put,
+                        self.wardrobe_bucket,
+                        normalized_file_name,
+                        normalized_image_bytes,
+                    )
+                )
             wait(futures)
             for fut in futures:
                 exc = fut.exception()
                 if exc is not None:
                     raise exc
 
-        normalized_image_url = f"{self.wardrobe_public_url}/{normalized_file_name}"
-        masked_image_url = f"{self.wardrobe_public_url}/{masked_file_name}"
+        masked_image_url = (
+            f"{self.wardrobe_public_url}/{masked_file_name}"
+            if masked_image_bytes
+            else ""
+        )
+        normalized_image_url = (
+            f"{self.wardrobe_public_url}/{normalized_file_name}"
+            if normalized_image_bytes
+            else ""
+        )
 
         return {
             "raw_file_name": raw_file_name,
-            "masked_file_name": masked_file_name,
-            "normalized_file_name": normalized_file_name,
+            "masked_file_name": masked_file_name if masked_image_bytes else "",
+            "normalized_file_name": (
+                normalized_file_name if normalized_image_bytes else ""
+            ),
             "raw_image_url": f"{self.raw_public_url}/{raw_file_name}",
             "masked_image_url": masked_image_url,
             "normalized_image_url": normalized_image_url,
             "normalized_url": normalized_image_url,
-            # Compatibility field for newer pipelines that expect image_url to
-            # already be the best display asset.
+            # LEGACY DISPLAY COMPATIBILITY ONLY. This is whichever processed
+            # asset happened to exist and carries NO provenance meaning -- no
+            # canonical code may infer raw/masked/normalized origin from it.
+            # It is deliberately never populated from raw_image_url: a
+            # consumer that treats it as a display asset must not be handed an
+            # original photo. Use the explicit *_image_url fields instead.
             "image_url": normalized_image_url or masked_image_url,
         }
 

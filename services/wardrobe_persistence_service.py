@@ -826,6 +826,73 @@ def normalize_final_wardrobe_item_name_and_taxonomy(
     return out
 
 
+def _image_identity(url: str) -> str:
+    """Object identity for a URL, ignoring query/fragment (signed-URL params)."""
+    return _safe_text(url).split("?")[0].split("#")[0]
+
+
+def canonicalize_wardrobe_image_write(
+    *,
+    raw_url: str,
+    masked_url: str,
+    normalized_url: str,
+    privacy_catalog_only: bool = False,
+) -> Dict[str, Any]:
+    """Single authority for what a persisted wardrobe image record MEANS.
+
+    A processed field is only honoured when it is non-empty AND does not point
+    at the same object as the raw upload. Aliasing raw is how an original photo
+    used to acquire board-safe provenance: the file was named wardrobe_*.png or
+    normalized, so every downstream consumer trusted it.
+
+    safe_image_url is a POINTER to an already-generated asset -- it never
+    creates a new image, and it is never the raw upload. board_ready is simply
+    whether such a pointer exists.
+
+    Privacy catalog-only items intentionally persist no raw and no RMBG asset;
+    the regenerated face-free catalog image is the only stored image and is
+    legitimately board-safe.
+    """
+    raw_id = _image_identity(raw_url)
+    masked = _safe_text(masked_url)
+    normalized = _safe_text(normalized_url)
+
+    if privacy_catalog_only:
+        # No raw persisted, so there is nothing for the catalog asset to alias.
+        safe = normalized
+        return {
+            "raw_url": "",
+            "masked_url": "",
+            "normalized_url": normalized,
+            "safe_image_url": safe,
+            "safe_image_source": "catalog" if safe else "none",
+            "board_ready": bool(safe),
+        }
+
+    masked_valid = bool(masked) and (
+        not raw_id or _image_identity(masked) != raw_id
+    )
+    normalized_valid = bool(normalized) and (
+        not raw_id or _image_identity(normalized) != raw_id
+    )
+
+    if masked_valid:
+        safe, source = masked, "masked_url"
+    elif normalized_valid:
+        safe, source = normalized, "normalized_url"
+    else:
+        safe, source = "", "none"
+
+    return {
+        "raw_url": _safe_text(raw_url),
+        "masked_url": masked if masked_valid else "",
+        "normalized_url": normalized if normalized_valid else "",
+        "safe_image_url": safe,
+        "safe_image_source": source,
+        "board_ready": bool(safe),
+    }
+
+
 def _build_appwrite_doc(
     *,
     user_id: str,
@@ -920,21 +987,36 @@ def _build_appwrite_doc(
     ).strip().lower() in {"1", "true", "yes", "on"} and is_face_risk_category(
         category, sub_category, name
     )
+    # Single canonical write gate: decides what each persisted image field
+    # MEANS, and strips any processed field that merely aliases the raw upload
+    # (that aliasing is how an original photo used to become board-safe).
+    canonical = canonicalize_wardrobe_image_write(
+        raw_url=raw_url,
+        masked_url=masked_url,
+        normalized_url=normalized_url,
+        privacy_catalog_only=privacy_catalog_only,
+    )
     if privacy_catalog_only:
         # Privacy: only the regenerated catalog image (face-free) is stored. The
         # raw crop and RMBG cutout can contain the user's face on worn/selfie
         # photos, so they are never persisted and never used as a fallback. If
         # no catalog was produced, the item is stored without an image rather
         # than leaking a face.
-        garment_url = normalized_url
-        stored_image_url = garment_url
+        stored_image_url = canonical["normalized_url"]
         stored_masked_url = ""
-        stored_normalized_url = garment_url
+        stored_normalized_url = canonical["normalized_url"]
     else:
-        final_image_url = normalized_url or masked_url or raw_url
-        stored_image_url = raw_url or item.get("image_url") or item.get("imageUrl") or final_image_url
-        stored_masked_url = masked_url
-        stored_normalized_url = normalized_url
+        stored_masked_url = canonical["masked_url"]
+        stored_normalized_url = canonical["normalized_url"]
+        # image_url keeps raw provenance when it exists. It is NOT a board-safe
+        # display field; safety is decided from masked/normalized above and
+        # published as safe_image_url by the response layer.
+        stored_image_url = (
+            raw_url
+            or item.get("image_url")
+            or item.get("imageUrl")
+            or canonical["safe_image_url"]
+        )
     pixel_hash = _safe_text(
         item.get("pixel_hash") or item.get("pixelHash") or item.get("masked_pixel_hash")
     )

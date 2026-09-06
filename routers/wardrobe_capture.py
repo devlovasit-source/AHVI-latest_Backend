@@ -2514,17 +2514,28 @@ def _try_upload_inline_images(
         item["rawUrl"] = item.get("raw_url")
         item["masked_url"] = upload.get("masked_image_url")
         item["maskedUrl"] = item.get("masked_url")
+        # Provenance-preserving: normalized_url may only come from an explicit
+        # normalized asset. The previous chain fell through to the generic
+        # image_url (a legacy display field with no provenance meaning) and
+        # then to masked_image_url, so a record could claim a normalized asset
+        # it never had -- and, once R2 could normalize from raw bytes, that
+        # claim could resolve to the original photo. If R2 produced no
+        # normalized object, this stays empty and a trusted catalog image is
+        # the only other way the item becomes board-safe.
         item["normalized_url"] = (
-            upload.get("normalized_image_url")
-            or upload.get("normalized_url")
-            or upload.get("image_url")
-            or upload.get("masked_image_url")
+            upload.get("normalized_image_url") or upload.get("normalized_url") or ""
         )
-        processed_image_url = (
-            item.get("normalized_url") or item.get("masked_url") or item.get("raw_url")
-        )
+        # processed_image_url must never be the raw upload -- it previously
+        # fell back to raw_url, so a field named "processed" could carry the
+        # original photo and be trusted as a display asset downstream.
+        processed_image_url = item.get("normalized_url") or item.get("masked_url") or ""
+        # image_url keeps raw provenance when no processed asset exists, which
+        # is its canonical meaning; it is NOT a board-safe display field, and
+        # board safety is decided from the explicit masked/normalized fields.
         item["image_url"] = (
-            original_image_url if preserve_original_image_url else processed_image_url
+            original_image_url
+            if preserve_original_image_url
+            else (processed_image_url or item.get("raw_url") or "")
         )
         item["imageUrl"] = item.get("image_url")
         item["processed_image_url"] = processed_image_url
