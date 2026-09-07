@@ -183,6 +183,31 @@ _byte_identity_cache: Dict[Tuple[str, str], bool] = {}
 _byte_identity_cache_lock = threading.Lock()
 
 
+# Item-level denylist for masked assets proven unsafe by manual forensic
+# inspection - content that genuinely differs from the raw upload (so the
+# byte-identity guard above cannot catch it) but is itself unsafe, e.g. a
+# botched mask that still shows the wearer's face/body rather than an
+# isolated garment. This is NOT a quality heuristic and must never be
+# inferred from name/category/state - each entry is a specific item ID with
+# a documented, evidenced reason, added only after direct visual proof.
+# Remove an ID once its masked_url has been reprocessed into a real cutout.
+_KNOWN_UNSAFE_MASKED_ITEM_IDS = {
+    # P0 device evidence ("Black T-Shirt"): masked_url is a cropped photo
+    # showing the wearer's chin/beard/arm, not an isolated garment - bytes
+    # differ from the raw upload, so RMBG ran but produced an unsafe result.
+    # A safe normalized_url catalog cutout exists as the fallback.
+    "6a96d6cf-9916-4594-a141-a3eba776700c",
+}
+
+
+def _item_id(item: Dict[str, Any]) -> str:
+    for key in ("id", "$id", "item_id", "itemId"):
+        value = _text(item.get(key))
+        if value:
+            return value
+    return ""
+
+
 def _fetch_bounded_hash(url: str) -> Optional[str]:
     """SHA-256 of `url`'s bytes, streamed and capped at
     _BYTE_COMPARE_MAX_BYTES. Returns None (never raises) on any network
@@ -291,15 +316,19 @@ def resolve_board_image_candidate(item: Any) -> Dict[str, Any]:
             actual = _text(item.get(status_field)).lower()
             if actual != expected:
                 continue
-        if field in _MASKED_FIELDS and _masked_asset_is_byte_identical_to_raw(
-            value, aliases
-        ):
-            # Distinct object path, but the same bytes as the item's own raw
-            # provenance (see module docstring) - a fabricated cutout the
-            # URL-identity check above cannot see. Never admitted, and never
-            # re-badged as a different candidate; fall through to the next
-            # field (normalized/catalog, or no_board_safe_image).
-            continue
+        if field in _MASKED_FIELDS:
+            if _item_id(item) in _KNOWN_UNSAFE_MASKED_ITEM_IDS:
+                # Proven-unsafe content for this exact item (see
+                # _KNOWN_UNSAFE_MASKED_ITEM_IDS docstring) - fall through to
+                # the next candidate (normalized/catalog, or no_board_safe_image).
+                continue
+            if _masked_asset_is_byte_identical_to_raw(value, aliases):
+                # Distinct object path, but the same bytes as the item's own raw
+                # provenance (see module docstring) - a fabricated cutout the
+                # URL-identity check above cannot see. Never admitted, and never
+                # re-badged as a different candidate; fall through to the next
+                # field (normalized/catalog, or no_board_safe_image).
+                continue
         return {
             "renderable": True,
             "selected_field": field,
