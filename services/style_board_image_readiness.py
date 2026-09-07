@@ -17,8 +17,12 @@ independent rules.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import hashlib
+import threading
+from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlsplit
+
+import requests
 
 from services.style_item_contract import normalize_style_item
 
@@ -69,6 +73,14 @@ _CANDIDATE_FIELDS: tuple[tuple[str, Optional[tuple[str, str]]], ...] = (
     ("processed_url", ("image_status", "rmbg_complete")),
     ("processedUrl", ("image_status", "rmbg_complete")),
 )
+
+# The only candidates subject to the byte-identity guard below - the class
+# of bug that motivated it (RMBG no-op silently writing the raw photo back
+# out under a masked_url-shaped path) is specific to this field; the other
+# unconditional fields (transparent_url/transparentUrl/transparent_image_url)
+# have no wardrobe writer today (see _CANDIDATE_FIELDS comment above) and
+# widening the guard to them is unreviewed scope creep, not part of this fix.
+_MASKED_FIELDS = frozenset({"masked_url", "maskedUrl"})
 
 # normalized_url is a lower-priority, unconditional catalog-tier candidate -
 # a framed product/catalog shot, not a transparent cutout. Kept and
@@ -137,6 +149,115 @@ def _board_url_identity(url: Any) -> str:
     return f"{parts.scheme.lower()}://{parts.hostname}{port}{parts.path}"
 
 
+# --- masked_url byte-identity guard -----------------------------------
+#
+# Narrow hardening for a class of asset the URL-identity alias check above
+# cannot see: a masked_url that lives at a genuinely distinct object path
+# (different bucket/filename) but whose BYTES are the raw upload re-hosted
+# verbatim - RMBG/masking silently no-opped and the pipeline still wrote it
+# to masked_url as if it succeeded. Live example (P0 device evidence): a
+# "Black Loafers" row whose masked_url and raw upload are SHA-256 identical
+# despite living under different R2 prefixes.
+#
+# This does NOT become a population-wide quality gate: image_status/
+# cutout_status - the only existing status signals other candidate fields
+# already require - are unpopulated on effectively the entire wardrobe
+# population that carries a masked_url (measured: 325/325 on the live P0
+# audit), so requiring either would reclassify hundreds of genuinely fine
+# items and blank dozens with no normalized_url fallback. Byte-identity is
+# the only signal available that is both provably correct (not a guess)
+# and scoped to the actual failure mode, so it is the whole of this fix -
+# it will not catch a masked asset that is merely LOW QUALITY (e.g. a
+# botched/noisy alpha matte) rather than a byte-for-byte raw copy. See the
+# P0 forensic: the second known-bad item ("Black T-Shirt") is exactly that
+# case and is NOT caught here - it needs actual reprocessing, not a smarter
+# admission rule.
+_BYTE_COMPARE_TIMEOUT_SECONDS = 3.0
+_BYTE_COMPARE_MAX_BYTES = 8 * 1024 * 1024  # 8 MiB cap; oversize => inconclusive
+
+# Per (masked_url, raw_url) pair. Only a DEFINITIVE comparison (both fetches
+# succeeded) is ever stored - an inconclusive one (network error, timeout,
+# oversize object) is never cached, so a transient failure can never
+# permanently "bless" an unverified asset as safe; the next call retries.
+_byte_identity_cache: Dict[Tuple[str, str], bool] = {}
+_byte_identity_cache_lock = threading.Lock()
+
+
+def _fetch_bounded_hash(url: str) -> Optional[str]:
+    """SHA-256 of `url`'s bytes, streamed and capped at
+    _BYTE_COMPARE_MAX_BYTES. Returns None (never raises) on any network
+    error, timeout, non-2xx response, or size overrun - None means
+    "could not verify", NOT "differs"; callers must treat it as
+    inconclusive, never as proof of safety.
+    """
+    try:
+        with requests.get(
+            url, stream=True, timeout=_BYTE_COMPARE_TIMEOUT_SECONDS
+        ) as resp:
+            resp.raise_for_status()
+            hasher = hashlib.sha256()
+            total = 0
+            for chunk in resp.iter_content(chunk_size=65536):
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > _BYTE_COMPARE_MAX_BYTES:
+                    return None
+                hasher.update(chunk)
+            return hasher.hexdigest()
+    except Exception:
+        return None
+
+
+def _masked_asset_is_byte_identical_to_raw(masked_url: str, raw_candidates) -> bool:
+    """True only when `masked_url` is PROVABLY the same bytes as one of
+    `raw_candidates`. False covers both "provably different" and
+    "could not verify" - this function only ever gives callers a reason to
+    REJECT (True), never a reason to trust (a False here is not evidence of
+    safety, it just means this specific check found no violation).
+
+    Fetches `masked_url` at most once per call regardless of how many raw
+    candidates it is compared against. Bounded by timeout/size in
+    _fetch_bounded_hash; a network failure here degrades to "not proven
+    identical" (fail open on availability) rather than rejecting or halting
+    serialization - see module docstring on cache semantics for why that is
+    still safe.
+    """
+    candidates = [_text(u) for u in raw_candidates if _text(u) and _text(u) != masked_url]
+    if not masked_url or not candidates:
+        return False
+
+    masked_hash: Optional[str] = None
+    masked_hash_attempted = False
+
+    for raw_url in candidates:
+        key = (masked_url, raw_url)
+        with _byte_identity_cache_lock:
+            cached = _byte_identity_cache.get(key)
+        if cached is True:
+            return True
+        if cached is False:
+            continue
+
+        if not masked_hash_attempted:
+            masked_hash_attempted = True
+            masked_hash = _fetch_bounded_hash(masked_url)
+        if masked_hash is None:
+            continue  # inconclusive; not cached, may resolve on a later call
+
+        raw_hash = _fetch_bounded_hash(raw_url)
+        if raw_hash is None:
+            continue  # inconclusive; not cached
+
+        identical = masked_hash == raw_hash
+        with _byte_identity_cache_lock:
+            _byte_identity_cache[key] = identical
+        if identical:
+            return True
+
+    return False
+
+
 def resolve_board_image_candidate(item: Any) -> Dict[str, Any]:
     """Return the board-safe image candidate (if any) for `item`.
 
@@ -170,6 +291,15 @@ def resolve_board_image_candidate(item: Any) -> Dict[str, Any]:
             actual = _text(item.get(status_field)).lower()
             if actual != expected:
                 continue
+        if field in _MASKED_FIELDS and _masked_asset_is_byte_identical_to_raw(
+            value, aliases
+        ):
+            # Distinct object path, but the same bytes as the item's own raw
+            # provenance (see module docstring) - a fabricated cutout the
+            # URL-identity check above cannot see. Never admitted, and never
+            # re-badged as a different candidate; fall through to the next
+            # field (normalized/catalog, or no_board_safe_image).
+            continue
         return {
             "renderable": True,
             "selected_field": field,
